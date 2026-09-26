@@ -15,6 +15,21 @@ Usamos la imagen publicada por Block fijada por digest. Las divergencias se resu
 SDK o servicios aparte, nunca modificando el relay. Para probar una imagen nueva: ejecutar el workflow `ci`
 manualmente con el input `buzz_image`; los criterios de adopción y el rollback están en ADR 0003.
 
+**Revisión mensual automática (BUZZ-05).** El workflow `buzz-upstream` se ejecuta el primer lunes de cada
+mes (y a mano con `workflow_dispatch`). `scripts/buzz-upstream.sh check` resuelve de forma anónima el digest
+de `ghcr.io/block/buzz:main` (token de GHCR + `HEAD` del manifiesto, que acepta índices OCI) y lo compara con
+`BUZZ_IMAGE` de `infra/buzz/PIN`. Si cambió, reutiliza el job `stack` de `ci.yml` (`workflow_call` con
+`buzz_image` y `stack_only`) contra la imagen candidata. Si el gate pasa, abre una PR en la rama
+`buzz-upstream/<digest>` que actualiza el PIN, el digest por defecto de `docker-compose.yml` y el informe en
+`docs/interop/`. Solo ese job tiene `contents: write` y `pull-requests: write`. Requisitos y límites:
+- Hay que activar *Allow GitHub Actions to create and approve pull requests* en los ajustes del repositorio.
+- Las PR que se crean con `GITHUB_TOKEN` no lanzan `ci` por sí solas: hay que ejecutarlo a mano sobre la rama o
+  cerrar y reabrir la PR.
+- Si falla el gate o la comprobación de flags, no se abre PR y la ejecución queda en rojo. En ese caso se
+  revisa a mano (ADR 0003).
+- El commit upstream se lee de la etiqueta OCI `org.opencontainers.image.revision`. Si falta, la PR lo indica
+  y `BUZZ_COMMIT` se actualiza a mano.
+
 ## Gate F0 → F0.5 (`npm run test:interop`)
 ```bash
 docker compose up -d relay

@@ -14,5 +14,7 @@ tarea correspondiente del backlog como `Hecho` (`docs/backlog/backlog.json`, lue
 | [0004](0004-bibliotecas-nostr-rust-flutter.md) | Bibliotecas Nostr para Rust y Flutter | DEC-04 | Aceptado (diferido) |
 | [0005](0005-receipts-de-aplicacion.md) | Receipts de aplicación y read receipts | DEC-06 | Aceptado |
 | [0006](0006-marmot-proveedor-y-ruta-de-relay.md) | Proveedor Marmot y ruta de relay | DEC-07 | Aceptado |
+| [0007](0007-almacenamiento-local-cifrado.md) | Almacenamiento local cifrado por plataforma y perfil | DEC-05 | Aceptado |
+| [0008](0008-login-acceso-en-saas.md) | Login de Acceso (Cognito) obligatorio en SaaS | — | Aceptado |
 
 Los threat models por perfil (DEC-10) están en [`../threat-models/`](../threat-models/README.md).

@@ -58,7 +58,7 @@ const active = (ts) => ts.filter((t) => t.status !== 'Descartado');
 const open = tasks.filter((t) => t.status !== 'Hecho' && t.status !== 'Descartado');
 const dates = (s) => (s.start ? `${s.start} → ${s.end}` : s.end ? `hasta ${s.end}` : 'sin fecha');
 const lines = [];
-lines.push('# Backlog — Plataforma Nostr Soberana / SaaS', '');
+lines.push('# Backlog — Acceso Nostr', '');
 lines.push(`> Generado por \`node scripts/backlog.mjs\` desde \`backlog.json\` (fuente única). No editar a mano.`);
 lines.push(`> Base: ${meta.source}. Estado del código: \`${meta.baseline}\` (${meta.version}).`, '');
 lines.push('## Resumen', '');
