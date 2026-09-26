@@ -33,6 +33,9 @@ services:
       BUZZ_MEDIA_BASE_URL: ${BUZZ_MEDIA_BASE_URL:-http://localhost:3000/media}
       BUZZ_RELAY_PRIVATE_KEY: ${BUZZ_RELAY_PRIVATE_KEY:?set BUZZ_RELAY_PRIVATE_KEY}
       RELAY_OWNER_PUBKEY: ${RELAY_OWNER_PUBKEY:-}
+      # Deployment operators (hex, comma-separated): may create communities, e.g. for the relay .onion
+      # host (scripts/buzz-provision-community.ts). Empty disables provisioning.
+      RELAY_OPERATOR_PUBKEYS: ${RELAY_OPERATOR_PUBKEYS:-}
       # Third-party Nostr clients (our SDK, web SaaS) authenticate with NIP-42 only.
       BUZZ_REQUIRE_AUTH_TOKEN: ${BUZZ_REQUIRE_AUTH_TOKEN:-false}
       BUZZ_REQUIRE_RELAY_MEMBERSHIP: ${BUZZ_REQUIRE_RELAY_MEMBERSHIP:-false}

@@ -8,6 +8,17 @@ npm run sovereign -- persona create --label Fuente --relay ws://<onion>.onion --
 npm run sovereign -- channel send --persona <id> --group <h> "texto"
 ```
 
+**Buzz por `.onion`: una comunidad para el host onion.** Buzz asigna cada conexión a la comunidad de su
+cabecera `Host` y rechaza los hosts sin comunidad, así que el `.onion` del relay necesita la suya. Se crea una
+vez, con una llave de operador listada en `RELAY_OPERATOR_PUBKEYS` (`.env`):
+
+```bash
+BUZZ_OPERATOR_SECRET=<hex|nsec> npx tsx scripts/buzz-provision-community.ts <56 chars>.onion
+```
+
+Es otro tenant: sus canales y mensajes no se mezclan con los de la comunidad clearnet (`RELAY_URL`). El
+secure-relay (nostr-rs-relay) no lo necesita.
+
 Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-client/test`, `scripts/leak-test.sh`):
 - Con Tor caído, **no** se abre ninguna conexión: el mensaje queda en outbox con
   "No enviado: red de privacidad no disponible" y se reenvía (mismo event id) con `sovereign resume`.
@@ -68,7 +79,8 @@ Espera los hostnames de los onion services en el volumen `tor-data` (`relay/host
 `secure-relay/hostname`), `Bootstrapped 100%` y que cada `.onion` responda NIP-11 por el puerto SOCKS del
 compose (hasta `TOR_CHECK_TIMEOUT`, 420 s por etapa). Después, con el CLI en perfil Tor: publica y relee un
 mensaje de canal en el `.onion` del secure-relay, y envía un DM NIP-17 entre dos personas Tor por el `.onion`
-del relay (Buzz), que el destinatario relee (NIP-42 a través del onion service). Si falla, imprime el log
+del relay (Buzz), que el destinatario relee (NIP-42 a través del onion service). Antes crea la comunidad del
+host onion con una llave de operador desechable (o `BUZZ_OPERATOR_SECRET`). Si falla, imprime el log
 de Tor y dice qué etapa falló. Job `tor-profile` en CI.
 
 ## Web: WebRTC y previews remotas (SEC-05)
