@@ -3,7 +3,7 @@ import type { DeploymentFlags } from '@sedecim/messaging';
 import type { SovereigntyConfig } from '@sedecim/profiles';
 import type { AccesoUser } from './acceso';
 import type { DeploymentConfig } from './config';
-import type { PersonaSession } from './session';
+import type { ManagedEnv, PersonaSession } from './session';
 import type { PersonaBook, PersonaRecord } from './vault';
 
 export interface Workspace {
@@ -21,6 +21,8 @@ export interface Workspace {
   saveConfig(c: SovereigntyConfig): Promise<void>;
   /** Onboarding: publish the active persona's DM relay list (kind 10050). */
   publishDmRelays(): Promise<void>;
+  /** How managed personas reach the managed-signer (SaaS with an Acceso session only). */
+  managedEnv: ManagedEnv;
   notify(message: string, severity?: 'success' | 'info' | 'warning' | 'error'): void;
 }
 

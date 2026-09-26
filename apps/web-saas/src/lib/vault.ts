@@ -11,7 +11,7 @@ const DB = 'acceso-nostr';
 /** Interactive unlock budget in the browser (same cost the v0.1 web store used). */
 const WEB_LOGN = 15;
 
-export type PersonaCustody = 'local' | 'nip07' | 'nip46';
+export type PersonaCustody = 'local' | 'nip07' | 'nip46' | 'managed';
 
 export interface PersonaRecord {
   id: string;
@@ -21,6 +21,8 @@ export interface PersonaRecord {
   /** local custody only: the secret key, stored inside the sealed vault (never in clear at rest). */
   secretHex?: string;
   bunker?: string;
+  /** managed custody: key id in the managed-signer (custodial, ADR 0009). */
+  managedKeyId?: string;
   /** nip46: the ephemeral client key the signer authorized, so later sessions skip the bunker secret. */
   nip46ClientSecretHex?: string;
   relays: string[];

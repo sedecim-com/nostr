@@ -4,7 +4,7 @@ import type { DeploymentFlags } from '@sedecim/messaging';
 import type { SovereigntyConfig } from '@sedecim/profiles';
 import type { AccesoUser } from '../lib/acceso';
 import type { DeploymentConfig } from '../lib/config';
-import { custodyLabel, openPersona, publishDmRelays, shortNpub, type PersonaSession } from '../lib/session';
+import { custodyLabel, openPersona, publishDmRelays, shortNpub, type ManagedEnv, type PersonaSession } from '../lib/session';
 import type { PersonaBook, PersonaRecord } from '../lib/vault';
 import { WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
 import { onSignerAuthUrl } from '../lib/authUrl';
@@ -42,6 +42,12 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
   const [authUrl, setAuthUrl] = useState<string | undefined>();
   useEffect(() => onSignerAuthUrl(setAuthUrl), []);
 
+  // Managed personas authorize each signature with the Acceso access token (FR005-04); Amplify loads lazily.
+  const managedEnv = useMemo<ManagedEnv>(
+    () => (cfg.mode === 'saas' && cfg.managedSigner && user ? { baseUrl: cfg.managedSigner, token: async () => (await import('../lib/acceso')).accesoAccessToken() } : {}),
+    [cfg, user],
+  );
+
   const reloadPersonas = useCallback(async () => setPersonas(await book.list()), [book]);
 
   const selectPersona = useCallback(
@@ -49,11 +55,11 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
       const p = await book.get(id);
       if (!p) return;
       current.current?.close();
-      const s = await openPersona(book, p);
+      const s = await openPersona(book, p, managedEnv);
       current.current = s;
       setSession(s);
     },
-    [book],
+    [book, managedEnv],
   );
 
   useEffect(() => {
@@ -86,8 +92,8 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
   );
 
   const ws = useMemo<Ws>(
-    () => ({ cfg, flags, book, user, personas, session, config: session?.persona.config, selectPersona, reloadPersonas, saveConfig, publishDmRelays: async () => current.current && publishDmRelays(current.current), notify: (message, severity = 'info') => setToast({ message, severity }) }),
-    [cfg, flags, book, user, personas, session, selectPersona, reloadPersonas, saveConfig],
+    () => ({ cfg, flags, book, user, personas, session, config: session?.persona.config, selectPersona, reloadPersonas, saveConfig, publishDmRelays: async () => current.current && publishDmRelays(current.current), managedEnv, notify: (message, severity = 'info') => setToast({ message, severity }) }),
+    [cfg, flags, book, user, personas, session, selectPersona, reloadPersonas, saveConfig, managedEnv],
   );
 
   const sendingAs = session ? `Enviando como ${session.persona.label} · ${shortNpub(session.pubkey)} · ${custodyLabel(session.persona)} · ${session.persona.config.network === 'tor-only' ? 'Tor-only' : 'red directa'}` : 'Sin identidad activa';

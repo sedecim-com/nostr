@@ -19,6 +19,8 @@ export interface DeploymentConfig {
   /** Client-encrypted blobs (DM attachments). */
   blobStore?: string;
   identityService?: string;
+  /** SaaS only: custodial managed-signer (opt-in, ADR 0009). */
+  managedSigner?: string;
   cognito?: CognitoSettings;
 }
 

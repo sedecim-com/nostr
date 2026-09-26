@@ -1,6 +1,6 @@
 import { bytesToHex, hexToBytes, nip19, nip49, generateSecretKey, getPublicKey, npubEncode, selfTestKey, wipe, CUSTODY_FACTS, type Signer } from '@sedecim/nostr-core';
 import { RelayPool } from '@sedecim/relay-pool';
-import { formatBunkerUrl, LocalSigner, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS } from '@sedecim/signer';
+import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS, type AccessTokenProvider } from '@sedecim/signer';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
 import { publishDmRelayList } from '@sedecim/messaging';
@@ -27,6 +27,8 @@ export type NewPersona =
   | { kind: 'secret'; secretKey: Uint8Array }
   | { kind: 'nip07' }
   | { kind: 'nip46'; bunker: string }
+  /** Custodial key created in the managed-signer after an explicit opt-in (FR005-07). */
+  | { kind: 'managed'; baseUrl: string; token: AccessTokenProvider }
   /** Already connected through a client-initiated nostrconnect:// offer (FR004-03). */
   | { kind: 'nip46-connected'; signer: Nip46Signer; clientSecretKey: Uint8Array };
 
@@ -41,6 +43,7 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
   let secretHex: string | undefined;
   let bunker: string | undefined;
   let nip46ClientSecretHex: string | undefined;
+  let managedKeyId: string | undefined;
   const local = (sk: Uint8Array) => {
     if (!selfTestKey(sk).ok) throw new Error('la llave no pasó el self-test');
     custody = 'local';
@@ -82,6 +85,13 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
       remote.close();
       break;
     }
+    case 'managed': {
+      const key = await ManagedSignerClient.createKey({ baseUrl: input.baseUrl, token: input.token });
+      custody = 'managed';
+      pubkey = key.pubkey;
+      managedKeyId = key.keyId;
+      break;
+    }
     case 'nip46-connected':
       custody = 'nip46';
       pubkey = await input.signer.getPublicKey();
@@ -91,18 +101,27 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
   }
   const existing = (await book.list()).find((p) => p.pubkey === pubkey!);
   if (existing) throw new Error(`esa llave ya es la persona "${existing.label}"`);
-  const config = { ...preset(opts.preset), ...(opts.deviceKey ? { localProtection: 'device' as const } : {}) };
-  const persona: PersonaRecord = { id: newId(), label: opts.label, pubkey: pubkey!, custody: custody!, relays: opts.relays, preset: opts.preset, config, createdAt: Date.now(), ...(secretHex ? { secretHex } : {}), ...(bunker ? { bunker } : {}), ...(nip46ClientSecretHex ? { nip46ClientSecretHex } : {}) };
+  const config = { ...preset(opts.preset), ...(opts.deviceKey ? { localProtection: 'device' as const } : {}), ...(custody! === 'managed' ? { custody: 'managed' as const } : {}) };
+  const persona: PersonaRecord = { id: newId(), label: opts.label, pubkey: pubkey!, custody: custody!, relays: opts.relays, preset: opts.preset, config, createdAt: Date.now(), ...(secretHex ? { secretHex } : {}), ...(bunker ? { bunker } : {}), ...(nip46ClientSecretHex ? { nip46ClientSecretHex } : {}), ...(managedKeyId ? { managedKeyId } : {}) };
   await book.save(persona);
   return persona;
 }
 
-export async function openPersona(book: PersonaBook, persona: PersonaRecord): Promise<PersonaSession> {
+/** What a managed persona needs to reach its signer; the token proves the Acceso user on each call. */
+export interface ManagedEnv {
+  baseUrl?: string;
+  token?: AccessTokenProvider;
+}
+
+export async function openPersona(book: PersonaBook, persona: PersonaRecord, managed: ManagedEnv = {}): Promise<PersonaSession> {
   let signer: Signer;
   if (persona.custody === 'local') {
     const sk = hexToBytes(persona.secretHex!);
     signer = new LocalSigner(sk, 'local');
     wipe(sk);
+  } else if (persona.custody === 'managed') {
+    if (!managed.baseUrl || !managed.token) throw new Error('la persona gestionada necesita el managed-signer y una sesión de Acceso');
+    signer = new ManagedSignerClient({ baseUrl: managed.baseUrl, keyId: persona.managedKeyId!, token: managed.token });
   } else if (persona.custody === 'nip07') signer = new Nip07Signer();
   else {
     const opts = { permissions: WEB_NIP46_PERMISSIONS, onAuthUrl: raiseSignerAuthUrl };
@@ -150,7 +169,7 @@ export async function exportBackup(persona: PersonaRecord, backupPassword: strin
   return new Blob([JSON.stringify({ format: 'acceso-nostr-key-backup', version: 1, npub: npubEncode(persona.pubkey), ncryptsec }, null, 2)], { type: 'application/json' });
 }
 
-const CUSTODY_LABEL: Record<PersonaRecord['custody'], string> = { local: 'Llave local (navegador)', nip07: 'Signer externo (NIP-07)', nip46: 'Signer remoto (NIP-46)' };
+const CUSTODY_LABEL: Record<PersonaRecord['custody'], string> = { local: 'Llave local (navegador)', nip07: 'Signer externo (NIP-07)', nip46: 'Signer remoto (NIP-46)', managed: 'Llave gestionada por la plataforma (custodial)' };
 
 export function custodyLabel(p: PersonaRecord): string {
   return CUSTODY_LABEL[p.custody];
@@ -168,4 +187,24 @@ export function custodyFacts(s: PersonaSession): string[] {
 export function shortNpub(pubkey: string): string {
   const n = npubEncode(pubkey);
   return `${n.slice(0, 12)}…${n.slice(-4)}`;
+}
+
+/**
+ * FR026-03: managed → local migration with verification. The key is exported under a password the user
+ * picks, decrypted here, checked against the persona npub, and possession is proven by signing the
+ * service's challenge. Only then does the persona switch to local custody; deleting the managed copy is a
+ * separate, explicit step.
+ */
+export async function migrateManagedToLocal(book: PersonaBook, persona: PersonaRecord, client: ManagedSignerClient, password: string): Promise<{ persona: PersonaRecord; ncryptsec: string }> {
+  if (password.length < 12) throw new Error('la contraseña de exportación debe tener al menos 12 caracteres');
+  const { ncryptsec, challenge } = await client.exportForMigration(password);
+  const { secretKey } = await nip49.decryptKeyAsync(ncryptsec, password);
+  if (getPublicKey(secretKey) !== persona.pubkey) throw new Error('la llave exportada no corresponde a esta persona: migración cancelada');
+  if (!selfTestKey(secretKey).ok) throw new Error('la llave exportada no pasó el self-test');
+  const proof = await new LocalSigner(secretKey).signEvent({ kind: 27235, content: 'migración de custodia', tags: [['challenge', challenge]] });
+  await client.confirmMigration(proof);
+  const migrated: PersonaRecord = { ...persona, custody: 'local', secretHex: bytesToHex(secretKey), config: { ...persona.config, custody: 'local' } };
+  wipe(secretKey);
+  await book.save(migrated);
+  return { persona: migrated, ncryptsec };
 }

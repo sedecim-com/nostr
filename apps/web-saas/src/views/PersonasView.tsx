@@ -7,9 +7,10 @@ import { deviceKeyAllowed, setProtection } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
 import { LinkPersonas } from './LinkPersonas';
 import { RemoteSigner } from './RemoteSigner';
+import { ManagedOptIn, MigrationWizard } from './ManagedCustody';
 import type { Nip46Signer, NostrConnectOffer } from '@sedecim/signer';
 
-type Mode = 'create' | 'import' | 'nip07' | 'nip46';
+type Mode = 'create' | 'import' | 'nip07' | 'nip46' | 'managed';
 
 export function PersonasView() {
   const ws = useWorkspace();
@@ -19,6 +20,8 @@ export function PersonasView() {
   const [mode, setMode] = useState<Mode>('create');
   const [secret, setSecret] = useState('');
   const [ncPass, setNcPass] = useState('');
+  const [managedConsent, setManagedConsent] = useState(false);
+  const managedAvailable = !!ws.managedEnv.baseUrl;
   const [nip46Mode, setNip46Mode] = useState<'bunker' | 'nostrconnect'>('nostrconnect');
   const [relays, setRelays] = useState(cfg.relays.join('\n'));
   const [vaultPass, setVaultPass] = useState('');
@@ -55,7 +58,10 @@ export function PersonasView() {
             ? { kind: 'import', secret, ncryptsecPass: ncPass }
             : mode === 'nip07'
               ? { kind: 'nip07' }
-              : { kind: 'nip46', bunker: secret };
+              : mode === 'managed'
+                ? { kind: 'managed', baseUrl: ws.managedEnv.baseUrl!, token: ws.managedEnv.token! }
+                : { kind: 'nip46', bunker: secret };
+      if (mode === 'managed' && !managedConsent) throw new Error('La custodia gestionada requiere tu consentimiento explícito.');
       const p = await createPersona(book, input, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device' });
       setSecret('');
       setNcPass('');
@@ -137,6 +143,7 @@ export function PersonasView() {
       )}
 
       {session && <LinkPersonas />}
+      {session?.persona.managedKeyId && managedAvailable && <MigrationWizard key={session.persona.id} />}
 
       <Card component="form" onSubmit={create}>
         <CardContent>
@@ -160,7 +167,9 @@ export function PersonasView() {
               <FormControlLabel value="import" control={<Radio />} label="Importar nsec / ncryptsec" />
               <FormControlLabel value="nip07" control={<Radio />} label="Extensión del navegador (NIP-07)" />
               <FormControlLabel value="nip46" control={<Radio />} label="Signer remoto (NIP-46)" />
+              {managedAvailable && <FormControlLabel value="managed" control={<Radio />} label="Llave gestionada por la plataforma (custodial, opcional)" />}
             </RadioGroup>
+            {mode === 'managed' && <ManagedOptIn accepted={managedConsent} onChange={setManagedConsent} />}
             {mode === 'import' && <TextField id="secret-input" label="nsec o ncryptsec" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} required />}
             {mode === 'nip46' && (
               <RemoteSigner
@@ -183,7 +192,7 @@ export function PersonasView() {
             {error && <Alert severity="error">{error}</Alert>}
             {!(mode === 'nip46' && nip46Mode === 'nostrconnect') && (
               <Box>
-                <Button type="submit" variant="contained" disabled={busy}>
+                <Button type="submit" variant="contained" disabled={busy || (mode === 'managed' && !managedConsent)}>
                   Crear persona
                 </Button>
               </Box>

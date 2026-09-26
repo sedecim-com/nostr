@@ -56,6 +56,13 @@ export async function accesoIdToken(): Promise<string> {
   return t;
 }
 
+/** Access token that authorizes each managed signature (FR005-04). */
+export async function accesoAccessToken(): Promise<string> {
+  const t = (await fetchAuthSession()).tokens?.accessToken?.toString();
+  if (!t) throw new Error('sin sesión de Acceso');
+  return t;
+}
+
 export async function accesoSignOut(): Promise<void> {
   await signOut();
   announceSignOut();

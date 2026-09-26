@@ -18,6 +18,7 @@ import { TestBlossomServer, TestRelay, tinyPng } from '@sedecim/test-relay';
 import { APP_RECEIPT_KIND, chatMessage, createDirectMessage, createReceipt, dmInboxFilter, FILE_MESSAGE_KIND, openDirectMessage, unwrap } from '@sedecim/messaging';
 import { BlossomClient } from '@sedecim/blossom-client';
 import { CognitoVerifier, createIdentityApi, MemoryIdentityRepository } from '@sedecim/identity-service';
+import { createManagedSignerApi, ManagedSigner, MemoryVault } from '@sedecim/managed-signer';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -84,6 +85,14 @@ const identity = createIdentityApi(identityRepo, {
   cognito: new CognitoVerifier({ region: cognito.region, userPoolId: cognito.userPoolId, clientId: cognito.userPoolClientId, fetch: (async () => new Response(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'e2e', alg: 'RS256' }] }))) as typeof fetch }),
 });
 const identityUrl = await identity.listen();
+// Custodial managed-signer (SaaS only, ADR 0009): authorized by the same simulated Acceso tokens.
+const managedCore = new ManagedSigner(new MemoryVault());
+const managed = createManagedSignerApi(managedCore, {
+  name: 'managed-e2e',
+  corsOrigins: [base],
+  cognito: new CognitoVerifier({ region: cognito.region, userPoolId: cognito.userPoolId, clientId: cognito.userPoolClientId, fetch: (async () => new Response(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'e2e', alg: 'RS256' }] }))) as typeof fetch }),
+});
+const managedUrl = await managed.listen();
 const selfHosted = { mode: 'self-hosted', relays: [relay.url], buzzMedia: media.url, blobStore: blobs.url, identityService: identityUrl };
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
@@ -382,7 +391,7 @@ try {
 
   // --- SaaS mode (ADR 0008): Acceso login first, then optional linking of a persona
   const saasCtx = await browser.newContext();
-  await saasCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...selfHosted, mode: 'saas', cognito }) }));
+  await saasCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...selfHosted, mode: 'saas', cognito, managedSigner: managedUrl }) }));
   const cognitoCalls: string[] = [];
   await saasCtx.route(`https://cognito-idp.${cognito.region}.amazonaws.com/**`, async (r) => {
     const target = r.request().headers()['x-amz-target'] ?? '';
@@ -425,12 +434,48 @@ try {
   await saas.getByText('Cuenta de Acceso vinculada a esta persona').waitFor({ timeout: 10_000 });
   const logins = await identityRepo.externalLoginsOf((await account())!);
   assert(logins.length === 1 && logins[0]!.subject === 'acceso-user-1' && logins[0]!.issuer === iss, 'identity-service verified the Cognito token and linked it to the persona account');
+
+  // --- managed custody: explicit opt-in (FR005-07), signatures authorized by the Acceso token (FR005-04)
+  await saas.fill('#persona-label', 'Gestionada');
+  await saas.getByLabel('Llave gestionada por la plataforma (custodial, opcional)').check();
+  assert((await saas.getByRole('alert').filter({ hasText: 'capacidad técnica de firmar' }).count()) > 0, 'managed custody shows the custodial disclosure before creating');
+  assert(await saas.getByRole('button', { name: 'Crear persona' }).isDisabled(), 'managed custody is never created without explicit consent');
+  await saas.locator('#managed-consent').check();
+  await saas.getByRole('button', { name: 'Crear persona' }).click();
+  await saas.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Gestionada'), undefined, { timeout: 15_000 });
+  const owner = `${iss}#acceso-user-1`;
+  const managedKey = (await managedCore.list(owner))[0];
+  assert(managedKey && (await saas.textContent('#sending-as'))?.includes('custodial'), 'managed key created for the Acceso user and flagged as custodial');
+  await tab(saas, 'Canales');
+  await saas.locator('#channel-list').getByText('General').click();
+  await saas.fill('#channel-text', 'firmado por la custodia gestionada');
+  await saas.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  const managedMsg = await (async () => {
+    for (let i = 0; i < 40; i++) {
+      const e = (await pool.query([relay.url], [{ kinds: [9], '#h': ['general'] }], 2000)).find((x) => x.content === 'firmado por la custodia gestionada');
+      if (e) return e;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  })();
+  assert(managedMsg?.pubkey === managedKey!.pubkey, 'channel message signed by the managed signer with the Acceso token');
+  assert((await managedCore.usageOf(managedKey!.keyId, owner)).some((u) => u.action === 'sign' && u.principal === owner), 'each managed signature is audited under the Acceso user');
+
+  // --- migration back to local custody with verification (FR026-03)
+  await tab(saas, 'Personas');
+  await saas.fill('#migration-pass', 'exportacion-segura-123');
+  await saas.getByRole('button', { name: 'Exportar y verificar' }).click();
+  await saas.getByText('Tu llave ya vive en este navegador').waitFor({ timeout: 60_000 });
+  assert((await saas.textContent('#sending-as'))?.includes('Llave local (navegador)'), 'after verified export the persona signs locally');
+  await saas.getByRole('button', { name: 'Borrar la copia gestionada' }).click();
+  await saas.locator('#migration-done').waitFor({ timeout: 10_000 });
+  assert((await managedCore.list(owner)).length === 0, 'managed copy deleted only after the verified migration (destroyed after the retention window)');
   await saasCtx.close();
 } finally {
   for (const p of pools) p.close();
   await browser.close();
   server.close();
   await identity.close();
+  await managed.close();
   await media.stop();
   await blobs.stop();
   await relay.stop();
