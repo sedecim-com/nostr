@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **161 tareas** · 50 hechas · 23 parciales · 88 pendientes
-- **333 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **161 tareas** · 56 hechas · 25 parciales · 80 pendientes
+- **320 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente**
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, fork, operación, panel y gates.
@@ -42,11 +42,11 @@
 | FR-011 | 3 | 1 | FR011-02 (S2), FR011-03 (S5) |
 | FR-012 | 1 | 1 | — |
 | FR-013 | 4 | 1 | FR013-02 (S4), FR013-03 (S4), FR013-04 (S4) |
-| FR-014 | 3 | 1 | FR014-02 (S1), FR014-03 (S2) |
+| FR-014 | 3 | 2 | FR014-03 (S2) |
 | FR-015 | 3 | 1 | FR015-02 (S2), FR015-03 (S2) |
 | FR-016 | 1 | 1 | — |
-| FR-017 | 5 | 2 | FR017-03 (S1), FR017-04 (S2), FR017-05 (S4) |
-| FR-018 | 5 | 2 | FR018-03 (S1), FR018-04 (S2), FR018-05 (S5) |
+| FR-017 | 5 | 3 | FR017-04 (S2), FR017-05 (S4) |
+| FR-018 | 5 | 3 | FR018-04 (S2), FR018-05 (S5) |
 | FR-019 | 3 | 1 | FR018-04 (S2), FR019-02 (S3) |
 | FR-020 | 3 | 1 | FR020-02 (S5), FR020-03 (S5) |
 | FR-021 | 2 | 1 | FR021-02 (S5) |
@@ -73,20 +73,20 @@
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
 | BUZZ-01 | P0 | Crear repositorio fork con ramas vendor/upstream y product/main | §6.3 | Infra | 1 | DEC-02 | Parcial | Fork creado; vendor/upstream = commit fijado; protección de ramas |
-| DEC-01 | P0 | Decidir nombre y licencia del proyecto open source | §25.1-1 | Decisión | 2 | — | Pendiente | ADR aprobado; LICENSE y package.json actualizados; compatibilidad con Apache-2.0 del fork revisada |
+| DEC-01 | P0 | Decidir nombre y licencia del proyecto open source | §25.1-1 | Decisión | 2 | — | Parcial | ADR aprobado; LICENSE y package.json actualizados; compatibilidad con Apache-2.0 del fork revisada |
 | DEC-02 | P0 | Fijar subset de Buzz a forkear y commit/release de F0 | §25.1-2 | Decisión | 2 | — | Parcial | Lista de crates/apps incluidos; commit y digest en infra/buzz/PIN aprobados |
-| FR014-02 | P0 | Verificar el mirror contra Buzz en el stack Docker completo | FR-014 | QA | 2 | OPS-01 | Pendiente | test:interop + indexer contra el relay del compose en CI |
-| FR018-03 | P0 | Validar la subida de imágenes en claro a Buzz /media con MinIO | FR-018 | QA | 1 | OPS-01 | Pendiente | Informe del gate con plainImage.accepted = true |
-| OPS-01 | P0 | CI: construir todas las imágenes y levantar el stack completo con smoke test | §4.1 | Infra | 3 | — | Parcial | Job que hace docker compose up, espera healthchecks y ejecuta test:interop |
-| BUZZ-02 | P1 | Revisar obligaciones Apache-2.0 del fork (LICENSE, NOTICE, cambios marcados) | §21.2 | Doc | 1 | BUZZ-01, DEC-01 | Pendiente | Checklist legal aprobado y NOTICE en el fork |
-| BUZZ-03 | P1 | Build reproducible de la imagen del relay desde el fork | §6.3 | Infra | 3 | BUZZ-01 | Pendiente | Imagen construida en CI a partir de product/main con digest publicado |
-| DEC-03 | P1 | Definir política de compatibilidad con upstream Buzz | §25.1-3 | Decisión | 1 | DEC-02 | Pendiente | Cadencia de sync, criterios de adopción y de rollback documentados |
+| FR014-02 | P0 | Verificar el mirror contra Buzz en el stack Docker completo | FR-014 | QA | 2 | OPS-01 | Hecho | test:interop + indexer contra el relay del compose en CI |
+| FR018-03 | P0 | Validar la subida de imágenes en claro a Buzz /media con MinIO | FR-018 | QA | 1 | OPS-01 | Hecho | Informe del gate con plainImage.accepted = true |
+| OPS-01 | P0 | CI: construir todas las imágenes y levantar el stack completo con smoke test | §4.1 | Infra | 3 | — | Hecho | Job que hace docker compose up, espera healthchecks y ejecuta test:interop |
+| BUZZ-02 | P1 | Revisar obligaciones Apache-2.0 del fork (LICENSE, NOTICE, cambios marcados) | §21.2 | Doc | 1 | BUZZ-01, DEC-01 | Parcial | Checklist legal aprobado y NOTICE en el fork |
+| BUZZ-03 | P1 | Build reproducible de la imagen del relay desde el fork | §6.3 | Infra | 3 | BUZZ-01 | Parcial | Imagen construida en CI a partir de product/main con digest publicado |
+| DEC-03 | P1 | Definir política de compatibilidad con upstream Buzz | §25.1-3 | Decisión | 1 | DEC-02 | Parcial | Cadencia de sync, criterios de adopción y de rollback documentados |
 | DEC-04 | P1 | Elegir biblioteca Nostr base para Rust y Flutter | §25.1-4 | Decisión | 2 | — | Parcial | ADR con evaluación de TS (noble, decidido), Rust (rust-nostr/MDK) y Flutter |
 | DEC-06 | P1 | Definir receipt de aplicación y política de read receipts | §25.1-6 | Decisión | 1 | — | Parcial | Formato del rumor (kind definitivo) y opt-in por perfil aprobados; kind provisional 16914 reemplazado |
 | DEC-07 | P1 | Ratificar proveedor Marmot y ruta de relay (secure-relay vs parche Buzz) | §25.1-7 | Decisión | 1 | — | Parcial | ADR aprobado; marmot-ts/ts-mls fijados; decisión sobre parche de kinds 30443/445/10051 en el fork |
-| DEC-10 | P1 | Formalizar threat models por perfil (convenience, resilient, institutional, sovereign, Tor) | §25.1-10, §20.3 | Seguridad | 3 | — | Parcial | Un documento por perfil con activos, adversarios, mitigaciones y riesgos residuales, versionado por release |
-| FR017-03 | P1 | Activar el flag NIP-17 por entorno a partir de interop-report.json en CI | FR-017 | Infra | 2 | FR014-02 | Pendiente | El despliegue lee enableFlag y recommendedJitterSeconds del gate |
-| OPS-02 | P1 | Proxy TLS (Caddy) y URLs públicas en el compose de producción | §4.1 | Infra | 2 | OPS-01 | Pendiente | Override compose.tls.yml con certificados automáticos y RELAY_URL wss:// |
+| DEC-10 | P1 | Formalizar threat models por perfil (convenience, resilient, institutional, sovereign, Tor) | §25.1-10, §20.3 | Seguridad | 3 | — | Hecho | Un documento por perfil con activos, adversarios, mitigaciones y riesgos residuales, versionado por release |
+| FR017-03 | P1 | Activar el flag NIP-17 por entorno a partir de interop-report.json en CI | FR-017 | Infra | 2 | FR014-02 | Hecho | El despliegue lee enableFlag y recommendedJitterSeconds del gate |
+| OPS-02 | P1 | Proxy TLS (Caddy) y URLs públicas en el compose de producción | §4.1 | Infra | 2 | OPS-01 | Hecho | Override compose.tls.yml con certificados automáticos y RELAY_URL wss:// |
 
 ## S2 · Web SaaS como cliente completo (F0.5, 2026-10-12 → 2026-10-23) — 50 SP
 

@@ -17,7 +17,7 @@ for (const t of tasks) {
   if (!meta.priorities[t.priority]) errors.push(`${t.id}: unknown priority ${t.priority}`);
   if (!sprintOrder.has(t.sprint)) errors.push(`${t.id}: unknown sprint ${t.sprint}`);
   if (!['Hecho', 'Parcial', 'Pendiente'].includes(t.status)) errors.push(`${t.id}: unknown status ${t.status}`);
-  if ((t.status === 'Hecho') !== (t.sprint === 'v0.1')) errors.push(`${t.id}: only done tasks belong to v0.1`);
+  if (t.sprint === 'v0.1' && t.status !== 'Hecho') errors.push(`${t.id}: only done tasks belong to v0.1`);
   if (t.status !== 'Pendiente' && !t.evidence) errors.push(`${t.id}: ${t.status} requires evidence`);
   if (![1, 2, 3, 5, 8].includes(t.sp)) errors.push(`${t.id}: story points must be 1,2,3,5,8`);
 }
@@ -82,7 +82,7 @@ for (const s of meta.sprints.filter((x) => x.id !== 'v0.1')) {
   const ts = tasks.filter((t) => t.sprint === s.id).sort((a, b) => a.priority.localeCompare(b.priority) || a.id.localeCompare(b.id));
   lines.push('', `## ${s.id} · ${s.name} (${s.phase}, ${s.start} → ${s.end}) — ${sum(ts)} SP`, '', ...head, ...ts.map(row));
 }
-const done = tasks.filter((t) => t.status === 'Hecho');
+const done = tasks.filter((t) => t.sprint === 'v0.1');
 lines.push('', `## Entregado en v0.1 — ${done.length} tareas`, '', '| ID | Tarea | Requisito | Evidencia |', '|---|---|---|---|');
 for (const t of done) lines.push(`| ${t.id} | ${esc(t.title)} | ${esc(t.req)} | \`${esc(t.evidence)}\` |`);
 lines.push('');
