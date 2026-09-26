@@ -82,7 +82,8 @@
     "end": ""
    }
   ],
-  "assumedVelocitySP": 50
+  "assumedVelocitySP": 50,
+  "github": "sedecim-com/nostr"
  },
  "tasks": [
   {
@@ -97,7 +98,8 @@
    "deps": [],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/adr/0001-nombre-y-licencia.md (Aceptado: Apache-2.0, marca \"Acceso Nostr\"); LICENSE, NOTICE, package.json"
+   "evidence": "docs/adr/0001-nombre-y-licencia.md (Aceptado: Apache-2.0, marca \"Acceso Nostr\"); LICENSE, NOTICE, package.json",
+   "issue": 35
   },
   {
    "id": "DEC-02",
@@ -111,7 +113,8 @@
    "deps": [],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/adr/0002-subset-y-pin-de-buzz.md (Aceptado: Buzz upstream sin fork, pin 02c6309 por digest)"
+   "evidence": "docs/adr/0002-subset-y-pin-de-buzz.md (Aceptado: Buzz upstream sin fork, pin 02c6309 por digest)",
+   "issue": 36
   },
   {
    "id": "DEC-03",
@@ -127,7 +130,8 @@
    ],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/adr/0003-compatibilidad-con-upstream-buzz.md (Aceptado); ci.yml workflow_dispatch buzz_image"
+   "evidence": "docs/adr/0003-compatibilidad-con-upstream-buzz.md (Aceptado); ci.yml workflow_dispatch buzz_image",
+   "issue": 37
   },
   {
    "id": "DEC-04",
@@ -141,7 +145,8 @@
    "deps": [],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/adr/0004-bibliotecas-nostr-rust-flutter.md (Aceptado, aplicación diferida hasta que haya app nativa)"
+   "evidence": "docs/adr/0004-bibliotecas-nostr-rust-flutter.md (Aceptado, aplicación diferida hasta que haya app nativa)",
+   "issue": 38
   },
   {
    "id": "DEC-05",
@@ -155,7 +160,8 @@
    "deps": [],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "docs/adr/0007-almacenamiento-local-cifrado.md (Aceptado); packages/encrypted-store Vault + IndexedDBBackend + WebCryptoKeyring; profiles localProtection"
+   "evidence": "docs/adr/0007-almacenamiento-local-cifrado.md (Aceptado); packages/encrypted-store Vault + IndexedDBBackend + WebCryptoKeyring; profiles localProtection",
+   "issue": 39
   },
   {
    "id": "DEC-06",
@@ -169,7 +175,8 @@
    "deps": [],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/adr/0005-receipts-de-aplicacion.md (Aceptado); packages/profiles receiptPolicy(); packages/messaging/src/receipts.ts"
+   "evidence": "docs/adr/0005-receipts-de-aplicacion.md (Aceptado); packages/profiles receiptPolicy(); packages/messaging/src/receipts.ts",
+   "issue": 40
   },
   {
    "id": "DEC-07",
@@ -183,7 +190,8 @@
    "deps": [],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/adr/0006-marmot-proveedor-y-ruta-de-relay.md (Aceptado: secure-relay, sin parche a Buzz)"
+   "evidence": "docs/adr/0006-marmot-proveedor-y-ruta-de-relay.md (Aceptado: secure-relay, sin parche a Buzz)",
+   "issue": 41
   },
   {
    "id": "DEC-08",
@@ -197,7 +205,8 @@
    "deps": [],
    "sprint": "S5",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 42
   },
   {
    "id": "DEC-09",
@@ -211,7 +220,8 @@
    "deps": [],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "docs/adr/0009-custodia-managed-region-y-marco-legal.md (us-east-1 según sedecim-com/infrastructure, LFPDPPP, 30 días / 12 meses); borrador docs/legal/custodia-managed.md"
+   "evidence": "docs/adr/0009-custodia-managed-region-y-marco-legal.md (us-east-1 según sedecim-com/infrastructure, LFPDPPP, 30 días / 12 meses); borrador docs/legal/custodia-managed.md",
+   "issue": 43
   },
   {
    "id": "DEC-12",
@@ -227,7 +237,8 @@
    ],
    "sprint": "S3",
    "status": "Parcial",
-   "evidence": "docs/legal/custodia-managed.md (borrador listo para revisión)"
+   "evidence": "docs/legal/custodia-managed.md (borrador listo para revisión)",
+   "issue": 44
   },
   {
    "id": "DEC-10",
@@ -241,7 +252,8 @@
    "deps": [],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/threat-models/ (un documento por perfil: activos, adversarios, mitigaciones, riesgos residuales; versión v0.1)"
+   "evidence": "docs/threat-models/ (un documento por perfil: activos, adversarios, mitigaciones, riesgos residuales; versión v0.1)",
+   "issue": 45
   },
   {
    "id": "BUZZ-01",
@@ -257,7 +269,8 @@
    ],
    "sprint": "S1",
    "status": "Descartado",
-   "evidence": "ADR 0002: sin fork"
+   "evidence": "ADR 0002: sin fork",
+   "issue": 46
   },
   {
    "id": "BUZZ-02",
@@ -274,7 +287,8 @@
    ],
    "sprint": "S1",
    "status": "Descartado",
-   "evidence": "ADR 0002: sin fork; la atribución de Buzz está en NOTICE"
+   "evidence": "ADR 0002: sin fork; la atribución de Buzz está en NOTICE",
+   "issue": 47
   },
   {
    "id": "BUZZ-03",
@@ -290,7 +304,8 @@
    ],
    "sprint": "S1",
    "status": "Descartado",
-   "evidence": "ADR 0002: se usa la imagen upstream fijada por digest"
+   "evidence": "ADR 0002: se usa la imagen upstream fijada por digest",
+   "issue": 48
   },
   {
    "id": "BUZZ-04",
@@ -307,7 +322,8 @@
    ],
    "sprint": "S2",
    "status": "Descartado",
-   "evidence": "ADR 0002: el early release usa solo clientes propios"
+   "evidence": "ADR 0002: el early release usa solo clientes propios",
+   "issue": 49
   },
   {
    "id": "BUZZ-05",
@@ -323,7 +339,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": ".github/workflows/buzz-upstream.yml + scripts/buzz-upstream.sh. Primera ejecución en main (run 36219631189): digest nuevo 8096413eb360, gate verde contra él, rama del pin + issue #21 (Actions aún sin permiso para abrir PRs); PR #23 del pin fusionada. Los flags se regeneran con el pin (PR #22)"
+   "evidence": ".github/workflows/buzz-upstream.yml + scripts/buzz-upstream.sh. Primera ejecución en main (run 36219631189): digest nuevo 8096413eb360, gate verde contra él, rama del pin + issue #21 (Actions aún sin permiso para abrir PRs); PR #23 del pin fusionada. Los flags se regeneran con el pin (PR #22)",
+   "issue": 50
   },
   {
    "id": "BUZZ-06",
@@ -340,7 +357,8 @@
    ],
    "sprint": "S6",
    "status": "Descartado",
-   "evidence": "ADR 0002: el early release usa solo clientes propios; app nativa diferida (ADR 0004)"
+   "evidence": "ADR 0002: el early release usa solo clientes propios; app nativa diferida (ADR 0004)",
+   "issue": 51
   },
   {
    "id": "OPS-01",
@@ -354,7 +372,8 @@
    "deps": [],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": ".github/workflows/ci.yml job stack (build, up, scripts/wait-stack.sh, test:interop, interop-flags --check); verde en CI run 36211768822"
+   "evidence": ".github/workflows/ci.yml job stack (build, up, scripts/wait-stack.sh, test:interop, interop-flags --check); verde en CI run 36211768822",
+   "issue": 52
   },
   {
    "id": "OPS-02",
@@ -370,7 +389,8 @@
    ],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "compose.tls.yml + infra/caddy/Caddyfile (Caddy ACME, RELAY_URL wss://relay.$DOMAIN); config y Caddyfile validados en CI; sin despliegue real con dominio aún"
+   "evidence": "compose.tls.yml + infra/caddy/Caddyfile (Caddy ACME, RELAY_URL wss://relay.$DOMAIN); config y Caddyfile validados en CI; sin despliegue real con dominio aún",
+   "issue": 53
   },
   {
    "id": "OPS-03",
@@ -386,7 +406,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "scripts/init-env.sh (idempotente; llaves de relay e indexer con keygen service-key, owner con backup NIP-49); tests/scripts/init-env.test.ts"
+   "evidence": "scripts/init-env.sh (idempotente; llaves de relay e indexer con keygen service-key, owner con backup NIP-49); tests/scripts/init-env.test.ts",
+   "issue": 54
   },
   {
    "id": "OPS-04",
@@ -400,7 +421,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "SECURITY.md"
+   "evidence": "SECURITY.md",
+   "issue": 55
   },
   {
    "id": "OPS-05",
@@ -414,7 +436,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": ".github/dependabot.yml"
+   "evidence": ".github/dependabot.yml",
+   "issue": 56
   },
   {
    "id": "OPS-06",
@@ -430,7 +453,8 @@
    ],
    "sprint": "S5",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 57
   },
   {
    "id": "OPS-07",
@@ -446,7 +470,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 58
   },
   {
    "id": "OPS-08",
@@ -460,7 +485,8 @@
    "deps": [],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 59
   },
   {
    "id": "OPS-09",
@@ -474,7 +500,8 @@
    "deps": [],
    "sprint": "S4",
    "status": "Parcial",
-   "evidence": "README.md, docs/runbooks/restore.md"
+   "evidence": "README.md, docs/runbooks/restore.md",
+   "issue": 60
   },
   {
    "id": "OPS-10",
@@ -488,7 +515,8 @@
    "deps": [],
    "sprint": "S4",
    "status": "Parcial",
-   "evidence": "scripts/backlog-github.mjs + tests/scripts/backlog-github.test.ts, .github/workflows/backlog-sync.yml, .github/ISSUE_TEMPLATE/backlog-task.yml, docs/backlog/GITHUB.md. Falta sembrar los issues (primera ejecución al fusionar)"
+   "evidence": "scripts/backlog-github.mjs + tests/scripts/backlog-github.test.ts, .github/workflows/backlog-sync.yml, .github/ISSUE_TEMPLATE/backlog-task.yml, docs/backlog/GITHUB.md. Falta sembrar los issues (primera ejecución al fusionar)",
+   "issue": 61
   },
   {
    "id": "PANEL-01",
@@ -502,7 +530,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/profiles"
+   "evidence": "packages/profiles",
+   "issue": 62
   },
   {
    "id": "PANEL-02",
@@ -518,7 +547,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "apps/web-saas/src/views/PanelView.tsx + vistas (quorum, receipts, previews, adjuntos, bloqueo Tor-only); tests/browser/web-saas.e2e.ts"
+   "evidence": "apps/web-saas/src/views/PanelView.tsx + vistas (quorum, receipts, previews, adjuntos, bloqueo Tor-only); tests/browser/web-saas.e2e.ts",
+   "issue": 63
   },
   {
    "id": "PANEL-03",
@@ -535,7 +565,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "config por persona cifrada en el vault (PersonaBook); tests/browser/web-saas.e2e.ts (persiste tras bloquear y desbloquear)"
+   "evidence": "config por persona cifrada en el vault (PersonaBook); tests/browser/web-saas.e2e.ts (persiste tras bloquear y desbloquear)",
+   "issue": 64
   },
   {
    "id": "PANEL-04",
@@ -551,7 +582,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "apps/web-saas/src/views/PanelView.tsx (indicadores por dimensión con las declaraciones y enlaces a cada consecuencia, sin puntuación única); tests/browser/web-saas.e2e.ts"
+   "evidence": "apps/web-saas/src/views/PanelView.tsx (indicadores por dimensión con las declaraciones y enlaces a cada consecuencia, sin puntuación única); tests/browser/web-saas.e2e.ts",
+   "issue": 65
   },
   {
    "id": "FR001-01",
@@ -565,7 +597,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/nostr-core/src/keys.ts"
+   "evidence": "packages/nostr-core/src/keys.ts",
+   "issue": 66
   },
   {
    "id": "FR001-02",
@@ -581,7 +614,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/identity"
+   "evidence": "packages/identity",
+   "issue": 67
   },
   {
    "id": "FR001-03",
@@ -597,7 +631,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "apps/web-saas/src/session.ts"
+   "evidence": "apps/web-saas/src/session.ts",
+   "issue": 68
   },
   {
    "id": "FR001-04",
@@ -613,7 +648,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "packages/encrypted-store/src/browser.ts IndexedDBBackend; tests/browser/web-saas.e2e.ts en Chromium"
+   "evidence": "packages/encrypted-store/src/browser.ts IndexedDBBackend; tests/browser/web-saas.e2e.ts en Chromium",
+   "issue": 69
   },
   {
    "id": "FR001-05",
@@ -629,7 +665,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "tests/browser/web-saas.e2e.ts: ninguna petición ni frame WebSocket contiene la nsec; IndexedDB solo con registros sellados"
+   "evidence": "tests/browser/web-saas.e2e.ts: ninguna petición ni frame WebSocket contiene la nsec; IndexedDB solo con registros sellados",
+   "issue": 70
   },
   {
    "id": "FR002-01",
@@ -645,7 +682,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/identity/test"
+   "evidence": "packages/identity/test",
+   "issue": 71
   },
   {
    "id": "FR002-02",
@@ -661,7 +699,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/identity"
+   "evidence": "packages/identity",
+   "issue": 72
   },
   {
    "id": "FR002-03",
@@ -678,7 +717,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "packages/identity/src/key-backup.ts (parseKeyBackup/openKeyBackup verifican la npub); web (Importar archivo de backup) y CLI (persona import --backup); tests/browser/web-saas.e2e.ts"
+   "evidence": "packages/identity/src/key-backup.ts (parseKeyBackup/openKeyBackup verifican la npub); web (Importar archivo de backup) y CLI (persona import --backup); tests/browser/web-saas.e2e.ts",
+   "issue": 73
   },
   {
    "id": "FR003-01",
@@ -694,7 +734,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "apps/key-generator"
+   "evidence": "apps/key-generator",
+   "issue": 74
   },
   {
    "id": "FR003-02",
@@ -710,7 +751,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "apps/key-generator/build.mjs"
+   "evidence": "apps/key-generator/build.mjs",
+   "issue": 75
   },
   {
    "id": "FR003-03",
@@ -726,7 +768,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "packages/qr (codificador propio verificado contra vectores ISO y matrices de referencia); keygen --qr; QR de npub y nostrconnect en la web"
+   "evidence": "packages/qr (codificador propio verificado contra vectores ISO y matrices de referencia); keygen --qr; QR de npub y nostrconnect en la web",
+   "issue": 76
   },
   {
    "id": "FR003-04",
@@ -742,7 +785,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "apps/key-generator keygen --print (HTML local con CSP estricta, sin recursos remotos, QR inline)"
+   "evidence": "apps/key-generator keygen --print (HTML local con CSP estricta, sin recursos remotos, QR inline)",
+   "issue": 77
   },
   {
    "id": "FR003-05",
@@ -758,7 +802,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "apps/key-generator/build-html.mjs → dist/keygen.html + .sha256 (CSP por hash); tests/browser/keygen-html.e2e.ts desde file:// sin red; construido en CI"
+   "evidence": "apps/key-generator/build-html.mjs → dist/keygen.html + .sha256 (CSP por hash); tests/browser/keygen-html.e2e.ts desde file:// sin red; construido en CI",
+   "issue": 78
   },
   {
    "id": "FR003-06",
@@ -775,7 +820,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 79
   },
   {
    "id": "FR003-07",
@@ -791,7 +837,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 80
   },
   {
    "id": "FR004-01",
@@ -805,7 +852,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/signer/src/nip46.ts"
+   "evidence": "packages/signer/src/nip46.ts",
+   "issue": 81
   },
   {
    "id": "FR004-02",
@@ -821,7 +869,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/signer/test"
+   "evidence": "packages/signer/test",
+   "issue": 82
   },
   {
    "id": "FR004-03",
@@ -837,7 +886,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "packages/signer createNostrConnect/Nip46Signer.fromNostrConnect (la oferta se muestra con la suscripción ya activa); web con QR; tests/browser/web-saas.e2e.ts"
+   "evidence": "packages/signer createNostrConnect/Nip46Signer.fromNostrConnect (la oferta se muestra con la suscripción ya activa); web con QR; tests/browser/web-saas.e2e.ts",
+   "issue": 83
   },
   {
    "id": "FR004-04",
@@ -853,7 +903,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "describePermissions + WEB_NIP46_PERMISSIONS (solo los kinds que firma la web), listados antes de conectar; tests/browser/web-saas.e2e.ts"
+   "evidence": "describePermissions + WEB_NIP46_PERMISSIONS (solo los kinds que firma la web), listados antes de conectar; tests/browser/web-saas.e2e.ts",
+   "issue": 84
   },
   {
    "id": "FR004-05",
@@ -869,7 +920,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "Nip46Signer onAuthUrl con ventana de espera ampliada; alerta \"Abrir aprobación\" en la web; packages/signer/test"
+   "evidence": "Nip46Signer onAuthUrl con ventana de espera ampliada; alerta \"Abrir aprobación\" en la web; packages/signer/test",
+   "issue": 85
   },
   {
    "id": "FR005-01",
@@ -883,7 +935,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "services/managed-signer"
+   "evidence": "services/managed-signer",
+   "issue": 86
   },
   {
    "id": "FR005-02",
@@ -900,7 +953,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "services/managed-signer SecretsManagerVault (sobre KMS, contexto de cifrado, retención 7..30 días); tests contra moto en CI"
+   "evidence": "services/managed-signer SecretsManagerVault (sobre KMS, contexto de cifrado, retención 7..30 días); tests contra moto en CI",
+   "issue": 87
   },
   {
    "id": "FR005-03",
@@ -916,7 +970,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "services/managed-signer PgKeyRegistry + migración 001 (registro y log de uso sobreviven reinicios; retención 12 meses); test create → restart → sign"
+   "evidence": "services/managed-signer PgKeyRegistry + migración 001 (registro y log de uso sobreviven reinicios; retención 12 meses); test create → restart → sign",
+   "issue": 88
   },
   {
    "id": "FR005-04",
@@ -932,7 +987,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "managed-signer autoriza con el token de Acceso (dueño issuer#sub; x-account-id solo para service tokens); tests de suplantación"
+   "evidence": "managed-signer autoriza con el token de Acceso (dueño issuer#sub; x-account-id solo para service tokens); tests de suplantación",
+   "issue": 89
   },
   {
    "id": "FR005-05",
@@ -949,7 +1005,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 90
   },
   {
    "id": "FR005-06",
@@ -965,7 +1022,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 91
   },
   {
    "id": "FR005-07",
@@ -982,7 +1040,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "apps/web-saas ManagedCustody (opt-in con el disclosure custodial, nunca por defecto; firma con token de Acceso); tests/browser/web-saas.e2e.ts"
+   "evidence": "apps/web-saas ManagedCustody (opt-in con el disclosure custodial, nunca por defecto; firma con token de Acceso); tests/browser/web-saas.e2e.ts",
+   "issue": 92
   },
   {
    "id": "FR006-01",
@@ -998,7 +1057,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/identity"
+   "evidence": "packages/identity",
+   "issue": 93
   },
   {
    "id": "FR006-02",
@@ -1014,7 +1074,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "apps/web-saas selector de persona + banner \"Enviando como…\"; tests/browser/web-saas.e2e.ts"
+   "evidence": "apps/web-saas selector de persona + banner \"Enviando como…\"; tests/browser/web-saas.e2e.ts",
+   "issue": 94
   },
   {
    "id": "FR006-03",
@@ -1028,7 +1089,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/tor-network"
+   "evidence": "packages/tor-network",
+   "issue": 95
   },
   {
    "id": "FR007-01",
@@ -1044,7 +1106,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/identity"
+   "evidence": "packages/identity",
+   "issue": 96
   },
   {
    "id": "FR007-02",
@@ -1058,7 +1121,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "services/identity-service"
+   "evidence": "services/identity-service",
+   "issue": 97
   },
   {
    "id": "FR007-03",
@@ -1075,7 +1139,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "apps/web-saas LinkPersonas (diálogo de consecuencias antes de enviar; prueba de control de la segunda llave); tests/browser/web-saas.e2e.ts"
+   "evidence": "apps/web-saas LinkPersonas (diálogo de consecuencias antes de enviar; prueba de control de la segunda llave); tests/browser/web-saas.e2e.ts",
+   "issue": 98
   },
   {
    "id": "FR007-04",
@@ -1091,7 +1156,8 @@
    ],
    "sprint": "S5",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 99
   },
   {
    "id": "FR026-01",
@@ -1107,7 +1173,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "services/managed-signer/test"
+   "evidence": "services/managed-signer/test",
+   "issue": 100
   },
   {
    "id": "FR026-02",
@@ -1123,7 +1190,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "services/managed-signer/src/api.ts"
+   "evidence": "services/managed-signer/src/api.ts",
+   "issue": 101
   },
   {
    "id": "FR026-03",
@@ -1140,7 +1208,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "apps/web-saas MigrationWizard (exportar, verificar npub, firmar reto, pasar a local; borrado explícito con fecha de destrucción); tests/browser/web-saas.e2e.ts"
+   "evidence": "apps/web-saas MigrationWizard (exportar, verificar npub, firmar reto, pasar a local; borrado explícito con fecha de destrucción); tests/browser/web-saas.e2e.ts",
+   "issue": 102
   },
   {
    "id": "FR027-01",
@@ -1156,7 +1225,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/identity/test"
+   "evidence": "packages/identity/test",
+   "issue": 103
   },
   {
    "id": "FR027-02",
@@ -1173,7 +1243,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "packages/identity backup v2 (relays, configuración del panel y estado MLS cifrado; restaura v1); CLI backup export/restore; test con grupo MLS real"
+   "evidence": "packages/identity backup v2 (relays, configuración del panel y estado MLS cifrado; restaura v1); CLI backup export/restore; test con grupo MLS real",
+   "issue": 104
   },
   {
    "id": "FR027-03",
@@ -1189,7 +1260,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 105
   },
   {
    "id": "FR028-01",
@@ -1205,7 +1277,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/profiles"
+   "evidence": "packages/profiles",
+   "issue": 106
   },
   {
    "id": "FR028-02",
@@ -1222,7 +1295,8 @@
    ],
    "sprint": "S3",
    "status": "Parcial",
-   "evidence": "docs/disclosures.md v1.0.0 generado desde packages/profiles, comprobado en CI y ligado a DISCLOSURE_VERSION por test; falta aprobación legal/UX"
+   "evidence": "docs/disclosures.md v1.0.0 generado desde packages/profiles, comprobado en CI y ligado a DISCLOSURE_VERSION por test; falta aprobación legal/UX",
+   "issue": 107
   },
   {
    "id": "FR028-03",
@@ -1238,7 +1312,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "scripts/lint-claims.ts (npm run lint:claims) en CI sobre todo el copy de web, CLI, keygen y profiles"
+   "evidence": "scripts/lint-claims.ts (npm run lint:claims) en CI sobre todo el copy de web, CLI, keygen y profiles",
+   "issue": 108
   },
   {
    "id": "FR008-01",
@@ -1252,7 +1327,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/delivery-engine"
+   "evidence": "packages/delivery-engine",
+   "issue": 109
   },
   {
    "id": "FR009-01",
@@ -1268,7 +1344,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/delivery-engine"
+   "evidence": "packages/delivery-engine",
+   "issue": 110
   },
   {
    "id": "FR009-02",
@@ -1285,7 +1362,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "DeliveryEngine.applyReceipt; web aplica receipts entrantes; packages/delivery-engine/test, tests/browser/web-saas.e2e.ts (RECIPIENT_ACKED)"
+   "evidence": "DeliveryEngine.applyReceipt; web aplica receipts entrantes; packages/delivery-engine/test, tests/browser/web-saas.e2e.ts (RECIPIENT_ACKED)",
+   "issue": 111
   },
   {
    "id": "FR010-01",
@@ -1301,7 +1379,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/delivery-engine"
+   "evidence": "packages/delivery-engine",
+   "issue": 112
   },
   {
    "id": "FR010-02",
@@ -1317,7 +1396,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "packages/messaging/src/dm-relays.ts resolveDmRelays + DirectMessenger.send/deliver; packages/messaging/test/dm-routing.test.ts; tests/browser/web-saas.e2e.ts"
+   "evidence": "packages/messaging/src/dm-relays.ts resolveDmRelays + DirectMessenger.send/deliver; packages/messaging/test/dm-routing.test.ts; tests/browser/web-saas.e2e.ts",
+   "issue": 113
   },
   {
    "id": "FR011-01",
@@ -1333,7 +1413,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/delivery-engine"
+   "evidence": "packages/delivery-engine",
+   "issue": 114
   },
   {
    "id": "FR011-02",
@@ -1349,7 +1430,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "RelayPool.onReconnect + DeliveryEngine.resume idempotente; web (online + reconexión) y CLI; packages/relay-pool/test"
+   "evidence": "RelayPool.onReconnect + DeliveryEngine.resume idempotente; web (online + reconexión) y CLI; packages/relay-pool/test",
+   "issue": 115
   },
   {
    "id": "FR011-03",
@@ -1366,7 +1448,8 @@
    ],
    "sprint": "S5",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 116
   },
   {
    "id": "FR012-01",
@@ -1380,7 +1463,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/relay-pool, services/indexer"
+   "evidence": "packages/relay-pool, services/indexer",
+   "issue": 117
   },
   {
    "id": "FR013-01",
@@ -1394,7 +1478,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/sync"
+   "evidence": "packages/sync",
+   "issue": 118
   },
   {
    "id": "FR013-02",
@@ -1410,7 +1495,8 @@
    ],
    "sprint": "S4",
    "status": "Parcial",
-   "evidence": "packages/sync (solo detección)"
+   "evidence": "packages/sync (solo detección)",
+   "issue": 119
   },
   {
    "id": "FR013-03",
@@ -1427,7 +1513,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 120
   },
   {
    "id": "FR013-04",
@@ -1443,7 +1530,8 @@
    ],
    "sprint": "S4",
    "status": "Parcial",
-   "evidence": "packages/messaging dmInboxFilter"
+   "evidence": "packages/messaging dmInboxFilter",
+   "issue": 121
   },
   {
    "id": "FR014-01",
@@ -1457,7 +1545,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "services/indexer"
+   "evidence": "services/indexer",
+   "issue": 122
   },
   {
    "id": "FR014-02",
@@ -1473,7 +1562,8 @@
    ],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "tests/interop/stack.interop.test.ts (mirror sigue a Buzz vía NIP-42 + #h, INDEXER_RELAY_PUBLIC_URL); verde en CI run 36211768822"
+   "evidence": "tests/interop/stack.interop.test.ts (mirror sigue a Buzz vía NIP-42 + #h, INDEXER_RELAY_PUBLIC_URL); verde en CI run 36211768822",
+   "issue": 123
   },
   {
    "id": "FR014-03",
@@ -1489,7 +1579,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "services/indexer GET /v1/unread, PUT /v1/read-cursor, GET /v1/search (solo contenido de canal permitido); migración 002; services/indexer/test"
+   "evidence": "services/indexer GET /v1/unread, PUT /v1/read-cursor, GET /v1/search (solo contenido de canal permitido); migración 002; services/indexer/test",
+   "issue": 124
   },
   {
    "id": "FR015-01",
@@ -1503,7 +1594,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "tests/browser/web-saas.e2e.ts"
+   "evidence": "tests/browser/web-saas.e2e.ts",
+   "issue": 125
   },
   {
    "id": "FR015-02",
@@ -1519,7 +1611,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "apps/web-saas/src/views/ChannelsView.tsx (39000, 9021, 9007); tests/browser/web-saas.e2e.ts"
+   "evidence": "apps/web-saas/src/views/ChannelsView.tsx (39000, 9021, 9007); tests/browser/web-saas.e2e.ts",
+   "issue": 126
   },
   {
    "id": "FR015-03",
@@ -1536,7 +1629,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "tests/browser/web-buzz.e2e.ts (crear, unirse, enviar, leer contra Buzz real; job stack de CI con la web del compose)"
+   "evidence": "tests/browser/web-buzz.e2e.ts (crear, unirse, enviar, leer contra Buzz real; job stack de CI con la web del compose)",
+   "issue": 127
   },
   {
    "id": "FR016-01",
@@ -1550,7 +1644,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/relay-pool"
+   "evidence": "packages/relay-pool",
+   "issue": 128
   },
   {
    "id": "FR017-01",
@@ -1564,7 +1659,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/messaging"
+   "evidence": "packages/messaging",
+   "issue": 129
   },
   {
    "id": "FR017-02",
@@ -1580,7 +1676,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/messaging/src/adapters.ts"
+   "evidence": "packages/messaging/src/adapters.ts",
+   "issue": 130
   },
   {
    "id": "FR017-03",
@@ -1596,7 +1693,8 @@
    ],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "scripts/interop-flags.ts → infra/web/flags.json (enableFlag, jitter 300 s); web y CLI lo leen; --check en CI"
+   "evidence": "scripts/interop-flags.ts → infra/web/flags.json (enableFlag, jitter 300 s); web y CLI lo leen; --check en CI",
+   "issue": 131
   },
   {
    "id": "FR017-04",
@@ -1612,7 +1710,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "publishDmRelayList (kind 10050) al crear persona y botón en Personas; tests/browser/web-saas.e2e.ts"
+   "evidence": "publishDmRelayList (kind 10050) al crear persona y botón en Personas; tests/browser/web-saas.e2e.ts",
+   "issue": 132
   },
   {
    "id": "FR017-05",
@@ -1628,7 +1727,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 133
   },
   {
    "id": "FR018-01",
@@ -1642,7 +1742,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/blossom-client"
+   "evidence": "packages/blossom-client",
+   "issue": 134
   },
   {
    "id": "FR018-02",
@@ -1658,7 +1759,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "services/blob-store"
+   "evidence": "services/blob-store",
+   "issue": 135
   },
   {
    "id": "FR018-03",
@@ -1674,7 +1776,8 @@
    ],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/interop/buzz-02c6309-report.json (plainImage accepted+verified; S3 con SeaweedFS en lugar de MinIO, que ya no publica imágenes); CI run 36211768822"
+   "evidence": "docs/interop/buzz-02c6309-report.json (plainImage accepted+verified; S3 con SeaweedFS en lugar de MinIO, que ya no publica imágenes); CI run 36211768822",
+   "issue": 136
   },
   {
    "id": "FR018-04",
@@ -1691,7 +1794,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "canal: imagen saneada en Buzz /media con imeta y descarga verificada; DM: kind 15 cifrado en blob-store; tests/browser/web-saas.e2e.ts"
+   "evidence": "canal: imagen saneada en Buzz /media con imeta y descarga verificada; DM: kind 15 cifrado en blob-store; tests/browser/web-saas.e2e.ts",
+   "issue": 137
   },
   {
    "id": "FR018-05",
@@ -1707,7 +1811,8 @@
    ],
    "sprint": "S5",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 138
   },
   {
    "id": "FR019-01",
@@ -1721,7 +1826,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/blossom-client/src/sanitize.ts"
+   "evidence": "packages/blossom-client/src/sanitize.ts",
+   "issue": 139
   },
   {
    "id": "FR019-02",
@@ -1737,7 +1843,8 @@
    ],
    "sprint": "S3",
    "status": "Hecho",
-   "evidence": "packages/blossom-client sanitize: WebP sin EXIF/XMP/ICC; HEIC/HEIF/AVIF rechazados explícitamente con requireSanitizable"
+   "evidence": "packages/blossom-client sanitize: WebP sin EXIF/XMP/ICC; HEIC/HEIF/AVIF rechazados explícitamente con requireSanitizable",
+   "issue": 140
   },
   {
    "id": "FR020-01",
@@ -1751,7 +1858,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/tor-network"
+   "evidence": "packages/tor-network",
+   "issue": 141
   },
   {
    "id": "FR020-02",
@@ -1767,7 +1875,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 142
   },
   {
    "id": "FR020-03",
@@ -1781,7 +1890,8 @@
    "deps": [],
    "sprint": "S5",
    "status": "Parcial",
-   "evidence": "packages/tor-network/test (socks5h, sin dns.lookup)"
+   "evidence": "packages/tor-network/test (socks5h, sin dns.lookup)",
+   "issue": 143
   },
   {
    "id": "FR021-01",
@@ -1797,7 +1907,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "apps/sovereign-client/test"
+   "evidence": "apps/sovereign-client/test",
+   "issue": 144
   },
   {
    "id": "FR021-02",
@@ -1813,7 +1924,8 @@
    ],
    "sprint": "S5",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 145
   },
   {
    "id": "FR022-01",
@@ -1827,7 +1939,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/telemetry-policy"
+   "evidence": "packages/telemetry-policy",
+   "issue": 146
   },
   {
    "id": "FR022-02",
@@ -1843,7 +1956,8 @@
    ],
    "sprint": "S5",
    "status": "Parcial",
-   "evidence": "NetworkGuard.allowedHosts"
+   "evidence": "NetworkGuard.allowedHosts",
+   "issue": 147
   },
   {
    "id": "SEC-05",
@@ -1857,7 +1971,8 @@
    "deps": [],
    "sprint": "S5",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 148
   },
   {
    "id": "FR025-01",
@@ -1871,7 +1986,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/marmot-adapter"
+   "evidence": "packages/marmot-adapter",
+   "issue": 149
   },
   {
    "id": "FR025-02",
@@ -1887,7 +2003,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "docs/marmot.md"
+   "evidence": "docs/marmot.md",
+   "issue": 150
   },
   {
    "id": "FR025-03",
@@ -1903,7 +2020,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "apps/sovereign-client"
+   "evidence": "apps/sovereign-client",
+   "issue": 151
   },
   {
    "id": "FR025-04",
@@ -1919,7 +2037,8 @@
    ],
    "sprint": "S6",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 152
   },
   {
    "id": "FR025-05",
@@ -1936,7 +2055,8 @@
    ],
    "sprint": "S6",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 153
   },
   {
    "id": "FR025-06",
@@ -1952,7 +2072,8 @@
    ],
    "sprint": "S6",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 154
   },
   {
    "id": "FR025-07",
@@ -1969,7 +2090,8 @@
    ],
    "sprint": "S6",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 155
   },
   {
    "id": "FR025-08",
@@ -1985,7 +2107,8 @@
    ],
    "sprint": "S6",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 156
   },
   {
    "id": "FR025-09",
@@ -2001,7 +2124,8 @@
    ],
    "sprint": "S6",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 157
   },
   {
    "id": "FR025-10",
@@ -2018,7 +2142,8 @@
    ],
    "sprint": "S6",
    "status": "Descartado",
-   "evidence": "ADR 0006: Marmot vive en el secure-relay; sin fork no hay parche (se reevalúa si upstream acepta los kinds)"
+   "evidence": "ADR 0006: Marmot vive en el secure-relay; sin fork no hay parche (se reevalúa si upstream acepta los kinds)",
+   "issue": 158
   },
   {
    "id": "FR023-01",
@@ -2032,7 +2157,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/policy-client"
+   "evidence": "packages/policy-client",
+   "issue": 159
   },
   {
    "id": "FR023-02",
@@ -2048,7 +2174,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "services/policy-engine"
+   "evidence": "services/policy-engine",
+   "issue": 160
   },
   {
    "id": "FR023-03",
@@ -2064,7 +2191,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 161
   },
   {
    "id": "FR023-04",
@@ -2080,7 +2208,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 162
   },
   {
    "id": "FR023-05",
@@ -2097,7 +2226,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 163
   },
   {
    "id": "FR023-06",
@@ -2113,7 +2243,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 164
   },
   {
    "id": "FR023-07",
@@ -2129,7 +2260,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 165
   },
   {
    "id": "FR023-08",
@@ -2145,7 +2277,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 166
   },
   {
    "id": "FR024-01",
@@ -2161,7 +2294,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "services/policy-engine/test"
+   "evidence": "services/policy-engine/test",
+   "issue": 167
   },
   {
    "id": "FR024-02",
@@ -2179,7 +2313,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 168
   },
   {
    "id": "FR024-03",
@@ -2196,7 +2331,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 169
   },
   {
    "id": "NFR001-01",
@@ -2212,7 +2348,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 170
   },
   {
    "id": "NFR001-02",
@@ -2228,7 +2365,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 171
   },
   {
    "id": "NFR001-03",
@@ -2244,7 +2382,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 172
   },
   {
    "id": "NFR002-01",
@@ -2260,7 +2399,8 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/delivery-engine/test"
+   "evidence": "packages/delivery-engine/test",
+   "issue": 173
   },
   {
    "id": "NFR002-02",
@@ -2276,7 +2416,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 174
   },
   {
    "id": "NFR003-01",
@@ -2292,7 +2433,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 175
   },
   {
    "id": "NFR003-02",
@@ -2309,7 +2451,8 @@
    ],
    "sprint": "S4",
    "status": "Parcial",
-   "evidence": "docs/runbooks/restore.md (manual)"
+   "evidence": "docs/runbooks/restore.md (manual)",
+   "issue": 176
   },
   {
    "id": "NFR004-01",
@@ -2323,7 +2466,8 @@
    "deps": [],
    "sprint": "S5",
    "status": "Parcial",
-   "evidence": "RelayHealth.avgAckLatencyMs"
+   "evidence": "RelayHealth.avgAckLatencyMs",
+   "issue": 177
   },
   {
    "id": "NFR004-02",
@@ -2340,7 +2484,8 @@
    ],
    "sprint": "S5",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 178
   },
   {
    "id": "NFR005-01",
@@ -2356,7 +2501,8 @@
    ],
    "sprint": "S8",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 179
   },
   {
    "id": "NFR005-02",
@@ -2372,7 +2518,8 @@
    ],
    "sprint": "S8",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 180
   },
   {
    "id": "NFR006-01",
@@ -2386,7 +2533,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": ".github/workflows/ci.yml"
+   "evidence": ".github/workflows/ci.yml",
+   "issue": 181
   },
   {
    "id": "NFR006-02",
@@ -2400,7 +2548,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/telemetry-policy"
+   "evidence": "packages/telemetry-policy",
+   "issue": 182
   },
   {
    "id": "NFR006-03",
@@ -2416,7 +2565,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 183
   },
   {
    "id": "NFR007-01",
@@ -2430,7 +2580,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/telemetry-policy"
+   "evidence": "packages/telemetry-policy",
+   "issue": 184
   },
   {
    "id": "NFR008-01",
@@ -2444,7 +2595,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "packages/identity"
+   "evidence": "packages/identity",
+   "issue": 185
   },
   {
    "id": "NFR008-02",
@@ -2460,7 +2612,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 186
   },
   {
    "id": "NFR009-01",
@@ -2476,7 +2629,8 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": "axe-core en tests/browser/web-saas.e2e.ts: cero violaciones serias/críticas en todas las vistas"
+   "evidence": "axe-core en tests/browser/web-saas.e2e.ts: cero violaciones serias/críticas en todas las vistas",
+   "issue": 187
   },
   {
    "id": "NFR009-02",
@@ -2492,7 +2646,8 @@
    ],
    "sprint": "S3",
    "status": "Parcial",
-   "evidence": "docs/accessibility-review.md (correcciones automatizables aplicadas, ids duplicados comprobados en tests/browser/web-saas.e2e.ts); falta la revisión manual con NVDA/VoiceOver"
+   "evidence": "docs/accessibility-review.md (correcciones automatizables aplicadas, ids duplicados comprobados en tests/browser/web-saas.e2e.ts); falta la revisión manual con NVDA/VoiceOver",
+   "issue": 188
   },
   {
    "id": "NFR010-01",
@@ -2506,7 +2661,8 @@
    "deps": [],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": ".github/workflows/ci.yml"
+   "evidence": ".github/workflows/ci.yml",
+   "issue": 189
   },
   {
    "id": "NFR010-02",
@@ -2522,7 +2678,8 @@
    ],
    "sprint": "S4",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 190
   },
   {
    "id": "NFR010-03",
@@ -2538,7 +2695,8 @@
    ],
    "sprint": "S8",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 191
   },
   {
    "id": "SEC-01",
@@ -2556,7 +2714,8 @@
    ],
    "sprint": "S8",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 192
   },
   {
    "id": "SEC-02",
@@ -2574,7 +2733,8 @@
    ],
    "sprint": "S8",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 193
   },
   {
    "id": "SEC-03",
@@ -2588,7 +2748,8 @@
    "deps": [],
    "sprint": "S4",
    "status": "Parcial",
-   "evidence": "interop contra nostr-tools"
+   "evidence": "interop contra nostr-tools",
+   "issue": 194
   },
   {
    "id": "SEC-04",
@@ -2604,7 +2765,8 @@
    ],
    "sprint": "S7",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 195
   },
   {
    "id": "REL-01",
@@ -2624,7 +2786,8 @@
    ],
    "sprint": "S8",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 196
   },
   {
    "id": "REL-02",
@@ -2640,7 +2803,8 @@
    ],
    "sprint": "S8",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 197
   },
   {
    "id": "DEC-11",
@@ -2656,7 +2820,8 @@
    ],
    "sprint": "S8",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 198
   }
  ]
 }
