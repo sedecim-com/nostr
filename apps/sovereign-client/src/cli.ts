@@ -21,9 +21,20 @@
  *   sovereign group rotate --persona ID --group GID     (self-update: post-compromise security)
  *   sovereign group list --persona ID
  *
- * Env: SOVEREIGN_DATA_DIR (default ./.data/sovereign), SOVEREIGN_PASSPHRASE, TOR_SOCKS (127.0.0.1:9050)
+ * Env: SOVEREIGN_DATA_DIR (default ./.data/sovereign), SOVEREIGN_PASSPHRASE, TOR_SOCKS (127.0.0.1:9050),
+ *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present)
  */
+import { existsSync, readFileSync } from 'node:fs';
+import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags } from '@sedecim/messaging';
 import { SovereignClient } from './app';
+
+function relayAdapter() {
+  const path = process.env.SOVEREIGN_FLAGS ?? 'infra/web/flags.json';
+  if (!existsSync(path)) return BUZZ_PINNED_ADAPTER;
+  const flags = JSON.parse(readFileSync(path, 'utf8')) as DeploymentFlags;
+  if (!flags.nip17.enabled) throw new Error(`NIP-17 deshabilitado por el gate de interoperabilidad (${flags.relay})`);
+  return { ...BUZZ_PINNED_ADAPTER, wrap: wrapOptionsFromFlags(flags, BUZZ_PINNED_ADAPTER.wrap) };
+}
 
 const argv = process.argv.slice(2);
 const opt = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
@@ -34,7 +45,8 @@ async function main() {
   const passphrase = process.env.SOVEREIGN_PASSPHRASE;
   if (!passphrase) throw new Error('set SOVEREIGN_PASSPHRASE (protects the local encrypted stores)');
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
-  const client = new SovereignClient({ dataDir: process.env.SOVEREIGN_DATA_DIR ?? './.data/sovereign', passphrase, socksHost, socksPort: Number(socksPort) });
+  const needsDm = argv[0] === 'dm' && argv[1] === 'send';
+  const client = new SovereignClient({ dataDir: process.env.SOVEREIGN_DATA_DIR ?? './.data/sovereign', passphrase, socksHost, socksPort: Number(socksPort), ...(needsDm ? { relayAdapter: relayAdapter() } : {}) });
   const persona = opt('--persona');
   const need = () => {
     if (!persona) throw new Error('--persona ID required');

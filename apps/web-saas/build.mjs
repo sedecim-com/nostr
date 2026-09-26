@@ -1,4 +1,5 @@
 import { build } from 'esbuild';
+import { copyFileSync } from 'node:fs';
 
 // Node built-ins are only used by server-side backends (FileBackend); stub them for the browser bundle.
 const stubNode = {
@@ -20,4 +21,6 @@ await build({
   plugins: [stubNode],
   legalComments: 'none',
 });
-console.log('built apps/web-saas/public/app.js');
+// Deployment flags generated from the interop gate (compose also mounts the live file over it).
+copyFileSync(new URL('../../infra/web/flags.json', import.meta.url), new URL('./public/flags.json', import.meta.url));
+console.log('built apps/web-saas/public/app.js (+ flags.json)');

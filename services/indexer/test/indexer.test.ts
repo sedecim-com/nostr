@@ -153,3 +153,30 @@ describe('Indexer against a p-gated relay (Buzz behaviour)', () => {
     await relay.stop();
   });
 });
+
+describe('Indexer against a Buzz-like relay (auth required, channel-scoped fan-out)', () => {
+  it('authenticates with its service identity and mirrors live channel messages via #h', async () => {
+    const relay = new TestRelay({ requireAuth: true, authNoticeOnReq: true, channelScopedFanout: true, pGatedKinds: [1059] });
+    await relay.start();
+    const author = new LocalSigner(generateSecretKey());
+    relay.inject(await author.signEvent({ kind: 39000, content: '', tags: [['d', 'canal-1'], ['name', 'General']] }));
+    const pool = new RelayPool({ webSocketFactory: factory, signer: new LocalSigner(generateSecretKey()), authMode: 'auto' });
+    const repo = new MemoryEventRepository();
+    const idx = new Indexer(pool, repo, { relays: [relay.url], filters: [{ kinds: [0, 1] }], channelRefreshMs: 100 });
+    await idx.start();
+    expect([...idx.channels]).toEqual(['canal-1']);
+    const live = await author.signEvent({ kind: 9, content: 'en vivo', tags: [['h', 'canal-1']] });
+    relay.inject(live);
+    await until(async () => !!(await repo.get(live.id)));
+    // a channel created after start is discovered by the periodic refresh
+    relay.inject(await author.signEvent({ kind: 39000, content: '', tags: [['d', 'canal-2'], ['name', 'Nuevo']] }));
+    await until(async () => idx.channels.has('canal-2'));
+    await new Promise((r) => setTimeout(r, 50));
+    const later = await author.signEvent({ kind: 9, content: 'canal nuevo', tags: [['h', 'canal-2']] });
+    relay.inject(later);
+    await until(async () => !!(await repo.get(later.id)));
+    idx.stop();
+    pool.close();
+    await relay.stop();
+  });
+});

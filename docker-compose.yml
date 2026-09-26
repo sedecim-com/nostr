@@ -43,6 +43,13 @@ services:
       BUZZ_CORS_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
     ports: ["${RELAY_PORT:-3000}:3000"]
     volumes: [relay-git:/data/git]
+    # The runtime image has bash but no curl: probe /_readiness over /dev/tcp (same as upstream compose).
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8080; printf \"GET /_readiness HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n\" >&3; grep -q \"200 OK\" <&3'"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+      start_period: 30s
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -112,13 +119,18 @@ services:
     build: { context: ., target: service, args: { SERVICE: indexer } }
     environment:
       INDEXER_RELAYS: ws://relay:3000
+      # NIP-42 service identity of the mirror (Buzz refuses anonymous REQs). Allowlist its npub on private relays.
+      INDEXER_NSEC: ${INDEXER_NSEC:-}
+      INDEXER_CHANNEL_REFRESH_MS: ${INDEXER_CHANNEL_REFRESH_MS:-30000}
       DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_DB:-sedecim}
       MIRROR_AT_REST_KEY: ${MIRROR_AT_REST_KEY:-}
       INDEXER_REQUIRE_AUTH: ${INDEXER_REQUIRE_AUTH:-true}
       PUBLIC_BASE_URL: ${INDEXER_PUBLIC_URL:-http://localhost:8081}
       PORT: "8081"
     ports: ["${INDEXER_PORT:-8081}:8081"]
-    depends_on: [relay, postgres]
+    depends_on:
+      relay: { condition: service_healthy }
+      postgres: { condition: service_healthy }
 
   identity-service:
     <<: *service
@@ -168,6 +180,9 @@ services:
   web:
     build: { context: ., target: web }
     ports: ["${WEB_PORT:-8080}:8080"]
+    volumes:
+      # flags generated from the interop gate: npx tsx scripts/interop-flags.ts interop-report.json
+      - ./infra/web/flags.json:/usr/share/nginx/html/flags.json:ro
     restart: unless-stopped
     read_only: true
     tmpfs: [/var/cache/nginx, /var/run, /tmp]

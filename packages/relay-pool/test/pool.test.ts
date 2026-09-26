@@ -81,6 +81,15 @@ describe('RelayPool', () => {
     expect(Date.now() - started).toBeLessThan(2500);
   });
 
+  it('authenticates and replays REQs when the relay answers with a NOTICE auth-required (Buzz behaviour)', async () => {
+    const r = await startRelay({ requireAuth: true, authNoticeOnReq: true });
+    const evt = await signer.signEvent({ kind: 1, content: 'needs auth to read' });
+    r.inject(evt);
+    pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'on-demand' });
+    const got = await pool.query([r.url], [{ kinds: [1] }], 3000);
+    expect(got.map((e) => e.id)).toEqual([evt.id]);
+  });
+
   it('deduplicates the same event id across relays (FR-012)', async () => {
     const a = await startRelay();
     const b = await startRelay();

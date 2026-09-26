@@ -264,6 +264,17 @@ export class RelayConnection {
         if (typeof a === 'string') {
           this.notices.push(a);
           if (this.notices.length > 20) this.notices.shift();
+          // Buzz answers an unauthenticated REQ with a NOTICE (not CLOSED): authenticate once and
+          // replay the subscriptions that have not reached EOSE yet.
+          if (a.startsWith('auth-required:') && this.canAuth() && this.authed.size === 0) {
+            void this.authenticate().then((ok) => {
+              if (!ok) return;
+              for (const [id, sub] of this.subs) if (!sub.eosed && !sub.authRetried) {
+                sub.authRetried = true;
+                this.sendRaw(['REQ', id, ...sub.filters]);
+              }
+            });
+          }
         }
         return;
       default:

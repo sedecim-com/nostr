@@ -9,6 +9,7 @@ sed -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rand 24)/" \
     -e "s/^S3_SECRET_KEY=.*/S3_SECRET_KEY=$(rand 24)/" \
     -e "s/^BUZZ_RELAY_PRIVATE_KEY=.*/BUZZ_RELAY_PRIVATE_KEY=$(rand 32)/" \
     -e "s/^BUZZ_GIT_HOOK_HMAC_SECRET=.*/BUZZ_GIT_HOOK_HMAC_SECRET=$(rand 32)/" \
+    -e "s/^INDEXER_NSEC=.*/INDEXER_NSEC=$(rand 32)/" \
     .env.example > .env
 chmod 600 .env
 echo ".env created. Review it before 'docker compose up -d'."

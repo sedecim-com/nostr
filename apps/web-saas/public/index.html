@@ -65,6 +65,7 @@
       <h2 id="dm-h">Mensajes directos (NIP-17)</h2>
       <p class="warn">NIP-17 es draft y queda deshabilitado hasta pasar la suite E2E contra la versión fijada del relay. NIP-44 no ofrece forward secrecy ni post-compromise security. Adaptador Buzz activo: timestamps de gift wrap aleatorizados solo ±5 min (el relay rechaza la ventana estándar de 2 días), lo que da al relay una estimación temporal más precisa.</p>
       <label><input type="checkbox" id="nip17-flag" /> Habilitar NIP-17 en esta sesión (feature flag)</label>
+      <p class="sending-as" id="nip17-gate" aria-live="polite"></p>
       <form id="dm-send">
         <p class="sending-as" data-sending-as></p>
         <label for="dm-to">Destinatario (npub)</label><input id="dm-to" required spellcheck="false" />

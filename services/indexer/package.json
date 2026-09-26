@@ -15,6 +15,7 @@
     "@sedecim/nostr-core": "0.1.0",
     "@sedecim/relay-pool": "0.1.0",
     "@sedecim/service-kit": "0.1.0",
+    "@sedecim/signer": "0.1.0",
     "@sedecim/telemetry-policy": "0.1.0",
     "pg": "8.23.0",
     "ws": "8.21.3"
