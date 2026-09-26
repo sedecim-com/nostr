@@ -50,6 +50,6 @@
     "vitest": "5.0.1"
   },
   "overrides": {
-    "ts-mls": "2.0.0-rc.11"
+    "ts-mls": "2.0.0-rc.16"
   }
 }
