@@ -199,6 +199,8 @@ try {
   assert((await bob.page.locator('#group-send').count()) === 0, 'the removed member has no composer');
   await bob.page.locator('#group-removed').getByRole('button', { name: 'Olvidar grupo' }).click();
   await bob.page.locator('#group-detail').waitFor({ state: 'detached', timeout: 20_000 });
+  // The detail closes first; the list refreshes once the MLS session has been reopened without the group.
+  await bob.page.locator('#group-list').getByText('Redacción').waitFor({ state: 'detached', timeout: 20_000 }).catch(() => undefined);
   assert((await bob.page.locator('#group-list').getByText('Redacción').count()) === 0, 'the removed member can forget the group locally');
 
   // --- Alice reloads: admin state (epoch, members) and history restored
