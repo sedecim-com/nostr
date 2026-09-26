@@ -60,6 +60,9 @@ if [ -z "${BUZZ_OPERATOR_SECRET:-}" ]; then
   RELAY_OPERATOR_PUBKEYS=$(printf '%s\n' "$keys" | sed -n 's/^pubkey_hex=//p')
   export BUZZ_OPERATOR_SECRET RELAY_OPERATOR_PUBKEYS
 fi
+# The operator endpoint checks the NIP-98 `u` against this origin: the URL this script calls.
+BUZZ_HTTP_URL=http://localhost:${RELAY_PORT:-3000}
+export RELAY_OPERATOR_API_ORIGIN=${RELAY_OPERATOR_API_ORIGIN:-$BUZZ_HTTP_URL}
 
 if [ "${TOR_CHECK_SKIP_UP:-0}" != 1 ]; then
   [ -f .env ] || sh scripts/init-env.sh
@@ -82,8 +85,8 @@ echo "relay onion:        ws://$RELAY_ONION"
 echo "secure-relay onion: ws://$SECURE_ONION"
 
 # Buzz maps each Host to one community and rejects unmapped hosts: give the onion host its own.
-BUZZ_HTTP_URL=http://localhost:${RELAY_PORT:-3000} "$TSX" scripts/buzz-provision-community.ts "$RELAY_ONION" > "$OUT/buzz.provision.log" 2>&1 ||
-  fail "could not provision the Buzz community for $RELAY_ONION (see $OUT/buzz.provision.log; RELAY_OPERATOR_PUBKEYS must hold the operator key)"
+BUZZ_HTTP_URL=$BUZZ_HTTP_URL "$TSX" scripts/buzz-provision-community.ts "$RELAY_ONION" > "$OUT/buzz.provision.log" 2>&1 ||
+  fail "could not provision the Buzz community for $RELAY_ONION: $(cat "$OUT/buzz.provision.log") (RELAY_OPERATOR_PUBKEYS must hold the operator key and RELAY_OPERATOR_API_ORIGIN the URL called)"
 cat "$OUT/buzz.provision.log"
 
 bootstrapped() { "${COMPOSE[@]}" logs --no-color tor | grep -q 'Bootstrapped 100%'; }

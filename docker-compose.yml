@@ -36,6 +36,8 @@ services:
       # Deployment operators (hex, comma-separated): may create communities, e.g. for the relay .onion
       # host (scripts/buzz-provision-community.ts). Empty disables provisioning.
       RELAY_OPERATOR_PUBKEYS: ${RELAY_OPERATOR_PUBKEYS:-}
+      # Origin the operator NIP-98 `u` tag is checked against (e.g. http://localhost:3000); empty rejects.
+      RELAY_OPERATOR_API_ORIGIN: ${RELAY_OPERATOR_API_ORIGIN:-}
       # Third-party Nostr clients (our SDK, web SaaS) authenticate with NIP-42 only.
       BUZZ_REQUIRE_AUTH_TOKEN: ${BUZZ_REQUIRE_AUTH_TOKEN:-false}
       BUZZ_REQUIRE_RELAY_MEMBERSHIP: ${BUZZ_REQUIRE_RELAY_MEMBERSHIP:-false}

@@ -10,7 +10,8 @@ npm run sovereign -- channel send --persona <id> --group <h> "texto"
 
 **Buzz por `.onion`: una comunidad para el host onion.** Buzz asigna cada conexión a la comunidad de su
 cabecera `Host` y rechaza los hosts sin comunidad, así que el `.onion` del relay necesita la suya. Se crea una
-vez, con una llave de operador listada en `RELAY_OPERATOR_PUBKEYS` (`.env`):
+vez, con una llave de operador listada en `RELAY_OPERATOR_PUBKEYS` y con `RELAY_OPERATOR_API_ORIGIN` igual a la URL
+HTTP del relay que llama el script (p. ej. `http://localhost:3000`), ambos en `.env`:
 
 ```bash
 BUZZ_OPERATOR_SECRET=<hex|nsec> npx tsx scripts/buzz-provision-community.ts <56 chars>.onion
