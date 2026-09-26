@@ -484,8 +484,8 @@
    "sp": 1,
    "deps": [],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": ".github/workflows/release.yml: builds con contents: read; publicación solo desde el entorno `release`. Falta configurar en GitHub el entorno con aprobadores y \"Prevent self-review\" y la regla de tags v* (docs/building.md)",
    "issue": 59
   },
   {
@@ -499,8 +499,8 @@
    "sp": 2,
    "deps": [],
    "sprint": "S4",
-   "status": "Parcial",
-   "evidence": "README.md, docs/runbooks/restore.md",
+   "status": "Hecho",
+   "evidence": "docs/building.md (build de servicios, web, keygen HTML/CLI y SBOM; qué es reproducible y cómo comparar con una release); scripts/verify-release.sh",
    "issue": 60
   },
   {
@@ -515,7 +515,7 @@
    "deps": [],
    "sprint": "S4",
    "status": "Parcial",
-   "evidence": "scripts/backlog-github.mjs + tests/scripts/backlog-github.test.ts, .github/workflows/backlog-sync.yml, .github/ISSUE_TEMPLATE/backlog-task.yml, docs/backlog/GITHUB.md. Falta sembrar los issues (primera ejecución al fusionar)",
+   "evidence": "scripts/backlog-github.mjs, .github/workflows/backlog-sync.yml, .github/ISSUE_TEMPLATE/backlog-task.yml, docs/backlog/GITHUB.md. Sembrado: 164 issues, 11 epics, 10 milestones, 320 relaciones; la sync actualiza la rama backlog-sync. Falta que la organización permita a Actions abrir la PR de sync",
    "issue": 61
   },
   {
@@ -819,8 +819,8 @@
     "NFR010-02"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "release.yml firma keygen.html, keygen.mjs y SHA256SUMS con cosign keyless (bundle .sigstore.json) + provenance SLSA; verificación en docs/keygen-air-gapped.md y scripts/verify-release.sh. Falta la primera release firmada",
    "issue": 79
   },
   {
@@ -836,8 +836,8 @@
     "FR003-06"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "docs/keygen-air-gapped.md (verificar checksum y firma, generar sin red, verificar el backup con la CLI). Pendiente de la primera release firmada para probar el procedimiento de punta a punta",
    "issue": 80
   },
   {
@@ -1259,8 +1259,8 @@
     "FR027-02"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "services/identity-service /v1/backups (solo sobres cifrados, rechazo de texto plano, 5 versiones, NIP-98 o token de Acceso), packages/identity/src/backup-vault.ts, web \"Guardar copia cifrada en la nube\"/\"Restaurar desde la nube\"; tests backup-vault.test.ts y web-saas.e2e.ts",
    "issue": 105
   },
   {
@@ -1494,8 +1494,8 @@
     "FR013-01"
    ],
    "sprint": "S4",
-   "status": "Parcial",
-   "evidence": "packages/sync (solo detección)",
+   "status": "Hecho",
+   "evidence": "packages/sync/src/negentropy.ts (NIP-77 con detección por NIP-11 o sonda, fallback a REQ por ventanas), test-relay con NIP-77 opcional; tests negentropy.test.ts y sync.test.ts. Sin interop aún contra un relay NIP-77 externo",
    "issue": 119
   },
   {
@@ -1512,8 +1512,8 @@
     "FR027-01"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "tests/e2e/reinstall-history.test.ts (backup v2 con outbox → dispositivo limpio → canales, DMs y outbox iguales), packages/sync/src/rebuild.ts, sovereign history sync",
    "issue": 120
   },
   {
@@ -1529,8 +1529,8 @@
     "FR013-01"
    ],
    "sprint": "S4",
-   "status": "Parcial",
-   "evidence": "packages/messaging dmInboxFilter",
+   "status": "Hecho",
+   "evidence": "packages/sync/test/gift-wrap-window.test.ts (wraps de 0 s a 2 días, ninguno perdido); corregido FilterWindowSync, que ignoraba el since ampliado de dmInboxFilter",
    "issue": 121
   },
   {
@@ -1726,8 +1726,8 @@
     "BUZZ-05"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "nip17GateDecision (packages/messaging/src/flags.ts): el gate de cada revisión de Buzz vuelve a 172800 s si #4192 se corrige; la PR del pin lo indica (interop-flags --change-from); tests flags.test.ts; docs/buzz-integration.md",
    "issue": 133
   },
   {
@@ -2347,8 +2347,8 @@
     "OPS-02"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "deploy/k8s (kustomize base + overlay stage, scripts deploy/update/teardown), deploy/terraform/modules/acceso-nostr, deploy/README.md; validado con kustomize, kubeconform y terraform validate. Falta el terraform apply en infrastructure y el despliegue en sedecim-stage",
    "issue": 170
   },
   {
@@ -2364,8 +2364,8 @@
     "NFR001-01"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "deploy/monitoring (blackbox probes, reglas SLO 99,9 % multi-ventana, alertas, dashboard Grafana, tests promtool), docs/slo.md. Falta desplegarlo y definir los receptores de alertas",
    "issue": 171
   },
   {
@@ -2415,8 +2415,8 @@
     "NFR002-01"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "packages/encrypted-store/test/crash.test.ts (30 SIGKILL durante la escritura; cada llave queda con el valor viejo o el nuevo); backend con fsync del directorio y limpieza de temporales",
    "issue": 174
   },
   {
@@ -2432,8 +2432,8 @@
     "DEC-09"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "docs/rpo-rto.md (tabla por tier y componente). Propuesta pendiente de aprobación",
    "issue": 175
   },
   {
@@ -2451,7 +2451,7 @@
    ],
    "sprint": "S4",
    "status": "Parcial",
-   "evidence": "docs/runbooks/restore.md (manual)",
+   "evidence": ".github/workflows/restore-drill.yml (nightly), scripts/backup.sh, scripts/restore.sh, scripts/drill-data.ts; runbook actualizado. Falta la primera ejecución en verde",
    "issue": 176
   },
   {
@@ -2564,8 +2564,8 @@
     "OPS-01"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "scripts/scan-logs.sh (gitleaks sobre compose.log + canario con los valores de .env) en el job stack de ci.yml; tests scan-logs.test.ts",
    "issue": 183
   },
   {
@@ -2611,8 +2611,8 @@
     "FR013-01"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "packages/sync/src/jsonl.ts (export ordenado y sin duplicados, import con verificación de firmas), sovereign history export/import; verificado con nostr-tools verifyEvent",
    "issue": 186
   },
   {
@@ -2677,8 +2677,8 @@
     "OPS-08"
    ],
    "sprint": "S4",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": ".github/workflows/release.yml: imágenes a GHCR por digest firmadas con cosign keyless, provenance SLSA y SBOM atestados; verificación en scripts/verify-release.sh. Falta la primera release firmada",
    "issue": 190
   },
   {
@@ -2747,8 +2747,8 @@
    "sp": 3,
    "deps": [],
    "sprint": "S4",
-   "status": "Parcial",
-   "evidence": "interop contra nostr-tools",
+   "status": "Hecho",
+   "evidence": "tests/fuzz (fast-check: eventos, NIP-44, NIP-49, TLV NIP-19, codec MLS, parsers de backup; diferencial con nostr-tools). Bugs corregidos: nevent con author/kind de longitud inválida, parseKeyBackup, -0/NaN en el codec MLS, bytes sobrantes en decode MLS",
    "issue": 194
   },
   {
