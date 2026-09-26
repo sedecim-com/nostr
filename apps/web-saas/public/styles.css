@@ -1,0 +1,23 @@
+:root { --bg: #0f1115; --fg: #f1f3f5; --muted: #b8c0cc; --accent: #7cc4ff; --warn: #ffd166; --err: #ff8a8a; --card: #1a1e26; font-family: system-ui, sans-serif; }
+@media (prefers-color-scheme: light) { :root { --bg: #fdfdfd; --fg: #111; --muted: #444; --accent: #0550ae; --warn: #7a4d00; --err: #a40e26; --card: #f1f3f6; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); line-height: 1.5; }
+header, nav, main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+.skip { position: absolute; left: -999px; } .skip:focus { left: 8px; top: 8px; background: var(--card); padding: 8px; }
+nav { display: flex; flex-wrap: wrap; gap: 4px; }
+.tab { background: var(--card); color: var(--fg); border: 1px solid var(--muted); padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+.tab[aria-selected="true"] { border-color: var(--accent); outline: 2px solid var(--accent); }
+button, input, select, textarea { font: inherit; }
+button { background: var(--accent); color: var(--bg); border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; margin: 6px 0; }
+input, select, textarea { width: 100%; padding: 8px; background: var(--card); color: var(--fg); border: 1px solid var(--muted); border-radius: 6px; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+label { display: block; margin-top: 10px; }
+fieldset { border: 1px solid var(--muted); border-radius: 6px; margin-top: 10px; }
+fieldset label input { width: auto; }
+.warn { color: var(--warn); } .error { color: var(--err); }
+.sending-as { color: var(--muted); font-size: 0.9em; }
+.log { background: var(--card); border-radius: 6px; padding: 8px 8px 8px 32px; max-height: 360px; overflow: auto; }
+table { width: 100%; border-collapse: collapse; } th, td { text-align: left; padding: 6px; border-bottom: 1px solid var(--muted); vertical-align: top; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.dimensions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-top: 12px; }
+.dimensions div, .facts { background: var(--card); border-radius: 6px; padding: 8px; }

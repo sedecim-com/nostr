@@ -1,0 +1,161 @@
+import type { Pool } from '@sedecim/service-kit';
+
+export type Visibility = 'private' | 'selective' | 'public';
+
+export interface PersonaRow {
+  personaId: string;
+  accountId: string;
+  pubkey: string;
+  custodyMode: string;
+  linkageVisibility: Visibility;
+  label?: string;
+}
+
+export interface LinkRow {
+  linkId: string;
+  fromPersona: string;
+  toPersona: string;
+  visibility: Visibility;
+  audience: string[];
+}
+
+export interface KeyMetadataRow {
+  keyId: string;
+  personaId: string;
+  provider: string;
+  version: number;
+  lastUsed?: string;
+  recoveryState: string;
+}
+
+export interface IdentityRepository {
+  createAccount(accountId: string, first: PersonaRow): Promise<void>;
+  personaByPubkey(pubkey: string): Promise<PersonaRow | undefined>;
+  personasOf(accountId: string): Promise<PersonaRow[]>;
+  addPersona(p: PersonaRow): Promise<void>;
+  removePersona(accountId: string, pubkey: string): Promise<boolean>;
+  addLink(l: LinkRow): Promise<void>;
+  linksOf(personaIds: string[]): Promise<LinkRow[]>;
+  upsertKeyMetadata(k: KeyMetadataRow): Promise<void>;
+  keyMetadataOf(personaId: string): Promise<KeyMetadataRow[]>;
+  audit(accountId: string, actor: string, action: string, details: Record<string, unknown>): Promise<void>;
+  auditOf(accountId: string): Promise<Array<{ at: string; actor: string; action: string; details: Record<string, unknown> }>>;
+}
+
+export class MemoryIdentityRepository implements IdentityRepository {
+  private accounts = new Set<string>();
+  private personas = new Map<string, PersonaRow>();
+  private links = new Map<string, LinkRow>();
+  private keys = new Map<string, KeyMetadataRow>();
+  private log: Array<{ accountId: string; at: string; actor: string; action: string; details: Record<string, unknown> }> = [];
+
+  async createAccount(accountId: string, first: PersonaRow) {
+    if (await this.personaByPubkey(first.pubkey)) throw new Error('pubkey already registered');
+    this.accounts.add(accountId);
+    this.personas.set(first.personaId, first);
+  }
+  async personaByPubkey(pubkey: string) {
+    return [...this.personas.values()].find((p) => p.pubkey === pubkey);
+  }
+  async personasOf(accountId: string) {
+    return [...this.personas.values()].filter((p) => p.accountId === accountId);
+  }
+  async addPersona(p: PersonaRow) {
+    if (await this.personaByPubkey(p.pubkey)) throw new Error('pubkey already registered');
+    this.personas.set(p.personaId, p);
+  }
+  async removePersona(accountId: string, pubkey: string) {
+    const p = await this.personaByPubkey(pubkey);
+    if (!p || p.accountId !== accountId) return false;
+    this.personas.delete(p.personaId);
+    for (const [id, l] of this.links) if (l.fromPersona === p.personaId || l.toPersona === p.personaId) this.links.delete(id);
+    return true;
+  }
+  async addLink(l: LinkRow) {
+    if ([...this.links.values()].some((x) => x.fromPersona === l.fromPersona && x.toPersona === l.toPersona)) throw new Error('link exists');
+    this.links.set(l.linkId, l);
+  }
+  async linksOf(ids: string[]) {
+    return [...this.links.values()].filter((l) => ids.includes(l.fromPersona) || ids.includes(l.toPersona));
+  }
+  async upsertKeyMetadata(k: KeyMetadataRow) {
+    this.keys.set(k.keyId, k);
+  }
+  async keyMetadataOf(personaId: string) {
+    return [...this.keys.values()].filter((k) => k.personaId === personaId);
+  }
+  async audit(accountId: string, actor: string, action: string, details: Record<string, unknown>) {
+    this.log.push({ accountId, at: new Date().toISOString(), actor, action, details });
+  }
+  async auditOf(accountId: string) {
+    return this.log.filter((l) => l.accountId === accountId).map(({ accountId: _a, ...r }) => r);
+  }
+}
+
+export class PgIdentityRepository implements IdentityRepository {
+  constructor(private readonly pool: Pool) {}
+
+  private mapPersona = (r: Record<string, unknown>): PersonaRow => ({
+    personaId: r.persona_id as string,
+    accountId: r.account_id as string,
+    pubkey: r.pubkey as string,
+    custodyMode: r.custody_mode as string,
+    linkageVisibility: r.linkage_visibility as Visibility,
+    ...(r.label ? { label: r.label as string } : {}),
+  });
+
+  async createAccount(accountId: string, first: PersonaRow) {
+    const c = await this.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('INSERT INTO accounts (account_id) VALUES ($1)', [accountId]);
+      await c.query('INSERT INTO identity_personas (persona_id, account_id, pubkey, custody_mode, linkage_visibility, label) VALUES ($1,$2,$3,$4,$5,$6)', [first.personaId, accountId, first.pubkey, first.custodyMode, first.linkageVisibility, first.label ?? null]);
+      await c.query('COMMIT');
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+  async personaByPubkey(pubkey: string) {
+    const { rows } = await this.pool.query('SELECT * FROM identity_personas WHERE pubkey = $1', [pubkey]);
+    return rows[0] ? this.mapPersona(rows[0]) : undefined;
+  }
+  async personasOf(accountId: string) {
+    const { rows } = await this.pool.query('SELECT * FROM identity_personas WHERE account_id = $1 ORDER BY created_at', [accountId]);
+    return rows.map(this.mapPersona);
+  }
+  async addPersona(p: PersonaRow) {
+    await this.pool.query('INSERT INTO identity_personas (persona_id, account_id, pubkey, custody_mode, linkage_visibility, label) VALUES ($1,$2,$3,$4,$5,$6)', [p.personaId, p.accountId, p.pubkey, p.custodyMode, p.linkageVisibility, p.label ?? null]);
+  }
+  async removePersona(accountId: string, pubkey: string) {
+    const r = await this.pool.query('DELETE FROM identity_personas WHERE account_id = $1 AND pubkey = $2', [accountId, pubkey]);
+    return (r.rowCount ?? 0) > 0;
+  }
+  async addLink(l: LinkRow) {
+    await this.pool.query('INSERT INTO identity_links (link_id, from_persona, to_persona, visibility, audience) VALUES ($1,$2,$3,$4,$5)', [l.linkId, l.fromPersona, l.toPersona, l.visibility, l.audience]);
+  }
+  async linksOf(ids: string[]) {
+    const { rows } = await this.pool.query('SELECT * FROM identity_links WHERE from_persona = ANY($1) OR to_persona = ANY($1)', [ids]);
+    return rows.map((r) => ({ linkId: r.link_id, fromPersona: r.from_persona, toPersona: r.to_persona, visibility: r.visibility, audience: r.audience }));
+  }
+  async upsertKeyMetadata(k: KeyMetadataRow) {
+    await this.pool.query(
+      `INSERT INTO key_metadata (key_id, persona_id, provider, version, last_used, recovery_state) VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (key_id) DO UPDATE SET provider = EXCLUDED.provider, version = EXCLUDED.version, last_used = EXCLUDED.last_used, recovery_state = EXCLUDED.recovery_state`,
+      [k.keyId, k.personaId, k.provider, k.version, k.lastUsed ?? null, k.recoveryState],
+    );
+  }
+  async keyMetadataOf(personaId: string) {
+    const { rows } = await this.pool.query('SELECT * FROM key_metadata WHERE persona_id = $1', [personaId]);
+    return rows.map((r) => ({ keyId: r.key_id, personaId: r.persona_id, provider: r.provider, version: r.version, ...(r.last_used ? { lastUsed: new Date(r.last_used).toISOString() } : {}), recoveryState: r.recovery_state }));
+  }
+  async audit(accountId: string, actor: string, action: string, details: Record<string, unknown>) {
+    await this.pool.query('INSERT INTO identity_audit (account_id, actor, action, details) VALUES ($1,$2,$3,$4)', [accountId, actor, action, JSON.stringify(details)]);
+  }
+  async auditOf(accountId: string) {
+    const { rows } = await this.pool.query('SELECT at, actor, action, details FROM identity_audit WHERE account_id = $1 ORDER BY id', [accountId]);
+    return rows.map((r) => ({ at: new Date(r.at).toISOString(), actor: r.actor, action: r.action, details: r.details }));
+  }
+}

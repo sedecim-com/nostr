@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+sbom.cdx.json
+apps/web-saas/public/app.js
+apps/web-saas/public/app.js.map
+.data/
+interop-report.json

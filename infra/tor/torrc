@@ -1,0 +1,12 @@
+# Sovereign Tor Mode: SOCKS for clients + onion service for the relay (spec §14).
+SocksPort 0.0.0.0:9050 IsolateSOCKSAuth IsolateDestAddr
+SocksPolicy accept 172.16.0.0/12
+SocksPolicy accept 10.0.0.0/8
+SocksPolicy accept 192.168.0.0/16
+SocksPolicy reject *
+DataDirectory /var/lib/tor
+HiddenServiceDir /var/lib/tor/relay
+HiddenServiceVersion 3
+HiddenServicePort 80 relay:3000
+Log notice stdout
+SafeLogging 1

@@ -1,0 +1,18 @@
+{
+  "name": "@sedecim/delivery-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Máquina de estados de entrega, outbox persistente, quorum multi-relay.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sedecim/nostr-core": "0.1.0",
+    "@sedecim/relay-pool": "0.1.0",
+    "@sedecim/encrypted-store": "0.1.0"
+  }
+}

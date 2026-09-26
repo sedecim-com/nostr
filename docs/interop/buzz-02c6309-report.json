@@ -1,0 +1,88 @@
+{
+  "relay": "ws://127.0.0.1:3000",
+  "startedAt": "2026-09-26T00:35:19.054Z",
+  "nip11": {
+    "status": 200,
+    "supported_nips": [
+      1,
+      2,
+      10,
+      11,
+      16,
+      17,
+      23,
+      25,
+      29,
+      33,
+      38,
+      42,
+      50,
+      56
+    ],
+    "software": "https://github.com/block/buzz",
+    "version": "0.2.1"
+  },
+  "nip29_create": {
+    "relay": "ws://127.0.0.1:3000",
+    "ok": true,
+    "message": "",
+    "latencyMs": 78
+  },
+  "nip29_group_id": "43b7c844-c31a-4708-a800-ecd347a7ed0e",
+  "nip29_message": {
+    "relay": "ws://127.0.0.1:3000",
+    "ok": true,
+    "message": "",
+    "latencyMs": 13
+  },
+  "nip17": {
+    "strategies": {
+      "nip59-default-2d": {
+        "accepted": 0,
+        "attempts": 3,
+        "messages": [
+          "invalid: event timestamp too far from server time",
+          "invalid: event timestamp too far from server time",
+          "invalid: event timestamp too far from server time"
+        ]
+      },
+      "bounded-5m": {
+        "accepted": 3,
+        "attempts": 3,
+        "messages": []
+      },
+      "none": {
+        "accepted": 3,
+        "attempts": 3,
+        "messages": []
+      }
+    },
+    "receivedByRecipient": 6,
+    "unscopedSubscriptionLeaks": 0,
+    "recommendedJitterSeconds": 300,
+    "enableFlag": true
+  },
+  "blossom": {
+    "buzzMedia": {
+      "plainImage": {
+        "accepted": false,
+        "error": "blossom upload failed: 500 {\"error\":\"internal error\"}"
+      },
+      "clientEncrypted": {
+        "accepted": false,
+        "error": "blossom upload failed: 415 {\"error\":\"disallowed content type: application/octet-stream\"}"
+      }
+    },
+    "encryptedAttachmentsRoute": "blob-store"
+  },
+  "finishedAt": "2026-09-26T00:35:20.713Z",
+  "environment": {
+    "buzz_commit": "02c6309f534050e54c8d36f5ce90e48e4dd152b1",
+    "build": "cargo build -p buzz-relay (debug), local Postgres 16 + Redis, no S3 backend",
+    "config": "BUZZ_REQUIRE_AUTH_TOKEN=false, BUZZ_REQUIRE_RELAY_MEMBERSHIP=false"
+  },
+  "notes": [
+    "Plain image upload returned 500 because no S3/MinIO backend was available in this environment; re-run with docker compose (MinIO included).",
+    "Encrypted blob rejection (415) happens in content validation before storage and is independent of S3."
+  ]
+}
