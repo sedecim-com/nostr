@@ -2,7 +2,7 @@
   "name": "sedecim-nostr",
   "private": true,
   "version": "0.1.0",
-  "description": "Plataforma Nostr soberana / SaaS: SDK, servicios y clientes interoperables con grados configurables de soberanía.",
+  "description": "Plataforma Nostr soberana / SaaS: SDK, servicios y clientes interoperables con grados configurables de soberan\u00eda.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -25,7 +25,8 @@
     "sbom": "npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json",
     "test:browser": "npm run build:web && tsx tests/browser/web-saas.e2e.ts",
     "test:interop": "vitest run tests/interop",
-    "test:pg": "TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgres://sedecim:sedecim@127.0.0.1:5432/sedecim_test} vitest run services"
+    "test:pg": "TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgres://sedecim:sedecim@127.0.0.1:5432/sedecim_test} vitest run services",
+    "backlog": "node scripts/backlog.mjs"
   },
   "devDependencies": {
     "@types/node": "22.20.4",

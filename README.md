@@ -29,6 +29,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Fork controlado de Buzz | `infra/buzz/PIN`, `scripts/buzz-fork.sh`, `docs/buzz-integration.md` | ✅ proceso; sin parches propios |
 
 Trazabilidad completa FR/NFR → tests: [docs/requirements-traceability.md](docs/requirements-traceability.md).
+Backlog con tareas atómicas, prioridad, dependencias y sprint: [docs/backlog/](docs/backlog/README.md) (fuente `backlog.json`, CSV importable; `npm run backlog` valida y regenera).
 Arquitectura: [docs/architecture.md](docs/architecture.md) · Threat model: [docs/threat-model.md](docs/threat-model.md).
 
 ## Inicio rápido

@@ -1,0 +1,2615 @@
+{
+ "meta": {
+  "version": "2026-09-26",
+  "baseline": "main@65ed066",
+  "source": "Scope_Plataforma_Nostr_Soberana_SaaS_v0.1 (25/09/2026)",
+  "sprintLengthDays": 14,
+  "priorities": {
+   "P0": "Bloquea release o seguridad",
+   "P1": "Necesario para la fase",
+   "P2": "Importante, planificable",
+   "P3": "Deseable"
+  },
+  "sprints": [
+   {
+    "id": "v0.1",
+    "name": "Entregado",
+    "phase": "—",
+    "start": null,
+    "end": "2026-09-26"
+   },
+   {
+    "id": "S1",
+    "name": "Cierre F0 y gate de interoperabilidad",
+    "phase": "F0",
+    "start": "2026-09-28",
+    "end": "2026-10-09"
+   },
+   {
+    "id": "S2",
+    "name": "Web SaaS como cliente completo",
+    "phase": "F0.5",
+    "start": "2026-10-12",
+    "end": "2026-10-23"
+   },
+   {
+    "id": "S3",
+    "name": "Identidad, llaves y custodia",
+    "phase": "F1",
+    "start": "2026-10-26",
+    "end": "2026-11-06"
+   },
+   {
+    "id": "S4",
+    "name": "OSS soberano, sync y operación",
+    "phase": "F2",
+    "start": "2026-11-09",
+    "end": "2026-11-20"
+   },
+   {
+    "id": "S5",
+    "name": "Privacidad, Tor y observabilidad",
+    "phase": "F3",
+    "start": "2026-11-23",
+    "end": "2026-12-04"
+   },
+   {
+    "id": "S6",
+    "name": "Grupos high-security",
+    "phase": "F4",
+    "start": "2026-12-07",
+    "end": "2026-12-18"
+   },
+   {
+    "id": "S7",
+    "name": "Modo institucional",
+    "phase": "F5",
+    "start": "2027-01-04",
+    "end": "2027-01-15"
+   },
+   {
+    "id": "S8",
+    "name": "Hardening, escalabilidad y release",
+    "phase": "Release",
+    "start": "2027-01-18",
+    "end": "2027-01-29"
+   }
+  ],
+  "assumedVelocitySP": 50
+ },
+ "tasks": [
+  {
+   "id": "DEC-01",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-1",
+   "title": "Decidir nombre y licencia del proyecto open source",
+   "done": "ADR aprobado; LICENSE y package.json actualizados; compatibilidad con Apache-2.0 del fork revisada",
+   "type": "Decisión",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [],
+   "sprint": "S1",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "DEC-02",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-2",
+   "title": "Fijar subset de Buzz a forkear y commit/release de F0",
+   "done": "Lista de crates/apps incluidos; commit y digest en infra/buzz/PIN aprobados",
+   "type": "Decisión",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [],
+   "sprint": "S1",
+   "status": "Parcial",
+   "evidence": "infra/buzz/PIN (commit 02c6309 fijado; subset sin decidir)"
+  },
+  {
+   "id": "DEC-03",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-3",
+   "title": "Definir política de compatibilidad con upstream Buzz",
+   "done": "Cadencia de sync, criterios de adopción y de rollback documentados",
+   "type": "Decisión",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [
+    "DEC-02"
+   ],
+   "sprint": "S1",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "DEC-04",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-4",
+   "title": "Elegir biblioteca Nostr base para Rust y Flutter",
+   "done": "ADR con evaluación de TS (noble, decidido), Rust (rust-nostr/MDK) y Flutter",
+   "type": "Decisión",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [],
+   "sprint": "S1",
+   "status": "Parcial",
+   "evidence": "docs/architecture.md (TS decidido)"
+  },
+  {
+   "id": "DEC-05",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-5",
+   "title": "Definir storage local cifrado por plataforma",
+   "done": "ADR: IndexedDB (web), Keychain/Keystore (móvil), archivo cifrado (desktop/CLI)",
+   "type": "Decisión",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [],
+   "sprint": "S2",
+   "status": "Parcial",
+   "evidence": "packages/encrypted-store (CLI/web localStorage)"
+  },
+  {
+   "id": "DEC-06",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-6",
+   "title": "Definir receipt de aplicación y política de read receipts",
+   "done": "Formato del rumor (kind definitivo) y opt-in por perfil aprobados; kind provisional 16914 reemplazado",
+   "type": "Decisión",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [],
+   "sprint": "S1",
+   "status": "Parcial",
+   "evidence": "packages/messaging/src/receipts.ts (provisional)"
+  },
+  {
+   "id": "DEC-07",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-7",
+   "title": "Ratificar proveedor Marmot y ruta de relay (secure-relay vs parche Buzz)",
+   "done": "ADR aprobado; marmot-ts/ts-mls fijados; decisión sobre parche de kinds 30443/445/10051 en el fork",
+   "type": "Decisión",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [],
+   "sprint": "S1",
+   "status": "Parcial",
+   "evidence": "docs/marmot.md (marmot-ts 0.5.1 + ts-mls rc.11; ruta secure-relay implementada)"
+  },
+  {
+   "id": "DEC-08",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-8",
+   "title": "Definir modelo de notificaciones móviles por perfil",
+   "done": "Matriz perfil × (push, privacy-push, none) con metadatos expuestos",
+   "type": "Decisión",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [],
+   "sprint": "S5",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "DEC-09",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-9",
+   "title": "Definir región cloud y requisitos legales de la custodia managed",
+   "done": "Región, marco legal, retención y términos de custodia aprobados por legal",
+   "type": "Decisión",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "DEC-10",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-10, §20.3",
+   "title": "Formalizar threat models por perfil (convenience, resilient, institutional, sovereign, Tor)",
+   "done": "Un documento por perfil con activos, adversarios, mitigaciones y riesgos residuales, versionado por release",
+   "type": "Seguridad",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [],
+   "sprint": "S1",
+   "status": "Parcial",
+   "evidence": "docs/threat-model.md (general)"
+  },
+  {
+   "id": "BUZZ-01",
+   "epic": "BUZZ · Early release sobre Buzz",
+   "req": "§6.3",
+   "title": "Crear repositorio fork con ramas vendor/upstream y product/main",
+   "done": "Fork creado; vendor/upstream = commit fijado; protección de ramas",
+   "type": "Infra",
+   "priority": "P0",
+   "sp": 1,
+   "deps": [
+    "DEC-02"
+   ],
+   "sprint": "S1",
+   "status": "Parcial",
+   "evidence": "scripts/buzz-fork.sh (proceso definido)"
+  },
+  {
+   "id": "BUZZ-02",
+   "epic": "BUZZ · Early release sobre Buzz",
+   "req": "§21.2",
+   "title": "Revisar obligaciones Apache-2.0 del fork (LICENSE, NOTICE, cambios marcados)",
+   "done": "Checklist legal aprobado y NOTICE en el fork",
+   "type": "Doc",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [
+    "BUZZ-01",
+    "DEC-01"
+   ],
+   "sprint": "S1",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "BUZZ-03",
+   "epic": "BUZZ · Early release sobre Buzz",
+   "req": "§6.3",
+   "title": "Build reproducible de la imagen del relay desde el fork",
+   "done": "Imagen construida en CI a partir de product/main con digest publicado",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "BUZZ-01"
+   ],
+   "sprint": "S1",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "BUZZ-04",
+   "epic": "BUZZ · Early release sobre Buzz",
+   "req": "§22 F0",
+   "title": "Branding del fork (desktop Tauri/React)",
+   "done": "Nombre, iconos y textos propios sin tocar el protocolo",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "BUZZ-01",
+    "DEC-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "BUZZ-05",
+   "epic": "BUZZ · Early release sobre Buzz",
+   "req": "§6.3",
+   "title": "Pipeline de sync con upstream que ejecuta el gate de interoperabilidad",
+   "done": "PR automático de upstream que ejecuta test:interop contra la imagen nueva",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "BUZZ-03",
+    "OPS-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "BUZZ-06",
+   "epic": "BUZZ · Early release sobre Buzz",
+   "req": "§6.1",
+   "title": "Integración progresiva del cliente móvil Flutter de Buzz",
+   "done": "Mobile compila contra el relay del fork y pasa smoke test NIP-29",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 8,
+   "deps": [
+    "BUZZ-03",
+    "DEC-04"
+   ],
+   "sprint": "S6",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "OPS-01",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "§4.1",
+   "title": "CI: construir todas las imágenes y levantar el stack completo con smoke test",
+   "done": "Job que hace docker compose up, espera healthchecks y ejecuta test:interop",
+   "type": "Infra",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [],
+   "sprint": "S1",
+   "status": "Parcial",
+   "evidence": ".github/workflows/ci.yml (solo valida config y build parcial)"
+  },
+  {
+   "id": "OPS-02",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "§4.1",
+   "title": "Proxy TLS (Caddy) y URLs públicas en el compose de producción",
+   "done": "Override compose.tls.yml con certificados automáticos y RELAY_URL wss://",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "OPS-01"
+   ],
+   "sprint": "S1",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "OPS-03",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "§4.1",
+   "title": "Instalador/configurador de llaves y secretos del stack",
+   "done": "scripts/init-env genera también la llave del relay y del owner con el keygen offline",
+   "type": "Infra",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR003-01"
+   ],
+   "sprint": "S2",
+   "status": "Parcial",
+   "evidence": "scripts/init-env.sh (secretos aleatorios)"
+  },
+  {
+   "id": "OPS-04",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "§21.2",
+   "title": "SECURITY.md y proceso de disclosure",
+   "done": "Documento publicado con canal privado y plazos",
+   "type": "Doc",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "SECURITY.md"
+  },
+  {
+   "id": "OPS-05",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "§21.2",
+   "title": "Dependabot/Renovate con revisión",
+   "done": "Configuración activa para npm, actions y docker",
+   "type": "Infra",
+   "priority": "P2",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": ".github/dependabot.yml"
+  },
+  {
+   "id": "OPS-06",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "§17.1",
+   "title": "Servicio notification-gateway con perfiles de privacidad",
+   "done": "Push opaco sin contenido ni remitente; deshabilitado en perfiles Tor",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 5,
+   "deps": [
+    "DEC-08"
+   ],
+   "sprint": "S5",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "OPS-07",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "§17.1",
+   "title": "App admin-console (organizaciones, políticas, dispositivos, auditoría)",
+   "done": "Consola web autenticada por NIP-98 sobre policy-engine e identity-service",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 8,
+   "deps": [
+    "FR023-03"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "OPS-08",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "§21.2",
+   "title": "Separación de funciones en releases (quién construye vs quién publica)",
+   "done": "Entorno de release protegido con aprobadores distintos al autor",
+   "type": "Infra",
+   "priority": "P2",
+   "sp": 1,
+   "deps": [],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "OPS-09",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "§21.2",
+   "title": "Documentación de build desde source",
+   "done": "Guía reproducible para todos los artefactos (servicios, web, keygen)",
+   "type": "Doc",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [],
+   "sprint": "S4",
+   "status": "Parcial",
+   "evidence": "README.md, docs/runbooks/restore.md"
+  },
+  {
+   "id": "PANEL-01",
+   "epic": "PANEL · Panel de soberanía y privacidad",
+   "req": "§9",
+   "title": "Modelo de configuración del panel, presets del Apéndice B y validación",
+   "done": "profiles con presets, validateConfig y tests",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/profiles"
+  },
+  {
+   "id": "PANEL-02",
+   "epic": "PANEL · Panel de soberanía y privacidad",
+   "req": "§9",
+   "title": "Aplicar la configuración del panel al comportamiento real del cliente web",
+   "done": "Red, telemetría, receipts, previews y quorum usan la configuración elegida (hoy solo se muestra)",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 5,
+   "deps": [
+    "PANEL-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "PANEL-03",
+   "epic": "PANEL · Panel de soberanía y privacidad",
+   "req": "§9",
+   "title": "Persistir la configuración del panel por persona",
+   "done": "Config cifrada en el store de la persona; se restaura al desbloquear",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "PANEL-02",
+    "FR006-02"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "PANEL-04",
+   "epic": "PANEL · Panel de soberanía y privacidad",
+   "req": "§9.1",
+   "title": "Indicadores visuales por dimensión respaldados por declaraciones verificables",
+   "done": "Cada indicador enlaza a sus disclosures; sin score único",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 2,
+   "deps": [
+    "PANEL-02"
+   ],
+   "sprint": "S3",
+   "status": "Parcial",
+   "evidence": "apps/web-saas (resumen por dimensión)"
+  },
+  {
+   "id": "FR001-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-001",
+   "title": "Generar llave con CSPRNG y self-test de derivación + firma BIP-340",
+   "done": "selfTestKey verifica derivación, firma y rechazo de manipulación",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/nostr-core/src/keys.ts"
+  },
+  {
+   "id": "FR001-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-001",
+   "title": "Crear persona local con llave cifrada NIP-49 en su store",
+   "done": "createPersona + unlock con test de firma/verificación",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR001-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/identity"
+  },
+  {
+   "id": "FR001-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-001",
+   "title": "Flujo \"crear llave local\" en la web SaaS",
+   "done": "La web crea la llave en el navegador y la guarda cifrada",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR001-02"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "apps/web-saas/src/session.ts"
+  },
+  {
+   "id": "FR001-04",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-001, FR-008",
+   "title": "Backend IndexedDB para encrypted-store en navegador",
+   "done": "Stores de llave y outbox sobre IndexedDB con tests en Chromium",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "DEC-05"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR001-05",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-001",
+   "title": "E2E en navegador: la nsec nunca sale del cliente",
+   "done": "Test que inspecciona todas las peticiones y WebSocket y no encuentra nsec ni la llave en claro",
+   "type": "QA",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "FR001-03"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR002-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-002",
+   "title": "Importar nsec/ncryptsec validando la correspondencia pubkey/secret",
+   "done": "importPersona rechaza llaves que no coinciden con expectedPubkey",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR001-02"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/identity/test"
+  },
+  {
+   "id": "FR002-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-002",
+   "title": "Registrar persona con signer externo (bunker) o managed",
+   "done": "Persona external/managed sin material secreto; se elimina el secret del bunker",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [
+    "FR002-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/identity"
+  },
+  {
+   "id": "FR002-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-002",
+   "title": "Importar el backup del key-generator (sedecim-offline-key) en web y CLI",
+   "done": "Importar el JSON del generador offline valida npub y crea la persona",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR002-01",
+    "FR003-01"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR003-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-003",
+   "title": "Generador CLI offline con todas las primitivas de red bloqueadas",
+   "done": "enforceOffline + tests: cero conexiones, backup NIP-49 verificable",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [
+    "FR001-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "apps/key-generator"
+  },
+  {
+   "id": "FR003-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-003",
+   "title": "Bundle reproducible con checksum SHA-256",
+   "done": "Dos builds producen el mismo hash; checksum publicado en CI",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [
+    "FR003-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "apps/key-generator/build.mjs"
+  },
+  {
+   "id": "FR003-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-003",
+   "title": "Exportación QR de npub y ncryptsec sin dependencias de red",
+   "done": "Codificador QR embebido; test de ida y vuelta",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR003-01"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR003-04",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-003",
+   "title": "Plantilla imprimible del backup (HTML local, sin CDN)",
+   "done": "Hoja con npub, QR y ncryptsec; sin recursos remotos",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 2,
+   "deps": [
+    "FR003-03"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR003-05",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-003",
+   "title": "Versión HTML standalone air-gapped del generador (un solo archivo)",
+   "done": "Archivo único que funciona abierto desde disco sin red; CSP estricta",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR003-01"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR003-06",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-003, NFR-010",
+   "title": "Firma de las releases del generador",
+   "done": "Firma y verificación documentadas (minisign/cosign)",
+   "type": "Seguridad",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "FR003-02",
+    "NFR010-02"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR003-07",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-003",
+   "title": "Guía de uso air-gapped verificable",
+   "done": "Procedimiento paso a paso: verificar checksum y firma, generar, verificar backup",
+   "type": "Doc",
+   "priority": "P2",
+   "sp": 1,
+   "deps": [
+    "FR003-06"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR004-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-004",
+   "title": "Cliente NIP-46 (Nip46Signer) sin almacenar la nsec",
+   "done": "connect/sign/nip44 contra un bunker sobre un relay",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/signer/src/nip46.ts"
+  },
+  {
+   "id": "FR004-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-004",
+   "title": "Bunker NIP-46 con permisos por kind y auditoría de peticiones",
+   "done": "allowedKinds, secreto de conexión, rechazo de clientes no conectados",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR004-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/signer/test"
+  },
+  {
+   "id": "FR004-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-004",
+   "title": "Flujo nostrconnect:// iniciado por el cliente (QR)",
+   "done": "La web muestra un QR nostrconnect y completa la conexión",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR004-01"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR004-04",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-004, §8.3",
+   "title": "UI de permisos mínimos visibles al conectar un signer",
+   "done": "La web lista los métodos y kinds solicitados antes de conectar",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "FR004-01"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR004-05",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-004",
+   "title": "Soporte de auth_url del signer remoto",
+   "done": "La UI abre auth_url y espera la respuesta real",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 1,
+   "deps": [
+    "FR004-01"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR005-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-005",
+   "title": "Servicio managed-signer con vault envelope y logs sin secretos",
+   "done": "Tests verifican que logs, uso y archivos no contienen el secreto",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 5,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "services/managed-signer"
+  },
+  {
+   "id": "FR005-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-005, §8.4",
+   "title": "Adaptador real de AWS Secrets Manager + KMS",
+   "done": "SecretsManagerVault con el SDK de AWS; tests contra LocalStack",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR005-01",
+    "DEC-09"
+   ],
+   "sprint": "S3",
+   "status": "Parcial",
+   "evidence": "services/managed-signer/src/vault.ts (interfaz)"
+  },
+  {
+   "id": "FR005-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-005",
+   "title": "Persistir el registro de llaves y el log de uso en Postgres",
+   "done": "Sobrevive reinicios (hoy el registro vive en memoria y el vault en disco)",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [
+    "FR005-01"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR005-04",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-005",
+   "title": "Autorización por usuario final (sesión SaaS firmada), no solo bearer de servicio",
+   "done": "x-account-id respaldado por token de sesión verificable; tests de suplantación",
+   "type": "Seguridad",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR005-03"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR005-05",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-005, §8.4",
+   "title": "Tier enclave: firma dentro de Nitro Enclave con KMS condicionado por attestation",
+   "done": "Prototipo con attestation verificada; backend general sin llave en claro",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 8,
+   "deps": [
+    "FR005-02",
+    "DEC-09"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR005-06",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-005",
+   "title": "Rate limiting y alertas de uso anómalo de firma",
+   "done": "Límites por llave/kind y alerta en auditoría",
+   "type": "Seguridad",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR005-03"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR005-07",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-005, §1",
+   "title": "Opt-in explícito de custodia managed en el onboarding web",
+   "done": "Confirmación con el disclosure \"la plataforma puede firmar\"; nunca por defecto",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "FR005-04",
+    "PANEL-02"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR006-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-006",
+   "title": "Gestión de ≥3 personas con stores, relays y signer independientes",
+   "done": "IdentityManager + tests con 3 compartimentos",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [
+    "FR001-02"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/identity"
+  },
+  {
+   "id": "FR006-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-006, §16.1",
+   "title": "Selector de persona en la web con banner \"Enviando como…\"",
+   "done": "Cambiar de persona cambia signer, relays y store; banner siempre visible",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR006-01"
+   ],
+   "sprint": "S2",
+   "status": "Parcial",
+   "evidence": "apps/web-saas (una identidad a la vez)"
+  },
+  {
+   "id": "FR006-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-006, §14.1",
+   "title": "Aislamiento de circuitos Tor por persona",
+   "done": "Credenciales SOCKS distintas por persona (IsolateSOCKSAuth)",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/tor-network"
+  },
+  {
+   "id": "FR007-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-007",
+   "title": "Vínculos entre personas con confirmación explícita y auditoría",
+   "done": "link() exige confirm:true y registra la auditoría",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR006-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/identity"
+  },
+  {
+   "id": "FR007-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-007",
+   "title": "API del identity-service con visibilidad private/selective/public",
+   "done": "NIP-98, prueba de control de llave, lectura filtrada por audiencia",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 5,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "services/identity-service"
+  },
+  {
+   "id": "FR007-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-007, §25",
+   "title": "UI de vínculos con advertencia de desanonimización",
+   "done": "Diálogo que explica las consecuencias antes de vincular",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR007-02",
+    "FR006-02"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR007-04",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-007",
+   "title": "Publicar opcionalmente un vínculo público como evento Nostr firmado",
+   "done": "Formato definido, firmado por ambas personas y verificable",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 3,
+   "deps": [
+    "FR007-02"
+   ],
+   "sprint": "S5",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR026-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-026",
+   "title": "Migración managed → local con prueba de posesión y política de retención",
+   "done": "export → confirm-migration → delete tras la retención; tests",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR005-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "services/managed-signer/test"
+  },
+  {
+   "id": "FR026-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-026",
+   "title": "Migración local → managed (importación explícita)",
+   "done": "POST /v1/keys/import con ncryptsec",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 1,
+   "deps": [
+    "FR005-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "services/managed-signer/src/api.ts"
+  },
+  {
+   "id": "FR026-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-026",
+   "title": "UI de migración de custodia en la web con verificación",
+   "done": "Asistente paso a paso con verificación de posesión y confirmación del borrado",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR026-01",
+    "FR005-04"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR027-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-027",
+   "title": "Backup cifrado que restaura la identidad en un dispositivo limpio",
+   "done": "exportBackup/restoreBackup con NIP-49 y validación de pubkey",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR001-02"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/identity/test"
+  },
+  {
+   "id": "FR027-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-027",
+   "title": "Incluir en el backup la configuración completa (relays, panel, grupos MLS)",
+   "done": "La restauración recupera relays, perfil y estado MLS cifrado",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR027-01",
+    "PANEL-03"
+   ],
+   "sprint": "S3",
+   "status": "Parcial",
+   "evidence": "packages/identity (config de persona)"
+  },
+  {
+   "id": "FR027-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-027, §12",
+   "title": "Vault de backup en la nube: solo ciphertext con clave del usuario",
+   "done": "Subida/descarga del backup cifrado; el operador nunca ve la clave",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR027-02"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR028-01",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-028",
+   "title": "Disclosures por opción con consecuencias y supuestos de confianza",
+   "done": "disclose/summarize + tests que prohíben afirmaciones absolutas",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "PANEL-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/profiles"
+  },
+  {
+   "id": "FR028-02",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-028",
+   "title": "Revisión legal/UX de los textos de disclosure",
+   "done": "Textos aprobados por legal y UX; versionados",
+   "type": "Doc",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR028-01",
+    "DEC-09"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR028-03",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-028, §2.2",
+   "title": "Lint en CI que prohíbe afirmaciones absolutas en toda la UI",
+   "done": "assertNoAbsoluteClaims aplicado a todo el copy de la web",
+   "type": "QA",
+   "priority": "P3",
+   "sp": 1,
+   "deps": [
+    "FR028-01"
+   ],
+   "sprint": "S3",
+   "status": "Parcial",
+   "evidence": "packages/profiles (solo textos del panel)"
+  },
+  {
+   "id": "FR008-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-008",
+   "title": "Persistir el evento firmado en la outbox local antes de transmitir",
+   "done": "Test: el relay recibe un evento que ya estaba en el store",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/delivery-engine"
+  },
+  {
+   "id": "FR009-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-009",
+   "title": "Ledger por relay: intento, hora, resultado, OK, latencia y último error",
+   "done": "relayStatus por operación; OK del relay ≠ recepción",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR008-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/delivery-engine"
+  },
+  {
+   "id": "FR009-02",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-009, §11",
+   "title": "Pasar a RECIPIENT_ACKED/READ con los receipts entrantes",
+   "done": "Receipts gift-wrapped recibidos actualizan el estado de la operación",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "DEC-06",
+    "FR009-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR010-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-010",
+   "title": "Publicación a N relays con quorum configurable",
+   "done": "Test 2 de 3 → REPLICATED; rechazos permanentes → FAILED",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR009-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/delivery-engine"
+  },
+  {
+   "id": "FR010-02",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-010",
+   "title": "Selección de relays por destinatario (NIP-65 kind 10002 y kind 10050)",
+   "done": "Los DMs se publican en los relays de inbox del destinatario",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR010-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR011-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-011",
+   "title": "Reintentos con backoff + jitter reutilizando el mismo event id",
+   "done": "Offline → online publica el mismo evento; test de reinicio",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR010-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/delivery-engine"
+  },
+  {
+   "id": "FR011-02",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-011",
+   "title": "Lanzar resume() al recuperar conectividad (eventos online / reconexión del pool)",
+   "done": "La web y el CLI reanudan solos la outbox al volver la red",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR011-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR011-03",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-011, NFR-004",
+   "title": "Métricas de outbox (profundidad, antigüedad, fallos por relay)",
+   "done": "Expuestas al exportador de métricas respetando el perfil",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 2,
+   "deps": [
+    "FR011-01",
+    "NFR004-01"
+   ],
+   "sprint": "S5",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR012-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-012",
+   "title": "Deduplicar por event_id entre relays en cliente e indexer",
+   "done": "Tests de pool y de event_sources en el indexer",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/relay-pool, services/indexer"
+  },
+  {
+   "id": "FR013-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-013",
+   "title": "Sync de respaldo por ventanas de tiempo con paginación",
+   "done": "FilterWindowSync reconstruye 120 eventos de 2 relays",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/sync"
+  },
+  {
+   "id": "FR013-02",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-013, §12.1",
+   "title": "Cliente NIP-77 (Negentropy) con detección y fallback",
+   "done": "Reconciliación con un relay NIP-77; fallback automático si no lo soporta",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 5,
+   "deps": [
+    "FR013-01"
+   ],
+   "sprint": "S4",
+   "status": "Parcial",
+   "evidence": "packages/sync (solo detección)"
+  },
+  {
+   "id": "FR013-03",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-013",
+   "title": "E2E: reinstalar y reconstruir historial (canales, DMs, outbox) en un dispositivo limpio",
+   "done": "Tras restaurar el backup, el cliente recupera historia y estados",
+   "type": "QA",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR013-01",
+    "FR027-01"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR013-04",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-013",
+   "title": "Sync de gift wraps con timestamps aleatorios (ventana ampliada)",
+   "done": "Test con wraps de hasta 2 días de antigüedad; ningún mensaje perdido",
+   "type": "QA",
+   "priority": "P2",
+   "sp": 1,
+   "deps": [
+    "FR013-01"
+   ],
+   "sprint": "S4",
+   "status": "Parcial",
+   "evidence": "packages/messaging dmInboxFilter"
+  },
+  {
+   "id": "FR014-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-014",
+   "title": "Indexer/mirror ciphertext-first sin APIs propietarias de Buzz",
+   "done": "Mensaje enviado por otro cliente aparece en el mirror (memoria y Postgres)",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 5,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "services/indexer"
+  },
+  {
+   "id": "FR014-02",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-014",
+   "title": "Verificar el mirror contra Buzz en el stack Docker completo",
+   "done": "test:interop + indexer contra el relay del compose en CI",
+   "type": "QA",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "OPS-01"
+   ],
+   "sprint": "S1",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR014-03",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-014, §15.2",
+   "title": "Vistas derivadas: no leídos por canal y búsqueda respetando la política",
+   "done": "Endpoints de no leídos y búsqueda solo sobre contenido permitido",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR014-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR015-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-015",
+   "title": "La web publica eventos que ven otros clientes del mismo relay",
+   "done": "E2E en Chromium: web → relay → otro cliente",
+   "type": "QA",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "tests/browser/web-saas.e2e.ts"
+  },
+  {
+   "id": "FR015-02",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-015",
+   "title": "Descubrimiento de canales (39000) y unión (9021) en la web",
+   "done": "Lista de canales visibles y botón de unirse",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR015-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR015-03",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-015",
+   "title": "E2E de la web contra Buzz real (crear canal, unirse, enviar, leer)",
+   "done": "Test en navegador contra el relay del compose",
+   "type": "QA",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "FR015-02",
+    "OPS-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR016-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-016",
+   "title": "NIP-42 challenge/response con auth-required recuperable",
+   "done": "Tests de allowlist, restricted: sin autenticar y AUTH sin OK",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/relay-pool"
+  },
+  {
+   "id": "FR017-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-017",
+   "title": "NIP-17 (NIP-44 + NIP-59) detrás de un feature flag",
+   "done": "DirectMessenger lanza FeatureDisabledError si el flag está apagado",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/messaging"
+  },
+  {
+   "id": "FR017-02",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-017",
+   "title": "Adaptador explícito de jitter para Buzz, derivado del gate",
+   "done": "BUZZ_PINNED_ADAPTER 300 s; evidencia en docs/interop",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [
+    "FR017-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/messaging/src/adapters.ts"
+  },
+  {
+   "id": "FR017-03",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-017",
+   "title": "Activar el flag NIP-17 por entorno a partir de interop-report.json en CI",
+   "done": "El despliegue lee enableFlag y recommendedJitterSeconds del gate",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "FR014-02"
+   ],
+   "sprint": "S1",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR017-04",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-017",
+   "title": "Publicar y leer la lista de relays DM (kind 10050)",
+   "done": "Onboarding publica 10050; el emisor la usa para enrutar",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR010-02"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR017-05",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-017, §25",
+   "title": "Seguir el issue upstream #4192 y retirar el adaptador cuando se corrija",
+   "done": "Re-ejecutar el gate en cada sync; volver al jitter estándar si pasa",
+   "type": "QA",
+   "priority": "P3",
+   "sp": 1,
+   "deps": [
+    "BUZZ-05"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR018-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-018",
+   "title": "Cliente Blossom: subir, referenciar, descargar y verificar el hash",
+   "done": "Tests contra un servidor Blossom de prueba",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/blossom-client"
+  },
+  {
+   "id": "FR018-02",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-018, §13",
+   "title": "blob-store agnóstico al contenido para adjuntos cifrados",
+   "done": "Servicio en compose con allowlist de pubkeys y tests",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR018-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "services/blob-store"
+  },
+  {
+   "id": "FR018-03",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-018",
+   "title": "Validar la subida de imágenes en claro a Buzz /media con MinIO",
+   "done": "Informe del gate con plainImage.accepted = true",
+   "type": "QA",
+   "priority": "P0",
+   "sp": 1,
+   "deps": [
+    "OPS-01"
+   ],
+   "sprint": "S1",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR018-04",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-018, FR-019",
+   "title": "Adjuntos en la web (kind 15 en DMs, imágenes en canales)",
+   "done": "Subida con saneamiento, cifrado opcional y descarga verificada desde la UI",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 5,
+   "deps": [
+    "FR018-02",
+    "FR019-01"
+   ],
+   "sprint": "S2",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR018-05",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-018",
+   "title": "Lista de servidores Blossom del usuario (kind 10063)",
+   "done": "El cliente publica y respeta la lista de servidores",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 2,
+   "deps": [
+    "FR018-01"
+   ],
+   "sprint": "S5",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR019-01",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-019",
+   "title": "Quitar EXIF/XMP/IPTC en JPEG y chunks de texto/tiempo en PNG",
+   "done": "Tests de saneamiento y neutralización de nombres de archivo",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/blossom-client/src/sanitize.ts"
+  },
+  {
+   "id": "FR019-02",
+   "epic": "FR · Mensajería, entrega y resiliencia",
+   "req": "FR-019",
+   "title": "Soporte WebP/HEIC o rechazo según el perfil sensible",
+   "done": "Saneamiento o rechazo explícito con requireSanitizable",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR019-01"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR020-01",
+   "epic": "FR · Privacidad y Sovereign Tor",
+   "req": "FR-020",
+   "title": "NetworkGuard Tor-only que falla cerrado, sin fallback clearnet",
+   "done": "Con Tor caído no hay conexiones y el mensaje queda en outbox con el motivo",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/tor-network"
+  },
+  {
+   "id": "FR020-02",
+   "epic": "FR · Privacidad y Sovereign Tor",
+   "req": "FR-020, §25",
+   "title": "Cliente desktop dedicado con Tor embebido",
+   "done": "App desktop (Tauri) que usa el SDK con Tor integrado y el perfil sovereign-tor",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 8,
+   "deps": [
+    "DEC-04"
+   ],
+   "sprint": "S5",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR020-03",
+   "epic": "FR · Privacidad y Sovereign Tor",
+   "req": "FR-020, §20.3",
+   "title": "Tests de fugas con captura de red real (netns/pcap): DNS, IPv6, conexiones directas",
+   "done": "Suite que prueba cero tráfico fuera de Tor con el cliente real",
+   "type": "Seguridad",
+   "priority": "P0",
+   "sp": 5,
+   "deps": [
+    "FR020-02"
+   ],
+   "sprint": "S5",
+   "status": "Parcial",
+   "evidence": "packages/tor-network/test (socks5h, sin dns.lookup)"
+  },
+  {
+   "id": "FR021-01",
+   "epic": "FR · Privacidad y Sovereign Tor",
+   "req": "FR-021",
+   "title": "Conexión a relays .onion vía SOCKS5h con aislamiento por persona",
+   "done": "Tests con un servidor SOCKS de prueba y un relay .onion",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR020-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "apps/sovereign-client/test"
+  },
+  {
+   "id": "FR021-02",
+   "epic": "FR · Privacidad y Sovereign Tor",
+   "req": "FR-021",
+   "title": "Validar el perfil tor del compose (onion services de relay y secure-relay)",
+   "done": "Arranque real y conexión del CLI a las direcciones .onion generadas",
+   "type": "QA",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "OPS-01"
+   ],
+   "sprint": "S5",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR022-01",
+   "epic": "FR · Privacidad y Sovereign Tor",
+   "req": "FR-022",
+   "title": "TelemetryPolicy: nivel none bloquea analytics y crash reports",
+   "done": "Tests de endpoints bloqueados y emisión nula",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/telemetry-policy"
+  },
+  {
+   "id": "FR022-02",
+   "epic": "FR · Privacidad y Sovereign Tor",
+   "req": "FR-022, NFR-007",
+   "title": "Test en CI de endpoints de salida permitidos por perfil",
+   "done": "Allowlist de egress por perfil verificada con el cliente real",
+   "type": "QA",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR020-03"
+   ],
+   "sprint": "S5",
+   "status": "Parcial",
+   "evidence": "NetworkGuard.allowedHosts"
+  },
+  {
+   "id": "SEC-05",
+   "epic": "FR · Privacidad y Sovereign Tor",
+   "req": "§20.3",
+   "title": "Tests de fugas por WebRTC y previews remotas en web/desktop",
+   "done": "Sin candidatos ICE ni peticiones de previews en perfiles sensibles",
+   "type": "Seguridad",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "FR020-02"
+   ],
+   "sprint": "S5",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR025-01",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025",
+   "title": "GroupCryptoProvider sobre marmot-ts con estado MLS cifrado",
+   "done": "Conformidad: alta, mensaje, expulsión, rotación",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 8,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/marmot-adapter"
+  },
+  {
+   "id": "FR025-02",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025",
+   "title": "Mitigar ts-mls rc.10 (UpdatePath en un Remove) + autoprueba que falla cerrado",
+   "done": "Override a rc.11; assertRemovalSecrecy falla con rc.10",
+   "type": "Seguridad",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR025-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "docs/marmot.md"
+  },
+  {
+   "id": "FR025-03",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025",
+   "title": "Comandos de grupo en el cliente soberano (también vía Tor)",
+   "done": "keypackage/create/invite/accept/send/read/remove/rotate",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR025-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "apps/sovereign-client"
+  },
+  {
+   "id": "FR025-04",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025",
+   "title": "Interoperabilidad verificada con MDK/whitenoise",
+   "done": "Grupo mixto marmot-ts ↔ MDK con mensajes en ambos sentidos",
+   "type": "QA",
+   "priority": "P1",
+   "sp": 5,
+   "deps": [
+    "DEC-07"
+   ],
+   "sprint": "S6",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR025-05",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025, §13",
+   "title": "MIP-04: media cifrada en grupos",
+   "done": "Subida y descarga de media con claves derivadas del exporter MLS",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 5,
+   "deps": [
+    "FR025-01",
+    "FR018-02"
+   ],
+   "sprint": "S6",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR025-06",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025",
+   "title": "Multi-dispositivo: varios key packages por persona y sincronización del estado",
+   "done": "Un usuario con 2 dispositivos participa en el mismo grupo",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 5,
+   "deps": [
+    "FR025-01"
+   ],
+   "sprint": "S6",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR025-07",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025",
+   "title": "UI de grupos high-security en la web",
+   "done": "Crear, invitar, chatear y expulsar desde la web con estado cifrado",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 5,
+   "deps": [
+    "FR025-06",
+    "FR001-04"
+   ],
+   "sprint": "S6",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR025-08",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025",
+   "title": "Migrar a marmot-ts v2 / ts-mls estable cuando se publiquen",
+   "done": "Dependencias fijadas a versiones estables; conformidad y autoprueba en verde",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR025-04"
+   ],
+   "sprint": "S6",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR025-09",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025",
+   "title": "Flujo de propuestas de miembros no admin y commit por el admin",
+   "done": "Un miembro propone y el admin compromete; tests",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 3,
+   "deps": [
+    "FR025-01"
+   ],
+   "sprint": "S6",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR025-10",
+   "epic": "FR · Grupos high-security (Marmot/MLS)",
+   "req": "FR-025, DEC-07",
+   "title": "Parche en el fork de Buzz para los kinds Marmot (solo si DEC-07 lo aprueba)",
+   "done": "El relay acepta 30443/445/10051 sin romper el tratamiento de #h de NIP-29",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 5,
+   "deps": [
+    "DEC-07",
+    "BUZZ-01"
+   ],
+   "sprint": "S6",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR023-01",
+   "epic": "FR · Modo institucional",
+   "req": "FR-023",
+   "title": "Evaluador RBAC/ABAC + device trust, deny por defecto",
+   "done": "Tests de rol, atributo, clearance y dispositivo",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/policy-client"
+  },
+  {
+   "id": "FR023-02",
+   "epic": "FR · Modo institucional",
+   "req": "FR-023",
+   "title": "API del policy-engine (sujetos, recursos, dispositivos, evaluate)",
+   "done": "Admin por NIP-98 y evaluate por bearer",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR023-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "services/policy-engine"
+  },
+  {
+   "id": "FR023-03",
+   "epic": "FR · Modo institucional",
+   "req": "FR-023",
+   "title": "Persistencia del policy-engine en Postgres",
+   "done": "Sujetos, recursos, dispositivos y auditoría sobreviven reinicios",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 3,
+   "deps": [
+    "FR023-02"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR023-04",
+   "epic": "FR · Modo institucional",
+   "req": "FR-023, §16",
+   "title": "Sincronizar el allowlist NIP-42 del relay con el policy-engine",
+   "done": "pubkey_allowlist de Buzz / secure-relay actualizado desde /v1/relay/allowlist",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR023-03",
+    "BUZZ-03"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR023-05",
+   "epic": "FR · Modo institucional",
+   "req": "FR-023",
+   "title": "Aplicar la política en el indexer y las APIs derivadas",
+   "done": "Lecturas filtradas por evaluate(); tests de denegación",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR023-03",
+    "FR014-03"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR023-06",
+   "epic": "FR · Modo institucional",
+   "req": "FR-023, §16",
+   "title": "Directorio organizacional (cargos ↔ npubs) opcional",
+   "done": "Mapeo gestionado desde admin-console, sin publicar vínculos",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR023-03"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR023-07",
+   "epic": "FR · Modo institucional",
+   "req": "§16",
+   "title": "Device trust con passkeys/attestation",
+   "done": "Registro de dispositivos con WebAuthn y nivel attested",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 5,
+   "deps": [
+    "FR023-03"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR023-08",
+   "epic": "FR · Modo institucional",
+   "req": "§16, §12.2",
+   "title": "Retención por workspace/canal y legal hold donde el modelo lo permita",
+   "done": "Políticas configurables y aviso de que borrar no borra copias replicadas",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 5,
+   "deps": [
+    "FR023-03"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR024-01",
+   "epic": "FR · Modo institucional",
+   "req": "FR-024",
+   "title": "Revocar dispositivo: bloquea sesiones y señala rotación de grupos",
+   "done": "Tests de sesión invalidada y rotación requerida",
+   "type": "Dev",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR023-02"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "services/policy-engine/test"
+  },
+  {
+   "id": "FR024-02",
+   "epic": "FR · Modo institucional",
+   "req": "FR-024",
+   "title": "Ejecutar la rotación MLS automáticamente al revocar (commit Remove)",
+   "done": "La revocación dispara removeMember en los grupos afectados",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR024-01",
+    "FR025-01",
+    "FR023-03"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "FR024-03",
+   "epic": "FR · Modo institucional",
+   "req": "FR-024",
+   "title": "Revocar sesiones NIP-46 y tokens de managed-signer ligados al dispositivo",
+   "done": "Tras revocar, el signer rechaza al dispositivo",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR024-01",
+    "FR005-04"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR001-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-001",
+   "title": "Infraestructura como código del SaaS (Helm/Terraform)",
+   "done": "Despliegue reproducible en un entorno de staging",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 8,
+   "deps": [
+    "OPS-02"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR001-02",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-001",
+   "title": "Monitorización de SLO (99,9 % mensual) y alertas",
+   "done": "Dashboard de disponibilidad y alertas por servicio",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "NFR001-01"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR001-03",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-001",
+   "title": "Postgres de alta disponibilidad y backups gestionados",
+   "done": "Failover probado; backups automáticos",
+   "type": "Infra",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "NFR001-01"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR002-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-002",
+   "title": "Cero eventos LOCAL_PERSISTED perdidos tras un reinicio controlado",
+   "done": "Test de reinicio con FileBackend atómico + fsync",
+   "type": "QA",
+   "priority": "P0",
+   "sp": 2,
+   "deps": [
+    "FR008-01"
+   ],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/delivery-engine/test"
+  },
+  {
+   "id": "NFR002-02",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-002",
+   "title": "Test de crash con kill -9 durante la escritura",
+   "done": "Proceso matado a mitad de escritura; el store sigue consistente",
+   "type": "QA",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "NFR002-01"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR003-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-003",
+   "title": "Definir RPO/RTO por tier",
+   "done": "Tabla aprobada por tier (self-hosted, SaaS, institucional)",
+   "type": "Doc",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [
+    "DEC-09"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR003-02",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-003",
+   "title": "Restore drill automatizado (nightly)",
+   "done": "Job que restaura en un host limpio y ejecuta test:interop",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 5,
+   "deps": [
+    "NFR003-01",
+    "OPS-01"
+   ],
+   "sprint": "S4",
+   "status": "Parcial",
+   "evidence": "docs/runbooks/restore.md (manual)"
+  },
+  {
+   "id": "NFR004-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-004",
+   "title": "Exportar métricas (latencia P95 de ACK por relay y región)",
+   "done": "Exportador Prometheus respetando el perfil de telemetría",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [],
+   "sprint": "S5",
+   "status": "Parcial",
+   "evidence": "RelayHealth.avgAckLatencyMs"
+  },
+  {
+   "id": "NFR004-02",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-004",
+   "title": "Dashboard de latencia y degradación sin ocultarla",
+   "done": "Panel P95/P99 por relay con alertas de degradación",
+   "type": "Infra",
+   "priority": "P3",
+   "sp": 2,
+   "deps": [
+    "NFR004-01",
+    "NFR001-02"
+   ],
+   "sprint": "S5",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR005-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-005",
+   "title": "Indexer escalable horizontalmente (reparto por relay y upserts idempotentes)",
+   "done": "N réplicas sin duplicados ni pérdidas; test de concurrencia",
+   "type": "Dev",
+   "priority": "P3",
+   "sp": 5,
+   "deps": [
+    "FR014-01"
+   ],
+   "sprint": "S8",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR005-02",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-005",
+   "title": "Pruebas de carga del relay y el indexer",
+   "done": "Informe con throughput y límites",
+   "type": "QA",
+   "priority": "P3",
+   "sp": 3,
+   "deps": [
+    "NFR005-01"
+   ],
+   "sprint": "S8",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR006-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-006",
+   "title": "Escaneo de secretos que bloquea CI",
+   "done": "gitleaks CLI en CI con reglas nsec/ncryptsec",
+   "type": "Seguridad",
+   "priority": "P0",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": ".github/workflows/ci.yml"
+  },
+  {
+   "id": "NFR006-02",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-006",
+   "title": "Redacción de secretos en logs de todos los servicios",
+   "done": "createLogger con redacción de secretos; tests",
+   "type": "Seguridad",
+   "priority": "P0",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/telemetry-policy"
+  },
+  {
+   "id": "NFR006-03",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-006",
+   "title": "Test de integración que analiza los logs de los servicios en busca de secretos",
+   "done": "Stack completo en CI; los logs se escanean con las reglas de gitleaks",
+   "type": "QA",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "OPS-01"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR007-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-007",
+   "title": "Telemetría gobernada por el perfil",
+   "done": "TelemetryPolicy aplicada en el cliente soberano",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/telemetry-policy"
+  },
+  {
+   "id": "NFR008-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-008",
+   "title": "Exportar identidad y configuración en formato abierto",
+   "done": "NIP-49 + JSON de backup documentado",
+   "type": "Dev",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": "packages/identity"
+  },
+  {
+   "id": "NFR008-02",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-008",
+   "title": "Exportar el historial completo (JSONL de eventos firmados)",
+   "done": "Export/import de eventos canónicos entre clientes",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR013-01"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR009-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-009",
+   "title": "Auditoría de accesibilidad automatizada (axe-core) en el E2E de navegador",
+   "done": "Cero violaciones serias en la web",
+   "type": "QA",
+   "priority": "P2",
+   "sp": 2,
+   "deps": [
+    "FR015-01"
+   ],
+   "sprint": "S2",
+   "status": "Parcial",
+   "evidence": "apps/web-saas (teclado, labels, contraste)"
+  },
+  {
+   "id": "NFR009-02",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-009",
+   "title": "Corregir los hallazgos de accesibilidad y revisión manual con lector de pantalla",
+   "done": "Informe de la revisión y correcciones aplicadas",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "NFR009-01"
+   ],
+   "sprint": "S3",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR010-01",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-010",
+   "title": "SBOM por release",
+   "done": "CycloneDX generado en CI como artefacto",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [],
+   "sprint": "v0.1",
+   "status": "Hecho",
+   "evidence": ".github/workflows/ci.yml"
+  },
+  {
+   "id": "NFR010-02",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-010, §21.2",
+   "title": "Firma de releases y provenance (SLSA/cosign)",
+   "done": "Imágenes y artefactos firmados; verificación documentada",
+   "type": "Seguridad",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "OPS-08"
+   ],
+   "sprint": "S4",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "NFR010-03",
+   "epic": "NFR · Requisitos no funcionales",
+   "req": "NFR-010",
+   "title": "Imágenes Docker reproducibles",
+   "done": "Dos builds del mismo commit producen el mismo digest",
+   "type": "Infra",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "OPS-01"
+   ],
+   "sprint": "S8",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "SEC-01",
+   "epic": "SEC/REL · Gates de seguridad y release",
+   "req": "§20.3",
+   "title": "Revisión criptográfica independiente (NIP-44/49/59, MLS, key service)",
+   "done": "Informe externo sin hallazgos críticos abiertos",
+   "type": "Seguridad",
+   "priority": "P0",
+   "sp": 8,
+   "deps": [
+    "SEC-03",
+    "FR025-08",
+    "FR005-03"
+   ],
+   "sprint": "S8",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "SEC-02",
+   "epic": "SEC/REL · Gates de seguridad y release",
+   "req": "§20.3",
+   "title": "Pentest de API, relay, key service y cliente",
+   "done": "Informe externo; hallazgos críticos y altos corregidos",
+   "type": "Seguridad",
+   "priority": "P0",
+   "sp": 8,
+   "deps": [
+    "OPS-02",
+    "FR005-04",
+    "FR023-03"
+   ],
+   "sprint": "S8",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "SEC-03",
+   "epic": "SEC/REL · Gates de seguridad y release",
+   "req": "§20.3",
+   "title": "Fuzz/property tests de serialización y criptografía",
+   "done": "fast-check sobre eventos, NIP-44, NIP-49, codec MLS y parsers de TLV",
+   "type": "Seguridad",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [],
+   "sprint": "S4",
+   "status": "Parcial",
+   "evidence": "interop contra nostr-tools"
+  },
+  {
+   "id": "SEC-04",
+   "epic": "SEC/REL · Gates de seguridad y release",
+   "req": "§20.3",
+   "title": "Pruebas de pérdida de dispositivo de extremo a extremo",
+   "done": "Revocar → sin sesión → grupos rotados → el dispositivo robado no lee",
+   "type": "QA",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "FR024-02"
+   ],
+   "sprint": "S7",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "REL-01",
+   "epic": "SEC/REL · Gates de seguridad y release",
+   "req": "Apéndice D",
+   "title": "Checklist de Definition of Done automatizado en el pipeline de release",
+   "done": "El release se bloquea si falta: tests, interop, restore, leak tests, firma, SBOM",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 3,
+   "deps": [
+    "SEC-01",
+    "SEC-02",
+    "NFR010-02",
+    "NFR003-02",
+    "FR020-03"
+   ],
+   "sprint": "S8",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "REL-02",
+   "epic": "SEC/REL · Gates de seguridad y release",
+   "req": "Apéndice D",
+   "title": "Release notes con los cambios de trust model por release",
+   "done": "Plantilla y primer release notes publicados",
+   "type": "Doc",
+   "priority": "P2",
+   "sp": 1,
+   "deps": [
+    "REL-01"
+   ],
+   "sprint": "S8",
+   "status": "Pendiente",
+   "evidence": ""
+  }
+ ]
+}
