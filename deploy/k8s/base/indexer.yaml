@@ -1,0 +1,107 @@
+# Mirror/indexer (compose: indexer). Image built from the repo Dockerfile, target `service`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: indexer
+  labels:
+    app: indexer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: indexer
+  template:
+    metadata:
+      labels:
+        app: indexer
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: indexer
+          image: acceso-nostr-service
+          ports:
+            - name: http
+              containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: acceso-nostr-config
+          env:
+            - name: SERVICE
+              value: indexer
+            - name: PORT
+              value: "8081"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: POSTGRES_PASSWORD
+            - name: INDEXER_NSEC
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: INDEXER_NSEC
+            - name: MIRROR_AT_REST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: MIRROR_AT_REST_KEY
+                  optional: true
+            - name: DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(PLATFORM_DB)
+            - name: INDEXER_RELAYS
+              value: ws://relay:3000
+            # Buzz maps Host to a community and checks the NIP-42 relay tag: present the public URL.
+            - name: INDEXER_RELAY_PUBLIC_URL
+              value: $(RELAY_URL)
+            - name: PUBLIC_BASE_URL
+              value: $(INDEXER_PUBLIC_URL)
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: indexer
+  labels:
+    app: indexer
+spec:
+  selector:
+    app: indexer
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081

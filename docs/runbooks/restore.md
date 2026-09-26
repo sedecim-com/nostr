@@ -20,15 +20,44 @@
    ID historial.jsonl [--dry-run]` verifica firmas, informa líneas inválidas y republica los válidos.
 
 ## Stack self-hosted (operador)
-| Dato | Dónde | Cómo respaldar |
-|---|---|---|
-| Eventos del relay | Postgres `buzz` | `pg_dump` diario + WAL si se requiere RPO bajo |
-| Mirror / identidad | Postgres `sedecim` | `pg_dump` (el mirror es reconstruible desde relays) |
-| Media Blossom (Buzz) | SeaweedFS, bucket `buzz-media` (volumen `seaweedfs-data`) | `weed backup` / `s3 sync` con cualquier cliente S3 hacia almacenamiento externo |
-| Adjuntos cifrados | blob-store (volumen `blob-data`) | copia del volumen; son blobs cifrados, direccionados por hash |
-| Llave del relay | `.env` `BUZZ_RELAY_PRIVATE_KEY` | Copia offline cifrada |
-| Vault managed | volumen `managed-vault` + KEK | Volumen cifrado; la KEK se guarda separada (HSM/KMS) |
-| Onion service | volumen `tor-data` (`relay/hs_ed25519_secret_key`) | Copia offline: define la dirección .onion |
+Objetivos de RPO/RTO por tier: [`docs/rpo-rto.md`](../rpo-rto.md) (propuesta pendiente de aprobación).
 
-Drill (NFR-003): restaurar en un host limpio, `docker compose up -d`, ejecutar `npm run test:interop` y
-comprobar que el indexer reconstruye vistas (`GET /health` → recuento de eventos).
+| Dato | Dónde | Cómo respaldar (`scripts/backup.sh`) |
+|---|---|---|
+| Eventos del relay | Postgres `buzz` | `pg_dump -Fc` → `postgres-buzz.dump` (+ WAL si se requiere RPO bajo) |
+| Mirror / identidad | Postgres `sedecim` | `pg_dump -Fc` → `postgres-platform.dump` (el mirror es reconstruible desde relays) |
+| Media Blossom (Buzz) | SeaweedFS, bucket `buzz-media` (volumen `seaweedfs-data`) | Archivo del volumen → `seaweedfs-data.tgz` |
+| Adjuntos cifrados | blob-store (volumen `blob-data`) | Archivo del volumen → `blob-data.tgz`; son blobs cifrados, direccionados por hash |
+| Repos git de Buzz | volumen `relay-git` | Archivo del volumen → `relay-git.tgz` |
+| Grupos Marmot | secure-relay (volumen `secure-relay-data`, SQLite) | Archivo del volumen → `secure-relay-data.tgz` |
+| Llave del relay y demás secretos | `.env` (`BUZZ_RELAY_PRIVATE_KEY`, `INDEXER_NSEC`, contraseñas) | Copia en el backup (`.env`, salvo `--no-env`) + copia offline cifrada |
+| Vault managed | volumen `managed-vault` + KEK | `managed-vault.tgz` si corre el perfil `managed`; la KEK se guarda separada (HSM/KMS) |
+| Onion service | volumen `tor-data` (`relay/hs_ed25519_secret_key`) | `tor-data.tgz` si corre el perfil `tor`: define la dirección .onion |
+| Redis | volumen `redis-data` | No se respalda: cachés y pub/sub de Buzz |
+
+### Backup
+```bash
+sh scripts/backup.sh                 # → .data/backups/<fecha UTC>/ (o: sh scripts/backup.sh DIR)
+```
+Con el stack en marcha. Hace `pg_dump` de las dos bases, archiva cada volumen pausando su servicio unos
+segundos (`docker compose pause`, copia consistente), copia `.env` y escribe `SHA256SUMS`. El directorio
+contiene todos los secretos del stack: cifrarlo y sacarlo del host (p. ej. al bucket de backups de
+`deploy/terraform`). Programarlo con cron según el RPO del tier.
+
+### Restore en un host limpio
+```bash
+git clone … && cd nostr && npm ci && docker compose build
+sh scripts/restore.sh /ruta/al/backup   # verifica SHA256SUMS, repone .env, volúmenes y bases, arranca
+sh scripts/wait-stack.sh
+npm run test:interop                    # con BUZZ_RELAY_URL etc., como en CI
+```
+`restore.sh` se niega si ya hay contenedores del stack (`docker compose down -v` antes) o si hay un `.env`
+distinto del respaldado (la llave del relay debe ser la misma). Los perfiles opcionales se restauran si
+están activos (`COMPOSE_PROFILES=managed sh scripts/restore.sh …`).
+
+### Drill (NFR003-02)
+`.github/workflows/restore-drill.yml`, cada noche: levanta el stack, siembra datos conocidos en Buzz, el
+mirror, la media, el blob-store y el relay secundario (`scripts/drill-data.ts seed`), hace backup con
+`backup.sh`, deja el host limpio (`docker compose down -v` y sin `.env`), restaura con `restore.sh`,
+comprueba que los datos sembrados volvieron (`drill-data.ts verify`) y ejecuta `npm run test:interop`.
+Si falla, abre (o comenta) el issue "Restore drill fallido". El tiempo de restore queda en el resumen del job.

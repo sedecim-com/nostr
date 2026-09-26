@@ -1,0 +1,18 @@
+# Custodial managed signing (SaaS only, explicit opt-in, spec §8.4; compose profile `managed`).
+# Vault `aws`: envelope with the KMS key + Secrets Manager prefix from deploy/terraform (ADR 0009).
+# The overlay sets MANAGED_SIGNER_KMS_KEY_ID and MANAGED_SIGNER_SECRET_PREFIX (the signer refuses to start without them).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - managed-signer.yaml
+configMapGenerator:
+  - name: acceso-nostr-config
+    behavior: merge
+    literals:
+      - MANAGED_SIGNER_VAULT=aws
+      - MANAGED_SIGNER_RETENTION_DAYS=30
+      - MANAGED_SIGNER_USAGE_RETENTION_MONTHS=12
+  - name: edge-conf
+    behavior: merge
+    files:
+      - signer-server.conf=signer-server.conf

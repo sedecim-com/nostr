@@ -5,7 +5,8 @@
 #       Resolves ghcr.io/block/buzz:main anonymously and prints key=value lines (for $GITHUB_OUTPUT):
 #       image, pinned, changed (true|false), revision and date (best effort, from the OCI labels).
 #   sh scripts/buzz-upstream.sh apply IMAGE [REVISION] [DATE]
-#       Writes IMAGE (pinned by digest) to infra/buzz/PIN and to the default of docker-compose.yml.
+#       Writes IMAGE (pinned by digest) to infra/buzz/PIN, the default of docker-compose.yml and the
+#       Kubernetes base (deploy/k8s/base/kustomization.yaml, `images` entry `buzz`).
 #
 # Needs curl and jq. BUZZ_REPO / BUZZ_TAG override block/buzz and main.
 set -eu
@@ -14,6 +15,7 @@ TAG=${BUZZ_TAG:-main}
 REGISTRY=https://ghcr.io
 PIN=infra/buzz/PIN
 COMPOSE=docker-compose.yml
+KUSTOMIZATION=deploy/k8s/base/kustomization.yaml
 ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
 
 pinned_image() { sed -n 's/^BUZZ_IMAGE=//p' "$PIN"; }
@@ -62,11 +64,13 @@ apply() {
   printf '%s' "$date" | grep -Eq '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$' || { echo "invalid DATE" >&2; exit 1; }
   old=$(pinned_image)
   grep -q "$old" "$COMPOSE" || { echo "$COMPOSE does not default to the pinned image $old" >&2; exit 1; }
+  grep -q "digest: ${old#*@}" "$KUSTOMIZATION" || { echo "$KUSTOMIZATION does not pin the digest of $old" >&2; exit 1; }
   set_pin BUZZ_IMAGE "$image"
   [ -z "$revision" ] || set_pin BUZZ_COMMIT "$revision"
   [ -z "$date" ] || set_pin BUZZ_COMMIT_DATE "$date"
   tmp=$(mktemp)
   sed "s|$old|$image|g" "$COMPOSE" > "$tmp" && cat "$tmp" > "$COMPOSE"
+  sed -e "s|newName: ${old%@*}\$|newName: ${image%@*}|" -e "s|digest: ${old#*@}|digest: ${image#*@}|" "$KUSTOMIZATION" > "$tmp" && cat "$tmp" > "$KUSTOMIZATION"
   rm -f "$tmp"
 }
 

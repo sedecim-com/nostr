@@ -102,7 +102,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git add infra/buzz/PIN docker-compose.yml infra/web/flags.json "$report"
+          git add infra/buzz/PIN docker-compose.yml deploy/k8s/base/kustomization.yaml infra/web/flags.json "$report"
           git commit -m "Pin Buzz upstream image $short (interop gate passed)"
           git push origin "$branch"
           {

@@ -1,0 +1,171 @@
+# Buzz relay, upstream image unmodified (ADR 0002), pinned by digest (kustomization `images`, infra/buzz/PIN).
+# Probes and securityContext follow upstream's chart (block/buzz deploy/charts/buzz): git needs a writable
+# repo path, so the root filesystem stays writable here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: relay-git
+  labels:
+    app: relay
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: relay
+  labels:
+    app: relay
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # RWO volume
+  selector:
+    matchLabels:
+      app: relay
+  template:
+    metadata:
+      labels:
+        app: relay
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 # buzz user of the upstream runtime image
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: relay
+          image: buzz
+          ports:
+            - name: http
+              containerPort: 3000
+            - name: health
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9102
+          envFrom:
+            - configMapRef:
+                name: acceso-nostr-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: POSTGRES_PASSWORD
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: REDIS_PASSWORD
+            - name: BUZZ_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: S3_ACCESS_KEY
+            - name: BUZZ_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: S3_SECRET_KEY
+            - name: BUZZ_RELAY_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: BUZZ_RELAY_PRIVATE_KEY
+            - name: BUZZ_GIT_HOOK_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: BUZZ_GIT_HOOK_HMAC_SECRET
+            - name: BUZZ_BIND_ADDR
+              value: "0.0.0.0:3000"
+            - name: BUZZ_HEALTH_PORT
+              value: "8080"
+            - name: BUZZ_METRICS_PORT
+              value: "9102"
+            - name: DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)
+            - name: REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@redis:6379
+            - name: BUZZ_S3_ENDPOINT
+              value: http://seaweedfs:8333
+            - name: BUZZ_S3_ADDRESSING_STYLE
+              value: path
+            - name: BUZZ_S3_BUCKET
+              value: $(S3_BUCKET)
+            - name: BUZZ_PUSH_ENABLED
+              value: "false"
+            - name: BUZZ_AUTO_MIGRATE
+              value: "true"
+            - name: BUZZ_GIT_REPO_PATH
+              value: /data/git
+            - name: BUZZ_CORS_ORIGINS
+              value: $(WEB_ORIGIN)
+          volumeMounts:
+            - name: git
+              mountPath: /data/git
+          # Compose probes /_readiness on the health port; liveness/startup as in upstream's chart.
+          startupProbe:
+            httpGet:
+              path: /_liveness
+              port: health
+            periodSeconds: 2
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /_readiness
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /_liveness
+              port: health
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: git
+          persistentVolumeClaim:
+            claimName: relay-git
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: relay
+  labels:
+    app: relay
+spec:
+  selector:
+    app: relay
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+    - name: health
+      port: 8080
+      targetPort: 8080
+    # Prometheus scrape target (deploy/monitoring). Never exposed through the edge.
+    - name: metrics
+      port: 9102
+      targetPort: 9102

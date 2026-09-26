@@ -1,0 +1,23 @@
+# Blackbox exporter modules used by the slo-probes job (deploy/monitoring/prometheus/prometheus.yml).
+modules:
+  # Health endpoints: 200 within 5 s.
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      follow_redirects: false
+      preferred_ip_protocol: ip4
+  # Nostr relay information document (NIP-11), same check as scripts/wait-stack.sh.
+  http_nip11:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      headers:
+        Accept: application/nostr+json
+      valid_status_codes: [200]
+      fail_if_body_not_matches_regexp: ['"name"']
+      follow_redirects: false
+      preferred_ip_protocol: ip4

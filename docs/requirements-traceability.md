@@ -37,12 +37,12 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 
 | ID | Requisito | Estado | Evidencia / nota |
 |----|-----------|--------|------------------|
-| NFR-001 | Disponibilidad SaaS | ⏳ | Requiere despliegue operado; healthchecks en compose |
-| NFR-002 | 0 pérdidas LOCAL_PERSISTED | ✅ | `engine.test.ts` (reinicio con FileBackend atómico + fsync) |
-| NFR-003 | RPO/RTO | 🟡 | `docs/runbooks/restore.md`; drill automatizado pendiente |
+| NFR-001 | Disponibilidad SaaS | 🟡 | IaC de staging (`deploy/k8s`, `deploy/terraform`, validados en CI job `deploy-config`); SLO 99,9 % con alertas multi-ventana (`deploy/monitoring`, `docs/slo.md`, `promtool test rules`). Despliegue en staging pendiente de credenciales AWS |
+| NFR-002 | 0 pérdidas LOCAL_PERSISTED | ✅ | `engine.test.ts` (reinicio con FileBackend atómico + fsync); `encrypted-store/test/crash.test.ts` (30 kill -9 a mitad de escritura: valor viejo o nuevo, nunca corrupto) |
+| NFR-003 | RPO/RTO | 🟡 | `docs/rpo-rto.md` (propuesta pendiente de aprobación); `scripts/backup.sh` / `scripts/restore.sh`; drill nocturno `restore-drill.yml` (host limpio + datos sembrados + `test:interop`) |
 | NFR-004 | Latencia P95 | 🟡 | Latencia por relay registrada en ledger y `RelayHealth`; métricas exportables pendientes |
 | NFR-005 | Escalabilidad | 🟡 | Indexer sin estado + Postgres; relay según Buzz |
-| NFR-006 | Sin secretos en logs | ✅ | `telemetry.test.ts`, `managed-signer.test.ts`; gitleaks en CI |
+| NFR-006 | Sin secretos en logs | ✅ | `telemetry.test.ts`, `managed-signer.test.ts`; gitleaks en CI; logs del stack completo escaneados (`scripts/scan-logs.sh`: reglas de gitleaks + canario con los secretos de `.env`, job `stack`) |
 | NFR-007 | Telemetría por perfil | ✅ | `TelemetryPolicy` + tests de endpoints permitidos |
 | NFR-008 | Portabilidad | ✅ | NIP-49 ncryptsec, eventos Nostr crudos, backup JSON abierto; historial exportable/importable como JSONL de eventos firmados (`exportEventsJsonl`/`importEventsJsonl`, `sovereign history export/import`, verificado con nostr-tools) |
 | NFR-009 | Accesibilidad | 🟡 | Navegación por teclado, labels, contraste claro/oscuro; auditoría formal pendiente |

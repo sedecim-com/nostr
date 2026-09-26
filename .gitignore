@@ -12,3 +12,8 @@ interop-marmot-report.json
 infra/secure-relay/config.tls.toml
 dump.rdb
 .claude/worktrees/
+deploy/k8s/secret.yaml
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*

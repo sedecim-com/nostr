@@ -1,0 +1,29 @@
+# Alert routing for the SLO alerts (docs/slo.md). PLACEHOLDER: the receivers have no integration yet.
+# Before production, the on-call owner must fill in:
+#   oncall-page    severity=page   (fast burn: someone acts now), e.g. PagerDuty/Opsgenie or a Slack
+#                                    channel with mentions.
+#   oncall-ticket  severity=ticket (slow burn: next business day), e.g. an issue tracker or a channel.
+# Secrets (webhook URLs, keys) go in Secrets Manager k8s/<env>/acceso-nostr, never in this file.
+route:
+  receiver: oncall-ticket
+  group_by: [alertname, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: ['severity="page"']
+      receiver: oncall-page
+      repeat_interval: 1h
+    - matchers: ['severity="ticket"']
+      receiver: oncall-ticket
+      repeat_interval: 24h
+
+inhibit_rules:
+  # A page for a service already covers the slower tickets of the same service.
+  - source_matchers: ['severity="page"']
+    target_matchers: ['severity="ticket"']
+    equal: [service]
+
+receivers:
+  - name: oncall-page
+  - name: oncall-ticket

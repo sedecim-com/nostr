@@ -1,0 +1,100 @@
+# Secondary relay for Marmot/MLS groups (nostr-rs-relay, same pin and config as docker-compose.yml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: secure-relay
+  labels:
+    app: secure-relay
+spec:
+  selector:
+    app: secure-relay
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: secure-relay
+  labels:
+    app: secure-relay
+spec:
+  serviceName: secure-relay
+  replicas: 1
+  selector:
+    matchLabels:
+      app: secure-relay
+  template:
+    metadata:
+      labels:
+        app: secure-relay
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: secure-relay
+          image: secure-relay
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /usr/src/app/config.toml
+              subPath: config.toml
+              readOnly: true
+            - name: data
+              mountPath: /usr/src/app/db
+            - name: tmp
+              mountPath: /tmp
+          # NIP-11 document, as scripts/wait-stack.sh checks it.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+              httpHeaders:
+                - name: Accept
+                  value: application/nostr+json
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+              httpHeaders:
+                - name: Accept
+                  value: application/nostr+json
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: config
+          configMap:
+            name: secure-relay-config
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi

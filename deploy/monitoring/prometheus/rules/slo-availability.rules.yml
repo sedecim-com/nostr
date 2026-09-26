@@ -1,0 +1,116 @@
+# SLO: 99.9 % monthly availability per service (NFR-001, NFR001-02). See docs/slo.md.
+# SLI  = fraction of successful blackbox probes (job slo-probes) per `service`.
+# Budget = 0.1 % of 30 days = 43.2 minutes. Alerts: multi-window, multi-burn-rate (Google SRE workbook,
+# "Alerting on SLOs"): a long window measures the burn, a short window (1/12) makes the alert reset fast.
+#   page   14.4x  1h & 5m   (2 % of the budget in 1 h)
+#   page    6x    6h & 30m  (5 % of the budget in 6 h)
+#   ticket  3x    1d & 2h   (10 % of the budget in 1 d)
+#   ticket  1x    3d & 6h   (10 % of the budget in 3 d)
+groups:
+  - name: slo-availability-sli
+    interval: 30s
+    rules:
+      - record: sli:availability:ratio_rate5m
+        expr: avg by (service) (avg_over_time(probe_success{job="slo-probes"}[5m]))
+      - record: sli:availability:ratio_rate30m
+        expr: avg by (service) (avg_over_time(probe_success{job="slo-probes"}[30m]))
+      - record: sli:availability:ratio_rate1h
+        expr: avg by (service) (avg_over_time(probe_success{job="slo-probes"}[1h]))
+      - record: sli:availability:ratio_rate2h
+        expr: avg by (service) (avg_over_time(probe_success{job="slo-probes"}[2h]))
+      - record: sli:availability:ratio_rate6h
+        expr: avg by (service) (avg_over_time(probe_success{job="slo-probes"}[6h]))
+      - record: sli:availability:ratio_rate1d
+        expr: avg by (service) (avg_over_time(probe_success{job="slo-probes"}[1d]))
+      - record: sli:availability:ratio_rate3d
+        expr: avg by (service) (avg_over_time(probe_success{job="slo-probes"}[3d]))
+      - record: sli:availability:ratio_rate30d
+        expr: avg by (service) (avg_over_time(probe_success{job="slo-probes"}[30d]))
+      - record: slo:objective:ratio
+        expr: vector(0.999)
+      # 1 = budget intact, 0 = spent, < 0 = SLO missed over the last 30 days.
+      - record: slo:error_budget_remaining:ratio30d
+        expr: 1 - (1 - sli:availability:ratio_rate30d) / (1 - 0.999)
+      # Informational request-based SLI for Buzz (5xx share of HTTP requests); not used for paging.
+      - record: sli:buzz_http_errors:ratio_rate5m
+        expr: sum by (service) (rate(http_requests_total{job="buzz",code=~"5.."}[5m])) / sum by (service) (rate(http_requests_total{job="buzz"}[5m]))
+
+  - name: slo-availability-alerts
+    rules:
+      - alert: SLOAvailabilityBurnRateCritical
+        expr: |
+          (1 - sli:availability:ratio_rate1h) > (14.4 * 0.001)
+          and
+          (1 - sli:availability:ratio_rate5m) > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: page
+          slo: availability-99.9
+          window: 1h
+        annotations:
+          summary: "{{ $labels.service }}: consumo del presupuesto de error 14.4x (1h/5m)"
+          description: "{{ $labels.service }} falla el {{ $value | humanizePercentage }} de las sondas en la ventana larga; a este ritmo consume 2 % del presupuesto mensual en 1 h. Runbook: docs/slo.md."
+          runbook: docs/slo.md
+      - alert: SLOAvailabilityBurnRateHigh
+        expr: |
+          (1 - sli:availability:ratio_rate6h) > (6 * 0.001)
+          and
+          (1 - sli:availability:ratio_rate30m) > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: page
+          slo: availability-99.9
+          window: 6h
+        annotations:
+          summary: "{{ $labels.service }}: consumo del presupuesto de error 6x (6h/30m)"
+          description: "{{ $labels.service }} falla el {{ $value | humanizePercentage }} de las sondas en la ventana larga; a este ritmo consume 5 % del presupuesto mensual en 6 h. Runbook: docs/slo.md."
+          runbook: docs/slo.md
+      - alert: SLOAvailabilityBurnRateMedium
+        expr: |
+          (1 - sli:availability:ratio_rate1d) > (3 * 0.001)
+          and
+          (1 - sli:availability:ratio_rate2h) > (3 * 0.001)
+        for: 1h
+        labels:
+          severity: ticket
+          slo: availability-99.9
+          window: 1d
+        annotations:
+          summary: "{{ $labels.service }}: consumo del presupuesto de error 3x (1d/2h)"
+          description: "{{ $labels.service }} falla el {{ $value | humanizePercentage }} de las sondas en la ventana larga; a este ritmo consume 10 % del presupuesto mensual en 1 d. Runbook: docs/slo.md."
+          runbook: docs/slo.md
+      - alert: SLOAvailabilityBurnRateLow
+        expr: |
+          (1 - sli:availability:ratio_rate3d) > (1 * 0.001)
+          and
+          (1 - sli:availability:ratio_rate6h) > (1 * 0.001)
+        for: 3h
+        labels:
+          severity: ticket
+          slo: availability-99.9
+          window: 3d
+        annotations:
+          summary: "{{ $labels.service }}: consumo del presupuesto de error 1x (3d/6h)"
+          description: "{{ $labels.service }} falla el {{ $value | humanizePercentage }} de las sondas en la ventana larga; a este ritmo consume 10 % del presupuesto mensual en 3 d. Runbook: docs/slo.md."
+          runbook: docs/slo.md
+      - alert: SLOErrorBudgetExhausted
+        expr: slo:error_budget_remaining:ratio30d <= 0
+        for: 15m
+        labels:
+          severity: ticket
+          slo: availability-99.9
+        annotations:
+          summary: "{{ $labels.service }}: presupuesto de error de 30 días agotado"
+          description: "Disponibilidad de 30 días por debajo de 99,9 %. Congelar cambios no urgentes (docs/slo.md)."
+          runbook: docs/slo.md
+      # Without probes there is no SLI: alert instead of silently reporting 100 %.
+      - alert: SLOProbesMissing
+        expr: absent(probe_success{job="slo-probes"}) or up{job="blackbox-exporter"} == 0
+        for: 10m
+        labels:
+          severity: ticket
+          slo: availability-99.9
+        annotations:
+          summary: "Sin sondas de disponibilidad (blackbox exporter caído o sin objetivos)"
+          description: "El SLI no se está midiendo; revisar blackbox-exporter y prometheus.yml."
+          runbook: docs/slo.md

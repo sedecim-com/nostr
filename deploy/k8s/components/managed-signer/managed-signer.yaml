@@ -1,0 +1,109 @@
+# kops clusters have no IRSA: like other Sedecim pods, the signer uses a dedicated IAM user whose keys
+# Terraform stores in Secrets Manager (deploy/terraform, output managed_signer_credentials_secret) and
+# generate-secret.sh copies into acceso-nostr-secrets. Its policy only allows the KMS key and the prefix.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: managed-signer
+  labels:
+    app: managed-signer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: managed-signer
+  template:
+    metadata:
+      labels:
+        app: managed-signer
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: managed-signer
+          image: acceso-nostr-service
+          ports:
+            - name: http
+              containerPort: 8084
+          envFrom:
+            - configMapRef:
+                name: acceso-nostr-config
+          env:
+            - name: SERVICE
+              value: managed-signer
+            - name: PORT
+              value: "8084"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(PLATFORM_DB)
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: MANAGED_SIGNER_AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: MANAGED_SIGNER_AWS_SECRET_ACCESS_KEY
+            - name: MANAGED_SIGNER_SERVICE_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: MANAGED_SIGNER_SERVICE_TOKENS
+                  optional: true
+            - name: CORS_ORIGINS
+              value: $(WEB_ORIGIN)
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: managed-signer
+  labels:
+    app: managed-signer
+spec:
+  selector:
+    app: managed-signer
+  ports:
+    - name: http
+      port: 8084
+      targetPort: 8084

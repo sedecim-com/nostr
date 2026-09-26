@@ -104,6 +104,8 @@ npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 | `npm run test:browser` | Web en Chromium (Playwright): personas, canales, DMs con ruteo 10050, adjuntos, receipts, panel aplicado y persistido, vault, nsec que no sale del navegador, axe-core, modo SaaS con Acceso |
 | `BUZZ_RELAY_URL=… npx tsx tests/browser/web-buzz.e2e.ts` | Web contra Buzz real: crear canal, unirse, enviar y leer (FR015-03; job `stack` de CI) |
 | `npm run test:interop` | Gate contra Buzz real (`BUZZ_RELAY_URL`), genera `interop-report.json` |
+| `sh scripts/backup.sh` / `sh scripts/restore.sh DIR` | Backup y restore del stack self-hosted (`docs/runbooks/restore.md`; drill nocturno `restore-drill.yml`) |
+| `sh scripts/scan-logs.sh compose.log .env` | Busca secretos en los logs del stack: reglas de gitleaks + valores de `.env` (job `stack` de CI) |
 
 ## Estructura
 ```
@@ -113,7 +115,8 @@ packages/   SDK compartido (nostr-core, relay-pool, signer, delivery-engine, enc
 apps/       web-saas, sovereign-client, key-generator
 services/   indexer, identity-service, managed-signer, policy-engine, blob-store
 infra/      buzz (pin), tor, postgres, web
-docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, runbooks
+deploy/     Kubernetes (kustomize) y Terraform del SaaS en staging, monitorización de SLO (deploy/README.md)
+docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, runbooks, SLO, RPO/RTO
 ```
 
 ## Pendiente (roadmap §22)
