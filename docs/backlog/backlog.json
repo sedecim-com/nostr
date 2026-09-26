@@ -204,8 +204,8 @@
    "sp": 2,
    "deps": [],
    "sprint": "S5",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "docs/adr/0010-notificaciones-push-por-perfil.md (Aceptado): matriz perfil × modo (push opaco, privacy-push, none) con los metadatos que ve cada parte; packages/profiles/src/notifications.ts",
    "issue": 42
   },
   {
@@ -452,8 +452,8 @@
     "DEC-08"
    ],
    "sprint": "S5",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "services/notification-gateway: Web Push (VAPID + RFC 8291, vector del RFC byte a byte), push opaco sin contenido, remitente ni conteo, retardo aleatorio por perfil, rechaza sovereign/Tor y relays .onion; web con suscripción por persona. Falta: Buzz y el secure relay solo entregan kind 1059 a su destinatario, así que con los relays de referencia el gateway no ve los mensajes",
    "issue": 57
   },
   {
@@ -1155,8 +1155,8 @@
     "FR007-02"
    ],
    "sprint": "S5",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "packages/identity/src/public-link.ts (kind 30078 firmado por A con el consentimiento firmado de B; verificable por terceros), docs/public-link.md; web: casilla opcional con advertencia, bloqueada en sovereign/Tor",
    "issue": 99
   },
   {
@@ -1447,8 +1447,8 @@
     "NFR004-01"
    ],
    "sprint": "S5",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "packages/metrics: profundidad y antigüedad del outbox y fallos por relay y motivo desde delivery-engine, con la política de telemetría del perfil",
    "issue": 116
   },
   {
@@ -1810,8 +1810,8 @@
     "FR018-01"
    ],
    "sprint": "S5",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "packages/blossom-client/src/server-list.ts (BUD-03, kind 10063): publicar, leer y usar la lista para subir y descargar; los cifrados nunca van al servidor de media del relay; web: tarjeta \"Servidores de archivos (Blossom)\"",
    "issue": 138
   },
   {
@@ -1889,8 +1889,8 @@
    "sp": 5,
    "deps": [],
    "sprint": "S5",
-   "status": "Parcial",
-   "evidence": "packages/tor-network/test (socks5h, sin dns.lookup)",
+   "status": "Hecho",
+   "evidence": "scripts/leak-test.sh + tests/leak (netns + tcpdump con el CLI real): cero DNS, DoH, IPv6 y conexiones fuera del proxy SOCKS, con controles negativos que deben detectarse; job leak-tests en CI. Encontró y corrigió una fuga real (NIP-11 de history sync por fetch global)",
    "issue": 143
   },
   {
@@ -1923,8 +1923,8 @@
     "OPS-01"
    ],
    "sprint": "S5",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "scripts/tor-profile-check.sh y job tor-profile en CI: docker compose --profile tor, espera los .onion y el CLI publica y lee en el secure relay y envía un DM NIP-17 por el .onion de Buzz",
    "issue": 145
   },
   {
@@ -1955,8 +1955,8 @@
     "FR020-03"
    ],
    "sprint": "S5",
-   "status": "Parcial",
-   "evidence": "NetworkGuard.allowedHosts",
+   "status": "Hecho",
+   "evidence": "scripts/leak-test.sh (perfil directo): cada destino capturado está en la allowlist de la persona; control negativo fuera de ella; job leak-tests en CI",
    "issue": 147
   },
   {
@@ -1970,8 +1970,8 @@
    "sp": 2,
    "deps": [],
    "sprint": "S5",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "apps/web-saas/src/lib/webrtcGuard.ts (sin RTCPeerConnection en ningún perfil) y tests/browser/web-leaks.e2e.ts: cero peticiones a enlaces, imágenes o adjuntos remotos y cero candidatos ICE en perfiles sensibles, con controles negativos",
    "issue": 148
   },
   {
@@ -2465,8 +2465,8 @@
    "sp": 3,
    "deps": [],
    "sprint": "S5",
-   "status": "Parcial",
-   "evidence": "RelayHealth.avgAckLatencyMs",
+   "status": "Hecho",
+   "evidence": "packages/metrics: histograma de latencia de ACK por relay y región en formato Prometheus; nada en sovereign/Tor, relays con hash en minimal, sin pubkeys ni ids; expuesto por el indexer (puerto 9464) con sonda sintética",
    "issue": 177
   },
   {
@@ -2483,8 +2483,8 @@
     "NFR001-02"
    ],
    "sprint": "S5",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "deploy/monitoring: reglas P95/P99 por relay y región, alertas de degradación absoluta y relativa, outbox y fallos (tests promtool), dashboard Grafana; la web muestra el P95 y un chip \"degradado\". Falta desplegar el monitoreo (NFR001-02)",
    "issue": 178
   },
   {

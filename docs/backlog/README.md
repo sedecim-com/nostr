@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **164 tareas** · 107 hechas · 15 parciales · 36 pendientes · 6 descartadas
-- **181 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **164 tareas** · 116 hechas · 14 parciales · 28 pendientes · 6 descartadas
+- **157 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -36,22 +36,22 @@
 | FR-004 | 5 | 5 | — |
 | FR-005 | 7 | 5 | FR005-05 (S7), FR005-06 (S7) |
 | FR-006 | 3 | 3 | — |
-| FR-007 | 4 | 3 | FR007-04 (S5) |
+| FR-007 | 4 | 4 | — |
 | FR-008 | 2 | 2 | — |
 | FR-009 | 2 | 2 | — |
 | FR-010 | 2 | 2 | — |
-| FR-011 | 3 | 2 | FR011-03 (S5) |
+| FR-011 | 3 | 3 | — |
 | FR-012 | 1 | 1 | — |
 | FR-013 | 4 | 4 | — |
 | FR-014 | 3 | 3 | — |
 | FR-015 | 3 | 3 | — |
 | FR-016 | 1 | 1 | — |
 | FR-017 | 5 | 5 | — |
-| FR-018 | 5 | 4 | FR018-05 (S5) |
+| FR-018 | 5 | 5 | — |
 | FR-019 | 3 | 3 | — |
-| FR-020 | 3 | 1 | FR020-02 (Diferido), FR020-03 (S5) |
-| FR-021 | 2 | 1 | FR021-02 (S5) |
-| FR-022 | 2 | 1 | FR022-02 (S5) |
+| FR-020 | 3 | 2 | FR020-02 (Diferido) |
+| FR-021 | 2 | 2 | — |
+| FR-022 | 2 | 2 | — |
 | FR-023 | 6 | 2 | FR023-03 (S7), FR023-04 (S7), FR023-05 (S7), FR023-06 (S7) |
 | FR-024 | 3 | 1 | FR024-02 (S7), FR024-03 (S7) |
 | FR-025 | 10 | 4 | FR025-04 (S6), FR025-05 (S6), FR025-06 (S6), FR025-07 (S6), FR025-08 (S6), FR025-09 (S6) |
@@ -61,10 +61,10 @@
 | NFR-001 | 3 | 0 | NFR001-01 (S4), NFR001-02 (S4), NFR001-03 (S7) |
 | NFR-002 | 2 | 2 | — |
 | NFR-003 | 2 | 0 | NFR003-01 (S4), NFR003-02 (S4) |
-| NFR-004 | 3 | 0 | FR011-03 (S5), NFR004-01 (S5), NFR004-02 (S5) |
+| NFR-004 | 3 | 2 | NFR004-02 (S5) |
 | NFR-005 | 2 | 0 | NFR005-01 (S8), NFR005-02 (S8) |
 | NFR-006 | 3 | 3 | — |
-| NFR-007 | 2 | 1 | FR022-02 (S5) |
+| NFR-007 | 2 | 2 | — |
 | NFR-008 | 2 | 2 | — |
 | NFR-009 | 2 | 1 | NFR009-02 (S3) |
 | NFR-010 | 4 | 1 | FR003-06 (S4), NFR010-02 (S4), NFR010-03 (S8) |
@@ -166,17 +166,17 @@
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| [FR020-03](https://github.com/sedecim-com/nostr/issues/143) | P0 | Tests de fugas con captura de red real (netns/pcap): DNS, IPv6, conexiones directas | FR-020, §20.3 | Seguridad | 5 | — | Parcial | Suite que prueba cero tráfico fuera de Tor con el cliente soberano real (CLI); la app desktop, cuando exista, reutiliza la suite |
-| [FR021-02](https://github.com/sedecim-com/nostr/issues/145) | P1 | Validar el perfil tor del compose (onion services de relay y secure-relay) | FR-021 | QA | 2 | OPS-01 | Pendiente | Arranque real y conexión del CLI a las direcciones .onion generadas |
-| [FR022-02](https://github.com/sedecim-com/nostr/issues/147) | P1 | Test en CI de endpoints de salida permitidos por perfil | FR-022, NFR-007 | QA | 3 | FR020-03 | Parcial | Allowlist de egress por perfil verificada con el cliente real |
-| [SEC-05](https://github.com/sedecim-com/nostr/issues/148) | P1 | Tests de fugas por WebRTC y previews remotas en la web | §20.3 | Seguridad | 2 | — | Pendiente | Sin candidatos ICE ni peticiones de previews en perfiles sensibles (la app desktop, cuando exista, reutiliza la suite) |
-| [DEC-08](https://github.com/sedecim-com/nostr/issues/42) | P2 | Definir modelo de notificaciones móviles por perfil | §25.1-8 | Decisión | 2 | — | Pendiente | Matriz perfil × (push, privacy-push, none) con metadatos expuestos |
-| [NFR004-01](https://github.com/sedecim-com/nostr/issues/177) | P2 | Exportar métricas (latencia P95 de ACK por relay y región) | NFR-004 | Dev | 3 | — | Parcial | Exportador Prometheus respetando el perfil de telemetría |
-| [OPS-06](https://github.com/sedecim-com/nostr/issues/57) | P2 | Servicio notification-gateway con perfiles de privacidad | §17.1 | Dev | 5 | DEC-08 | Pendiente | Push opaco sin contenido ni remitente; deshabilitado en perfiles Tor |
-| [FR007-04](https://github.com/sedecim-com/nostr/issues/99) | P3 | Publicar opcionalmente un vínculo público como evento Nostr firmado | FR-007 | Dev | 3 | FR007-02 | Pendiente | Formato definido, firmado por ambas personas y verificable |
-| [FR011-03](https://github.com/sedecim-com/nostr/issues/116) | P3 | Métricas de outbox (profundidad, antigüedad, fallos por relay) | FR-011, NFR-004 | Dev | 2 | FR011-01, NFR004-01 | Pendiente | Expuestas al exportador de métricas respetando el perfil |
-| [FR018-05](https://github.com/sedecim-com/nostr/issues/138) | P3 | Lista de servidores Blossom del usuario (kind 10063) | FR-018 | Dev | 2 | FR018-01 | Pendiente | El cliente publica y respeta la lista de servidores |
-| [NFR004-02](https://github.com/sedecim-com/nostr/issues/178) | P3 | Dashboard de latencia y degradación sin ocultarla | NFR-004 | Infra | 2 | NFR004-01, NFR001-02 | Pendiente | Panel P95/P99 por relay con alertas de degradación |
+| [FR020-03](https://github.com/sedecim-com/nostr/issues/143) | P0 | Tests de fugas con captura de red real (netns/pcap): DNS, IPv6, conexiones directas | FR-020, §20.3 | Seguridad | 5 | — | Hecho | Suite que prueba cero tráfico fuera de Tor con el cliente soberano real (CLI); la app desktop, cuando exista, reutiliza la suite |
+| [FR021-02](https://github.com/sedecim-com/nostr/issues/145) | P1 | Validar el perfil tor del compose (onion services de relay y secure-relay) | FR-021 | QA | 2 | OPS-01 | Hecho | Arranque real y conexión del CLI a las direcciones .onion generadas |
+| [FR022-02](https://github.com/sedecim-com/nostr/issues/147) | P1 | Test en CI de endpoints de salida permitidos por perfil | FR-022, NFR-007 | QA | 3 | FR020-03 | Hecho | Allowlist de egress por perfil verificada con el cliente real |
+| [SEC-05](https://github.com/sedecim-com/nostr/issues/148) | P1 | Tests de fugas por WebRTC y previews remotas en la web | §20.3 | Seguridad | 2 | — | Hecho | Sin candidatos ICE ni peticiones de previews en perfiles sensibles (la app desktop, cuando exista, reutiliza la suite) |
+| [DEC-08](https://github.com/sedecim-com/nostr/issues/42) | P2 | Definir modelo de notificaciones móviles por perfil | §25.1-8 | Decisión | 2 | — | Hecho | Matriz perfil × (push, privacy-push, none) con metadatos expuestos |
+| [NFR004-01](https://github.com/sedecim-com/nostr/issues/177) | P2 | Exportar métricas (latencia P95 de ACK por relay y región) | NFR-004 | Dev | 3 | — | Hecho | Exportador Prometheus respetando el perfil de telemetría |
+| [OPS-06](https://github.com/sedecim-com/nostr/issues/57) | P2 | Servicio notification-gateway con perfiles de privacidad | §17.1 | Dev | 5 | DEC-08 | Parcial | Push opaco sin contenido ni remitente; deshabilitado en perfiles Tor |
+| [FR007-04](https://github.com/sedecim-com/nostr/issues/99) | P3 | Publicar opcionalmente un vínculo público como evento Nostr firmado | FR-007 | Dev | 3 | FR007-02 | Hecho | Formato definido, firmado por ambas personas y verificable |
+| [FR011-03](https://github.com/sedecim-com/nostr/issues/116) | P3 | Métricas de outbox (profundidad, antigüedad, fallos por relay) | FR-011, NFR-004 | Dev | 2 | FR011-01, NFR004-01 | Hecho | Expuestas al exportador de métricas respetando el perfil |
+| [FR018-05](https://github.com/sedecim-com/nostr/issues/138) | P3 | Lista de servidores Blossom del usuario (kind 10063) | FR-018 | Dev | 2 | FR018-01 | Hecho | El cliente publica y respeta la lista de servidores |
+| [NFR004-02](https://github.com/sedecim-com/nostr/issues/178) | P3 | Dashboard de latencia y degradación sin ocultarla | NFR-004 | Infra | 2 | NFR004-01, NFR001-02 | Parcial | Panel P95/P99 por relay con alertas de degradación |
 
 ## S6 · Grupos high-security (F4, 2026-12-07 → 2026-12-18) — 26 SP
 
