@@ -1,5 +1,5 @@
 import { normalizePubkey } from '@sedecim/nostr-core';
-import { chatMessage, channelFilter, dmInboxFilter, DirectMessenger, FeatureDisabledError } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, dmInboxFilter, DirectMessenger, FeatureDisabledError } from '@sedecim/messaging';
 import { PRESETS, disclose, preset, summarize, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
 import { custodyFacts, openSession, shortNpub, type CustodyChoice, type WebSession } from './session';
 
@@ -108,7 +108,8 @@ $('#channel-send').addEventListener('submit', async (e) => {
 });
 
 // --- DMs (NIP-17 behind a flag)
-const messenger = () => new DirectMessenger(session!.signer, { nip17: $<HTMLInputElement>('#nip17-flag').checked, readReceipts: config.readReceipts });
+// Explicit relay adapter from the interop gate (bounded gift-wrap jitter for the pinned Buzz build).
+const messenger = () => new DirectMessenger(session!.signer, { nip17: $<HTMLInputElement>('#nip17-flag').checked, readReceipts: config.readReceipts }, BUZZ_PINNED_ADAPTER.wrap);
 $('#dm-send').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!session) return alert('Activa una identidad primero');

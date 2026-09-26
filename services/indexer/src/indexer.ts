@@ -4,6 +4,13 @@ import type { RelayPool } from '@sedecim/relay-pool';
 import type { Logger } from '@sedecim/telemetry-policy';
 import type { EventRepository } from './repository';
 
+/**
+ * Default mirrored kinds: public + NIP-29 channel traffic. p-gated kinds (1059 gift wraps, 44100/44101)
+ * are NOT requested: relays such as Buzz only serve them to their authenticated recipient, so the mirror
+ * receives a user's gift wraps only through that user's own authenticated session (ciphertext-first).
+ */
+export const DEFAULT_MIRROR_KINDS = [0, 1, 3, 5, 6, 7, 9, 10, 11, 12, 16, 1111, 9000, 9001, 9002, 9005, 9007, 9008, 9009, 9021, 9022, 10002, 10050, 10063, 30023, 39000, 39001, 39002, 40002, 40003];
+
 export interface IndexerOptions {
   relays: string[];
   filters: Filter[];

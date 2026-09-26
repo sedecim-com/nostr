@@ -132,3 +132,24 @@ if (PG) {
     it('skipped', () => undefined);
   });
 }
+
+describe('Indexer against a p-gated relay (Buzz behaviour)', () => {
+  it('uses default mirror kinds that p-gated relays accept', async () => {
+    const { DEFAULT_MIRROR_KINDS } = await import('../src/index');
+    const relay = new TestRelay({ pGatedKinds: [1059, 44100, 44101] });
+    await relay.start();
+    const signer = new LocalSigner(generateSecretKey());
+    relay.inject(await signer.signEvent({ kind: 9, content: 'canal', tags: [['h', 'g']] }));
+    const pool = new RelayPool({ webSocketFactory: factory });
+    const repo = new MemoryEventRepository();
+    const closed: string[] = [];
+    const idx = new Indexer(pool, repo, { relays: [relay.url], filters: [{ kinds: DEFAULT_MIRROR_KINDS }], logger: { warn: (_m: string, f?: Record<string, unknown>) => closed.push(String(f?.reason)) } as never });
+    await idx.start();
+    expect(closed).toEqual([]);
+    expect((await repo.stats()).events).toBe(1);
+    expect(DEFAULT_MIRROR_KINDS).not.toContain(1059);
+    idx.stop();
+    pool.close();
+    await relay.stop();
+  });
+});

@@ -4,7 +4,7 @@ import { hexToBytes } from '@sedecim/nostr-core';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { createPgPool, migrate } from '@sedecim/service-kit';
 import { createLogger } from '@sedecim/telemetry-policy';
-import { createIndexerApi, Indexer, MemoryEventRepository, PgEventRepository, plainCodec, sealedCodec } from './index';
+import { createIndexerApi, DEFAULT_MIRROR_KINDS, Indexer, MemoryEventRepository, PgEventRepository, plainCodec, sealedCodec } from './index';
 
 const env = process.env;
 const logger = createLogger({ base: { service: 'indexer' }, minimizeIp: true });
@@ -22,9 +22,9 @@ if (env.DATABASE_URL) {
   repo = new MemoryEventRepository(codec);
 }
 
-const kinds = env.INDEXER_KINDS ? env.INDEXER_KINDS.split(',').map(Number) : undefined;
+const kinds = env.INDEXER_KINDS ? env.INDEXER_KINDS.split(',').map(Number) : DEFAULT_MIRROR_KINDS;
 const pool = new RelayPool({ webSocketFactory: (u) => new WebSocket(u) as unknown as WebSocketLike });
-const indexer = new Indexer(pool, repo, { relays, filters: [kinds ? { kinds } : {}], communityId: env.COMMUNITY_ID, logger });
+const indexer = new Indexer(pool, repo, { relays, filters: [{ kinds }], communityId: env.COMMUNITY_ID, logger });
 void indexer.start().then(() => logger.info('initial backfill complete', { ingested: indexer.ingested }));
 
 const api = createIndexerApi(repo, { name: 'indexer', publicBaseUrl: env.PUBLIC_BASE_URL, requireAuth: env.INDEXER_REQUIRE_AUTH === 'true', logger });

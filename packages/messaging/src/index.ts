@@ -4,3 +4,4 @@ export * from './receipts';
 export * from './nip29';
 export * from './security';
 export * from './messenger';
+export * from './adapters';

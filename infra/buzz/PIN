@@ -1,0 +1,7 @@
+# Buzz version pinned for this release (spec §6.3, §22.1). Update only after the interop suite passes.
+BUZZ_UPSTREAM=https://github.com/block/buzz
+BUZZ_COMMIT=02c6309f534050e54c8d36f5ce90e48e4dd152b1
+BUZZ_COMMIT_DATE=2026-09-25
+BUZZ_IMAGE=ghcr.io/block/buzz@sha256:da30acf8ee124967a1d12b235fd2e21fab908a2452d551e1f3ec92fb1b599a07
+BUZZ_DESKTOP_RELEASE=desktop-v0.5.24
+BUZZ_LICENSE=Apache-2.0

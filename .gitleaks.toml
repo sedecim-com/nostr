@@ -1,0 +1,19 @@
+title = "sedecim-nostr"
+[extend]
+useDefault = true
+
+[[rules]]
+id = "nostr-nsec"
+description = "Nostr secret key (nsec)"
+regex = '''nsec1[02-9ac-hj-np-z]{58}'''
+tags = ["key", "nostr"]
+
+[[rules]]
+id = "nostr-ncryptsec"
+description = "Encrypted Nostr key (ncryptsec) should not be committed"
+regex = '''ncryptsec1[02-9ac-hj-np-z]{100,}'''
+tags = ["key", "nostr"]
+
+[allowlist]
+description = "Test fixture with a well-known throwaway key used to verify log redaction"
+paths = ['''packages/telemetry-policy/test/telemetry\.test\.ts''']

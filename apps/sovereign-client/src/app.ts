@@ -6,7 +6,7 @@ import { IdentityManager, type PersonaConfig } from '@sedecim/identity';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { chatMessage, channelFilter, createDirectMessage, dmInboxFilter, openDirectMessage, type DirectMessage } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, createDirectMessage, dmInboxFilter, openDirectMessage, type DirectMessage, type RelayAdapter } from '@sedecim/messaging';
 import { disclose, preset, validateConfig, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
 
@@ -17,6 +17,8 @@ export interface SovereignOptions {
   socksPort?: number;
   scryptLogN?: number;
   retry?: { baseMs: number; maxMs: number };
+  /** Relay compatibility adapter (explicit, never silent). Defaults to the pinned Buzz adapter. */
+  relayAdapter?: RelayAdapter;
 }
 
 interface Session {
@@ -112,7 +114,7 @@ export class SovereignClient {
     const warnings = await (await this.identities()).reuseWarnings(personaId, { contact: recipient });
     if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')} (usa otra persona o confirma explícitamente)`);
     await (await this.identities()).recordUsage(personaId, { contact: recipient });
-    const msg = await createDirectMessage(s.signer, { recipients: [recipient], content: text });
+    const msg = await createDirectMessage(s.signer, { recipients: [recipient], content: text }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
     const groupId = msg.rumor.id;
     return Promise.all(msg.wraps.map((w) => s.engine.submit({ event: w.event }, { relays: s.persona.relays, groupId, meta: { recipient: w.recipient }, wait: true })));
   }
