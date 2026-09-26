@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # One image for all TypeScript services; select with --build-arg SERVICE=<indexer|identity-service|policy-engine|managed-signer>
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages ./packages
@@ -17,7 +17,7 @@ FROM nginx:1.27-alpine AS web
 COPY infra/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-build /app/apps/web-saas/dist /usr/share/nginx/html
 
-FROM node:22-alpine AS service
+FROM node:26-alpine AS service
 ARG SERVICE
 ENV NODE_ENV=production SERVICE=${SERVICE}
 WORKDIR /app
