@@ -10,12 +10,24 @@ on:
       buzz_image:
         description: Candidate Buzz image pinned by digest (ghcr.io/block/buzz@sha256:...)
         required: false
+  # Reused by buzz-upstream.yml (BUZZ-05): same stack + interop gate against a candidate image.
+  workflow_call:
+    inputs:
+      buzz_image:
+        description: Candidate Buzz image pinned by digest
+        type: string
+        required: false
+      stack_only:
+        description: Run only the stack + interop gate job
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: ${{ !inputs.stack_only }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -57,6 +69,7 @@ jobs:
             sbom.cdx.json
 
   secrets:
+    if: ${{ !inputs.stack_only }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +85,7 @@ jobs:
           ./gitleaks git --config .gitleaks.toml --redact --exit-code 1 .
 
   compose:
+    if: ${{ !inputs.stack_only }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,6 +136,13 @@ jobs:
         run: npx vitest run tests/interop
       - name: Deployment flags match the gate result (FR-017)
         run: npx tsx scripts/interop-flags.ts interop-report.json --check
+      - name: Web against Buzz in the browser (FR015-03)
+        env:
+          BUZZ_RELAY_URL: ws://localhost:3000
+          STACK_WEB_URL: http://localhost:8080
+        run: |
+          npx playwright install --with-deps chromium
+          npx tsx tests/browser/web-buzz.e2e.ts
       - name: Collect logs
         if: always()
         run: docker compose logs --no-color > compose.log 2>&1 || true

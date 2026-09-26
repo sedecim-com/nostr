@@ -40,6 +40,7 @@ services:
     ports: !reset []
     environment:
       PUBLIC_BASE_URL: https://id.${DOMAIN}
+      CORS_ORIGINS: https://${DOMAIN}
 
   policy-engine:
     ports: !reset []

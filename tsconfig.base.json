@@ -12,6 +12,7 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
+    "jsx": "react-jsx",
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   }

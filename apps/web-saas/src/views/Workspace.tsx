@@ -1,0 +1,164 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, AppBar, Box, Button, Chip, Container, MenuItem, Snackbar, Tab, Tabs, TextField, Toolbar, Typography } from '@mui/material';
+import type { DeploymentFlags } from '@sedecim/messaging';
+import type { SovereigntyConfig } from '@sedecim/profiles';
+import type { AccesoUser } from '../lib/acceso';
+import type { DeploymentConfig } from '../lib/config';
+import { custodyLabel, openPersona, publishDmRelays, shortNpub, type PersonaSession } from '../lib/session';
+import type { PersonaBook, PersonaRecord } from '../lib/vault';
+import { WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
+import { BRAND } from '../theme';
+import { ChannelsView } from './ChannelsView';
+import { DmView } from './DmView';
+import { OutboxView } from './OutboxView';
+import { PanelView } from './PanelView';
+import { PersonasView } from './PersonasView';
+
+const TABS = [
+  { id: 'personas', label: 'Personas' },
+  { id: 'channels', label: 'Canales' },
+  { id: 'dm', label: 'Mensajes directos' },
+  { id: 'outbox', label: 'Entrega' },
+  { id: 'panel', label: 'Soberanía y privacidad' },
+] as const;
+type TabId = (typeof TABS)[number]['id'];
+
+interface Props {
+  cfg: DeploymentConfig;
+  flags: DeploymentFlags | undefined;
+  book: PersonaBook;
+  user: AccesoUser | undefined;
+  onLock(): void;
+  onSignedOut(): void;
+}
+
+export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props) {
+  const [personas, setPersonas] = useState<PersonaRecord[]>([]);
+  const [session, setSession] = useState<PersonaSession | undefined>();
+  const [tab, setTab] = useState<TabId>('personas');
+  const [toast, setToast] = useState<{ message: string; severity: 'success' | 'info' | 'warning' | 'error' } | undefined>();
+  const current = useRef<PersonaSession | undefined>(undefined);
+
+  const reloadPersonas = useCallback(async () => setPersonas(await book.list()), [book]);
+
+  const selectPersona = useCallback(
+    async (id: string) => {
+      const p = await book.get(id);
+      if (!p) return;
+      current.current?.close();
+      const s = await openPersona(book, p);
+      current.current = s;
+      setSession(s);
+    },
+    [book],
+  );
+
+  useEffect(() => {
+    void (async () => {
+      const list = await book.list();
+      setPersonas(list);
+      if (list[0]) await selectPersona(list[0].id);
+    })();
+    return () => current.current?.close();
+  }, [book, selectPersona]);
+
+  // FR011-02: resume the outbox as soon as the browser is back online.
+  useEffect(() => {
+    const onOnline = () => void current.current?.engine.resume();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
+
+  const saveConfig = useCallback(
+    async (config: SovereigntyConfig) => {
+      if (!session) return;
+      const persona = { ...session.persona, config, preset: 'custom' as const };
+      await book.save(persona);
+      const s = { ...session, persona };
+      current.current = s;
+      setSession(s);
+      await reloadPersonas();
+    },
+    [book, session, reloadPersonas],
+  );
+
+  const ws = useMemo<Ws>(
+    () => ({ cfg, flags, book, user, personas, session, config: session?.persona.config, selectPersona, reloadPersonas, saveConfig, publishDmRelays: async () => current.current && publishDmRelays(current.current), notify: (message, severity = 'info') => setToast({ message, severity }) }),
+    [cfg, flags, book, user, personas, session, selectPersona, reloadPersonas, saveConfig],
+  );
+
+  const sendingAs = session ? `Enviando como ${session.persona.label} · ${shortNpub(session.pubkey)} · ${custodyLabel(session.persona)} · ${session.persona.config.network === 'tor-only' ? 'Tor-only' : 'red directa'}` : 'Sin identidad activa';
+
+  return (
+    <WorkspaceContext.Provider value={ws}>
+      <AppBar position="sticky" color="default" elevation={1}>
+        <Toolbar sx={{ gap: 2, flexWrap: 'wrap' }}>
+          <Typography variant="h6" component="h1" sx={{ flexGrow: 1 }}>
+            {BRAND}
+          </Typography>
+          {personas.length > 0 && (
+            <TextField select size="small" id="persona-select" label="Persona" value={session?.persona.id ?? ''} onChange={(e) => void selectPersona(e.target.value)} sx={{ minWidth: 200 }}>
+              {personas.map((p) => (
+                <MenuItem key={p.id} value={p.id}>
+                  {p.label} · {shortNpub(p.pubkey)}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+          {user && <Chip label={`Acceso: ${user.username}`} variant="outlined" />}
+          <Button onClick={onLock}>Bloquear</Button>
+          {user && (
+            <Button
+              onClick={() =>
+                void import('../lib/acceso')
+                  .then((m) => m.accesoSignOut())
+                  .catch(() => undefined)
+                  .then(onSignedOut)
+              }
+            >
+              Salir de Acceso
+            </Button>
+          )}
+        </Toolbar>
+        {/* Always visible so the user never posts with the wrong persona (FR-006). */}
+        <Box id="sending-as" role="status" aria-live="polite" sx={{ px: 3, py: 0.5, bgcolor: 'action.hover', typography: 'body2' }}>
+          {sendingAs}
+        </Box>
+        <Tabs value={tab} onChange={(_, v: TabId) => setTab(v)} variant="scrollable" aria-label="Secciones">
+          {TABS.map((t) => (
+            <Tab key={t.id} value={t.id} label={t.label} id={`tab-${t.id}`} aria-controls={`view-${t.id}`} />
+          ))}
+        </Tabs>
+      </AppBar>
+      <Container component="main" id="main" maxWidth="lg" sx={{ py: 3 }}>
+        {TABS.map((t) => (
+          <Box key={t.id} role="tabpanel" id={`view-${t.id}`} aria-labelledby={`tab-${t.id}`} hidden={tab !== t.id}>
+            {tab === t.id && (!session && t.id !== 'personas' ? <Alert severity="info">Crea o elige una persona primero.</Alert> : <View id={t.id} />)}
+          </Box>
+        ))}
+      </Container>
+      <Snackbar open={!!toast} autoHideDuration={6000} onClose={() => setToast(undefined)}>
+        {toast ? (
+          <Alert severity={toast.severity} onClose={() => setToast(undefined)} variant="filled">
+            {toast.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
+    </WorkspaceContext.Provider>
+  );
+}
+
+function View({ id }: { id: TabId }) {
+  switch (id) {
+    case 'personas':
+      return <PersonasView />;
+    case 'channels':
+      return <ChannelsView />;
+    case 'dm':
+      return <DmView />;
+    case 'outbox':
+      return <OutboxView />;
+    case 'panel':
+      return <PanelView />;
+  }
+}
