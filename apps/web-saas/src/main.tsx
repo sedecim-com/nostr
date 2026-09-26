@@ -1,3 +1,5 @@
+// SEC-05: first import, so WebRTC is gone before any other module (or dependency) runs.
+import './lib/webrtcGuard';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import createCache from '@emotion/cache';

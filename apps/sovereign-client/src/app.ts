@@ -166,9 +166,10 @@ export class SovereignClient {
     const s = await this.session(personaId);
     const now = Math.floor(Date.now() / 1000);
     const since = opts.since ?? 0;
-    // Full rebuild: one paginated window; incremental: weekly windows back to `since`.
+    // Full rebuild: one paginated window; incremental: weekly windows back to `since`. The NIP-11
+    // lookup of NIP-77 support goes through the guard (Tor/allowlist), never the global fetch.
     const window = new FilterWindowSync(s.pool, { since, windowSeconds: opts.since === undefined ? now + 1 : 7 * 24 * 3600, pageLimit: 500 });
-    const history = await rebuildHistory({ relays: s.persona.relays, pubkey: s.persona.pubkey, since: opts.since, channels: opts.channels, strategies: [new NegentropySync(s.pool), window], signer: s.signer });
+    const history = await rebuildHistory({ relays: s.persona.relays, pubkey: s.persona.pubkey, since: opts.since, channels: opts.channels, strategies: [new NegentropySync(s.pool, { fetch: s.guard.fetchApi() }), window], signer: s.signer });
     const reconciler = new DeliveryEngine({ store: s.store.collection<OutboxRecord>('outbox'), publisher: s.pool, lookup: seenLookup(history.seenOn) });
     await reconciler.reconcile();
     const strategies = Object.fromEntries(Object.entries(history.reports.dms.perRelay).map(([relay, r]) => [relay, r.strategy]));

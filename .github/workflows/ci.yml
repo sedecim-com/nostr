@@ -128,7 +128,7 @@ jobs:
       - name: Render the stage overlay
         run: kubectl kustomize deploy/k8s/overlays/stage > /dev/null
       - name: Deploy scripts
-        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh
+        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh
       - name: SLO rules and their unit tests (promtool)
         run: |
           curl -sSfL -o prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
@@ -144,6 +144,59 @@ jobs:
           terraform fmt -check -recursive deploy/terraform
           terraform -chdir=deploy/terraform/examples/stage init -backend=false -input=false
           terraform -chdir=deploy/terraform/examples/stage validate
+
+  # FR020-03 / FR022-02: the real sovereign CLI in a network namespace, every frame captured with tcpdump.
+  # Tor profile: zero DNS, zero IPv6, nothing but the SOCKS proxy; direct profile: only the persona's
+  # relays; negative controls prove the capture detects each leak. SOCKS side: local stub (docs/sovereign-tor.md).
+  leak-tests:
+    if: ${{ !inputs.stack_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Install tcpdump
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends tcpdump
+      - name: Leak tests with network capture (netns + pcap)
+        env:
+          LEAK_REQUIRE_IPV6: "1"
+        run: bash scripts/leak-test.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: leak-results
+          path: leak-results/
+
+  # FR021-02: compose `tor` profile for real: onion services of relay and secure-relay, reached by the
+  # sovereign CLI through the compose SOCKS port (publish + read on each .onion). Tor bootstrap on hosted
+  # runners takes ~30-90 s; the script waits up to 7 min per stage and prints the tor log on failure.
+  tor-profile:
+    if: ${{ !inputs.stack_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Compose tor profile end to end (relay + secure-relay .onion)
+        run: bash scripts/tor-profile-check.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tor-profile-results
+          path: tor-profile-results/
+      - name: Stop stack
+        if: always()
+        run: docker compose --profile tor down -v
 
   # OPS-01 / FR-014 / FR-017 / FR-018: build every image, start the whole stack and run the interop gate
   # against the pinned Buzz relay, the secure relay (Marmot), the mirror and the blob store.

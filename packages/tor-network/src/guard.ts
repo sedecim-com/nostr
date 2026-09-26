@@ -140,12 +140,12 @@ export class NetworkGuard {
   }
 
   /** Minimal fetch-like HTTP client routed according to the policy (used for Blossom, NIP-11, APIs). */
-  async fetch(rawUrl: string, init: { method?: string; headers?: Record<string, string>; body?: Uint8Array | string } = {}): Promise<{ status: number; headers: Record<string, string>; body: Uint8Array }> {
+  async fetch(rawUrl: string, init: { method?: string; headers?: Record<string, string>; body?: Uint8Array | string; signal?: AbortSignal } = {}): Promise<{ status: number; headers: Record<string, string>; body: Uint8Array }> {
     const url = await this.assertRoute(rawUrl);
     const agent = this.agent();
     const req = url.protocol === 'https:' ? httpsRequest : httpRequest;
     return new Promise((resolve, reject) => {
-      const r = req(url, { method: init.method ?? 'GET', headers: init.headers, ...(agent ? { agent } : {}) }, (res) => {
+      const r = req(url, { method: init.method ?? 'GET', headers: init.headers, ...(agent ? { agent } : {}), ...(init.signal ? { signal: init.signal } : {}) }, (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (c: Buffer) => chunks.push(c));
         res.on('end', () =>
@@ -161,5 +161,22 @@ export class NetworkGuard {
       if (init.body !== undefined) r.write(init.body);
       r.end();
     });
+  }
+
+  /**
+   * WHATWG `fetch` routed by this policy, for libraries that take a `fetch` option (e.g. NIP-11 lookups
+   * in the history sync). Never hand those libraries the global fetch in Tor mode: it resolves names
+   * with the local DNS and connects directly (found by the pcap leak tests, FR020-03).
+   */
+  fetchApi(): typeof fetch {
+    return (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const headers = Object.fromEntries(new Headers(init?.headers).entries());
+      const body = typeof init?.body === 'string' || init?.body instanceof Uint8Array ? init.body : undefined;
+      if (init?.body != null && body === undefined) throw new TypeError('NetworkGuard.fetchApi: only string or Uint8Array bodies');
+      const res = await this.fetch(url, { method: init?.method, headers, ...(body !== undefined ? { body } : {}), ...(init?.signal ? { signal: init.signal } : {}) });
+      const status = res.status >= 200 && res.status <= 599 ? res.status : 502;
+      return new Response([204, 205, 304].includes(status) ? null : (res.body as Uint8Array<ArrayBuffer>), { status, headers: res.headers });
+    }) as typeof fetch;
   }
 }

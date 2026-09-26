@@ -25,9 +25,9 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-017 | NIP-17 con gate | ✅ | Feature flag + `tests/interop` ejecutado contra Buzz `02c6309`: requiere adaptador de jitter acotado (`docs/interop/buzz-02c6309-report.json`) |
 | FR-018 | Blossom | ✅ | `packages/blossom-client/test`, `services/blob-store/test` (cifrados); Buzz `/media` rechaza blobs cifrados → blob-store; lista de servidores del usuario (kind 10063, BUD-03) en `server-list.test.ts` |
 | FR-019 | Saneamiento EXIF | ✅ | `blossom.test.ts` (JPEG APP1/COM, PNG tEXt, WebP EXIF/XMP/ICCP con flags VP8X; HEIC/HEIF/AVIF rechazado con `requireSanitizable`) |
-| FR-020 | Tor-only fail closed | ✅ | `tor-network/test`, `delivery-engine/test`, `apps/sovereign-client/test` |
-| FR-021 | Relay .onion | ✅ | `tor.test.ts`, `sovereign.test.ts` (SOCKS5h, DNS remoto, sin lookups locales) |
-| FR-022 | Sin telemetría | ✅ | `telemetry-policy/test` (nivel none bloquea endpoints); `sovereign.test.ts` |
+| FR-020 | Tor-only fail closed | ✅ | `tor-network/test`, `delivery-engine/test`, `apps/sovereign-client/test`; FR020-03: `scripts/leak-test.sh` (captura netns + pcap del CLI real: cero DNS/IPv6/conexiones fuera del proxy, con controles negativos; job `leak-tests`), `tests/leak/leak.test.ts` |
+| FR-021 | Relay .onion | ✅ | `tor.test.ts`, `sovereign.test.ts` (SOCKS5h, DNS remoto, sin lookups locales); FR021-02: `scripts/tor-profile-check.sh` (compose `--profile tor`, CLI contra los .onion de relay y secure-relay; job `tor-profile`) |
+| FR-022 | Sin telemetría | ✅ | `telemetry-policy/test` (nivel none bloquea endpoints); `sovereign.test.ts`; FR022-02: `scripts/leak-test.sh` (todo destino capturado está en la allowlist del perfil de la persona; negativo con un destino fuera) |
 | FR-023 | RBAC/ABAC | ✅ | `policy-client/test`, `services/policy-engine/test` |
 | FR-024 | Revocación | ✅ | `policy-engine.test.ts` (sesiones invalidadas, rotación señalada) |
 | FR-025 | Grupo Marmot | ✅ | `MarmotTsProvider` (marmot-ts + ts-mls rc.16): `packages/marmot-adapter/test`, `apps/sovereign-client/test/groups.test.ts` (alta, expulsión sin fuga, rotación PCS, estado cifrado, Tor). Buzz no acepta los kinds → relay secundario (`docs/marmot.md`) |
