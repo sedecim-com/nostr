@@ -73,7 +73,7 @@ jobs:
           name: interop-reports
           path: gate
       # scripts/interop-flags.ts (the deployment flags carry the pinned relay commit, FR-017)
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
