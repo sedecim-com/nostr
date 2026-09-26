@@ -192,7 +192,7 @@ export class DeliveryEngine {
       this.transition(rec, 'QUEUED');
     }
 
-    if (stillPending.length > 0 && rec.state !== 'FAILED') {
+    if (stillPending.length > 0 && (rec.state as DeliveryState) !== 'FAILED') {
       const attempt = Math.max(...stillPending.map((s) => s.attemptCount));
       const delay = this.backoff(attempt);
       rec.nextAttemptAt = this.now() + delay;
