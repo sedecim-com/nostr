@@ -90,6 +90,8 @@ const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePa
 const context = await browser.newContext();
 await context.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(selfHosted) }));
 const page = await context.newPage();
+// E2E_CPU_THROTTLE=6 emulates a slow CI runner (surfaces races such as ephemeral NIP-46 responses).
+if (process.env.E2E_CPU_THROTTLE) await (await context.newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.E2E_CPU_THROTTLE) });
 const errors: string[] = [];
 const external: string[] = [];
 const outbound: string[] = [];

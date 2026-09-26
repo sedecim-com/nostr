@@ -38,6 +38,7 @@ interface Props {
 
 export function RemoteSigner({ relays, bunker, onBunkerChange, mode, onModeChange, onConnected, renderQr }: Props) {
   const [offer, setOffer] = useState<NostrConnectOffer | undefined>();
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState('');
   const abort = useRef<AbortController | undefined>(undefined);
   useEffect(() => () => abort.current?.abort(), []);
@@ -46,12 +47,16 @@ export function RemoteSigner({ relays, bunker, onBunkerChange, mode, onModeChang
     setError('');
     abort.current?.abort();
     const o = createNostrConnect({ relays, name: 'Acceso Nostr', url: location.origin });
-    setOffer(o);
+    setOffer(undefined);
+    setPreparing(true);
     abort.current = new AbortController();
     // NIP-42 on the signer relays authenticates the ephemeral client key, never the user's identity.
-    Nip46Signer.fromNostrConnect(o, { pool: new RelayPool({ signer: new LocalSigner(o.clientSecretKey), authMode: 'on-demand' }), onAuthUrl: raiseSignerAuthUrl, timeoutMs: 300_000, signal: abort.current.signal })
+    Nip46Signer.fromNostrConnect(o, { pool: new RelayPool({ signer: new LocalSigner(o.clientSecretKey), authMode: 'on-demand' }), onAuthUrl: raiseSignerAuthUrl, timeoutMs: 300_000, signal: abort.current.signal, onReady: () => (setPreparing(false), setOffer(o)) })
       .then((signer) => onConnected(signer, o))
-      .catch((e: Error) => !/cancelled/.test(e.message) && setError(e.message));
+      .catch((e: Error) => {
+        setPreparing(false);
+        if (!/cancelled/.test(e.message)) setError(e.message);
+      });
   };
 
   return (
@@ -65,9 +70,10 @@ export function RemoteSigner({ relays, bunker, onBunkerChange, mode, onModeChang
         <TextField id="secret-input" label="bunker://" type="password" autoComplete="off" value={bunker} onChange={(e) => onBunkerChange(e.target.value)} required />
       ) : (
         <Stack spacing={1}>
-          <Button variant="outlined" onClick={start} disabled={relays.length === 0}>
+          <Button variant="outlined" onClick={start} disabled={relays.length === 0 || preparing}>
             {offer ? 'Generar otro código' : 'Generar código de conexión'}
           </Button>
+          {preparing && <Alert severity="info">Conectando con los relays del signer…</Alert>}
           {offer && (
             <>
               {renderQr?.(offer.uri)}

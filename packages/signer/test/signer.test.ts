@@ -71,8 +71,10 @@ describe('NIP-46 remote signing (FR-004)', () => {
     const parsed = parseNostrConnect(offer.uri);
     expect(parsed.permissions).toEqual(WEB_NIP46_PERMISSIONS);
     expect(parsed.name).toBe('Acceso Nostr');
-    const waiting = Nip46Signer.fromNostrConnect(offer, { pool: clientPool, timeoutMs: 5000 });
-    await new Promise((r) => setTimeout(r, 200));
+    let ready!: () => void;
+    const isReady = new Promise<void>((r) => (ready = r));
+    const waiting = Nip46Signer.fromNostrConnect(offer, { pool: clientPool, timeoutMs: 5000, onReady: ready });
+    await isReady;
     await bunker.acceptNostrConnect(offer.uri);
     const remote = await waiting;
     expect(await remote.getPublicKey()).toBe(getPublicKey(userKey));

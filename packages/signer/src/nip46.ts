@@ -205,7 +205,7 @@ export class Nip46Signer implements Signer {
    * Waits for a signer to answer a nostrconnect:// offer: the response carries the offer secret and its
    * author is the remote signer. The returned signer is already connected (no bunker secret needed).
    */
-  static async fromNostrConnect(offer: NostrConnectOffer, opts: Omit<Nip46SignerOptions, 'clientSecretKey'> & { signal?: AbortSignal }): Promise<Nip46Signer> {
+  static async fromNostrConnect(offer: NostrConnectOffer, opts: Omit<Nip46SignerOptions, 'clientSecretKey'> & { signal?: AbortSignal; onReady?: () => void }): Promise<Nip46Signer> {
     const client = new LocalSigner(offer.clientSecretKey);
     const me = await client.getPublicKey();
     const remote = await new Promise<string>((resolve, reject) => {
@@ -217,7 +217,9 @@ export class Nip46Signer implements Signer {
       };
       const timer = setTimeout(() => done(() => reject(new Error('nostrconnect: no signer answered'))), opts.timeoutMs ?? 300_000);
       opts.signal?.addEventListener('abort', () => done(() => reject(new Error('nostrconnect cancelled'))));
+      // Responses are ephemeral (kind 24133, never stored): show the offer only once this subscription is live.
       sub = opts.pool.subscribe(offer.relays, [{ kinds: [NOSTR_CONNECT_KIND], '#p': [me], since: Math.floor(Date.now() / 1000) - 10 }], {
+        oneose: () => opts.onReady?.(),
         onevent: (evt) =>
           void client
             .nip44Decrypt(evt.pubkey, evt.content)
