@@ -15,6 +15,8 @@ export interface RelayConnectionOptions {
   authMode?: 'auto' | 'on-demand' | 'never';
   connectTimeoutMs?: number;
   publishTimeoutMs?: number;
+  /** Wait for the OK to a NIP-42 AUTH. Some relays (nostr-rs-relay 0.9) never send it on success. */
+  authTimeoutMs?: number;
   verifyEvents?: boolean;
   autoReconnect?: boolean;
   reconnectBaseMs?: number;
@@ -67,6 +69,7 @@ export class RelayConnection {
       authMode: opts.authMode ?? 'on-demand',
       connectTimeoutMs: opts.connectTimeoutMs ?? 10_000,
       publishTimeoutMs: opts.publishTimeoutMs ?? 10_000,
+      authTimeoutMs: opts.authTimeoutMs ?? 2_000,
       verifyEvents: opts.verifyEvents ?? true,
       autoReconnect: opts.autoReconnect ?? true,
       reconnectBaseMs: opts.reconnectBaseMs ?? 500,
@@ -234,7 +237,10 @@ export class RelayConnection {
         const sub = this.subs.get(id);
         if (!sub) return;
         const reason = typeof b === 'string' ? b : '';
-        if (reason.startsWith('auth-required:') && !sub.authRetried && this.canAuth()) {
+        // Relays such as Buzz answer `restricted:` (not `auth-required:`) to p-gated REQs from unauthenticated
+        // connections, so an unauthenticated `restricted:` also triggers a single NIP-42 attempt.
+        const needsAuth = reason.startsWith('auth-required:') || (reason.startsWith('restricted:') && this.authed.size === 0);
+        if (needsAuth && !sub.authRetried && this.canAuth()) {
           sub.authRetried = true;
           void this.authenticate().then((ok) => {
             if (ok && this.subs.has(id)) this.sendRaw(['REQ', id, ...sub.filters]);
@@ -302,24 +308,26 @@ export class RelayConnection {
           ['challenge', this.challenge!],
         ],
       });
-      const res = await this.sendAndAwaitOk(evt, 'AUTH');
-      if (res.ok) this.authed.add(evt.pubkey);
+      const res = await this.sendAndAwaitOk(evt, 'AUTH', this.opts.authTimeoutMs);
+      // No answer at all (not a rejection): accept optimistically; a later auth-required will surface it.
+      const silent = !res.ok && res.message === 'error: timeout waiting for OK';
+      if (res.ok || silent) this.authed.add(evt.pubkey);
       else this.lastError = `auth failed: ${res.message}`;
-      return res.ok;
+      return res.ok || silent;
     })().finally(() => {
       this.authInFlight = undefined;
     });
     return this.authInFlight;
   }
 
-  private sendAndAwaitOk(evt: NostrEvent, verb: 'EVENT' | 'AUTH'): Promise<{ ok: boolean; message: string }> {
+  private sendAndAwaitOk(evt: NostrEvent, verb: 'EVENT' | 'AUTH', timeoutMs = this.opts.publishTimeoutMs): Promise<{ ok: boolean; message: string }> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         const list = this.pendingOks.get(evt.id);
         const idx = list?.findIndex((w) => w.timer === timer) ?? -1;
         if (list && idx >= 0) list.splice(idx, 1);
         resolve({ ok: false, message: 'error: timeout waiting for OK' });
-      }, this.opts.publishTimeoutMs);
+      }, timeoutMs);
       const list = this.pendingOks.get(evt.id) ?? [];
       list.push({ resolve, timer });
       this.pendingOks.set(evt.id, list);
@@ -370,7 +378,7 @@ export class RelayConnection {
       () => {
         if (!this.subs.has(id)) return;
         const doReq = () => this.sendRaw(['REQ', id, ...filters]);
-        if (this.opts.authMode === 'auto' && this.canAuth()) {
+        if (this.opts.authMode === 'auto' && this.canAuth() && this.authed.size === 0) {
           void this.waitForChallenge(500).then((has) => (has ? this.authenticate().then(doReq) : doReq()));
         } else doReq();
       },

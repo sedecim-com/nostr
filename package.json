@@ -2,7 +2,7 @@
   "name": "sedecim-nostr",
   "private": true,
   "version": "0.1.0",
-  "description": "Plataforma Nostr soberana / SaaS: SDK, servicios y clientes interoperables con grados configurables de soberan\u00eda.",
+  "description": "Plataforma Nostr soberana / SaaS: SDK, servicios y clientes interoperables con grados configurables de soberanía.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -33,9 +33,12 @@
     "@types/ws": "8.18.1",
     "esbuild": "0.28.2",
     "nostr-tools": "2.25.2",
-    "playwright": "^1.56.1",
+    "playwright": "1.56.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "3.2.7"
+  },
+  "overrides": {
+    "ts-mls": "2.0.0-rc.11"
   }
 }

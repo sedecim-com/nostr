@@ -30,6 +30,8 @@ export interface TestRelayOptions {
   publicUrl?: string;
   /** Advertise NIP-77 support (answers NEG-OPEN with NEG-ERR "blocked" when false). */
   supportsNegentropy?: boolean;
+  /** Do not send OK after a successful AUTH (nostr-rs-relay 0.9 behaviour). */
+  silentAuthOk?: boolean;
 }
 
 export interface FaultInjection {
@@ -169,7 +171,7 @@ export class TestRelay {
     if (Math.abs(Date.now() / 1000 - evt.created_at) > 600) return this.send(state, ['OK', id, false, 'invalid: stale auth']);
     if (this.opts.allowlist && !this.opts.allowlist.includes(evt.pubkey)) return this.send(state, ['OK', id, false, 'auth-required: verification failed']);
     state.authed.add(evt.pubkey);
-    this.send(state, ['OK', id, true, '']);
+    if (!this.opts.silentAuthOk) this.send(state, ['OK', id, true, '']);
   }
 
   private async onEvent(state: ClientState, evt: unknown) {

@@ -83,6 +83,22 @@
   },
   "notes": [
     "Plain image upload returned 500 because no S3/MinIO backend was available in this environment; re-run with docker compose (MinIO included).",
-    "Encrypted blob rejection (415) happens in content validation before storage and is independent of S3."
-  ]
+    "Encrypted blob rejection (415) happens in content validation before storage and is independent of S3.",
+    "2026-09-26: Marmot kinds 30443/445/10051 rejected with \"restricted: unknown event kind\" -> MLS groups use the secure relay."
+  ],
+  "marmotKinds": {
+    "445": {
+      "ok": false,
+      "message": "restricted: unknown event kind"
+    },
+    "10051": {
+      "ok": false,
+      "message": "restricted: unknown event kind"
+    },
+    "30443": {
+      "ok": false,
+      "message": "restricted: unknown event kind"
+    }
+  },
+  "marmotRoute": "secure-relay"
 }

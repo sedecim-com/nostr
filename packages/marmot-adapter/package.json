@@ -2,7 +2,7 @@
   "name": "@sedecim/marmot-adapter",
   "version": "0.1.0",
   "private": true,
-  "description": "Interfaz GroupCryptoProvider para Marmot/MLS (RFC 9420).",
+  "description": "Grupos high-security Marmot/MLS (RFC 9420): interfaz GroupCryptoProvider y proveedor marmot-ts.",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
@@ -11,6 +11,11 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@sedecim/nostr-core": "0.1.0"
+    "@internet-privacy/marmot-ts": "0.5.1",
+    "@scure/base": "1.2.6",
+    "@sedecim/encrypted-store": "0.1.0",
+    "@sedecim/nostr-core": "0.1.0",
+    "@sedecim/relay-pool": "0.1.0",
+    "ts-mls": "2.0.0-rc.11"
   }
 }

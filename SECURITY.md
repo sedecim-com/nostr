@@ -8,7 +8,7 @@ superar una **revisión de seguridad independiente** y pruebas específicas de f
 
 - Nostr aporta identidad criptográfica y transporte por relays, **no anonimato de red**.
 - NIP-44 / NIP-17 **no** ofrecen forward secrecy ni post-compromise security. Para esas propiedades se
-  requiere Marmot/MLS (el adaptador existe como interfaz; ningún proveedor está habilitado todavía).
+  requiere Marmot/MLS (proveedor marmot-ts, alpha upstream; ver `docs/marmot.md`).
 - El modo *managed* es **custodial**: la plataforma tiene capacidad técnica de firmar como el usuario.
 
 ## Reportar una vulnerabilidad

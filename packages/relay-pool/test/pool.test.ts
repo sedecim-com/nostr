@@ -60,6 +60,27 @@ describe('RelayPool', () => {
     expect(res.message).toMatch(/^auth-required:/);
   });
 
+  it('authenticates and retries when a p-gated relay answers restricted: to an unauthenticated REQ', async () => {
+    const r = await startRelay({ pGatedKinds: [1059] });
+    const me = await signer.getPublicKey();
+    const wrap = await new LocalSigner(generateSecretKey()).signEvent({ kind: 1059, content: 'x', tags: [['p', me]] });
+    r.inject(wrap);
+    pool = new RelayPool({ webSocketFactory: factory, signer });
+    const got = await pool.query([r.url], [{ kinds: [1059], '#p': [me] }], 3000);
+    expect(got.map((e) => e.id)).toEqual([wrap.id]);
+  });
+
+  it('proceeds when a relay never answers OK to a successful AUTH (nostr-rs-relay behaviour)', async () => {
+    const r = await startRelay({ requireAuth: true, silentAuthOk: true, pGatedKinds: [1059] });
+    pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'auto', authTimeoutMs: 200 });
+    const started = Date.now();
+    const evt = await signer.signEvent({ kind: 1, content: 'silent auth' });
+    expect((await pool.publishTo(evt, r.url)).ok).toBe(true);
+    const got = await pool.query([r.url], [{ kinds: [1059], '#p': [await signer.getPublicKey()] }], 3000);
+    expect(got).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(2500);
+  });
+
   it('deduplicates the same event id across relays (FR-012)', async () => {
     const a = await startRelay();
     const b = await startRelay();

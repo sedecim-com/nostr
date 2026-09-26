@@ -30,7 +30,7 @@ firmados; las bases de datos son índices derivados.
 | `encrypted-store` | Store local cifrado (XChaCha20-Poly1305, nombres HMAC), backends memoria/archivo atómico/localStorage |
 | `identity` | Personas, compartimentos, vínculos con consentimiento, backup/restore NIP-49 |
 | `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación |
-| `marmot-adapter` | Interfaz `GroupCryptoProvider` + conformidad (fail closed sin proveedor) |
+| `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad |
 | `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
 | `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none |
@@ -45,6 +45,6 @@ firmados; las bases de datos son índices derivados.
    solo como oráculo de interoperabilidad en tests. Rust/Flutter: pendiente (móvil vía Buzz Flutter).
 2. **Storage local**: XChaCha20-Poly1305 con clave scrypt; nombres de entrada HMAC; escritura atómica.
 3. **Receipts**: rumor gift-wrapped kind provisional `16914`; lectura opt-in. Decisión abierta.
-4. **Marmot**: detrás de interfaz; ningún proveedor habilitado hasta fijar MDK y pasar conformidad.
+4. **Marmot**: marmot-ts 0.5.1 + ts-mls rc.11 detrás de `GroupCryptoProvider`; tráfico por el relay secundario porque Buzz rechaza los kinds.
 5. **Licencia/nombre**: MIT (repositorio actual) con scope `@sedecim`; revisar compatibilidad con Apache-2.0 del fork.
 6. **Notificaciones móviles**, **región cloud/legal para managed** y **threat models por perfil formales**: abiertas.

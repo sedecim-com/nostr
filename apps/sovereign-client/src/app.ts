@@ -9,6 +9,7 @@ import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
 import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, createDirectMessage, dmInboxFilter, openDirectMessage, type DirectMessage, type RelayAdapter } from '@sedecim/messaging';
 import { disclose, preset, validateConfig, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
+import { EncryptedGroupStorage, MarmotTsProvider, PoolGroupNetwork, assertHighSecurity, type GroupCryptoProvider, type GroupHandle, type GroupMessage, type GroupSession } from '@sedecim/marmot-adapter';
 
 export interface SovereignOptions {
   dataDir: string;
@@ -19,6 +20,8 @@ export interface SovereignOptions {
   retry?: { baseMs: number; maxMs: number };
   /** Relay compatibility adapter (explicit, never silent). Defaults to the pinned Buzz adapter. */
   relayAdapter?: RelayAdapter;
+  /** High-security group provider (Marmot/MLS). Defaults to marmot-ts. */
+  groupProvider?: GroupCryptoProvider;
 }
 
 interface Session {
@@ -27,6 +30,8 @@ interface Session {
   pool: RelayPool;
   engine: DeliveryEngine;
   guard: NetworkGuard;
+  store: EncryptedStore;
+  groups?: Promise<GroupSession>;
 }
 
 /**
@@ -93,7 +98,7 @@ export class SovereignClient {
     });
     const store = await this.openStore(join(this.opts.dataDir, 'personas', personaId));
     const engine = new DeliveryEngine({ store: store.collection<OutboxRecord>('outbox'), publisher: pool, signer, retry: this.opts.retry });
-    const s = { persona, signer, pool, engine, guard };
+    const s: Session = { persona, signer, pool, engine, guard, store };
     this.sessions.set(personaId, s);
     return s;
   }
@@ -143,6 +148,70 @@ export class SovereignClient {
     return s.engine.resume();
   }
 
+  /**
+   * High-security groups (Marmot/MLS): forward secrecy and post-compromise security. Traffic uses the
+   * persona's pool (Tor-only / allowlist apply) and MLS state is sealed in the persona's encrypted store.
+   */
+  async groupSession(personaId: string): Promise<GroupSession> {
+    const s = await this.session(personaId);
+    s.groups ??= (async () => {
+      const provider = this.opts.groupProvider ?? new MarmotTsProvider();
+      assertHighSecurity(provider);
+      return provider.openSession({ signer: s.signer, network: new PoolGroupNetwork(s.pool, s.persona.relays), storage: new EncryptedGroupStorage(s.store), deviceId: s.persona.id });
+    })();
+    s.groups.catch(() => (s.groups = undefined));
+    return s.groups;
+  }
+
+  async groupPublishKeyPackage(personaId: string): Promise<NostrEvent> {
+    const s = await this.session(personaId);
+    return (await this.groupSession(personaId)).publishKeyPackage(s.persona.relays);
+  }
+
+  async groupCreate(personaId: string, name: string): Promise<GroupHandle> {
+    const s = await this.session(personaId);
+    return (await this.groupSession(personaId)).createGroup({ name, relays: s.persona.relays });
+  }
+
+  async groupInvite(personaId: string, groupId: string, member: string): Promise<GroupHandle> {
+    const s = await this.session(personaId);
+    const pubkey = normalizePubkey(member);
+    const mgr = await this.identities();
+    const warnings = await mgr.reuseWarnings(personaId, { contact: pubkey });
+    if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')}`);
+    const gs = await this.groupSession(personaId);
+    const kp = await gs.findKeyPackage(pubkey, s.persona.relays);
+    if (!kp) throw new Error('el invitado no ha publicado un key package en los relays de esta persona');
+    await mgr.recordUsage(personaId, { contact: pubkey });
+    return gs.invite(groupId, kp);
+  }
+
+  async groupAccept(personaId: string): Promise<GroupHandle[]> {
+    return (await this.groupSession(personaId)).acceptInvites();
+  }
+
+  async groupSend(personaId: string, groupId: string, text: string): Promise<void> {
+    const gs = await this.groupSession(personaId);
+    await gs.sync(groupId);
+    await gs.send(groupId, text);
+  }
+
+  async groupSync(personaId: string, groupId: string): Promise<GroupMessage[]> {
+    return (await this.groupSession(personaId)).sync(groupId);
+  }
+
+  async groupRemove(personaId: string, groupId: string, member: string): Promise<GroupHandle> {
+    return (await this.groupSession(personaId)).removeMember(groupId, normalizePubkey(member));
+  }
+
+  async groupRotate(personaId: string, groupId: string): Promise<GroupHandle> {
+    return (await this.groupSession(personaId)).rotate(groupId);
+  }
+
+  async groupList(personaId: string): Promise<GroupHandle[]> {
+    return (await this.groupSession(personaId)).groups();
+  }
+
   async disclosures(personaId: string) {
     const p = await (await this.identities()).get(personaId);
     return disclose(this.profileFor(p));
@@ -150,6 +219,7 @@ export class SovereignClient {
 
   close() {
     for (const s of this.sessions.values()) {
+      void s.groups?.then((g) => g.close(), () => undefined);
       s.engine.stop();
       s.pool.close();
     }
