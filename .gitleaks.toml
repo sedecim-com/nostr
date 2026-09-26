@@ -14,6 +14,15 @@ description = "Encrypted Nostr key (ncryptsec) should not be committed"
 regex = '''ncryptsec1[02-9ac-hj-np-z]{100,}'''
 tags = ["key", "nostr"]
 
-[allowlist]
+[[allowlists]]
 description = "Test fixture with a well-known throwaway key used to verify log redaction"
 paths = ['''packages/telemetry-policy/test/telemetry\.test\.ts''']
+
+[[allowlists]]
+description = "Public values of the RFC 8291 worked example (section 5), used to test Web Push encryption byte for byte"
+regexTarget = "match"
+regexes = [
+  '''BTBZMqHH6r4Tts7J_aSIgg''',
+  '''yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw''',
+  '''q1dXpw3UpT5VOmu_cf_v6ih07Aems3njxI-JWgLcM94''',
+]

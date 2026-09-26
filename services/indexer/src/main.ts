@@ -4,7 +4,9 @@ import { generateSecretKey, getPublicKey, hexToBytes, nip19, npubEncode } from '
 import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { createPgPool, migrate } from '@sedecim/service-kit';
-import { createLogger } from '@sedecim/telemetry-policy';
+import { createLogger, type TelemetryLevel } from '@sedecim/telemetry-policy';
+import { NostrMetricsExporter, parseRegionMap, startAckProbe } from '@sedecim/metrics';
+import { startMetricsServer } from '@sedecim/metrics/server';
 import { createIndexerApi, DEFAULT_MIRROR_KINDS, Indexer, MemoryEventRepository, PgEventRepository, plainCodec, sealedCodec } from './index';
 
 const env = process.env;
@@ -57,6 +59,24 @@ const webSocketFactory = (u: string) => {
 const serviceSecret = serviceKey();
 logger.info('mirror service identity', { npub: npubEncode(getPublicKey(serviceSecret)) });
 const pool = new RelayPool({ webSocketFactory, signer: new LocalSigner(serviceSecret), authMode: 'auto', authRelayUrl: publicUrl });
+
+// NFR004-01 / FR011-03: optional Prometheus exporter on its own internal port (never on the public API).
+// TELEMETRY_LEVEL=none (or no METRICS_PORT) keeps it off; relay labels are hosts only (onion relays hashed).
+if (env.METRICS_PORT) {
+  const level = (env.TELEMETRY_LEVEL ?? 'standard') as TelemetryLevel;
+  if (!['standard', 'minimal', 'none'].includes(level)) throw new Error('TELEMETRY_LEVEL must be standard, minimal or none');
+  const exporter = NostrMetricsExporter.forProfile({ telemetry: level }, { regions: parseRegionMap(env.RELAY_REGIONS), defaultRegion: env.RELAY_DEFAULT_REGION ?? 'unknown', labelSalt: env.METRICS_LABEL_SALT });
+  if (!exporter) logger.info('metrics disabled by telemetry level', { telemetryLevel: level });
+  else {
+    exporter.attachPool(pool);
+    const m = await startMetricsServer(exporter, { port: Number(env.METRICS_PORT), host: env.METRICS_HOST ?? '0.0.0.0' });
+    logger.info('metrics exporter listening', { url: m.url, telemetryLevel: level });
+    const every = Number(env.ACK_PROBE_INTERVAL_MS ?? 0);
+    // The mirror only subscribes; a synthetic probe (empty ephemeral event) measures ACK latency per relay.
+    if (every > 0) startAckProbe({ pool, signer: new LocalSigner(serviceSecret), relays, intervalMs: every, ...(env.ACK_PROBE_KIND ? { kind: Number(env.ACK_PROBE_KIND) } : {}) });
+  }
+}
+
 const indexer = new Indexer(pool, repo, { relays, filters: [{ kinds }], communityId: env.COMMUNITY_ID, logger, channelRefreshMs: Number(env.INDEXER_CHANNEL_REFRESH_MS ?? 30_000) });
 void indexer.start().then(() => logger.info('initial backfill complete', { ingested: indexer.ingested }));
 

@@ -3,7 +3,7 @@ import WebSocket from 'ws';
 import { generateSecretKey, type NostrEvent } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import { TestRelay } from '@sedecim/test-relay';
-import { RelayPool, type WebSocketLike } from '../src/index';
+import { RelayPool, percentile, relayDegradation, type WebSocketLike } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
 
@@ -182,5 +182,29 @@ describe('RelayPool', () => {
     expect((await pool.publishTo(evt, r.url)).ok).toBe(true);
     await new Promise((res) => setTimeout(res, 0));
     expect(reconnects).toEqual([r.url]);
+  });
+
+  it('exposes publish results to observers and a P95 of ACK latency; slow relays are reported degraded (NFR004-01/02)', async () => {
+    const r = await startRelay();
+    r.faults.okDelayMs = 120;
+    const seen: Array<{ relay: string; ok: boolean; latencyMs: number }> = [];
+    pool = new RelayPool({ webSocketFactory: factory, signer });
+    const off = pool.onPublishResult((res) => seen.push(res));
+    pool.onPublishResult(() => {
+      throw new Error('observer bug');
+    });
+    for (let i = 0; i < 3; i++) expect((await pool.publishTo(await signer.signEvent({ kind: 1, content: `p${i}` }), r.url)).ok).toBe(true);
+    off();
+    await pool.publishTo(await signer.signEvent({ kind: 1, content: 'unobserved' }), r.url);
+    expect(seen).toHaveLength(3);
+    expect(seen.every((x) => x.relay === r.url && x.ok && x.latencyMs >= 100)).toBe(true);
+    const h = pool.health()[0]!;
+    expect(h.ackSamples).toBe(4);
+    expect(h.p95AckLatencyMs).toBeGreaterThanOrEqual(100);
+    expect(relayDegradation(h, { p95Ms: 50 })).toMatchObject({ degraded: true, reasons: [expect.stringMatching(/^P95 de confirmación \d+ ms \(> 50 ms\)$/)] });
+    expect(relayDegradation(h, { p95Ms: 10_000 }).degraded).toBe(false);
+    expect(relayDegradation({ ...h, status: 'blocked' }).reasons).toContain('bloqueado por la política de red');
+    expect(percentile([5, 1, 3, 2, 4], 0.95)).toBe(5);
+    expect(percentile([], 0.95)).toBeUndefined();
   });
 });

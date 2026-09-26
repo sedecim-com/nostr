@@ -1,0 +1,98 @@
+# Stateless: subscriptions live in memory (clients re-register when the app opens), so one replica.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-gateway
+  labels:
+    app: notification-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-gateway
+  template:
+    metadata:
+      labels:
+        app: notification-gateway
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: notification-gateway
+          image: acceso-nostr-service
+          ports:
+            - name: http
+              containerPort: 8086
+          envFrom:
+            - configMapRef:
+                name: acceso-nostr-config
+          env:
+            - name: SERVICE
+              value: notification-gateway
+            - name: PORT
+              value: "8086"
+            - name: NOTIFY_VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: NOTIFY_VAPID_PRIVATE_KEY
+                  optional: true
+            - name: NOTIFY_NSEC
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: NOTIFY_NSEC
+                  optional: true
+            - name: PUBLIC_BASE_URL
+              value: $(NOTIFY_PUBLIC_URL)
+            - name: CORS_ORIGINS
+              value: $(WEB_ORIGIN)
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-gateway
+  labels:
+    app: notification-gateway
+spec:
+  selector:
+    app: notification-gateway
+  ports:
+    - name: http
+      port: 8086
+      targetPort: 8086

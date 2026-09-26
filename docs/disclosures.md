@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.0.0** · huella `e4ecf0a4490a8626` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.1.0** · huella `8e60df4e7bddcb9d` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -32,9 +32,9 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | telemetry | standard | Telemetría estándar (sin nsec ni contenido E2EE): útil para diagnóstico, revela patrones de uso al operador. | — | privacidad-operador | Operador y su stack de observabilidad. |
 | telemetry | minimal | Telemetría mínima: solo salud agregada, sin identificadores de usuario. | — | — | Operador. |
 | telemetry | none | Sin telemetría: no se emite ninguna llamada de analytics ni crash reporting. | privacidad-operador | — | — |
-| notifications | push | Push convencional: Apple/Google y el gateway de push ven cuándo recibes mensajes. | — | privacidad-operador | APNs/FCM y gateway de push. |
-| notifications | privacy-push | Push con contenido opaco: los servicios push ven que hubo actividad, no el contenido ni el remitente. | — | — | APNs/FCM (metadatos de tiempo). |
-| notifications | none | Sin notificaciones push: nada se revela a servicios push; debes abrir la app para ver mensajes. | privacidad-operador | — | — |
+| notifications | push | Push opaco: el aviso no lleva contenido, remitente ni recuento y sale agrupado con un retardo aleatorio. El servicio push del navegador o del sistema ve cuándo llega un aviso a tu dispositivo; el gateway de notificaciones sabe qué npub vigila para ese dispositivo. | — | privacidad-operador | Servicio push (Apple/Google/Mozilla) y operador del gateway de notificaciones. |
+| notifications | privacy-push | Push de solo aviso de actividad: sin contenido, remitente ni recuento, agrupado con un retardo aleatorio largo que difumina los tiempos. El gateway de notificaciones sigue sabiendo qué npub vigila para tu dispositivo. | — | privacidad-operador | Servicio push (metadatos de tiempo) y operador del gateway de notificaciones. |
+| notifications | none | Sin notificaciones push: nada se revela a servicios push ni al gateway; la app consulta los relays solo mientras está abierta. | privacidad-operador | — | — |
 | cloudBackup | off | Sin backup en la nube. | privacidad-operador | recuperabilidad | — |
 | cloudBackup | ciphertext-user-key | Backup en la nube cifrado con clave del usuario: el operador almacena ciphertext pero no la clave de descifrado. | recuperabilidad | — | Tu contraseña de backup. |
 | cloudBackup | operator-managed | Backup gestionado por el operador: el operador puede restaurar (y por tanto acceder a) los datos. | recuperabilidad, control-institucional | privacidad-operador, soberania | Operador. |

@@ -1,7 +1,7 @@
 # Threat model · convenience (v0.1)
 
 **Configuración** (`PRESETS.convenience`): llave local, red directa, identidad vinculada a la cuenta,
-persistencia replicada, NIP-17, archivos en claro, telemetría mínima, push convencional, backup en la
+persistencia replicada, NIP-17, archivos en claro, telemetría mínima, push opaco, backup en la
 nube cifrado con clave del usuario, confirmaciones de entrega activadas y de lectura desactivadas.
 
 ## Activos
@@ -30,7 +30,7 @@ cuenta↔npub en el identity-service, backup cifrado.
 | Riesgo | Nivel | Nota |
 |---|---|---|
 | Canales NIP-29 en claro para el operador | Alto | Por diseño: el panel lo declara; usar grupos Marmot para contenido sensible |
-| IP y horarios visibles para relays y APNs/FCM | Alto | Red directa y push convencional; aceptado en este perfil |
+| IP y horarios visibles para relays y servicio push | Alto | Red directa; push opaco (sin contenido, remitente ni recuento) con retardo aleatorio y agrupación (ADR 0010); aceptado en este perfil |
 | Sin forward secrecy en DMs (NIP-44) | Medio | Si se compromete la nsec, se expone el historial |
 | Correlación cuenta↔npub en el identity-service | Medio | Solo si el usuario registra la persona |
 | Contraseña local débil | Medio | scrypt `logN=15` (store) y `logN=16` (NIP-49); falta medidor de fortaleza |

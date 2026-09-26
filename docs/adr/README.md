@@ -17,5 +17,6 @@ tarea correspondiente del backlog como `Hecho` (`docs/backlog/backlog.json`, lue
 | [0007](0007-almacenamiento-local-cifrado.md) | Almacenamiento local cifrado por plataforma y perfil | DEC-05 | Aceptado |
 | [0008](0008-login-acceso-en-saas.md) | Login de Acceso (Cognito) obligatorio en SaaS | — | Aceptado |
 | [0009](0009-custodia-managed-region-y-marco-legal.md) | Región (us-east-1) y marco legal (LFPDPPP) de la custodia managed | DEC-09 | Aceptado (términos pendientes de legal) |
+| [0010](0010-notificaciones-push-por-perfil.md) | Notificaciones push opacas por perfil | DEC-08 | Aceptado |
 
 Los threat models por perfil (DEC-10) están en [`../threat-models/`](../threat-models/README.md).

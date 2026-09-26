@@ -28,6 +28,11 @@ export interface RelayConnectionOptions {
   reconnectMaxMs?: number;
   /** Called when the socket opens again after a drop or a failed attempt (not on the first connect). */
   onReconnect?: (url: string) => void;
+  /**
+   * Called after every EVENT publish attempt with its outcome and publish→OK latency (NFR004-01), e.g. to
+   * feed a metrics exporter. Listener errors are ignored: observing must never break a publish.
+   */
+  onPublishResult?: (result: PublishResult) => void;
 }
 
 interface PendingOk {
@@ -50,6 +55,13 @@ const defaultFactory: WebSocketFactory = (url) => {
 
 let subCounter = 0;
 
+/** Nearest-rank percentile of a sample (undefined when empty). */
+export function percentile(values: readonly number[], q: number): number | undefined {
+  if (values.length === 0) return undefined;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))];
+}
+
 export class RelayConnection {
   status: RelayStatus = 'idle';
   private ws?: WebSocketLike;
@@ -70,7 +82,7 @@ export class RelayConnection {
   private interrupted = false;
   private challengeWaiters: Array<() => void> = [];
   private readonly rawListeners = new Set<(msg: unknown[]) => void>();
-  private readonly opts: Required<Omit<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect'>> & Pick<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect'>;
+  private readonly opts: Required<Omit<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect' | 'onPublishResult'>> & Pick<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect' | 'onPublishResult'>;
 
   constructor(readonly url: string, opts: RelayConnectionOptions = {}) {
     this.opts = {
@@ -78,6 +90,7 @@ export class RelayConnection {
       signer: opts.signer,
       authRelayUrl: opts.authRelayUrl,
       onReconnect: opts.onReconnect,
+      onPublishResult: opts.onPublishResult,
       authMode: opts.authMode ?? 'on-demand',
       connectTimeoutMs: opts.connectTimeoutMs ?? 10_000,
       publishTimeoutMs: opts.publishTimeoutMs ?? 10_000,
@@ -95,6 +108,7 @@ export class RelayConnection {
 
   health(): RelayHealth {
     const avg = this.latencies.length ? this.latencies.reduce((a, b) => a + b, 0) / this.latencies.length : undefined;
+    const p95 = percentile(this.latencies, 0.95);
     return {
       url: this.url,
       status: this.status,
@@ -103,6 +117,7 @@ export class RelayConnection {
       lastError: this.lastError,
       consecutiveFailures: this.consecutiveFailures,
       avgAckLatencyMs: avg,
+      ...(p95 !== undefined ? { p95AckLatencyMs: p95, ackSamples: this.latencies.length } : {}),
       notices: [...this.notices],
     };
   }
@@ -395,6 +410,16 @@ export class RelayConnection {
    * recipient received or decrypted it (spec §11).
    */
   async publish(evt: NostrEvent): Promise<PublishResult> {
+    const result = await this.publishOnce(evt);
+    try {
+      this.opts.onPublishResult?.(result);
+    } catch {
+      /* observers never break a publish */
+    }
+    return result;
+  }
+
+  private async publishOnce(evt: NostrEvent): Promise<PublishResult> {
     const started = Date.now();
     try {
       await this.connect();

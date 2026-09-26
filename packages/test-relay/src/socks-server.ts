@@ -14,6 +14,8 @@ export interface SocksRequestLog {
  */
 export class TestSocksServer {
   readonly requests: SocksRequestLog[] = [];
+  /** Called for every CONNECT request (the leak harness streams them to a log file). */
+  onRequest?: (r: SocksRequestLog) => void;
   private server?: Server;
   private readonly sockets = new Set<Socket>();
 
@@ -23,9 +25,10 @@ export class TestSocksServer {
     return (this.server?.address() as AddressInfo).port;
   }
 
-  async start(): Promise<number> {
+  /** Listens on 127.0.0.1 and a random port by default (the leak harness binds a veth address). */
+  async start(port = 0, host = '127.0.0.1'): Promise<number> {
     this.server = createServer((sock) => this.onClient(sock));
-    await new Promise<void>((r) => this.server!.listen(0, '127.0.0.1', () => r()));
+    await new Promise<void>((r) => this.server!.listen(port, host, () => r()));
     return this.port;
   }
 
@@ -74,6 +77,7 @@ export class TestSocksServer {
         const port = buf.readUInt16BE(offset);
         const rest = buf.subarray(offset + 2);
         this.requests.push({ host, port, addressType });
+        this.onRequest?.({ host, port, addressType });
         sock.off('data', onData);
         const target = this.routes[host] ?? (addressType !== 'domain' ? { host, port } : undefined);
         if (!target) {

@@ -60,4 +60,16 @@ describe('Tor-only mode (FR-020, FR-021)', () => {
     lookup.mockRestore();
     pool.close();
   });
+  it('fetchApi (NIP-11 and other HTTP of libraries) goes through SOCKS by name, never the local resolver', async () => {
+    const lookup = vi.spyOn(dns, 'lookup');
+    const guard = new NetworkGuard({ mode: 'tor-only', socksPort: socks.port, allowedHosts: [ONION] });
+    const before = socks.requests.length;
+    const res = await guard.fetchApi()(`http://${ONION}/`, { headers: { accept: 'application/nostr+json' }, signal: AbortSignal.timeout(5000) });
+    expect(res.status).toBe(200);
+    expect(Array.isArray(((await res.json()) as { supported_nips?: unknown }).supported_nips)).toBe(true);
+    expect(socks.requests.slice(before)).toEqual([{ host: ONION, port: 80, addressType: 'domain' }]);
+    expect(lookup.mock.calls.some((c) => String(c[0]).endsWith('.onion'))).toBe(false);
+    lookup.mockRestore();
+    await expect(guard.fetchApi()('http://analytics.example/collect')).rejects.toThrow(/allowlist/);
+  });
 });

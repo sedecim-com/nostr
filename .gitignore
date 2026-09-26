@@ -17,3 +17,5 @@ deploy/k8s/secret.yaml
 .terraform.lock.hcl
 *.tfstate
 *.tfstate.*
+leak-results/
+tor-profile-results/

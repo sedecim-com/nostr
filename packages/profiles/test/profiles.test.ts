@@ -70,9 +70,59 @@ describe('disclosure copy versioning (FR028-02)', () => {
   it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
     const { createHash } = await import('node:crypto');
     const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
-    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626' };
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d' };
     const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
     expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();
+  });
+});
+
+describe('notification model per profile (ADR 0010, DEC-08)', async () => {
+  const { NOTIFICATION_MODES, OPAQUE_PUSH_PAYLOAD, notificationMatrix, notificationPolicy, nextPushDelayMs } = await import('../src/index');
+
+  it('encodes the decided matrix: opaque push, privacy-push, none', () => {
+    const matrix = Object.fromEntries(notificationMatrix().map((r) => [r.profile, r.policy.mode]));
+    expect(matrix).toEqual({ convenience: 'push', 'private-resilient': 'privacy-push', institutional: 'push', sovereign: 'none', 'sovereign-tor': 'none' });
+  });
+
+  it('never carries content, sender or count; privacy-push is a wake signal with longer delays', () => {
+    expect(JSON.parse(OPAQUE_PUSH_PAYLOAD)).toEqual({ v: 1 });
+    const push = NOTIFICATION_MODES.push;
+    const wake = NOTIFICATION_MODES['privacy-push'];
+    expect(push.payload).toBe('fixed-opaque');
+    expect(wake.payload).toBe('empty');
+    expect(NOTIFICATION_MODES.none.payload).toBe('none');
+    expect(wake.minDelayMs).toBeGreaterThan(push.maxDelayMs);
+    expect(wake.minIntervalMs).toBeGreaterThan(push.minIntervalMs);
+    for (const m of [push, wake]) {
+      expect(m.minDelayMs).toBeGreaterThan(0);
+      expect(m.exposes.pushProvider.length && m.exposes.gatewayOperator.length && m.exposes.relay.length).toBeGreaterThan(0);
+      for (const t of [...m.exposes.pushProvider, ...m.exposes.gatewayOperator, ...m.exposes.relay]) expect(() => assertNoAbsoluteClaims(t)).not.toThrow();
+    }
+    expect(NOTIFICATION_MODES.none.exposes).toEqual({ pushProvider: [], gatewayOperator: [], relay: [] });
+  });
+
+  it('Tor-only never pushes, and any push is blocking in Tor-only', () => {
+    expect(notificationPolicy({ ...preset('convenience'), network: 'tor-only' }).mode).toBe('none');
+    for (const n of ['push', 'privacy-push'] as const) {
+      const codes = validateConfig({ ...preset('sovereign-tor'), notifications: n }, 'cli').filter((i) => i.severity === 'error').map((i) => i.code);
+      expect(codes).toContain('TOR_PUSH');
+    }
+  });
+
+  it('delays are random within bounds and respect the minimum interval (batching)', () => {
+    const p = NOTIFICATION_MODES.push;
+    // aligned to the batch tick: the delay is the random jitter rounded up to the next tick boundary
+    expect(nextPushDelayMs(p, 0, undefined, () => 0)).toBe(Math.ceil(p.minDelayMs / p.batchTickMs) * p.batchTickMs);
+    expect(nextPushDelayMs(p, 0, undefined, () => 0.999999)).toBe(Math.ceil(p.maxDelayMs / p.batchTickMs) * p.batchTickMs);
+    for (let i = 0; i < 50; i++) {
+      const now = 1_000_003 + i * 7919;
+      const d = nextPushDelayMs(p, now, undefined);
+      expect(d).toBeGreaterThanOrEqual(p.minDelayMs);
+      expect(d).toBeLessThan(p.maxDelayMs + p.batchTickMs);
+      expect((now + d) % p.batchTickMs).toBe(0);
+    }
+    // just sent: the next push waits at least minIntervalMs
+    expect(nextPushDelayMs(p, 0, 0, () => 0)).toBeGreaterThanOrEqual(p.minIntervalMs);
   });
 });

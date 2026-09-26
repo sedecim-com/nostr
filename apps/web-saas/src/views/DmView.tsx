@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
-import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
+import { downloadFromServers, prepareBlob, uploadToServers } from '@sedecim/blossom-client';
 import { getTagValue, normalizePubkey } from '@sedecim/nostr-core';
 import { APP_RECEIPT_KIND, BUZZ_PINNED_ADAPTER, createFileMessage, createReceipt, dmInboxFilter, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, openDirectMessage, parseReceipt, unwrap, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
 import { receiptPolicy } from '@sedecim/profiles';
+import { blossomServersOf, uploadTargets } from '../lib/blossom';
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 
@@ -39,10 +40,12 @@ export function DmView() {
       // FR010-02: each wrap goes to the recipient's DM relays (10050), else their NIP-65 read relays, else ours.
       const route = { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, quorum: config.quorum };
       if (file) {
-        // DM attachments are always encrypted client-side and stored in the blob-store (the relay media only takes plain images).
-        if (!ws.cfg.blobStore) throw new Error('Este despliegue no tiene blob-store para adjuntos cifrados.');
+        // DM attachments are always encrypted client-side. FR018-05: they go to the user's Blossom servers
+        // (kind 10063, primary first) except image-only ones (relay media), else to the deployment blob-store.
+        const targets = uploadTargets(ws.cfg, await blossomServersOf(s), true);
+        if (targets.length === 0) throw new Error('No hay servidor Blossom para adjuntos cifrados: publica tu lista de servidores o configura el blob-store.');
         const prepared = prepareBlob(new Uint8Array(await file.arrayBuffer()), { sanitize: true, encrypt: true, mimeType: file.type || 'application/octet-stream', fileName: file.name });
-        const desc = await new BlossomClient(ws.cfg.blobStore, s.signer).upload(prepared);
+        const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
         msg = await createFileMessage(s.signer, { recipients: [recipient], url: desc.url, mimeType: prepared.mimeType, sha256: prepared.sha256, originalSha256: prepared.originalSha256, size: prepared.data.length, encryption: prepared.encryption! }, wrapOpts);
       }
       const { deliveries } = file ? await messenger().deliver(msg!, route) : await messenger().send({ recipients: [recipient], content: text }, route);
@@ -150,8 +153,16 @@ function EncryptedAttachment({ message }: { message: DirectMessage }) {
   const mime = getTagValue(message.rumor, 'file-type') ?? 'application/octet-stream';
   const save = async () => {
     try {
-      const server = new URL(url).origin;
-      const bytes = await new BlossomClient(server, ws.session!.signer).download(sha, { url, ...(keyHex && nonceHex ? { decrypt: { keyHex, nonceHex } } : {}) });
+      const s = ws.session!;
+      const decrypt = keyHex && nonceHex ? { decrypt: { keyHex, nonceHex } } : {};
+      // FR018-05 / BUD-03: if the shared URL fails, try the sender's own server list (hash-verified each time).
+      const bytes = await downloadFromServers(sha, { url, servers: [] }, s.signer, decrypt)
+        .catch(async (err: Error) => {
+          const servers = await blossomServersOf(s, message.sender);
+          if (servers.length === 0) throw err;
+          return downloadFromServers(sha, { servers }, s.signer, decrypt);
+        })
+        .then((r) => r.data);
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: mime }));
       a.download = `adjunto-${sha.slice(0, 8)}`;

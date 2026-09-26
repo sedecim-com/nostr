@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, Button, Card, CardContent, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, MenuItem, Radio, RadioGroup, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Button, Card, CardContent, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, MenuItem, Radio, RadioGroup, Stack, TextField, Typography } from '@mui/material';
+import { assertPublicLinkAllowed, createPublicLink } from '@sedecim/identity/public-link';
 import { normalizePubkey } from '@sedecim/nostr-core';
 import { LINK_CONSEQUENCES, linkPersonas, type LinkVisibility } from '../lib/identity';
 import { openPersona, shortNpub } from '../lib/session';
@@ -18,8 +19,21 @@ export function LinkPersonas() {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // FR007-04: publishing the link as a signed Nostr event is a separate, default-off choice.
+  const [publishNostr, setPublishNostr] = useState(false);
+  const [ackPermanent, setAckPermanent] = useState(false);
   if (!ws.cfg.identityService || others.length === 0) return null;
-  const pseudonymous = s.persona.config.identity === 'pseudonymous' || ws.personas.find((p) => p.id === target)?.config.identity === 'pseudonymous';
+  const targetPersona = ws.personas.find((p) => p.id === target);
+  const pseudonymous = s.persona.config.identity === 'pseudonymous' || targetPersona?.config.identity === 'pseudonymous';
+  const nostrRefusal = (() => {
+    try {
+      assertPublicLinkAllowed([s.persona.config, targetPersona?.config]);
+      return undefined;
+    } catch {
+      return 'Un perfil soberano o Tor-only no publica vínculos entre personas.';
+    }
+  })();
+  const wantsNostr = visibility === 'public' && publishNostr && !nostrRefusal;
 
   const link = async () => {
     setBusy(true);
@@ -30,11 +44,17 @@ export function LinkPersonas() {
       try {
         const aud = visibility === 'selective' ? audience.split(/[\s,]+/).filter(Boolean).map(normalizePubkey) : [];
         await linkPersonas({ signer: s.signer, custody: CUSTODY[s.persona.custody] }, { signer: toSession.signer, custody: CUSTODY[other.custody] }, ws.cfg.identityService!, visibility, aud);
+        if (wantsNostr) {
+          // Both personas sign (docs/public-link.md); anyone can verify it without trusting the identity service.
+          const evt = await createPublicLink(s.signer, toSession.signer, { confirm: true, acknowledgePermanent: ackPermanent, profiles: [s.persona.config, other.config] });
+          await s.engine.submit({ event: evt }, { relays: s.persona.relays, quorum: 1 });
+        }
       } finally {
         toSession.close();
       }
       setConfirming(false);
-      ws.notify(`Personas vinculadas (${visibility})`, 'success');
+      setAckPermanent(false);
+      ws.notify(wantsNostr ? 'Personas vinculadas; el vínculo firmado por ambas se está publicando en tus relays' : `Personas vinculadas (${visibility})`, 'success');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -62,6 +82,12 @@ export function LinkPersonas() {
             <FormControlLabel value="public" control={<Radio />} label="Público" />
           </RadioGroup>
           {visibility === 'selective' && <TextField id="link-audience" label="npubs que podrán verlo (separados por coma)" value={audience} onChange={(e) => setAudience(e.target.value)} />}
+          {visibility === 'public' && (
+            <Stack spacing={1}>
+              <FormControlLabel control={<Checkbox id="link-publish-nostr" checked={publishNostr && !nostrRefusal} disabled={!!nostrRefusal} onChange={(e) => setPublishNostr(e.target.checked)} />} label="Además, publicar el vínculo en Nostr como evento firmado por ambas personas (opcional)" />
+              {nostrRefusal && <Typography variant="body2" color="text.secondary">{nostrRefusal}</Typography>}
+            </Stack>
+          )}
           <Button variant="outlined" onClick={() => setConfirming(true)} disabled={!target}>
             Vincular…
           </Button>
@@ -73,13 +99,19 @@ export function LinkPersonas() {
         <DialogContent>
           <DialogContentText>{LINK_CONSEQUENCES[visibility]}</DialogContentText>
           {pseudonymous && <Alert severity="warning" sx={{ mt: 2 }}>Una de estas personas usa un perfil pseudónimo: vincularla contradice ese perfil.</Alert>}
+          {wantsNostr && (
+            <Alert severity="error" sx={{ mt: 2 }} id="link-nostr-warning">
+              El evento firmado se copia a relays que no controlas: cualquiera podrá guardarlo y demostrar que ambas claves son tuyas. Una solicitud de borrado posterior no lo retira de las copias existentes.
+              <FormControlLabel sx={{ display: 'flex', mt: 1 }} control={<Checkbox id="link-ack-permanent" checked={ackPermanent} onChange={(e) => setAckPermanent(e.target.checked)} />} label="Entiendo que es público y permanente" />
+            </Alert>
+          )}
           {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirming(false)} autoFocus>
             Cancelar
           </Button>
-          <Button color="warning" onClick={() => void link()} disabled={busy}>
+          <Button color="warning" onClick={() => void link()} disabled={busy || (wantsNostr && !ackPermanent)}>
             Entiendo las consecuencias, vincular
           </Button>
         </DialogActions>

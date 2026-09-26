@@ -47,6 +47,32 @@ describe('DeliveryEngine', () => {
     return p;
   }
 
+  it('reports outbox stats and per-relay attempt outcomes with a failure class (FR011-03)', async () => {
+    let now = 10_000;
+    const publisher: Publisher = {
+      async publishTo(_evt, relayUrl) {
+        if (relayUrl.includes('down')) return { relay: relayUrl, ok: false, message: 'error: connection failed: x', latencyMs: 5 };
+        if (relayUrl.includes('strict')) return { relay: relayUrl, ok: false, message: 'invalid: nope', latencyMs: 5 };
+        return { relay: relayUrl, ok: true, message: '', latencyMs: 7 };
+      },
+    };
+    const engine = new DeliveryEngine({ store: memStore(), publisher, signer, retry: { baseMs: 60_000, maxMs: 60_000 }, now: () => now });
+    cleanups.push(() => engine.stop());
+    const attempts: Array<{ relay: string; ok: boolean; failure?: string; permanent: boolean }> = [];
+    engine.onAttempt((a) => attempts.push(a));
+    await engine.submit({ template: { kind: 1, content: 'ok' } }, { relays: ['wss://up.example'], wait: true });
+    await engine.submit({ template: { kind: 1, content: 'pending' } }, { relays: ['wss://down.example'], wait: true });
+    now += 5_000;
+    await engine.submit({ template: { kind: 1, content: 'failed' } }, { relays: ['wss://strict.example'], wait: true });
+    now += 1_000;
+    expect(await engine.stats()).toEqual({ depth: 1, oldestPendingAgeMs: 6_000, failed: 1, byState: { REPLICATED: 1, QUEUED: 1, FAILED: 1 } });
+    expect(attempts).toEqual([
+      { relay: 'wss://up.example', ok: true, latencyMs: 7, permanent: false },
+      { relay: 'wss://down.example', ok: false, latencyMs: 5, failure: 'connection', permanent: false },
+      { relay: 'wss://strict.example', ok: false, latencyMs: 5, failure: 'rejected', permanent: true },
+    ]);
+  });
+
   it('persists locally (signed) before transmitting (FR-008)', async () => {
     const store = memStore();
     const seenStates: string[] = [];

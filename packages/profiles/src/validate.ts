@@ -17,8 +17,8 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
     if (c.custody === 'managed' || c.custody === 'managed-enclave') err('TOR_MANAGED_KEY', 'Sovereign Tor Mode no admite custodia managed: el Key Service no debe existir en este modo.', ['custody', 'network']);
     if (c.telemetry !== 'none') err('TOR_TELEMETRY', 'En Tor-only la telemetría debe estar deshabilitada.', ['telemetry', 'network']);
     if (c.crashReports === 'opt-in') err('TOR_CRASH_REPORTS', 'En Tor-only el crash reporting debe estar deshabilitado o ser exportación manual local.', ['crashReports', 'network']);
-    if (c.notifications === 'push') err('TOR_PUSH', 'Push convencional revela metadatos a APNs/FCM: deshabilitado en Tor-only.', ['notifications', 'network']);
-    if (c.notifications === 'privacy-push') warn('TOR_PRIVACY_PUSH', 'Incluso el push opaco revela tiempos de actividad.', ['notifications']);
+    // ADR 0010: no push at all in Tor-only, not even opaque — it ties the device to a push service and reveals activity times.
+    if (c.notifications !== 'none') err('TOR_PUSH', 'En Tor-only no hay push (ni opaco): el servicio push y el gateway verían tu dispositivo y los tiempos de actividad. La app consulta los relays mientras está abierta.', ['notifications', 'network']);
     if (c.remotePreviews) err('TOR_PREVIEWS', 'Las previews remotas deben estar bloqueadas en Tor-only.', ['remotePreviews']);
     if (c.cloudBackup === 'operator-managed') err('TOR_CLOUD_BACKUP', 'En Tor-only el backup en la nube debe estar apagado o ser solo ciphertext con clave fuera del operador.', ['cloudBackup']);
     if (c.messaging === 'nip17') warn('TOR_NIP17_NO_FS', 'NIP-17 no ofrece forward secrecy: para conversaciones high-risk usa Marmot/MLS.', ['messaging']);

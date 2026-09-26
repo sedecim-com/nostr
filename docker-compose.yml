@@ -1,6 +1,7 @@
 # Sovereign / self-hosted stack (spec §4.1):
 #   cp .env.example .env && $EDITOR .env && docker compose up -d
-# Optional profiles: --profile tor (Tor SOCKS + onion relay), --profile managed (custodial managed signer).
+# Optional profiles: --profile tor (Tor SOCKS + onion relay), --profile managed (custodial managed signer),
+#   --profile push (opaque Web Push notification gateway, ADR 0010).
 name: sedecim-nostr
 
 x-service: &service
@@ -32,6 +33,11 @@ services:
       BUZZ_MEDIA_BASE_URL: ${BUZZ_MEDIA_BASE_URL:-http://localhost:3000/media}
       BUZZ_RELAY_PRIVATE_KEY: ${BUZZ_RELAY_PRIVATE_KEY:?set BUZZ_RELAY_PRIVATE_KEY}
       RELAY_OWNER_PUBKEY: ${RELAY_OWNER_PUBKEY:-}
+      # Deployment operators (hex, comma-separated): may create communities, e.g. for the relay .onion
+      # host (scripts/buzz-provision-community.ts). Empty disables provisioning.
+      RELAY_OPERATOR_PUBKEYS: ${RELAY_OPERATOR_PUBKEYS:-}
+      # Origin the operator NIP-98 `u` tag is checked against (e.g. http://localhost:3000); empty rejects.
+      RELAY_OPERATOR_API_ORIGIN: ${RELAY_OPERATOR_API_ORIGIN:-}
       # Third-party Nostr clients (our SDK, web SaaS) authenticate with NIP-42 only.
       BUZZ_REQUIRE_AUTH_TOKEN: ${BUZZ_REQUIRE_AUTH_TOKEN:-false}
       BUZZ_REQUIRE_RELAY_MEMBERSHIP: ${BUZZ_REQUIRE_RELAY_MEMBERSHIP:-false}
@@ -142,6 +148,12 @@ services:
       INDEXER_REQUIRE_AUTH: ${INDEXER_REQUIRE_AUTH:-true}
       PUBLIC_BASE_URL: ${INDEXER_PUBLIC_URL:-http://localhost:8081}
       PORT: "8081"
+      # NFR004-01: Prometheus exporter (internal port, not published). ACK probe off unless set (ms).
+      METRICS_PORT: "9464"
+      TELEMETRY_LEVEL: ${INDEXER_TELEMETRY_LEVEL:-standard}
+      RELAY_REGIONS: ${RELAY_REGIONS:-}
+      RELAY_DEFAULT_REGION: ${RELAY_DEFAULT_REGION:-local}
+      ACK_PROBE_INTERVAL_MS: ${ACK_PROBE_INTERVAL_MS:-0}
     ports: ["${INDEXER_PORT:-8081}:8081"]
     depends_on:
       relay: { condition: service_healthy }
@@ -246,6 +258,27 @@ services:
     ports: ["${MANAGED_SIGNER_PORT:-8084}:8084"]
     depends_on:
       postgres: { condition: service_healthy }
+
+  # --- optional: opaque push notifications (ADR 0010). Never used by sovereign/Tor personas (refused).
+  notification-gateway:
+    <<: *service
+    profiles: [push]
+    build: { context: ., target: service, args: { SERVICE: notification-gateway } }
+    environment:
+      # `public=dial` pairs: the public relay URL personas use, and where the gateway reaches it.
+      NOTIFY_RELAYS: ${NOTIFY_RELAYS:-ws://localhost:3000=ws://relay:3000}
+      # VAPID key (base64url, 32 bytes). Empty: ephemeral key, browsers re-subscribe after each restart.
+      NOTIFY_VAPID_PRIVATE_KEY: ${NOTIFY_VAPID_PRIVATE_KEY:-}
+      NOTIFY_VAPID_SUBJECT: ${NOTIFY_VAPID_SUBJECT:-mailto:admin@localhost}
+      # NIP-42 identity used to watch gift wraps (kind 1059 #p). Empty: ephemeral.
+      NOTIFY_NSEC: ${NOTIFY_NSEC:-}
+      NOTIFY_MAX_SUBSCRIPTIONS: ${NOTIFY_MAX_SUBSCRIPTIONS:-10000}
+      PUBLIC_BASE_URL: ${NOTIFY_PUBLIC_URL:-http://localhost:8086}
+      CORS_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
+      PORT: "8086"
+    ports: ["${NOTIFY_PORT:-8086}:8086"]
+    depends_on:
+      relay: { condition: service_healthy }
 
   # --- optional: Sovereign Tor Mode (SOCKS for clients + onion service for the relay)
   tor:

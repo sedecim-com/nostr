@@ -10,7 +10,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./key-backup": "./src/key-backup.ts",
-    "./backup-vault": "./src/backup-vault.ts"
+    "./backup-vault": "./src/backup-vault.ts",
+    "./public-link": "./src/public-link.ts"
   },
   "dependencies": {
     "@noble/ciphers": "2.4.0",

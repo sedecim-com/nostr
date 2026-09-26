@@ -60,6 +60,7 @@ describe('every compose service has a Kubernetes workload', () => {
   const manifests = [
     ...readdirSync(join(root, 'deploy/k8s/base')).filter((f) => f.endsWith('.yaml')).map((f) => read(`deploy/k8s/base/${f}`)),
     read('deploy/k8s/components/managed-signer/managed-signer.yaml'),
+    read('deploy/k8s/components/notification-gateway/notification-gateway.yaml'),
   ].join('\n---\n');
   const servicesBlock = compose.slice(compose.indexOf('\nservices:\n'), compose.indexOf('\nvolumes:\n'));
   const services = [...servicesBlock.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((m) => m[1]!);
@@ -82,6 +83,25 @@ describe('monitoring probes every HTTP service (NFR001-02)', () => {
   const prometheus = read('deploy/monitoring/prometheus/prometheus.yml');
   it.each(['relay', 'secure-relay', 'indexer', 'identity-service', 'policy-engine', 'blob-store', 'web', 'managed-signer', 'edge'])('%s', (service) => {
     expect(prometheus).toMatch(new RegExp(`labels: \\{ service: ${service}, module: http_`));
+  });
+});
+
+describe('monitoring kustomization ships every rules file, test and dashboard (NFR004-02)', () => {
+  const k = read('deploy/monitoring/kustomization.yaml');
+  const rules = readdirSync(join(root, 'deploy/monitoring/prometheus/rules')).filter((f) => f.endsWith('.rules.yml'));
+  const dashboards = readdirSync(join(root, 'deploy/monitoring/grafana/dashboards')).filter((f) => f.endsWith('.json'));
+  it.each(rules)('%s', (f) => {
+    expect(k).toContain(`- ${f}=prometheus/rules/${f}`);
+    expect(readdirSync(join(root, 'deploy/monitoring/prometheus/tests'))).toContain(f.replace('.rules.yml', '.test.yml'));
+  });
+  it.each(dashboards)('%s', (f) => {
+    expect(k).toContain(`- ${f}=grafana/dashboards/${f}`);
+    const d = JSON.parse(read(`deploy/monitoring/grafana/dashboards/${f}`)) as { uid: string; panels: Array<{ id: number }> };
+    expect(new Set(d.panels.map((p) => p.id)).size).toBe(d.panels.length);
+  });
+  it('scrapes the Nostr metrics exporter', () => {
+    expect(read('deploy/monitoring/prometheus/prometheus.yml')).toMatch(/job_name: nostr-metrics\n[\s\S]*?targets: \['indexer:9464'\]/);
+    expect(read('deploy/k8s/base/indexer.yaml')).toMatch(/name: METRICS_PORT\n\s+value: "9464"/);
   });
 });
 
