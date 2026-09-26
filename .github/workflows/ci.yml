@@ -39,8 +39,13 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U sedecim" --health-interval 5s --health-timeout 5s --health-retries 10
+      # AWS Secrets Manager + KMS emulator for the managed-signer vault tests (FR005-02).
+      moto:
+        image: motoserver/moto:5.2.3@sha256:91fd602a21f49cf9eb82fdf474015a3c131d40104c8297ea6a2ca920708ae32c
+        ports: ["5055:5000"]
     env:
       TEST_DATABASE_URL: postgres://sedecim:sedecim@localhost:5432/sedecim_test
+      MOTO_ENDPOINT: http://localhost:5055
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,6 +58,8 @@ jobs:
         run: node scripts/backlog.mjs --check
       - name: Disclosure copy under review is versioned and up to date (FR028-02)
         run: npx tsx scripts/disclosures.ts --check
+      - name: Wait for moto
+        run: curl -sf --retry 15 --retry-delay 2 --retry-connrefused -o /dev/null "$MOTO_ENDPOINT/moto-api/"
       - run: npm test
       - name: Browser E2E (web SaaS)
         run: |

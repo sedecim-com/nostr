@@ -216,14 +216,36 @@ services:
     profiles: [managed]
     build: { context: ., target: service, args: { SERVICE: managed-signer } }
     environment:
+      # Key registry and usage log (FR005-03); migrations run at startup.
+      DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_DB:-sedecim}
+      # Vault: local (envelope files under /data/vault, KEK below) or aws (Secrets Manager + KMS, DEC-09).
+      MANAGED_SIGNER_VAULT: ${MANAGED_SIGNER_VAULT:-local}
       MANAGED_SIGNER_KEK: ${MANAGED_SIGNER_KEK:-}
-      MANAGED_SIGNER_TOKENS: ${MANAGED_SIGNER_TOKENS:-}
       MANAGED_SIGNER_VAULT_DIR: /data/vault
+      MANAGED_SIGNER_KMS_KEY_ID: ${MANAGED_SIGNER_KMS_KEY_ID:-}
+      MANAGED_SIGNER_SECRET_PREFIX: ${MANAGED_SIGNER_SECRET_PREFIX:-acceso-nostr/managed-keys/}
+      MANAGED_SIGNER_AWS_ENDPOINT: ${MANAGED_SIGNER_AWS_ENDPOINT:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      # Prefer an instance/task IAM role; static keys only where no role is available (never the host's).
+      AWS_ACCESS_KEY_ID: ${MANAGED_SIGNER_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${MANAGED_SIGNER_AWS_SECRET_ACCESS_KEY:-}
+      # DEC-09: deleted keys' material is destroyed after 30 days; the usage log is kept 12 months.
       MANAGED_SIGNER_RETENTION_DAYS: ${MANAGED_SIGNER_RETENTION_DAYS:-30}
+      MANAGED_SIGNER_USAGE_RETENTION_MONTHS: ${MANAGED_SIGNER_USAGE_RETENTION_MONTHS:-12}
+      # End users authorize with their Acceso (Cognito) token (FR005-04), same pool as identity-service.
+      COGNITO_REGION: ${COGNITO_REGION:-}
+      COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID:-}
+      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:-}
+      # Legacy service-to-service mode (token:principal + x-account-id). Empty = disabled.
+      MANAGED_SIGNER_SERVICE_TOKENS: ${MANAGED_SIGNER_SERVICE_TOKENS:-}
+      CORS_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
       PORT: "8084"
     read_only: false
     volumes: [managed-vault:/data]
-    # Not published on the host: only reachable by the SaaS backend on the internal network.
+    # The web calls it directly with the user's Acceso token.
+    ports: ["${MANAGED_SIGNER_PORT:-8084}:8084"]
+    depends_on:
+      postgres: { condition: service_healthy }
 
   # --- optional: Sovereign Tor Mode (SOCKS for clients + onion service for the relay)
   tor:

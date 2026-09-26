@@ -1,8 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { getTagValue, nip98, verifyEvent } from '@sedecim/nostr-core';
-import { Service, HttpError, isHex64, requireFields, type ServiceOptions, type Req } from '@sedecim/service-kit';
+import { Service, HttpError, isHex64, requireFields, CognitoTokenError, type CognitoVerifier, type ServiceOptions, type Req } from '@sedecim/service-kit';
 import { ExternalLoginTakenError, type IdentityRepository, type PersonaRow, type Visibility } from './repository';
-import { CognitoTokenError, type CognitoVerifier } from './cognito';
 
 const CUSTODY = ['local', 'offline', 'external', 'encrypted-backup', 'managed', 'managed-enclave'];
 const VIS: Visibility[] = ['private', 'selective', 'public'];
