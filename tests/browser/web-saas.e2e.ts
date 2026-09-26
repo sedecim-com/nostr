@@ -19,6 +19,7 @@ import { APP_RECEIPT_KIND, chatMessage, createDirectMessage, createReceipt, dmIn
 import { BlossomClient } from '@sedecim/blossom-client';
 import { CognitoVerifier, createIdentityApi, MemoryIdentityRepository } from '@sedecim/identity-service';
 import { createManagedSignerApi, ManagedSigner, MemoryVault } from '@sedecim/managed-signer';
+import { backupFile, generateKey } from '@sedecim/key-generator';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -280,6 +281,23 @@ try {
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
   assert(true, 'switching persona changes the sending identity');
 
+  // --- import the offline key generator's backup: the npub is verified on decryption (FR002-03)
+  const offline = generateKey({ password: 'clave-del-generador', logN: 14 });
+  await tab(page, 'Personas');
+  await fill(page, 'persona-label', 'Offline');
+  await page.getByLabel('Importar archivo de backup (generador offline o esta web)').check();
+  await page.locator('input[type=file][accept="application/json,.json"]').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backupFile(offline, 14))) });
+  assert((await page.textContent('#backup-npub'))?.includes(offline.npub), 'the backup npub is shown before asking for the password');
+  await fill(page, 'import-backup-pass', 'incorrecta');
+  await page.getByRole('button', { name: 'Crear persona' }).click();
+  await page.getByText(/wrong passphrase|corrupted/i).waitFor({ timeout: 20_000 });
+  await fill(page, 'import-backup-pass', 'clave-del-generador');
+  await page.getByRole('button', { name: 'Crear persona' }).click();
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Offline'), undefined, { timeout: 20_000 });
+  await page.getByRole('button', { name: 'Mostrar QR de mi npub' }).click();
+  assert(await page.getByRole('img', { name: 'Código QR de tu npub' }).isVisible(), 'imported persona can show its npub as a QR (FR003-03)');
+  assert(await page.getByRole('img', { name: 'Código QR de tu npub' }).locator('path').count() === 1, 'QR drawn as a single SVG path, no external resources');
+
   // --- remote signer via client-initiated nostrconnect:// (FR004-03/04): the nsec never reaches the browser
   const remoteUser = new LocalSigner(generateSecretKey());
   const bunkerPool = new RelayPool({ webSocketFactory: factory, signer: new LocalSigner(generateSecretKey()) });
@@ -292,6 +310,7 @@ try {
   assert((await page.textContent('#nip46-permissions'))?.includes('Firmar: Mensajes de canal (NIP-29)'), 'requested NIP-46 permissions are listed before connecting (FR004-04)');
   await page.getByRole('button', { name: 'Generar código de conexión' }).click();
   const uri = await page.inputValue('#nostrconnect-uri');
+  assert(await page.getByRole('img', { name: 'Código QR de conexión nostrconnect' }).isVisible(), 'the nostrconnect offer is also shown as a QR');
   assert(uri.startsWith('nostrconnect://') && uri.includes('perms='), 'web shows a nostrconnect:// offer with its permissions');
   await bunker.acceptNostrConnect(uri);
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Remota'), undefined, { timeout: 15_000 });
@@ -374,6 +393,13 @@ try {
     await a11y.addScriptTag({ path: axePath });
     const v = await a11y.evaluate(async () => (await (window as unknown as { axe: { run(): Promise<{ violations: Array<{ id: string; impact: string; nodes: unknown[] }> }> } }).axe.run()).violations.filter((x) => x.impact === 'serious' || x.impact === 'critical').map((x) => `${x.id}(${x.nodes.length}: ${(x.nodes as Array<{ target: string[]; failureSummary?: string }>).map((n) => `${n.target.join(' ')} ${n.failureSummary ?? ''}`.replace(/\s+/g, ' ').slice(0, 220)).join(' | ')})`));
     assert(v.length === 0, `axe: no serious/critical violations on ${label} (${v.join(', ')})`);
+    // axe rates duplicate ids as minor, but they break label/aria wiring and tests (found once in Personas).
+    const dup = await a11y.evaluate(() => {
+      const seen = new Map<string, number>();
+      for (const el of document.querySelectorAll('[id]')) seen.set(el.id, (seen.get(el.id) ?? 0) + 1);
+      return [...seen].filter(([, n]) => n > 1).map(([id]) => id);
+    });
+    assert(dup.length === 0, `no duplicate ids on ${label} (${dup.join(', ')})`);
   };
   await a11y.goto(base);
   await a11y.getByText('Crear almacén').waitFor();

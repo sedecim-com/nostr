@@ -23,7 +23,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
-| Managed signer + vault (envelope local / AWS Secrets Manager) | `services/managed-signer` | ✅ (enclave Nitro pendiente) |
+| Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma autorizada con el token de Acceso) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; enclave Nitro pendiente) |
 | Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (persistencia en memoria) |
 | Stack self-hosted Docker Compose (Buzz fijado por digest, Tor opcional) | `docker-compose.yml`, `infra/` | ✅ |
 | Buzz upstream sin fork, fijado por digest | `infra/buzz/PIN`, `docs/adr/0002-subset-y-pin-de-buzz.md`, `docs/buzz-integration.md` | ✅ (política de actualización: ADR 0003) |
@@ -97,6 +97,8 @@ npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 |---|---|
 | `npm test` | Unitarios + E2E contra relay/Blossom/SOCKS en memoria (NIP-42, quorum, offline, Tor fail-closed, NIP-46, interop con nostr-tools) |
 | `npm run test:pg` | Repositorios Postgres del indexer e identity-service (`TEST_DATABASE_URL`) |
+| `npm run test:keygen-html` | Generador HTML air-gapped abierto desde `file://` sin red |
+| `npm run lint:claims` | Prohíbe afirmaciones absolutas de privacidad en todo el copy |
 | `npm run test:browser` | Web en Chromium (Playwright): personas, canales, DMs con ruteo 10050, adjuntos, receipts, panel aplicado y persistido, vault, nsec que no sale del navegador, axe-core, modo SaaS con Acceso |
 | `BUZZ_RELAY_URL=… npx tsx tests/browser/web-buzz.e2e.ts` | Web contra Buzz real: crear canal, unirse, enviar y leer (FR015-03; job `stack` de CI) |
 | `npm run test:interop` | Gate contra Buzz real (`BUZZ_RELAY_URL`), genera `interop-report.json` |

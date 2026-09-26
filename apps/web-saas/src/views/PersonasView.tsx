@@ -8,9 +8,12 @@ import { useWorkspace } from '../lib/workspace';
 import { LinkPersonas } from './LinkPersonas';
 import { RemoteSigner } from './RemoteSigner';
 import { ManagedOptIn, MigrationWizard } from './ManagedCustody';
+import { QrCode } from './QrCode';
+import { openKeyBackup, parseKeyBackup, type ParsedKeyBackup } from '@sedecim/identity/key-backup';
+import { npubEncode } from '@sedecim/nostr-core';
 import type { Nip46Signer, NostrConnectOffer } from '@sedecim/signer';
 
-type Mode = 'create' | 'import' | 'nip07' | 'nip46' | 'managed';
+type Mode = 'create' | 'import' | 'backup' | 'nip07' | 'nip46' | 'managed';
 
 export function PersonasView() {
   const ws = useWorkspace();
@@ -21,6 +24,8 @@ export function PersonasView() {
   const [secret, setSecret] = useState('');
   const [ncPass, setNcPass] = useState('');
   const [managedConsent, setManagedConsent] = useState(false);
+  const [backupFile, setBackupFile] = useState<{ json: string; parsed: ParsedKeyBackup } | undefined>();
+  const [showNpubQr, setShowNpubQr] = useState(false);
   const managedAvailable = !!ws.managedEnv.baseUrl;
   const [nip46Mode, setNip46Mode] = useState<'bunker' | 'nostrconnect'>('nostrconnect');
   const [relays, setRelays] = useState(cfg.relays.join('\n'));
@@ -50,6 +55,19 @@ export function PersonasView() {
     if (mode === 'nip46' && nip46Mode === 'nostrconnect' && !connected) return;
     void run(async () => {
       if (needsPassword) await setProtection(book.vault, { kind: 'passphrase', passphrase: vaultPass });
+      // FR002-03: a backup from the offline generator (or this web) must decrypt to the npub it declares.
+      if (mode === 'backup') {
+        if (!backupFile) throw new Error('Elige un archivo de backup.');
+        const { secretKey } = await openKeyBackup(backupFile.json, ncPass);
+        const p = await createPersona(book, { kind: 'secret', secretKey }, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device' });
+        setNcPass('');
+        setBackupFile(undefined);
+        await ws.reloadPersonas();
+        await ws.selectPersona(p.id);
+        await ws.publishDmRelays();
+        ws.notify(`Persona "${p.label}" importada desde el backup (npub verificada)`, 'success');
+        return;
+      }
       const input: NewPersona = connected
         ? { kind: 'nip46-connected', signer: connected.signer, clientSecretKey: connected.offer.clientSecretKey }
         : mode === 'create'
@@ -118,7 +136,13 @@ export function PersonasView() {
               ))}
             </List>
           </CardContent>
+          {showNpubQr && (
+            <CardContent>
+              <QrCode text={`nostr:${npubEncode(session.pubkey)}`} label="Código QR de tu npub" />
+            </CardContent>
+          )}
           <CardActions sx={{ flexWrap: 'wrap', gap: 1 }}>
+            <Button onClick={() => setShowNpubQr((v) => !v)}>{showNpubQr ? 'Ocultar QR' : 'Mostrar QR de mi npub'}</Button>
             <Button onClick={() => void run(async () => (await ws.publishDmRelays(), ws.notify('Relays de DM publicados (kind 10050)', 'success')))} disabled={busy}>
               Publicar mis relays de DM
             </Button>
@@ -165,10 +189,37 @@ export function PersonasView() {
             <RadioGroup value={mode} onChange={(e) => setMode(e.target.value as Mode)} aria-label="Modo de llave">
               <FormControlLabel value="create" control={<Radio />} label="Crear llave local nueva (la nsec no sale del navegador)" />
               <FormControlLabel value="import" control={<Radio />} label="Importar nsec / ncryptsec" />
+              <FormControlLabel value="backup" control={<Radio />} label="Importar archivo de backup (generador offline o esta web)" />
               <FormControlLabel value="nip07" control={<Radio />} label="Extensión del navegador (NIP-07)" />
               <FormControlLabel value="nip46" control={<Radio />} label="Signer remoto (NIP-46)" />
               {managedAvailable && <FormControlLabel value="managed" control={<Radio />} label="Llave gestionada por la plataforma (custodial, opcional)" />}
             </RadioGroup>
+            {mode === 'backup' && (
+              <Stack spacing={1}>
+                <Button component="label" variant="outlined">
+                  Elegir archivo .json
+                  <input
+                    hidden
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      try {
+                        const json = await f.text();
+                        setBackupFile({ json, parsed: parseKeyBackup(json) });
+                        setError('');
+                      } catch (err) {
+                        setBackupFile(undefined);
+                        setError((err as Error).message);
+                      }
+                    }}
+                  />
+                </Button>
+                {backupFile && <Alert severity="info" id="backup-npub">Backup de {backupFile.parsed.npub} ({backupFile.parsed.format}). Se comprobará al descifrarlo.</Alert>}
+                <TextField id="import-backup-pass" label="Contraseña del archivo de backup" type="password" autoComplete="off" value={ncPass} onChange={(e) => setNcPass(e.target.value)} required />
+              </Stack>
+            )}
             {mode === 'managed' && <ManagedOptIn accepted={managedConsent} onChange={setManagedConsent} />}
             {mode === 'import' && <TextField id="secret-input" label="nsec o ncryptsec" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} required />}
             {mode === 'nip46' && (
@@ -179,6 +230,7 @@ export function PersonasView() {
                 mode={nip46Mode}
                 onModeChange={setNip46Mode}
                 onConnected={(signer, offer) => create(undefined, { signer, offer })}
+                renderQr={(t) => <QrCode text={t} label="Código QR de conexión nostrconnect" />}
               />
             )}
             {mode === 'import' && secret.startsWith('ncryptsec') && <TextField id="ncryptsec-pass" label="Contraseña del ncryptsec" type="password" autoComplete="off" value={ncPass} onChange={(e) => setNcPass(e.target.value)} />}
