@@ -24,6 +24,8 @@ export class KeyBackupError extends Error {
 
 const NCRYPTSEC = /^ncryptsec1[023456789acdefghjklmnpqrstuvwxyz]{152}$/;
 const FORMATS: readonly KeyBackupFormat[] = ['sedecim-offline-key', 'acceso-nostr-key-backup'];
+/** For error messages: String() throws on objects like {"toString": 0} (found by SEC-03 fuzz). */
+const show = (v: unknown) => (typeof v === 'string' || typeof v === 'number' ? String(v) : (JSON.stringify(v) ?? typeof v).slice(0, 40));
 
 /**
  * Validates the shape of a key backup (object or JSON text) without decrypting it. Accepts
@@ -40,8 +42,8 @@ export function parseKeyBackup(json: unknown): ParsedKeyBackup {
   }
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw new KeyBackupError('backup must be a JSON object');
   const o = v as Record<string, unknown>;
-  if (typeof o.format !== 'string' || !FORMATS.includes(o.format as KeyBackupFormat)) throw new KeyBackupError(`unsupported backup format: ${String(o.format)}`);
-  if (o.version !== 1) throw new KeyBackupError(`unsupported ${o.format} version: ${String(o.version)}`);
+  if (typeof o.format !== 'string' || !FORMATS.includes(o.format as KeyBackupFormat)) throw new KeyBackupError(`unsupported backup format: ${show(o.format)}`);
+  if (o.version !== 1) throw new KeyBackupError(`unsupported ${o.format} version: ${show(o.version)}`);
   if (typeof o.npub !== 'string') throw new KeyBackupError('backup has no npub');
   if (typeof o.ncryptsec !== 'string' || !NCRYPTSEC.test(o.ncryptsec)) throw new KeyBackupError('backup has no valid NIP-49 ncryptsec');
   let pubkey: string;

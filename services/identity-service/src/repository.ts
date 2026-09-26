@@ -37,6 +37,21 @@ export interface ExternalLoginRow {
   username?: string;
 }
 
+/** FR027-03: one stored version of an encrypted backup envelope (opaque to the service). */
+export interface BackupRow {
+  backupId: string;
+  accountId: string;
+  format: string;
+  formatVersion: number;
+  size: number;
+  sha256: string;
+  npub?: string;
+  createdAt: string;
+  envelope: string;
+}
+
+export type BackupMetaRow = Omit<BackupRow, 'envelope'>;
+
 export interface IdentityRepository {
   createAccount(accountId: string, first: PersonaRow): Promise<void>;
   personaByPubkey(pubkey: string): Promise<PersonaRow | undefined>;
@@ -53,6 +68,16 @@ export interface IdentityRepository {
   externalLoginsOf(accountId: string): Promise<ExternalLoginRow[]>;
   unlinkExternalLogin(accountId: string, provider: string): Promise<boolean>;
   auditOf(accountId: string): Promise<Array<{ at: string; actor: string; action: string; details: Record<string, unknown> }>>;
+  /** Account an external login (issuer + subject) is attached to, if any. */
+  accountByExternalLogin(provider: string, issuer: string, subject: string): Promise<string | undefined>;
+  /** Stores a new backup version and prunes the account's older versions beyond `keep`. */
+  putBackup(b: BackupRow, keep: number): Promise<void>;
+  /** Backups of an account, newest first (metadata only). */
+  backupsOf(accountId: string): Promise<BackupMetaRow[]>;
+  /** One backup of the account ('latest' for the newest). */
+  getBackup(accountId: string, backupId: string): Promise<BackupRow | undefined>;
+  /** Deletes one backup, or all of the account's when no id is given; returns how many. */
+  deleteBackups(accountId: string, backupId?: string): Promise<number>;
 }
 
 export class ExternalLoginTakenError extends Error {
@@ -68,6 +93,8 @@ export class MemoryIdentityRepository implements IdentityRepository {
   private keys = new Map<string, KeyMetadataRow>();
   private logins: ExternalLoginRow[] = [];
   private log: Array<{ accountId: string; at: string; actor: string; action: string; details: Record<string, unknown> }> = [];
+  /** Oldest first. */
+  private backups: BackupRow[] = [];
 
   async createAccount(accountId: string, first: PersonaRow) {
     if (await this.personaByPubkey(first.pubkey)) throw new Error('pubkey already registered');
@@ -123,6 +150,31 @@ export class MemoryIdentityRepository implements IdentityRepository {
   }
   async auditOf(accountId: string) {
     return this.log.filter((l) => l.accountId === accountId).map(({ accountId: _a, ...r }) => r);
+  }
+  async accountByExternalLogin(provider: string, issuer: string, subject: string) {
+    return this.logins.find((x) => x.provider === provider && x.issuer === issuer && x.subject === subject)?.accountId;
+  }
+  async putBackup(b: BackupRow, keep: number) {
+    this.backups.push({ ...b });
+    const mine = this.backups.filter((x) => x.accountId === b.accountId);
+    const drop = new Set(mine.slice(0, Math.max(0, mine.length - keep)));
+    this.backups = this.backups.filter((x) => !drop.has(x));
+  }
+  async backupsOf(accountId: string) {
+    return this.backups
+      .filter((x) => x.accountId === accountId)
+      .reverse()
+      .map(({ envelope: _e, ...m }) => m);
+  }
+  async getBackup(accountId: string, backupId: string) {
+    const mine = this.backups.filter((x) => x.accountId === accountId);
+    const b = backupId === 'latest' ? mine.at(-1) : mine.find((x) => x.backupId === backupId);
+    return b ? { ...b } : undefined;
+  }
+  async deleteBackups(accountId: string, backupId?: string) {
+    const before = this.backups.length;
+    this.backups = this.backups.filter((x) => !(x.accountId === accountId && (backupId === undefined || x.backupId === backupId)));
+    return before - this.backups.length;
   }
 }
 
@@ -208,5 +260,52 @@ export class PgIdentityRepository implements IdentityRepository {
   async auditOf(accountId: string) {
     const { rows } = await this.pool.query('SELECT at, actor, action, details FROM identity_audit WHERE account_id = $1 ORDER BY id', [accountId]);
     return rows.map((r) => ({ at: new Date(r.at).toISOString(), actor: r.actor, action: r.action, details: r.details }));
+  }
+  async accountByExternalLogin(provider: string, issuer: string, subject: string) {
+    const { rows } = await this.pool.query('SELECT account_id FROM external_logins WHERE provider = $1 AND issuer = $2 AND subject = $3', [provider, issuer, subject]);
+    return rows[0]?.account_id as string | undefined;
+  }
+  private mapBackup = (r: Record<string, unknown>): BackupRow => ({
+    backupId: r.backup_id as string,
+    accountId: r.account_id as string,
+    format: r.format as string,
+    formatVersion: r.format_version as number,
+    size: r.size as number,
+    sha256: r.sha256 as string,
+    ...(r.npub ? { npub: r.npub as string } : {}),
+    createdAt: new Date(r.created_at as string).toISOString(),
+    envelope: r.envelope as string,
+  });
+  async putBackup(b: BackupRow, keep: number) {
+    const c = await this.pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('INSERT INTO backup_vault (backup_id, account_id, format, format_version, size, sha256, npub, envelope, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [b.backupId, b.accountId, b.format, b.formatVersion, b.size, b.sha256, b.npub ?? null, b.envelope, b.createdAt]);
+      await c.query('DELETE FROM backup_vault WHERE account_id = $1 AND seq NOT IN (SELECT seq FROM backup_vault WHERE account_id = $1 ORDER BY seq DESC LIMIT $2)', [b.accountId, keep]);
+      await c.query('COMMIT');
+    } catch (e) {
+      await c.query('ROLLBACK');
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+  async backupsOf(accountId: string) {
+    const { rows } = await this.pool.query("SELECT backup_id, account_id, format, format_version, size, sha256, npub, created_at, '' AS envelope FROM backup_vault WHERE account_id = $1 ORDER BY seq DESC", [accountId]);
+    return rows.map((r) => {
+      const { envelope: _e, ...m } = this.mapBackup(r);
+      return m;
+    });
+  }
+  async getBackup(accountId: string, backupId: string) {
+    const { rows } =
+      backupId === 'latest'
+        ? await this.pool.query('SELECT * FROM backup_vault WHERE account_id = $1 ORDER BY seq DESC LIMIT 1', [accountId])
+        : await this.pool.query('SELECT * FROM backup_vault WHERE account_id = $1 AND backup_id = $2', [accountId, backupId]);
+    return rows[0] ? this.mapBackup(rows[0]) : undefined;
+  }
+  async deleteBackups(accountId: string, backupId?: string) {
+    const r = backupId === undefined ? await this.pool.query('DELETE FROM backup_vault WHERE account_id = $1', [accountId]) : await this.pool.query('DELETE FROM backup_vault WHERE account_id = $1 AND backup_id = $2', [accountId, backupId]);
+    return r.rowCount ?? 0;
   }
 }

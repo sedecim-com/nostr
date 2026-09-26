@@ -9,7 +9,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./key-backup": "./src/key-backup.ts"
+    "./key-backup": "./src/key-backup.ts",
+    "./backup-vault": "./src/backup-vault.ts"
   },
   "dependencies": {
     "@noble/ciphers": "1.3.0",

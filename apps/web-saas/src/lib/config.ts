@@ -19,6 +19,12 @@ export interface DeploymentConfig {
   /** Client-encrypted blobs (DM attachments). */
   blobStore?: string;
   identityService?: string;
+  /**
+   * FR027-03: identity-service base URL of the encrypted backup vault (usually the same as
+   * identityService). Unset: the cloud copy is not offered. Only ciphertext under the user's backup
+   * password is uploaded.
+   */
+  backupVault?: string;
   /** SaaS only: custodial managed-signer (opt-in, ADR 0009). */
   managedSigner?: string;
   cognito?: CognitoSettings;

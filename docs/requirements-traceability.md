@@ -32,7 +32,7 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-024 | Revocación | ✅ | `policy-engine.test.ts` (sesiones invalidadas, rotación señalada) |
 | FR-025 | Grupo Marmot | ✅ | `MarmotTsProvider` (marmot-ts + ts-mls rc.11): `packages/marmot-adapter/test`, `apps/sovereign-client/test/groups.test.ts` (alta, expulsión sin fuga, rotación PCS, estado cifrado, Tor). Buzz no acepta los kinds → relay secundario (`docs/marmot.md`) |
 | FR-026 | Migración de custodia | ✅ | `managed-signer.test.ts` (export → prueba de posesión → retención → borrado) |
-| FR-027 | Backup restore | ✅ | `identity.test.ts` (dispositivo limpio; backup v2 cifrado con relays, panel, estado MLS y outbox; compatibilidad v1), `groups.test.ts` (grupo MLS operativo tras restaurar) |
+| FR-027 | Backup restore | ✅ | `identity.test.ts` (dispositivo limpio; backup v2 cifrado con relays, panel, estado MLS y outbox; compatibilidad v1), `groups.test.ts` (grupo MLS operativo tras restaurar), `identity-service/test/backup-vault.test.ts` (vault en la nube solo ciphertext: rechazo de texto plano, aislamiento entre cuentas, versiones, restauración con login de Acceso), `web-saas.e2e.ts` (subida y restauración en un dispositivo nuevo) |
 | FR-028 | Disclosures | ✅ | `profiles/test`, `web-saas.e2e.ts`, `npm run lint:claims` en CI (`tests/scripts/lint-claims.test.ts`) |
 
 | ID | Requisito | Estado | Evidencia / nota |

@@ -159,14 +159,18 @@ export async function publishDmRelays(s: PersonaSession): Promise<void> {
   await s.engine.submit({ event: await publishDmRelayList(s.signer, s.persona.relays) }, { relays: s.persona.relays, quorum: 1 });
 }
 
-/** NIP-49 backup protected by a password the user picks now (never the vault password by default). */
-export async function exportBackup(persona: PersonaRecord, backupPassword: string): Promise<Blob> {
+/** NIP-49 backup (JSON text) protected by a password the user picks now (never the vault password by default). */
+export async function backupJson(persona: PersonaRecord, backupPassword: string): Promise<string> {
   if (persona.custody !== 'local' || !persona.secretHex) throw new Error('solo las llaves locales se pueden exportar');
   if (backupPassword.length < 8) throw new Error('la contraseña del backup debe tener al menos 8 caracteres');
   const sk = hexToBytes(persona.secretHex);
   const ncryptsec = await nip49.encryptKeyAsync(sk, backupPassword, 16, 0x01);
   wipe(sk);
-  return new Blob([JSON.stringify({ format: 'acceso-nostr-key-backup', version: 1, npub: npubEncode(persona.pubkey), ncryptsec }, null, 2)], { type: 'application/json' });
+  return JSON.stringify({ format: 'acceso-nostr-key-backup', version: 1, npub: npubEncode(persona.pubkey), ncryptsec }, null, 2);
+}
+
+export async function exportBackup(persona: PersonaRecord, backupPassword: string): Promise<Blob> {
+  return new Blob([await backupJson(persona, backupPassword)], { type: 'application/json' });
 }
 
 const CUSTODY_LABEL: Record<PersonaRecord['custody'], string> = { local: 'Llave local (navegador)', nip07: 'Signer externo (NIP-07)', nip46: 'Signer remoto (NIP-46)', managed: 'Llave gestionada por la plataforma (custodial)' };

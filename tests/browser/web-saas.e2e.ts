@@ -9,7 +9,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { chromium, type Page } from 'playwright';
+import { chromium, type Page, type Route } from 'playwright';
 import WebSocket from 'ws';
 import { bytesToHex, finalizeEvent, generateSecretKey, getPublicKey, getTagValue, nip19, npubEncode, toUnsigned } from '@sedecim/nostr-core';
 import { LocalSigner, Nip46Bunker } from '@sedecim/signer';
@@ -109,7 +109,9 @@ page.on('pageerror', (e) => errors.push(e.message));
 if (process.env.DEBUG_E2E) page.on('console', (m) => console.log('[browser]', m.type(), m.text()));
 page.on('console', (m) => /Content Security Policy/i.test(m.text()) && errors.push(m.text()));
 page.on('request', (r) => {
-  if (new URL(r.url()).hostname !== '127.0.0.1') external.push(r.url());
+  // blob:/data: URLs are in-memory objects of this page (e.g. decrypted images), not network requests.
+  const u = new URL(r.url());
+  if (u.protocol !== 'blob:' && u.protocol !== 'data:' && u.hostname !== '127.0.0.1') external.push(r.url());
   outbound.push(`${r.url()} ${r.postData() ?? ''} ${JSON.stringify(r.headers())}`);
 });
 page.on('websocket', (ws) => ws.on('framesent', (f) => outbound.push(String(f.payload))));
@@ -138,6 +140,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
   assert(true, 'banner "Enviando como…" names the active persona (FR006-02)');
   assert((await page.textContent('#custody-facts'))?.includes('NO puede firmar'), 'custody facts are disclosed');
+  assert((await page.locator('#cloud-backup').count()) === 0, 'no cloud backup is offered when the deployment does not configure backupVault (FR027-03)');
   const webPub = getPublicKey(knownSk);
   await page.waitForTimeout(500);
   const probe = new RelayPool({ webSocketFactory: factory, signer: new LocalSigner(generateSecretKey()) });
@@ -417,9 +420,10 @@ try {
 
   // --- SaaS mode (ADR 0008): Acceso login first, then optional linking of a persona
   const saasCtx = await browser.newContext();
-  await saasCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...selfHosted, mode: 'saas', cognito, managedSigner: managedUrl }) }));
+  const saasConfig = { ...selfHosted, mode: 'saas', cognito, managedSigner: managedUrl, backupVault: identityUrl };
+  await saasCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(saasConfig) }));
   const cognitoCalls: string[] = [];
-  await saasCtx.route(`https://cognito-idp.${cognito.region}.amazonaws.com/**`, async (r) => {
+  const accesoRoute = async (r: Route) => {
     const target = r.request().headers()['x-amz-target'] ?? '';
     cognitoCalls.push(target);
     if (target.endsWith('InitiateAuth')) {
@@ -431,7 +435,8 @@ try {
       });
     }
     return r.fulfill({ status: 400, contentType: 'application/x-amz-json-1.1', body: JSON.stringify({ __type: 'InvalidParameterException', message: `unexpected ${target}` }) });
-  });
+  };
+  await saasCtx.route(`https://cognito-idp.${cognito.region}.amazonaws.com/**`, accesoRoute);
   const saas = await saasCtx.newPage();
   saas.on('pageerror', (e) => errors.push(e.message));
   await saas.goto(base);
@@ -460,6 +465,38 @@ try {
   await saas.getByText('Cuenta de Acceso vinculada a esta persona').waitFor({ timeout: 10_000 });
   const logins = await identityRepo.externalLoginsOf((await account())!);
   assert(logins.length === 1 && logins[0]!.subject === 'acceso-user-1' && logins[0]!.issuer === iss, 'identity-service verified the Cognito token and linked it to the persona account');
+
+  // --- encrypted cloud backup (FR027-03): only ciphertext is uploaded; a new device restores it with the
+  // Acceso login and the backup password.
+  assert(await saas.locator('#cloud-backup-facts').isVisible(), 'the cloud backup explains who holds the decryption password');
+  await saas.fill('#backup-pass', 'nube-segura-123');
+  await saas.locator('#cloud-backup').click();
+  await saas.getByText('Copia cifrada guardada en la nube').waitFor({ timeout: 20_000 });
+  const stored = await identityRepo.getBackup((await account())!, 'latest');
+  assert(stored && stored.format === 'acceso-nostr-key-backup' && stored.npub === npubEncode(getPublicKey(saasSk)), 'the vault stores the encrypted web backup under the persona account');
+  assert(!stored!.envelope.includes(bytesToHex(saasSk)) && !stored!.envelope.includes(nip19.nsecEncode(saasSk)) && !stored!.envelope.includes('nube-segura-123'), 'the stored backup holds no plaintext key and no password');
+  const deviceCtx = await browser.newContext();
+  await deviceCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(saasConfig) }));
+  await deviceCtx.route(`https://cognito-idp.${cognito.region}.amazonaws.com/**`, accesoRoute);
+  const device = await deviceCtx.newPage();
+  device.on('pageerror', (e) => errors.push(e.message));
+  await device.goto(base);
+  await device.fill('#acceso-user', 'ana');
+  await device.fill('#acceso-pass', 'acceso-pass');
+  await device.getByRole('button', { name: 'Entrar con Acceso' }).click();
+  await device.getByText('Crear almacén').waitFor({ timeout: 15_000 });
+  await device.fill('#local-pass', PASS);
+  await device.getByRole('button', { name: 'Crear almacén' }).click();
+  await device.fill('#persona-label', 'Restaurada');
+  await device.getByLabel('Importar archivo de backup (generador offline o esta web)').check();
+  await device.locator('#cloud-restore').click();
+  await device.locator('#backup-npub').waitFor({ timeout: 10_000 });
+  assert((await device.textContent('#backup-npub'))?.includes(npubEncode(getPublicKey(saasSk))), 'a new device downloads the backup with the Acceso login and shows its npub');
+  await device.fill('#import-backup-pass', 'nube-segura-123');
+  await device.getByRole('button', { name: 'Crear persona' }).click();
+  await device.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Restaurada'), undefined, { timeout: 20_000 });
+  assert((await device.getByRole('heading', { name: /^Restaurada · / }).textContent())?.includes(npubEncode(getPublicKey(saasSk)).slice(0, 12)), 'the restored persona has the same npub (decrypted in the browser with the backup password)');
+  await deviceCtx.close();
 
   // --- managed custody: explicit opt-in (FR005-07), signatures authorized by the Acceso token (FR005-04)
   await saas.fill('#persona-label', 'Gestionada');
@@ -491,6 +528,8 @@ try {
   await saas.fill('#migration-pass', 'exportacion-segura-123');
   await saas.getByRole('button', { name: 'Exportar y verificar' }).click();
   await saas.getByText('Tu llave ya vive en este navegador').waitFor({ timeout: 60_000 });
+  // The banner follows the persona reload that the success message can precede.
+  await saas.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Llave local (navegador)'), undefined, { timeout: 10_000 }).catch(() => undefined);
   assert((await saas.textContent('#sending-as'))?.includes('Llave local (navegador)'), 'after verified export the persona signs locally');
   await saas.getByRole('button', { name: 'Borrar la copia gestionada' }).click();
   await saas.locator('#migration-done').waitFor({ timeout: 10_000 });

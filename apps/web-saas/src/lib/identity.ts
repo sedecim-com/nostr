@@ -1,4 +1,5 @@
 import { nip98, type Signer } from '@sedecim/nostr-core';
+import { BackupVaultClient, BackupVaultError, type BackupVaultAuth } from '@sedecim/identity/backup-vault';
 
 /** NIP-98 authenticated JSON request signed by the active persona (identity-service, indexer, blob-store). */
 export async function nip98Request<T = unknown>(signer: Signer, url: string, method = 'GET', body?: unknown): Promise<{ status: number; json: T }> {
@@ -10,7 +11,7 @@ export async function nip98Request<T = unknown>(signer: Signer, url: string, met
 }
 
 /** Creates the persona's account on first use; returns the account id and its registered pubkeys. */
-async function ensureAccount(signer: Signer, base: string, custody: string): Promise<{ accountId: string; pubkeys: string[] }> {
+export async function ensureAccount(signer: Signer, base: string, custody: string): Promise<{ accountId: string; pubkeys: string[] }> {
   let me = await nip98Request<{ account_id: string; personas: Array<{ pubkey: string }> }>(signer, `${base}/v1/accounts/me`);
   if (me.status === 404) {
     const created = await nip98Request(signer, `${base}/v1/accounts`, 'POST', { custody_mode: custody });
@@ -57,3 +58,28 @@ export const LINK_CONSEQUENCES: Record<LinkVisibility, string> = {
   selective: 'Las personas que elijas podrán comprobar que ambas identidades son tuyas. Cualquiera de ellas podría compartirlo: la desanonimización no se puede deshacer.',
   public: 'Cualquiera podrá comprobar que ambas identidades son la misma persona. Esto desanonimiza la persona pseudónima de forma permanente, aunque borres el vínculo después.',
 };
+
+/**
+ * FR027-03: saves the persona's encrypted backup (NIP-49 under the backup password) in the cloud vault.
+ * Creates the persona's identity account on first use; the server only receives the ciphertext.
+ */
+export async function saveCloudBackup(signer: Signer, vault: string, envelope: string, custody: string): Promise<void> {
+  await ensureAccount(signer, vault.replace(/\/$/, ''), custody);
+  await new BackupVaultClient({ baseUrl: vault, auth: { signer } }).upload(envelope);
+}
+
+/**
+ * Downloads the newest web key backup from the cloud vault. In SaaS the Acceso token is enough (the
+ * login must be linked to the account), so a new device can restore; otherwise an open persona of the
+ * same account signs the request.
+ */
+export async function fetchCloudBackup(vault: string, auth: BackupVaultAuth): Promise<string> {
+  const client = new BackupVaultClient({ baseUrl: vault, auth });
+  const list = await client.list().catch((e) => {
+    if (e instanceof BackupVaultError && e.status === 404) throw new Error('No hay copias en la nube para esta cuenta. Con Acceso, la persona debe estar vinculada a tu cuenta de Acceso.');
+    throw e;
+  });
+  const latest = list.find((b) => b.format === 'acceso-nostr-key-backup');
+  if (!latest) throw new Error('No hay copias de llave en la nube para esta cuenta.');
+  return (await client.download(latest.id)).envelope;
+}

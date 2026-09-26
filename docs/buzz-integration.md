@@ -50,7 +50,7 @@ Evidencia: [`docs/interop/buzz-02c6309-report.json`](interop/buzz-02c6309-report
 |---|---|
 | NIP-11 | ✅ `supported_nips` incluye 1, 17, 29, 42, 50 (versión relay 0.2.1) |
 | NIP-42 + NIP-29 desde cliente de terceros (crear grupo, unirse, publicar, leer desde otro cliente) | ✅ |
-| NIP-17 con timestamps NIP-59 estándar (hasta 2 días atrás) | ❌ 0/3 — `invalid: event timestamp too far from server time` (issue #4192) |
+| NIP-17 con timestamps NIP-59 estándar (hasta 2 días atrás) | ❌ 0/3 — `invalid: event timestamp too far from server time` (issue #4192; se re-evalúa en cada sync, ver "Seguimiento de #4192") |
 | NIP-17 con jitter acotado ±5 min | ✅ 3/3 aceptados y recibidos/descifrados por el destinatario |
 | Suscripción kind 1059 sin `#p` propio | ✅ 0 fugas |
 | Blossom `/media` con blob cifrado en cliente | ❌ 415 `disallowed content type` (el media de Buzz solo acepta imágenes/vídeo detectados por magic bytes) |
@@ -64,6 +64,19 @@ Evidencia: [`docs/interop/buzz-02c6309-report.json`](interop/buzz-02c6309-report
 - Adjuntos cifrados en cliente → `services/blob-store` (Blossom agnóstico al contenido); Buzz `/media`
   queda para imágenes en claro ya saneadas (Buzz además rechaza imágenes con metadatos).
 
+**Seguimiento de #4192 (FR017-05).** El adaptador de 300 s es temporal y se retira solo cuando el gate lo
+permite; nadie tiene que acordarse de revisarlo:
+
+| Paso | Dónde | Qué hace |
+|---|---|---|
+| 1. Re-ejecutar el gate | `ci.yml` (cada PR/push) y `buzz-upstream.yml` (cada sync mensual con la imagen candidata) | `tests/interop/buzz.interop.test.ts` prueba siempre las tres estrategias (`nip59-default-2d`, `bounded-5m`, `none`) y guarda el resultado en `interop-report.json` |
+| 2. Decidir | `nip17GateDecision` (`packages/messaging/src/flags.ts`) | Si Buzz acepta los 3 gift wraps con el jitter NIP-59 estándar → `recommendedJitterSeconds = 172800` (jitter estándar); si no, 300 s mientras el acotado pase; si ninguno pasa o no llega nada, NIP-17 queda deshabilitado |
+| 3. Publicar | `scripts/interop-flags.ts` → `infra/web/flags.json` | Los clientes (web y soberano) usan el jitter de los flags por encima del adaptador fijado (`wrapOptionsFromFlags`); `--check` en CI impide que los flags diverjan del gate |
+| 4. Avisar | PR de pin de `buzz-upstream` | `interop-flags.ts --change-from` compara con los flags anteriores y la PR lo dice: "#4192 resuelto upstream: se vuelve al jitter estándar…" (o "Regresión de #4192" si vuelve a fallar). Al fusionarla, retirar también el valor de reserva de `BUZZ_PINNED_ADAPTER.wrap` |
+
+Pruebas: `packages/messaging/test/flags.test.ts` (172800 cuando la estrategia estándar pasa, 300 mientras no,
+coherencia con el informe y los flags versionados, texto de la PR).
+
 ## Hallazgos del sprint S1 (2026-09-26)
 - **MinIO ya no publica imágenes descargables** (Docker Hub y quay.io responden `unauthorized`); el compose upstream de Buzz también depende de ellas. El stack usa **SeaweedFS 4.47** (Apache-2.0, fijado por digest) como S3 compatible.
 - Buzz rechaza las REQ **anónimas** con `NOTICE auth-required`: el indexer se autentica con una identidad de servicio (`INDEXER_NSEC`).
@@ -74,7 +87,8 @@ Evidencia: [`docs/interop/buzz-02c6309-report.json`](interop/buzz-02c6309-report
 ## Hallazgos conocidos
 - Issues upstream #4677 (desktop no muestra ciertos kind 1059) y #4192 (rechazo de gift wraps con
   timestamps aleatorizados). El test `messaging.test.ts` reproduce este último contra un relay que emula
-  la validación de frescura; `WrapOptions.timestampJitterSeconds` es el adaptador explícito.
+  la validación de frescura; `WrapOptions.timestampJitterSeconds` es el adaptador explícito, y el gate lo
+  retira cuando upstream lo corrija (ver "Seguimiento de #4192").
 - Buzz exige que las REQ que pueden devolver kinds 1059/44100/44101 incluyan `#p` = pubkey autenticada.
   El SDK (`dmInboxFilter`) y el indexer (`DEFAULT_MIRROR_KINDS`) respetan esta regla; el mirror nunca pide
   gift wraps ajenos.

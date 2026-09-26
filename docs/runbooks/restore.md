@@ -19,13 +19,25 @@
    evento NIP-01 firmado por línea (orden `created_at`, luego `id`); `sovereign history import --persona
    ID historial.jsonl [--dry-run]` verifica firmas, informa líneas inválidas y republica los válidos.
 
+7. Copia cifrada en la nube (FR027-03, si el despliegue define `backupVault` en `config.json`): en la
+   web, "Guardar copia cifrada en la nube" sube el mismo archivo NIP-49 al identity-service
+   (`POST /v1/backups`, NIP-98 de la persona; se guardan las últimas 5 versiones por cuenta). En un
+   dispositivo nuevo, modo "Importar archivo de backup" → "Restaurar desde la nube": en SaaS basta el
+   login de Acceso (debe estar vinculado a la cuenta de la persona) y en self-hosted firma una persona de
+   la misma cuenta; después se descifra en el navegador con la contraseña del backup. El servidor
+   rechaza lo que no sea un sobre cifrado conocido (`acceso-nostr-key-backup` v1 o
+   `sedecim-identity-backup` v2 con lista cerrada de campos, sin `nsec1` ni hex de 32 bytes) y nunca
+   recibe la contraseña. Límites: `BACKUP_VAULT_MAX_BYTES` (512 KiB) y `BACKUP_VAULT_KEEP` (5).
+   API: `GET /v1/backups` (metadatos), `GET /v1/backups/:id|latest` (sobre + sha256),
+   `DELETE /v1/backups[/:id]`; también con `Authorization: Bearer <token de Acceso>` en SaaS.
+
 ## Stack self-hosted (operador)
 Objetivos de RPO/RTO por tier: [`docs/rpo-rto.md`](../rpo-rto.md) (propuesta pendiente de aprobación).
 
 | Dato | Dónde | Cómo respaldar (`scripts/backup.sh`) |
 |---|---|---|
 | Eventos del relay | Postgres `buzz` | `pg_dump -Fc` → `postgres-buzz.dump` (+ WAL si se requiere RPO bajo) |
-| Mirror / identidad | Postgres `sedecim` | `pg_dump -Fc` → `postgres-platform.dump` (el mirror es reconstruible desde relays) |
+| Mirror / identidad | Postgres `sedecim` | `pg_dump -Fc` → `postgres-platform.dump` (el mirror es reconstruible desde relays; incluye `backup_vault`, solo sobres cifrados) |
 | Media Blossom (Buzz) | SeaweedFS, bucket `buzz-media` (volumen `seaweedfs-data`) | Archivo del volumen → `seaweedfs-data.tgz` |
 | Adjuntos cifrados | blob-store (volumen `blob-data`) | Archivo del volumen → `blob-data.tgz`; son blobs cifrados, direccionados por hash |
 | Repos git de Buzz | volumen `relay-git` | Archivo del volumen → `relay-git.tgz` |
