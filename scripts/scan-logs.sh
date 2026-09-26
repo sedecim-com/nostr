@@ -39,7 +39,7 @@ if [ -f "$ENV_FILE" ]; then
   names=$(sed -n 's/^\([A-Z0-9_]*\)=.*/\1/p' "$ENV_FILE" | grep -E '(PASSWORD|SECRET|PRIVATE|NSEC|KEK|TOKENS?|_KEY)$' | grep -v 'PUBKEY' || true)
   for name in $names; do
     value=$(sed -n "s/^$name=//p" "$ENV_FILE" | tail -n 1)
-    [ -n "$value" ] && [ "$value" != CHANGE_ME ] || continue
+    if [ -z "$value" ] || [ "$value" = CHANGE_ME ]; then continue; fi
     # token lists (token:principal,...) are checked token by token
     for item in $(printf '%s' "$value" | tr ',' ' '); do
       token=${item%%:*}
