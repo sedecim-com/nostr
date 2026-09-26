@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
-import { xchacha20poly1305 } from '@noble/ciphers/chacha';
+import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { bytesToHex, concatBytes, hexToBytes, randomBytes, utf8ToBytes } from '@sedecim/nostr-core';
 
 /**

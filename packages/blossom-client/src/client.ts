@@ -1,4 +1,4 @@
-import { gcm } from '@noble/ciphers/aes';
+import { gcm } from '@noble/ciphers/aes.js';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes, randomBytes, type Signer } from '@sedecim/nostr-core';
 import { base64 } from '@scure/base';

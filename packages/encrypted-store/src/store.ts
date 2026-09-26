@@ -1,4 +1,4 @@
-import { xchacha20poly1305 } from '@noble/ciphers/chacha';
+import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { hkdf } from '@noble/hashes/hkdf';
 import { hmac } from '@noble/hashes/hmac';
 import { scryptAsync } from '@noble/hashes/scrypt';

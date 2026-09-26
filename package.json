@@ -47,7 +47,7 @@
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vite": "6.4.3",
-    "vitest": "3.2.7"
+    "vitest": "5.0.1"
   },
   "overrides": {
     "ts-mls": "2.0.0-rc.11"

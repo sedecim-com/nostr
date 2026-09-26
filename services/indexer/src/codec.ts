@@ -1,4 +1,4 @@
-import { xchacha20poly1305 } from '@noble/ciphers/chacha';
+import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { concatBytes, randomBytes, utf8ToBytes, bytesToUtf8, type NostrEvent } from '@sedecim/nostr-core';
 
 /**
