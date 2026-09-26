@@ -26,6 +26,8 @@ export interface RelayConnectionOptions {
   autoReconnect?: boolean;
   reconnectBaseMs?: number;
   reconnectMaxMs?: number;
+  /** Called when the socket opens again after a drop or a failed attempt (not on the first connect). */
+  onReconnect?: (url: string) => void;
 }
 
 interface PendingOk {
@@ -64,14 +66,17 @@ export class RelayConnection {
   private consecutiveFailures = 0;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private closedByUser = false;
+  /** Set when a connection dropped or an attempt failed; the next successful open is a reconnect. */
+  private interrupted = false;
   private challengeWaiters: Array<() => void> = [];
-  private readonly opts: Required<Omit<RelayConnectionOptions, 'signer' | 'authRelayUrl'>> & Pick<RelayConnectionOptions, 'signer' | 'authRelayUrl'>;
+  private readonly opts: Required<Omit<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect'>> & Pick<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect'>;
 
   constructor(readonly url: string, opts: RelayConnectionOptions = {}) {
     this.opts = {
       webSocketFactory: opts.webSocketFactory ?? defaultFactory,
       signer: opts.signer,
       authRelayUrl: opts.authRelayUrl,
+      onReconnect: opts.onReconnect,
       authMode: opts.authMode ?? 'on-demand',
       connectTimeoutMs: opts.connectTimeoutMs ?? 10_000,
       publishTimeoutMs: opts.publishTimeoutMs ?? 10_000,
@@ -113,6 +118,7 @@ export class RelayConnection {
       } catch (err) {
         this.status = err instanceof NetworkBlockedError ? 'blocked' : 'disconnected';
         this.lastError = (err as Error).message;
+        this.interrupted = true;
         throw err;
       }
       this.ws = ws;
@@ -131,6 +137,10 @@ export class RelayConnection {
           this.lastConnectedAt = Date.now();
           this.consecutiveFailures = 0;
           resolve();
+          if (this.interrupted) {
+            this.interrupted = false;
+            queueMicrotask(() => this.opts.onReconnect?.(this.url));
+          }
         };
         ws.onerror = (ev) => {
           this.lastError = String((ev as { message?: string })?.message ?? 'websocket error');
@@ -155,6 +165,7 @@ export class RelayConnection {
 
   private onSocketClosed() {
     this.ws = undefined;
+    if (!this.closedByUser) this.interrupted = true;
     this.challenge = undefined;
     this.authed.clear();
     if (this.status !== 'blocked') this.status = 'disconnected';
@@ -186,6 +197,7 @@ export class RelayConnection {
 
   close() {
     this.closedByUser = true;
+    this.interrupted = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.subs.clear();

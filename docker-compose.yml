@@ -153,6 +153,11 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_DB:-sedecim}
       PUBLIC_BASE_URL: ${IDENTITY_PUBLIC_URL:-http://localhost:8082}
+      CORS_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
+      # SaaS mode (ADR 0008): the Acceso user pool whose logins can be attached to accounts.
+      COGNITO_REGION: ${COGNITO_REGION:-}
+      COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID:-}
+      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:-}
       PORT: "8082"
     ports: ["${IDENTITY_PORT:-8082}:8082"]
     depends_on: [postgres]
@@ -198,6 +203,8 @@ services:
     volumes:
       # flags generated from the interop gate: npx tsx scripts/interop-flags.ts interop-report.json
       - ./infra/web/flags.json:/usr/share/nginx/html/flags.json:ro
+      # deployment settings (mode self-hosted | saas, relays, Cognito): infra/web/config.saas.example.json
+      - ${WEB_CONFIG:-./infra/web/config.json}:/usr/share/nginx/html/config.json:ro
     restart: unless-stopped
     read_only: true
     tmpfs: [/var/cache/nginx, /var/run, /tmp]

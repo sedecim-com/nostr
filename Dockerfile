@@ -11,12 +11,11 @@ RUN npm ci --ignore-scripts --no-audit --no-fund
 FROM deps AS web-build
 COPY infra/web/flags.json infra/web/flags.json
 COPY infra/buzz/PIN infra/buzz/PIN
-RUN node apps/web-saas/build.mjs
+RUN npm run build:web
 
 FROM nginx:1.27-alpine AS web
 COPY infra/web/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=web-build /app/apps/web-saas/public /usr/share/nginx/html
-RUN rm -f /usr/share/nginx/html/app.js.map
+COPY --from=web-build /app/apps/web-saas/dist /usr/share/nginx/html
 
 FROM node:22-alpine AS service
 ARG SERVICE

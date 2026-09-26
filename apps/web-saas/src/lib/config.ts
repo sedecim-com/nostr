@@ -1,0 +1,47 @@
+import type { DeploymentFlags } from '@sedecim/messaging';
+
+export interface CognitoSettings {
+  region: string;
+  userPoolId: string;
+  userPoolClientId: string;
+  /** Same as Acceso: share the Amplify session through cookies on this domain (e.g. "dev.acce.so"). */
+  cookieDomain?: string;
+  authFlowType?: 'USER_SRP_AUTH' | 'USER_PASSWORD_AUTH';
+}
+
+/** Deployment settings served next to the app as config.json (compose mounts infra/web/config.json). */
+export interface DeploymentConfig {
+  /** 'saas': an Acceso (Cognito) login is required before any identity is opened (ADR 0008). */
+  mode: 'self-hosted' | 'saas';
+  relays: string[];
+  /** Blossom server of the Buzz relay: plain, sanitized channel images (FR018-04). */
+  buzzMedia?: string;
+  /** Client-encrypted blobs (DM attachments). */
+  blobStore?: string;
+  identityService?: string;
+  cognito?: CognitoSettings;
+}
+
+export const DEFAULT_CONFIG: DeploymentConfig = { mode: 'self-hosted', relays: ['ws://localhost:3000'] };
+
+export async function loadConfig(): Promise<DeploymentConfig> {
+  let cfg: DeploymentConfig;
+  try {
+    const res = await fetch('./config.json', { cache: 'no-store' });
+    cfg = res.ok ? { ...DEFAULT_CONFIG, ...((await res.json()) as Partial<DeploymentConfig>) } : DEFAULT_CONFIG;
+  } catch {
+    cfg = DEFAULT_CONFIG;
+  }
+  // Fail closed: a SaaS deployment without Cognito settings must not silently run without login.
+  if (cfg.mode === 'saas' && !cfg.cognito) throw new Error('config.json: mode "saas" requiere la configuración de cognito');
+  return cfg;
+}
+
+export async function loadFlags(): Promise<DeploymentFlags | undefined> {
+  try {
+    const res = await fetch('./flags.json', { cache: 'no-store' });
+    return res.ok ? ((await res.json()) as DeploymentFlags) : undefined;
+  } catch {
+    return undefined;
+  }
+}

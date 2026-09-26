@@ -3,6 +3,8 @@ import type { AddressInfo } from 'node:net';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, getTagValue, getTagValues, verifyEvent, type NostrEvent } from '@sedecim/nostr-core';
 
+const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-sha-256', 'access-control-allow-methods': 'GET, HEAD, PUT' };
+
 /** Minimal in-memory Blossom server (BUD-01 GET/HEAD, BUD-02 PUT /upload) for tests. */
 export class TestBlossomServer {
   readonly blobs = new Map<string, { data: Uint8Array; type: string; uploader: string }>();
@@ -12,12 +14,14 @@ export class TestBlossomServer {
   corruptDownloads = false;
   /** Require a BUD-01 `get` authorization for downloads (Buzz /media behaviour). */
   requireGetAuth = false;
+  /** Answer CORS like Buzz /media and the blob-store do, for browser tests. */
+  cors = false;
 
   async start(): Promise<string> {
     this.server = createServer((req, res) => {
       void this.handle(req).then(
         ({ status, body, headers }) => {
-          res.writeHead(status, headers);
+          res.writeHead(status, this.cors ? { ...CORS, ...headers } : headers);
           res.end(body);
         },
         (err: Error) => {
@@ -43,6 +47,7 @@ export class TestBlossomServer {
 
   private async handle(req: IncomingMessage): Promise<{ status: number; body?: string | Uint8Array; headers?: Record<string, string> }> {
     const url = new URL(req.url ?? '/', this.url);
+    if (req.method === 'OPTIONS' && this.cors) return { status: 204 };
     if (req.method === 'PUT' && url.pathname === '/upload') {
       const body = await this.readBody(req);
       const hash = bytesToHex(sha256(body));

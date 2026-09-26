@@ -21,9 +21,10 @@ self-hosted y como SaaS.
    producto criptográfico. El historial de git solo contiene commits del titular (sedecim) y
    generados con Claude Code para él, sin aportaciones de terceros, así que el relicenciamiento desde MIT
    no requiere cesiones adicionales (comprobado el 2026-09-26).
-2. **Nombre:** mantener el identificador técnico `sedecim-nostr` y el scope npm `@sedecim` hasta
-   elegir la marca comercial. El nombre de marca queda **fuera de este ADR**: requiere una búsqueda
-   de marcas y una decisión de producto.
+2. **Nombre: "Acceso Nostr"** (decidido el 2026-09-26), en la familia de productos Acceso de Sedecim.
+   Es la marca visible: la interfaz, el README, `NOTICE` y la documentación. Los identificadores
+   técnicos no cambian: el repositorio `sedecim-com/nostr` y el scope npm `@sedecim/*`, para no romper
+   imports. Queda pendiente, como tarea legal, la búsqueda de registro de marca.
 
 ## Consecuencias
 - `LICENSE` pasa a Apache-2.0, el campo `license` de todos los `package.json` a `Apache-2.0` y se añade

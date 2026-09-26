@@ -8,6 +8,8 @@ export type TelemetryOption = 'standard' | 'minimal' | 'none';
 export type NotificationsOption = 'push' | 'privacy-push' | 'none';
 export type CloudBackupOption = 'off' | 'ciphertext-user-key' | 'operator-managed';
 export type CrashReportsOption = 'off' | 'manual-export' | 'opt-in';
+/** How the local vault is unlocked (ADR 0007). */
+export type LocalProtectionOption = 'passphrase' | 'device';
 export type Platform = 'web' | 'desktop' | 'mobile' | 'cli';
 
 /** The eight controls of the sovereignty/privacy panel (spec §9) plus Tor-mode specifics (§14). */
@@ -22,6 +24,8 @@ export interface SovereigntyConfig {
   notifications: NotificationsOption;
   cloudBackup: CloudBackupOption;
   crashReports: CrashReportsOption;
+  /** 'device': unlock without a passphrase in this browser/device; only for the convenience profile. */
+  localProtection: LocalProtectionOption;
   remotePreviews: boolean;
   /** Gift-wrapped "delivered" receipts (ADR 0005). */
   deliveryReceipts: boolean;

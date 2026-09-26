@@ -97,7 +97,7 @@
    "deps": [],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/adr/0001-nombre-y-licencia.md (Aceptado: Apache-2.0); LICENSE, NOTICE, package.json"
+   "evidence": "docs/adr/0001-nombre-y-licencia.md (Aceptado: Apache-2.0, marca \"Acceso Nostr\"); LICENSE, NOTICE, package.json"
   },
   {
    "id": "DEC-02",
@@ -154,8 +154,8 @@
    "sp": 2,
    "deps": [],
    "sprint": "S2",
-   "status": "Parcial",
-   "evidence": "packages/encrypted-store (CLI/web localStorage)"
+   "status": "Hecho",
+   "evidence": "docs/adr/0007-almacenamiento-local-cifrado.md (Aceptado); packages/encrypted-store Vault + IndexedDBBackend + WebCryptoKeyring; profiles localProtection"
   },
   {
    "id": "DEC-06",
@@ -307,7 +307,7 @@
    ],
    "sprint": "S2",
    "status": "Parcial",
-   "evidence": ".github/workflows/ci.yml: workflow_dispatch con input buzz_image (prueba manual de un candidato)"
+   "evidence": ".github/workflows/buzz-upstream.yml + scripts/buzz-upstream.sh (detecta digest, gate reutilizando ci.yml, PR del pin); sin ejecutar aún en GitHub"
   },
   {
    "id": "BUZZ-06",
@@ -369,8 +369,8 @@
     "FR003-01"
    ],
    "sprint": "S2",
-   "status": "Parcial",
-   "evidence": "scripts/init-env.sh (secretos aleatorios)"
+   "status": "Hecho",
+   "evidence": "scripts/init-env.sh (idempotente; llaves de relay e indexer con keygen service-key, owner con backup NIP-49); tests/scripts/init-env.test.ts"
   },
   {
    "id": "OPS-04",
@@ -487,8 +487,8 @@
     "PANEL-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "apps/web-saas/src/views/PanelView.tsx + vistas (quorum, receipts, previews, adjuntos, bloqueo Tor-only); tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "PANEL-03",
@@ -504,8 +504,8 @@
     "FR006-02"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "config por persona cifrada en el vault (PersonaBook); tests/browser/web-saas.e2e.ts (persiste tras bloquear y desbloquear)"
   },
   {
    "id": "PANEL-04",
@@ -582,8 +582,8 @@
     "DEC-05"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "packages/encrypted-store/src/browser.ts IndexedDBBackend; tests/browser/web-saas.e2e.ts en Chromium"
   },
   {
    "id": "FR001-05",
@@ -598,8 +598,8 @@
     "FR001-03"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "tests/browser/web-saas.e2e.ts: ninguna petición ni frame WebSocket contiene la nsec; IndexedDB solo con registros sellados"
   },
   {
    "id": "FR002-01",
@@ -983,8 +983,8 @@
     "FR006-01"
    ],
    "sprint": "S2",
-   "status": "Parcial",
-   "evidence": "apps/web-saas (una identidad a la vez)"
+   "status": "Hecho",
+   "evidence": "apps/web-saas selector de persona + banner \"Enviando como…\"; tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR006-03",
@@ -1254,8 +1254,8 @@
     "FR009-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "DeliveryEngine.applyReceipt; web aplica receipts entrantes; packages/delivery-engine/test, tests/browser/web-saas.e2e.ts (RECIPIENT_ACKED)"
   },
   {
    "id": "FR010-01",
@@ -1286,8 +1286,8 @@
     "FR010-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "packages/messaging/src/dm-relays.ts resolveDmRelays + DirectMessenger.send/deliver; packages/messaging/test/dm-routing.test.ts; tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR011-01",
@@ -1318,8 +1318,8 @@
     "FR011-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "RelayPool.onReconnect + DeliveryEngine.resume idempotente; web (online + reconexión) y CLI; packages/relay-pool/test"
   },
   {
    "id": "FR011-03",
@@ -1458,8 +1458,8 @@
     "FR014-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "services/indexer GET /v1/unread, PUT /v1/read-cursor, GET /v1/search (solo contenido de canal permitido); migración 002; services/indexer/test"
   },
   {
    "id": "FR015-01",
@@ -1488,8 +1488,8 @@
     "FR015-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "apps/web-saas/src/views/ChannelsView.tsx (39000, 9021, 9007); tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR015-03",
@@ -1505,8 +1505,8 @@
     "OPS-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "tests/browser/web-buzz.e2e.ts (crear, unirse, enviar, leer contra Buzz real; job stack de CI con la web del compose)"
   },
   {
    "id": "FR016-01",
@@ -1581,8 +1581,8 @@
     "FR010-02"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "publishDmRelayList (kind 10050) al crear persona y botón en Personas; tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR017-05",
@@ -1660,8 +1660,8 @@
     "FR019-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "canal: imagen saneada en Buzz /media con imeta y descarga verificada; DM: kind 15 cifrado en blob-store; tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR018-05",
@@ -2445,8 +2445,8 @@
     "FR015-01"
    ],
    "sprint": "S2",
-   "status": "Parcial",
-   "evidence": "apps/web-saas (teclado, labels, contraste)"
+   "status": "Hecho",
+   "evidence": "axe-core en tests/browser/web-saas.e2e.ts: cero violaciones serias/críticas en todas las vistas"
   },
   {
    "id": "NFR009-02",
@@ -2607,6 +2607,22 @@
    "sp": 1,
    "deps": [
     "REL-01"
+   ],
+   "sprint": "S8",
+   "status": "Pendiente",
+   "evidence": ""
+  },
+  {
+   "id": "DEC-11",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-1",
+   "title": "Búsqueda y registro de la marca \"Acceso Nostr\"",
+   "done": "Búsqueda de anterioridades y solicitud de registro presentada, o marca alternativa decidida",
+   "type": "Decisión",
+   "priority": "P2",
+   "sp": 1,
+   "deps": [
+    "DEC-01"
    ],
    "sprint": "S8",
    "status": "Pendiente",

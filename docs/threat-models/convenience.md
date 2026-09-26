@@ -34,7 +34,8 @@ cuenta↔npub en el identity-service, backup cifrado.
 | Sin forward secrecy en DMs (NIP-44) | Medio | Si se compromete la nsec, se expone el historial |
 | Correlación cuenta↔npub en el identity-service | Medio | Solo si el usuario registra la persona |
 | Contraseña local débil | Medio | scrypt `logN=15` (store) y `logN=16` (NIP-49); falta medidor de fortaleza |
-| XSS en la web | Medio | CSP estricta en `index.html`; pentest pendiente (SEC-02) |
+| XSS en la web | Medio | CSP estricta con nonce por petición (sin `unsafe-inline`); la sesión de Acceso no da acceso a las llaves; pentest pendiente (SEC-02) |
+| Acceso físico al navegador con llave del dispositivo | Medio | Solo si el usuario la elige (ADR 0007); disclosure y aviso `DEVICE_KEY`; se puede volver a contraseña en cualquier momento |
 
 ## Supuestos
 El navegador y el sistema operativo no están comprometidos. TLS está bien configurado (OPS-02).

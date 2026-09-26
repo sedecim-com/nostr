@@ -98,6 +98,8 @@ export class SovereignClient {
     });
     const store = await this.openStore(join(this.opts.dataDir, 'personas', personaId));
     const engine = new DeliveryEngine({ store: store.collection<OutboxRecord>('outbox'), publisher: pool, signer, retry: this.opts.retry });
+    // FR-011: when a relay comes back (after a drop or a failed attempt) the whole outbox is re-driven.
+    pool.onReconnect(() => void engine.resume().catch(() => undefined));
     const s: Session = { persona, signer, pool, engine, guard, store };
     this.sessions.set(personaId, s);
     return s;

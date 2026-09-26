@@ -144,4 +144,43 @@ describe('RelayPool', () => {
     await new Promise((res) => setTimeout(res, 200));
     expect(seen).toContain('after reconnect');
   });
+
+  it('emits onReconnect when a dropped relay comes back, not on the first connect (FR-011)', async () => {
+    const r = await startRelay();
+    const port = r.port;
+    pool = new RelayPool({ webSocketFactory: factory, reconnectBaseMs: 20, reconnectMaxMs: 50 });
+    const reconnects: string[] = [];
+    const off = pool.onReconnect((url) => reconnects.push(url));
+    await new Promise<void>((resolve) => pool.subscribe([r.url], [{ kinds: [1] }], { onevent: () => undefined, oneose: resolve }));
+    expect(reconnects).toEqual([]);
+    await r.stop();
+    await new Promise((res) => setTimeout(res, 150)); // a few failed attempts while it is down
+    const back = new TestRelay({ port });
+    await back.start();
+    relays.push(back);
+    const end = Date.now() + 3000;
+    while (reconnects.length === 0 && Date.now() < end) await new Promise((res) => setTimeout(res, 20));
+    expect(reconnects).toEqual([r.url]);
+    off();
+    back.disconnectAll();
+    await new Promise((res) => setTimeout(res, 300));
+    expect(reconnects).toHaveLength(1);
+  });
+
+  it('treats the first success after a failed attempt as a reconnect (offline start)', async () => {
+    const r = await startRelay();
+    const port = r.port;
+    await r.stop();
+    pool = new RelayPool({ webSocketFactory: factory, autoReconnect: false, connectTimeoutMs: 500 });
+    const reconnects: string[] = [];
+    pool.onReconnect((url) => reconnects.push(url));
+    const evt = await signer.signEvent({ kind: 1, content: 'offline' });
+    expect((await pool.publishTo(evt, r.url)).ok).toBe(false);
+    const back = new TestRelay({ port });
+    await back.start();
+    relays.push(back);
+    expect((await pool.publishTo(evt, r.url)).ok).toBe(true);
+    await new Promise((res) => setTimeout(res, 0));
+    expect(reconnects).toEqual([r.url]);
+  });
 });

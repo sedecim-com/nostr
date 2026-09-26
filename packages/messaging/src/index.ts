@@ -6,3 +6,4 @@ export * from './security';
 export * from './messenger';
 export * from './adapters';
 export * from './flags';
+export * from './dm-relays';

@@ -1,7 +1,8 @@
 /**
  * Application-level receipts (spec §11: RECIPIENT_ACKED / READ), format per ADR 0005 (proposed):
  * gift-wrapped rumors so relays cannot tell a receipt from a message. Sending is governed by
- * profiles.receiptPolicy(): delivered receipts per profile, read receipts always opt-in.
+ * profiles.receiptPolicy(): delivered receipts per profile, read receipts always opt-in. Incoming receipts
+ * drive the outbox: `engine.applyReceipt(parseReceipt(await unwrap(signer, wrap)))` (FR-009).
  */
 import { createRumor, getTagValue, type Signer } from '@sedecim/nostr-core';
 import { wrapRumor, type Unwrapped, type WrapOptions } from './nip59';

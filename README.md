@@ -1,6 +1,6 @@
-# Plataforma Nostr Soberana / SaaS
+# Acceso Nostr
 
-Implementación v0.1 de la especificación *"Plataforma Nostr Soberana / SaaS"* (v0.1, 25/09/2026):
+**Acceso Nostr** (familia Acceso de Sedecim) implementa la especificación *"Plataforma Nostr Soberana / SaaS"* (v0.1, 25/09/2026):
 un mismo protocolo Nostr con grados configurables de soberanía, anonimato, resiliencia, custodia y
 control institucional. **La centralización es una capa voluntaria de conveniencia, no la base.**
 
@@ -20,7 +20,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Sovereign Tor Mode (fail closed, DNS remoto, circuitos por persona) | `packages/tor-network`, `apps/sovereign-client` | ✅ |
 | Panel de soberanía con consecuencias verificables | `packages/profiles`, `apps/web-saas` | ✅ |
 | Generador de llaves offline standalone (bundle reproducible + checksum) | `apps/key-generator` | ✅ (QR/impresión pendiente) |
-| Web SaaS como cliente Nostr de primera clase | `apps/web-saas` | ✅ |
+| Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
 | Managed signer + vault (envelope local / AWS Secrets Manager) | `services/managed-signer` | ✅ (enclave Nitro pendiente) |
@@ -39,18 +39,35 @@ Arquitectura: [docs/architecture.md](docs/architecture.md) · Threat model: [doc
 npm install
 npm run check                 # typecheck + 100+ tests (unitarios y E2E en proceso)
 npm run dev:relay             # relay de desarrollo en memoria: ws://localhost:7777
-npm run build:web && python3 -m http.server -d apps/web-saas/public 8080
+npm run dev:web                # web en http://localhost:5173 (Vite); npm run build:web → apps/web-saas/dist
 ```
 
 ### Self-hosted soberano (spec §4.1)
 ```bash
 git clone <repo> && cd nostr
-sh scripts/init-env.sh        # genera .env con secretos aleatorios (cp .env.example .env)
+sh scripts/init-env.sh        # genera o completa .env sin sobrescribir valores (tras `npm ci`, llaves del keygen offline)
 docker compose up -d          # relay Buzz, postgres, redis, SeaweedFS (S3), indexer, identity, policy, blob-store, secure-relay, web
 docker compose --profile tor up -d       # + Tor SOCKS y relay .onion
 docker compose --profile managed up -d   # + managed signer (CUSTODIAL, opt-in)
 ```
 Web: http://localhost:8080 · Relay: ws://localhost:3000 · Indexer: http://localhost:8081
+
+`scripts/init-env.sh` rellena solo las claves vacías o `CHANGE_ME` y nunca sobrescribe un valor, así que se puede
+volver a ejecutar. Las llaves Nostr las genera el generador offline: la llave del relay y la identidad del mirror
+van en hexadecimal al `.env`. La del owner del relay solo deja `RELAY_OWNER_PUBKEY` en el `.env`: la secreta se
+guarda cifrada (NIP-49) en `.data/relay-owner.ncryptsec.json`, con una contraseña que se pide por terminal
+(`OWNER_PASSWORD_FILE` para ejecuciones no interactivas). Ese backup se mueve a un lugar offline. Sin `npm ci`,
+las llaves de servicio se generan con bytes aleatorios y el owner se omite.
+
+### Web: self-hosted o SaaS
+La web lee `config.json` (compose monta `infra/web/config.json`; otro archivo con `WEB_CONFIG=...`):
+- `"mode": "self-hosted"`: sin login externo; la identidad es solo tu llave Nostr.
+- `"mode": "saas"`: exige entrar con la cuenta de **Acceso** (Cognito) antes de abrir identidades. Ver
+  `infra/web/config.saas.example.json` y [ADR 0008](docs/adr/0008-login-acceso-en-saas.md). El
+  identity-service verifica los tokens con `COGNITO_REGION`, `COGNITO_USER_POOL_ID` y `COGNITO_CLIENT_ID`.
+
+Las llaves viven en un vault de IndexedDB cifrado con tu contraseña. Solo el perfil convenience puede
+usar una llave del dispositivo sin contraseña ([ADR 0007](docs/adr/0007-almacenamiento-local-cifrado.md)).
 
 ### Llave offline
 ```bash
@@ -73,7 +90,8 @@ npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 |---|---|
 | `npm test` | Unitarios + E2E contra relay/Blossom/SOCKS en memoria (NIP-42, quorum, offline, Tor fail-closed, NIP-46, interop con nostr-tools) |
 | `npm run test:pg` | Repositorios Postgres del indexer e identity-service (`TEST_DATABASE_URL`) |
-| `npm run test:browser` | Web SaaS en Chromium (Playwright): lectura/envío interoperable, flag NIP-17, panel |
+| `npm run test:browser` | Web en Chromium (Playwright): personas, canales, DMs con ruteo 10050, adjuntos, receipts, panel aplicado y persistido, vault, nsec que no sale del navegador, axe-core, modo SaaS con Acceso |
+| `BUZZ_RELAY_URL=… npx tsx tests/browser/web-buzz.e2e.ts` | Web contra Buzz real: crear canal, unirse, enviar y leer (FR015-03; job `stack` de CI) |
 | `npm run test:interop` | Gate contra Buzz real (`BUZZ_RELAY_URL`), genera `interop-report.json` |
 
 ## Estructura

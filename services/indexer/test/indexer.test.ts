@@ -113,6 +113,58 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
         await api.close();
       }
     });
+
+    it('derived views: unread counts per reader and search over allowed plaintext only (FR014-03)', async () => {
+      const channel = `c-${Math.random().toString(36).slice(2)}`;
+      const other = `o-${Math.random().toString(36).slice(2)}`;
+      const aliceSk = generateSecretKey();
+      const bobSk = generateSecretKey();
+      const t = Math.floor(Date.now() / 1000);
+      const sign = (sk: Uint8Array, kind: number, content: string, created_at: number, tags: string[][] = [['h', channel]]) =>
+        finalizeEvent(toUnsigned({ kind, content, tags, created_at }, getPublicKey(sk)), sk);
+      const msgs = [sign(aliceSk, 9, 'Una AGUJA en el pajar', t - 30), sign(aliceSk, 11, 'hilo sobre agujas', t - 20), sign(aliceSk, 9, 'tercero', t - 10)];
+      const deleted = sign(aliceSk, 9, 'aguja borrada', t - 9);
+      for (const e of [...msgs, deleted, sign(bobSk, 9, 'mi propia aguja', t - 5), sign(aliceSk, 7, '+', t - 4), sign(aliceSk, 1, 'nota pública con aguja', t - 3, []), sign(aliceSk, 9, 'aguja en otro canal', t - 2, [['h', other]])]) {
+        await indexer.ingest(e, relay.url);
+      }
+      await indexer.ingest(sign(aliceSk, 5, '', t - 1, [['h', channel], ['e', deleted.id]]), relay.url);
+      const dm = await createDirectMessage(new LocalSigner(aliceSk), { recipients: [getPublicKey(bobSk)], content: 'aguja cifrada' });
+      const wrap = dm.wraps[0]!.event;
+      await indexer.ingest(wrap, relay.url);
+
+      const api = createIndexerApi(repo, { name: 'indexer-test' });
+      const base = await api.listen();
+      try {
+        expect((await fetch(`${base}/v1/unread?h=${channel}`)).status).toBe(401);
+        const unread = await nip98Fetch(bobSk, `${base}/v1/unread?h=${channel},${other}`);
+        expect(unread.status).toBe(200);
+        // bob's own message, the reaction and the deleted message do not count
+        expect(unread.json).toEqual({ unread: { [channel]: 3, [other]: 1 }, cursors: { [channel]: 0, [other]: 0 } });
+        const put = await nip98Fetch(bobSk, `${base}/v1/read-cursor`, 'PUT', { h: channel, until: t - 20 });
+        expect(put).toMatchObject({ status: 200, json: { h: channel, until: t - 20 } });
+        // cursors never move backwards
+        expect((await nip98Fetch(bobSk, `${base}/v1/read-cursor`, 'PUT', { h: channel, until: t - 100 })).json.until).toBe(t - 20);
+        expect((await nip98Fetch(bobSk, `${base}/v1/unread?h=${channel}`)).json.unread).toEqual({ [channel]: 1 });
+        // cursors are per reader
+        expect((await nip98Fetch(aliceSk, `${base}/v1/unread?h=${channel}`)).json.unread).toEqual({ [channel]: 1 });
+        expect((await nip98Fetch(bobSk, `${base}/v1/read-cursor`, 'PUT', { h: channel, until: 'ayer' })).status).toBe(400);
+
+        const search = await (await fetch(`${base}/v1/search?q=aguja&h=${channel}`)).json();
+        expect(search.events.map((e: NostrEvent) => e.content)).toEqual(['mi propia aguja', 'hilo sobre agujas', 'Una AGUJA en el pajar']);
+        const everywhere = await (await fetch(`${base}/v1/search?q=aguja`)).json();
+        expect(everywhere.events.map((e: NostrEvent) => e.content)).toContain('aguja en otro canal');
+        expect(everywhere.events.map((e: NostrEvent) => e.content)).not.toContain('nota pública con aguja');
+        // never over gift wraps, even when the query matches their (ciphertext) content
+        const cipher = await (await fetch(`${base}/v1/search?q=${encodeURIComponent(wrap.content.slice(10, 40))}`)).json();
+        expect(cipher.events).toEqual([]);
+        expect((await repo.search({ text: 'aguja', kinds: [1059, 1] })).length).toBe(0);
+        expect((await fetch(`${base}/v1/search?q=a`)).status).toBe(400);
+        // LIKE wildcards are literal
+        expect((await (await fetch(`${base}/v1/search?q=${encodeURIComponent('%_')}&h=${channel}`)).json()).events).toEqual([]);
+      } finally {
+        await api.close();
+      }
+    });
   });
 }
 
@@ -123,9 +175,16 @@ const PG = process.env.TEST_DATABASE_URL;
 if (PG) {
   suite('Indexer (postgres repository)', async () => {
     const pool = createPgPool(PG);
-    await resetScope(pool, 'indexer', ['event_sources', 'events']);
+    await resetScope(pool, 'indexer', ['read_cursors', 'event_sources', 'events']);
     await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
     return new PgEventRepository(pool, sealedCodec(new Uint8Array(32).fill(4)));
+  });
+  // Plain rows are searched in SQL (ILIKE) instead of being decrypted and scanned.
+  suite('Indexer (postgres repository, plain)', async () => {
+    const pool = createPgPool(PG);
+    await resetScope(pool, 'indexer', ['read_cursors', 'event_sources', 'events']);
+    await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
+    return new PgEventRepository(pool);
   });
 } else {
   describe.skip('Indexer (postgres repository) — set TEST_DATABASE_URL', () => {

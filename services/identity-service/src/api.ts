@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { getTagValue, nip98, verifyEvent } from '@sedecim/nostr-core';
 import { Service, HttpError, isHex64, requireFields, type ServiceOptions, type Req } from '@sedecim/service-kit';
-import type { IdentityRepository, PersonaRow, Visibility } from './repository';
+import { ExternalLoginTakenError, type IdentityRepository, type PersonaRow, type Visibility } from './repository';
+import { CognitoTokenError, type CognitoVerifier } from './cognito';
 
 const CUSTODY = ['local', 'offline', 'external', 'encrypted-backup', 'managed', 'managed-enclave'];
 const VIS: Visibility[] = ['private', 'selective', 'public'];
@@ -12,7 +13,7 @@ const id = () => randomBytes(12).toString('hex');
  * Identity service (spec §5.1): relates an application account with the npubs the user CHOOSES to
  * register. It never knows an nsec. Personas the user keeps unlinked are simply never registered.
  */
-export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions) {
+export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions & { cognito?: CognitoVerifier }) {
   const svc = new Service(opts);
   const base = () => opts.publicBaseUrl ?? svc.baseUrl;
 
@@ -147,6 +148,45 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
       });
       await repo.audit(current.accountId, req.pubkey!, 'key_metadata.updated', { persona: persona.personaId, key_id: body.key_id });
       return { ok: true, key_metadata: await repo.keyMetadataOf(persona.personaId) };
+    },
+    'nip98',
+  );
+
+  // Acceso (Cognito) login attached to the account (ADR 0008). The npub stays the identity: the Cognito
+  // token only proves which Acceso user controls this account, and is never stored.
+  svc.post(
+    '/v1/accounts/me/external-logins',
+    async (req) => {
+      const current = await me(req);
+      const body = req.json<{ provider?: string; token?: string }>();
+      requireFields(body, ['provider', 'token']);
+      if (body.provider !== 'cognito' || !opts.cognito) throw new HttpError(400, 'unsupported provider');
+      let who;
+      try {
+        who = await opts.cognito.verify(String(body.token));
+      } catch (e) {
+        if (e instanceof CognitoTokenError) throw new HttpError(401, `invalid cognito token: ${e.message}`);
+        throw e;
+      }
+      try {
+        await repo.linkExternalLogin({ accountId: current.accountId, provider: 'cognito', issuer: who.issuer, subject: who.subject, ...(who.username ? { username: who.username } : {}) });
+      } catch (e) {
+        if (e instanceof ExternalLoginTakenError) throw new HttpError(409, e.message);
+        throw e;
+      }
+      await repo.audit(current.accountId, req.pubkey!, 'external_login.linked', { provider: 'cognito', subject: who.subject });
+      return { status: 201, body: { external_logins: await repo.externalLoginsOf(current.accountId) } };
+    },
+    'nip98',
+  );
+  svc.get('/v1/accounts/me/external-logins', async (req) => ({ external_logins: await repo.externalLoginsOf((await me(req)).accountId) }), 'nip98');
+  svc.delete(
+    '/v1/accounts/me/external-logins/:provider',
+    async (req) => {
+      const current = await me(req);
+      if (!(await repo.unlinkExternalLogin(current.accountId, req.params.provider!))) throw new HttpError(404, 'external login not found');
+      await repo.audit(current.accountId, req.pubkey!, 'external_login.unlinked', { provider: req.params.provider });
+      return { ok: true };
     },
     'nip98',
   );

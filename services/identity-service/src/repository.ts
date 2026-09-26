@@ -28,6 +28,15 @@ export interface KeyMetadataRow {
   recoveryState: string;
 }
 
+/** An external login (Acceso/Cognito) the user chose to attach to an account. Never a secret. */
+export interface ExternalLoginRow {
+  accountId: string;
+  provider: 'cognito';
+  issuer: string;
+  subject: string;
+  username?: string;
+}
+
 export interface IdentityRepository {
   createAccount(accountId: string, first: PersonaRow): Promise<void>;
   personaByPubkey(pubkey: string): Promise<PersonaRow | undefined>;
@@ -39,7 +48,17 @@ export interface IdentityRepository {
   upsertKeyMetadata(k: KeyMetadataRow): Promise<void>;
   keyMetadataOf(personaId: string): Promise<KeyMetadataRow[]>;
   audit(accountId: string, actor: string, action: string, details: Record<string, unknown>): Promise<void>;
+  /** Attach an external login; fails if it already belongs to another account. */
+  linkExternalLogin(l: ExternalLoginRow): Promise<void>;
+  externalLoginsOf(accountId: string): Promise<ExternalLoginRow[]>;
+  unlinkExternalLogin(accountId: string, provider: string): Promise<boolean>;
   auditOf(accountId: string): Promise<Array<{ at: string; actor: string; action: string; details: Record<string, unknown> }>>;
+}
+
+export class ExternalLoginTakenError extends Error {
+  constructor() {
+    super('external login already linked to another account');
+  }
 }
 
 export class MemoryIdentityRepository implements IdentityRepository {
@@ -47,6 +66,7 @@ export class MemoryIdentityRepository implements IdentityRepository {
   private personas = new Map<string, PersonaRow>();
   private links = new Map<string, LinkRow>();
   private keys = new Map<string, KeyMetadataRow>();
+  private logins: ExternalLoginRow[] = [];
   private log: Array<{ accountId: string; at: string; actor: string; action: string; details: Record<string, unknown> }> = [];
 
   async createAccount(accountId: string, first: PersonaRow) {
@@ -83,6 +103,20 @@ export class MemoryIdentityRepository implements IdentityRepository {
   }
   async keyMetadataOf(personaId: string) {
     return [...this.keys.values()].filter((k) => k.personaId === personaId);
+  }
+  async linkExternalLogin(l: ExternalLoginRow) {
+    const other = this.logins.find((x) => x.provider === l.provider && x.issuer === l.issuer && x.subject === l.subject);
+    if (other && other.accountId !== l.accountId) throw new ExternalLoginTakenError();
+    this.logins = this.logins.filter((x) => !(x.accountId === l.accountId && x.provider === l.provider));
+    this.logins.push({ ...l });
+  }
+  async externalLoginsOf(accountId: string) {
+    return this.logins.filter((x) => x.accountId === accountId).map((x) => ({ ...x }));
+  }
+  async unlinkExternalLogin(accountId: string, provider: string) {
+    const before = this.logins.length;
+    this.logins = this.logins.filter((x) => !(x.accountId === accountId && x.provider === provider));
+    return this.logins.length < before;
   }
   async audit(accountId: string, actor: string, action: string, details: Record<string, unknown>) {
     this.log.push({ accountId, at: new Date().toISOString(), actor, action, details });
@@ -150,6 +184,23 @@ export class PgIdentityRepository implements IdentityRepository {
   async keyMetadataOf(personaId: string) {
     const { rows } = await this.pool.query('SELECT * FROM key_metadata WHERE persona_id = $1', [personaId]);
     return rows.map((r) => ({ keyId: r.key_id, personaId: r.persona_id, provider: r.provider, version: r.version, ...(r.last_used ? { lastUsed: new Date(r.last_used).toISOString() } : {}), recoveryState: r.recovery_state }));
+  }
+  async linkExternalLogin(l: ExternalLoginRow) {
+    const { rows } = await this.pool.query('SELECT account_id FROM external_logins WHERE provider = $1 AND issuer = $2 AND subject = $3', [l.provider, l.issuer, l.subject]);
+    if (rows[0] && rows[0].account_id !== l.accountId) throw new ExternalLoginTakenError();
+    await this.pool.query(
+      `INSERT INTO external_logins (account_id, provider, issuer, subject, username) VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (account_id, provider) DO UPDATE SET issuer = EXCLUDED.issuer, subject = EXCLUDED.subject, username = EXCLUDED.username`,
+      [l.accountId, l.provider, l.issuer, l.subject, l.username ?? null],
+    );
+  }
+  async externalLoginsOf(accountId: string) {
+    const { rows } = await this.pool.query('SELECT * FROM external_logins WHERE account_id = $1', [accountId]);
+    return rows.map((r) => ({ accountId: r.account_id, provider: r.provider, issuer: r.issuer, subject: r.subject, ...(r.username ? { username: r.username } : {}) }));
+  }
+  async unlinkExternalLogin(accountId: string, provider: string) {
+    const { rowCount } = await this.pool.query('DELETE FROM external_logins WHERE account_id = $1 AND provider = $2', [accountId, provider]);
+    return (rowCount ?? 0) > 0;
   }
   async audit(accountId: string, actor: string, action: string, details: Record<string, unknown>) {
     await this.pool.query('INSERT INTO identity_audit (account_id, actor, action, details) VALUES ($1,$2,$3,$4)', [accountId, actor, action, JSON.stringify(details)]);

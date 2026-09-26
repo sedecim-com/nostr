@@ -5,7 +5,6 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { writeFileSync } from 'node:fs';
-import { crc32, deflateSync } from 'node:zlib';
 import WebSocket from 'ws';
 import { generateSecretKey, getTagValue } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
@@ -13,6 +12,7 @@ import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { chatMessage, createGroup, createDirectMessage, dmInboxFilter, openDirectMessage, parseGroupMetadata } from '@sedecim/messaging';
 import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
 import { EncryptedStore, MemoryBackend } from '@sedecim/encrypted-store';
+import { tinyPng } from '@sedecim/test-relay';
 import { EncryptedGroupStorage, MarmotTsProvider, PoolGroupNetwork, runConformance } from '@sedecim/marmot-adapter';
 
 const URL_ = process.env.BUZZ_RELAY_URL;
@@ -20,20 +20,6 @@ const HTTP = URL_?.replace(/^ws/, 'http');
 const factory = (u: string) => new WebSocket(u) as unknown as WebSocketLike;
 
 const report: Record<string, unknown> = { relay: URL_, startedAt: new Date().toISOString() };
-
-/** 2x2 RGB PNG with valid CRCs and no metadata chunks. */
-function tinyPng(): Uint8Array {
-  const chunk = (type: string, data: Buffer) => {
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(data.length);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type), data])) >>> 0);
-    return Buffer.concat([len, Buffer.from(type), data, crc]);
-  };
-  const ihdr = Buffer.from([0, 0, 0, 2, 0, 0, 0, 2, 8, 2, 0, 0, 0]);
-  const raw = Buffer.from([0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 255, 255]);
-  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]));
-}
 
 describe.skipIf(!URL_)('Buzz interop gate', () => {
   const alice = new LocalSigner(generateSecretKey());

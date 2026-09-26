@@ -70,4 +70,29 @@ describe('sovereign client E2E', () => {
     const s = await client.session(p.id);
     await expect(s.guard.assertRoute('wss://tracker.example')).rejects.toThrow(/allowlist/);
   });
+
+  it('re-drives the outbox when a relay connection comes back (FR-011)', async () => {
+    const r = new TestRelay();
+    await r.start();
+    const port = r.port;
+    const url = r.url;
+    const slow = new SovereignClient({ dataDir: dir, passphrase: 'pass', scryptLogN: 4, retry: { baseMs: 30_000, maxMs: 30_000 } });
+    let back: TestRelay | undefined;
+    try {
+      const p = await slow.createPersona({ label: 'Red', relays: [url] });
+      await r.stop();
+      const held = await slow.sendChannel(p.id, 'general', 'retenido');
+      expect(held.state).toBe('QUEUED');
+      back = new TestRelay({ port });
+      await back.start();
+      // any new traffic reconnects the pool; the reconnect resumes the held message without waiting for its backoff
+      expect((await slow.sendChannel(p.id, 'general', 'nuevo')).state).toBe('REPLICATED');
+      const end = Date.now() + 3000;
+      while (!back.received.some((e) => e.content === 'retenido') && Date.now() < end) await new Promise((res) => setTimeout(res, 20));
+      expect(back.received.some((e) => e.content === 'retenido')).toBe(true);
+    } finally {
+      slow.close();
+      await back?.stop();
+    }
+  });
 });

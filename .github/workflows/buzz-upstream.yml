@@ -1,0 +1,100 @@
+name: buzz-upstream
+
+# BUZZ-05 (ADR 0003): monthly review of the upstream Buzz image. If ghcr.io/block/buzz:main points to a
+# new digest, run the same stack + interop gate as ci.yml against it and, if it passes, open the pin PR.
+on:
+  schedule:
+    # Mondays; detect only proceeds on the first Monday of the month (cron ORs day-of-month and
+    # day-of-week, so "1-7 * 1" would also fire every Monday).
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: buzz-upstream
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      image: ${{ steps.check.outputs.image }}
+      pinned: ${{ steps.check.outputs.pinned }}
+      revision: ${{ steps.check.outputs.revision }}
+      date: ${{ steps.check.outputs.date }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve the upstream digest and compare it with infra/buzz/PIN
+        id: check
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = schedule ] && [ "$(date -u +%d)" -gt 7 ]; then
+            echo "not the first Monday of the month: skipping"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sh scripts/buzz-upstream.sh check | tee -a "$GITHUB_OUTPUT"
+
+  # Same job as CI (build, docker compose up, tests/interop, flags check) with BUZZ_IMAGE = candidate.
+  gate:
+    needs: detect
+    if: needs.detect.outputs.changed == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      buzz_image: ${{ needs.detect.outputs.image }}
+      stack_only: true
+
+  pin-pr:
+    needs: [detect, gate]
+    if: needs.detect.outputs.changed == 'true' && needs.gate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: interop-reports
+          path: gate
+      - name: Update the pin and open the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ needs.detect.outputs.image }}
+          PINNED: ${{ needs.detect.outputs.pinned }}
+          REVISION: ${{ needs.detect.outputs.revision }}
+          DATE: ${{ needs.detect.outputs.date }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          short=$(printf '%s' "${IMAGE#*@sha256:}" | cut -c1-12)
+          branch="buzz-upstream/$short"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "branch $branch already exists: this digest already has a PR"
+            exit 0
+          fi
+          sh scripts/buzz-upstream.sh apply "$IMAGE" "$REVISION" "$DATE"
+          report="docs/interop/buzz-upstream-$short-report.json"
+          cp gate/interop-report.json "$report"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add infra/buzz/PIN docker-compose.yml "$report"
+          git commit -m "Pin Buzz upstream image $short (interop gate passed)"
+          git push origin "$branch"
+          {
+            echo "Revisión mensual de Buzz upstream (BUZZ-05, ADR 0003). El gate pasó contra la imagen candidata: $RUN_URL"
+            echo
+            echo "- Antes: \`$PINNED\`"
+            echo "- Candidata: \`$IMAGE\`"
+            echo "- Commit upstream (etiqueta OCI): ${REVISION:-desconocido: actualizar BUZZ_COMMIT y BUZZ_COMMIT_DATE a mano}"
+            echo "- Informe del gate: \`$report\`"
+            echo
+            echo "Antes de fusionar (ADR 0003): revisar el changelog upstream (kinds, NIP-42 y tenant por Host, fan-out, media, límites de timestamps), confirmar que los adaptadores del SDK siguen justificados y hacer backup antes de desplegar."
+          } > "$RUNNER_TEMP/body.md"
+          gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --title "Buzz upstream: pin $short" --body-file "$RUNNER_TEMP/body.md"

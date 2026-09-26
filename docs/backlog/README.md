@@ -1,12 +1,12 @@
-# Backlog — Plataforma Nostr Soberana / SaaS
+# Backlog — Acceso Nostr
 
 > Generado por `node scripts/backlog.mjs` desde `backlog.json` (fuente única). No editar a mano.
 > Base: Scope_Plataforma_Nostr_Soberana_SaaS_v0.1 (25/09/2026). Estado del código: `main@65ed066` (2026-09-26).
 
 ## Resumen
 
-- **161 tareas** · 62 hechas · 17 parciales · 76 pendientes · 6 descartadas
-- **290 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **162 tareas** · 78 hechas · 13 parciales · 65 pendientes · 6 descartadas
+- **247 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -23,32 +23,32 @@
 | S5 | 2026-11-23 → 2026-12-04 | F3 | Privacidad, Tor y observabilidad | 11 | 31 | 1 |
 | S6 | 2026-12-07 → 2026-12-18 | F4 | Grupos high-security | 6 | 26 | 0 |
 | S7 | 2027-01-04 → 2027-01-15 | F5 | Modo institucional | 13 | 51 | 1 |
-| S8 | 2027-01-18 → 2027-01-29 | Release | Hardening, escalabilidad y release | 7 | 31 | 2 |
+| S8 | 2027-01-18 → 2027-01-29 | Release | Hardening, escalabilidad y release | 8 | 32 | 2 |
 | Diferido | sin fecha | — | Sin planificar: requiere app nativa (ADR 0004) | 1 | 8 | 0 |
 
 ## Cobertura de requisitos
 
 | Requisito | Tareas | Hechas | Pendientes (sprint) |
 |---|---:|---:|---|
-| FR-001 | 5 | 3 | FR001-04 (S2), FR001-05 (S2) |
+| FR-001 | 5 | 5 | — |
 | FR-002 | 3 | 2 | FR002-03 (S3) |
 | FR-003 | 7 | 2 | FR003-03 (S3), FR003-04 (S3), FR003-05 (S3), FR003-06 (S4), FR003-07 (S4) |
 | FR-004 | 5 | 2 | FR004-03 (S3), FR004-04 (S3), FR004-05 (S3) |
 | FR-005 | 7 | 1 | FR005-02 (S3), FR005-03 (S3), FR005-04 (S3), FR005-05 (S7), FR005-06 (S7), FR005-07 (S3) |
-| FR-006 | 3 | 2 | FR006-02 (S2) |
+| FR-006 | 3 | 3 | — |
 | FR-007 | 4 | 2 | FR007-03 (S3), FR007-04 (S5) |
-| FR-008 | 2 | 1 | FR001-04 (S2) |
-| FR-009 | 2 | 1 | FR009-02 (S2) |
-| FR-010 | 2 | 1 | FR010-02 (S2) |
-| FR-011 | 3 | 1 | FR011-02 (S2), FR011-03 (S5) |
+| FR-008 | 2 | 2 | — |
+| FR-009 | 2 | 2 | — |
+| FR-010 | 2 | 2 | — |
+| FR-011 | 3 | 2 | FR011-03 (S5) |
 | FR-012 | 1 | 1 | — |
 | FR-013 | 4 | 1 | FR013-02 (S4), FR013-03 (S4), FR013-04 (S4) |
-| FR-014 | 3 | 2 | FR014-03 (S2) |
-| FR-015 | 3 | 1 | FR015-02 (S2), FR015-03 (S2) |
+| FR-014 | 3 | 3 | — |
+| FR-015 | 3 | 3 | — |
 | FR-016 | 1 | 1 | — |
-| FR-017 | 5 | 3 | FR017-04 (S2), FR017-05 (S4) |
-| FR-018 | 5 | 3 | FR018-04 (S2), FR018-05 (S5) |
-| FR-019 | 3 | 1 | FR018-04 (S2), FR019-02 (S3) |
+| FR-017 | 5 | 4 | FR017-05 (S4) |
+| FR-018 | 5 | 4 | FR018-05 (S5) |
+| FR-019 | 3 | 2 | FR019-02 (S3) |
 | FR-020 | 3 | 1 | FR020-02 (Diferido), FR020-03 (S5) |
 | FR-021 | 2 | 1 | FR021-02 (S5) |
 | FR-022 | 2 | 1 | FR022-02 (S5) |
@@ -66,7 +66,7 @@
 | NFR-006 | 3 | 2 | NFR006-03 (S4) |
 | NFR-007 | 2 | 1 | FR022-02 (S5) |
 | NFR-008 | 2 | 1 | NFR008-02 (S4) |
-| NFR-009 | 2 | 0 | NFR009-01 (S2), NFR009-02 (S3) |
+| NFR-009 | 2 | 1 | NFR009-02 (S3) |
 | NFR-010 | 4 | 1 | FR003-06 (S4), NFR010-02 (S4), NFR010-03 (S8) |
 
 ## S1 · Cierre F0 y gate de interoperabilidad (F0, 2026-09-28 → 2026-10-09) — 22 SP
@@ -94,23 +94,23 @@
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
 | BUZZ-05 | P1 | Revisión mensual automática de la imagen upstream de Buzz con el gate | §6.3 | Infra | 3 | OPS-01 | Parcial | Workflow programado detecta un digest nuevo de ghcr.io/block/buzz, ejecuta stack + gate contra él y abre la PR del pin si pasa (ADR 0003) |
-| DEC-05 | P1 | Definir storage local cifrado por plataforma | §25.1-5 | Decisión | 2 | — | Parcial | ADR: IndexedDB (web), Keychain/Keystore (móvil), archivo cifrado (desktop/CLI) |
-| FR001-05 | P1 | E2E en navegador: la nsec nunca sale del cliente | FR-001 | QA | 2 | FR001-03 | Pendiente | Test que inspecciona todas las peticiones y WebSocket y no encuentra nsec ni la llave en claro |
-| FR006-02 | P1 | Selector de persona en la web con banner "Enviando como…" | FR-006, §16.1 | Dev | 3 | FR006-01 | Parcial | Cambiar de persona cambia signer, relays y store; banner siempre visible |
-| FR010-02 | P1 | Selección de relays por destinatario (NIP-65 kind 10002 y kind 10050) | FR-010 | Dev | 3 | FR010-01 | Pendiente | Los DMs se publican en los relays de inbox del destinatario |
-| FR015-02 | P1 | Descubrimiento de canales (39000) y unión (9021) en la web | FR-015 | Dev | 3 | FR015-01 | Pendiente | Lista de canales visibles y botón de unirse |
-| FR015-03 | P1 | E2E de la web contra Buzz real (crear canal, unirse, enviar, leer) | FR-015 | QA | 2 | FR015-02, OPS-01 | Pendiente | Test en navegador contra el relay del compose |
-| PANEL-02 | P1 | Aplicar la configuración del panel al comportamiento real del cliente web | §9 | Dev | 5 | PANEL-01 | Pendiente | Red, telemetría, receipts, previews y quorum usan la configuración elegida (hoy solo se muestra) |
+| DEC-05 | P1 | Definir storage local cifrado por plataforma | §25.1-5 | Decisión | 2 | — | Hecho | ADR: IndexedDB (web), Keychain/Keystore (móvil), archivo cifrado (desktop/CLI) |
+| FR001-05 | P1 | E2E en navegador: la nsec nunca sale del cliente | FR-001 | QA | 2 | FR001-03 | Hecho | Test que inspecciona todas las peticiones y WebSocket y no encuentra nsec ni la llave en claro |
+| FR006-02 | P1 | Selector de persona en la web con banner "Enviando como…" | FR-006, §16.1 | Dev | 3 | FR006-01 | Hecho | Cambiar de persona cambia signer, relays y store; banner siempre visible |
+| FR010-02 | P1 | Selección de relays por destinatario (NIP-65 kind 10002 y kind 10050) | FR-010 | Dev | 3 | FR010-01 | Hecho | Los DMs se publican en los relays de inbox del destinatario |
+| FR015-02 | P1 | Descubrimiento de canales (39000) y unión (9021) en la web | FR-015 | Dev | 3 | FR015-01 | Hecho | Lista de canales visibles y botón de unirse |
+| FR015-03 | P1 | E2E de la web contra Buzz real (crear canal, unirse, enviar, leer) | FR-015 | QA | 2 | FR015-02, OPS-01 | Hecho | Test en navegador contra el relay del compose |
+| PANEL-02 | P1 | Aplicar la configuración del panel al comportamiento real del cliente web | §9 | Dev | 5 | PANEL-01 | Hecho | Red, telemetría, receipts, previews y quorum usan la configuración elegida (hoy solo se muestra) |
 | BUZZ-04 | P2 | Branding del fork (desktop Tauri/React) | §22 F0 | Dev | 3 | BUZZ-01, DEC-01 | Descartado | Nombre, iconos y textos propios sin tocar el protocolo |
-| FR001-04 | P2 | Backend IndexedDB para encrypted-store en navegador | FR-001, FR-008 | Dev | 3 | DEC-05 | Pendiente | Stores de llave y outbox sobre IndexedDB con tests en Chromium |
-| FR009-02 | P2 | Pasar a RECIPIENT_ACKED/READ con los receipts entrantes | FR-009, §11 | Dev | 3 | DEC-06, FR009-01 | Pendiente | Receipts gift-wrapped recibidos actualizan el estado de la operación |
-| FR011-02 | P2 | Lanzar resume() al recuperar conectividad (eventos online / reconexión del pool) | FR-011 | Dev | 2 | FR011-01 | Pendiente | La web y el CLI reanudan solos la outbox al volver la red |
-| FR014-03 | P2 | Vistas derivadas: no leídos por canal y búsqueda respetando la política | FR-014, §15.2 | Dev | 3 | FR014-01 | Pendiente | Endpoints de no leídos y búsqueda solo sobre contenido permitido |
-| FR017-04 | P2 | Publicar y leer la lista de relays DM (kind 10050) | FR-017 | Dev | 2 | FR010-02 | Pendiente | Onboarding publica 10050; el emisor la usa para enrutar |
-| FR018-04 | P2 | Adjuntos en la web (kind 15 en DMs, imágenes en canales) | FR-018, FR-019 | Dev | 5 | FR018-02, FR019-01 | Pendiente | Subida con saneamiento, cifrado opcional y descarga verificada desde la UI |
-| NFR009-01 | P2 | Auditoría de accesibilidad automatizada (axe-core) en el E2E de navegador | NFR-009 | QA | 2 | FR015-01 | Parcial | Cero violaciones serias en la web |
-| OPS-03 | P2 | Instalador/configurador de llaves y secretos del stack | §4.1 | Infra | 2 | FR003-01 | Parcial | scripts/init-env genera también la llave del relay y del owner con el keygen offline |
-| PANEL-03 | P2 | Persistir la configuración del panel por persona | §9 | Dev | 2 | PANEL-02, FR006-02 | Pendiente | Config cifrada en el store de la persona; se restaura al desbloquear |
+| FR001-04 | P2 | Backend IndexedDB para encrypted-store en navegador | FR-001, FR-008 | Dev | 3 | DEC-05 | Hecho | Stores de llave y outbox sobre IndexedDB con tests en Chromium |
+| FR009-02 | P2 | Pasar a RECIPIENT_ACKED/READ con los receipts entrantes | FR-009, §11 | Dev | 3 | DEC-06, FR009-01 | Hecho | Receipts gift-wrapped recibidos actualizan el estado de la operación |
+| FR011-02 | P2 | Lanzar resume() al recuperar conectividad (eventos online / reconexión del pool) | FR-011 | Dev | 2 | FR011-01 | Hecho | La web y el CLI reanudan solos la outbox al volver la red |
+| FR014-03 | P2 | Vistas derivadas: no leídos por canal y búsqueda respetando la política | FR-014, §15.2 | Dev | 3 | FR014-01 | Hecho | Endpoints de no leídos y búsqueda solo sobre contenido permitido |
+| FR017-04 | P2 | Publicar y leer la lista de relays DM (kind 10050) | FR-017 | Dev | 2 | FR010-02 | Hecho | Onboarding publica 10050; el emisor la usa para enrutar |
+| FR018-04 | P2 | Adjuntos en la web (kind 15 en DMs, imágenes en canales) | FR-018, FR-019 | Dev | 5 | FR018-02, FR019-01 | Hecho | Subida con saneamiento, cifrado opcional y descarga verificada desde la UI |
+| NFR009-01 | P2 | Auditoría de accesibilidad automatizada (axe-core) en el E2E de navegador | NFR-009 | QA | 2 | FR015-01 | Hecho | Cero violaciones serias en la web |
+| OPS-03 | P2 | Instalador/configurador de llaves y secretos del stack | §4.1 | Infra | 2 | FR003-01 | Hecho | scripts/init-env genera también la llave del relay y del owner con el keygen offline |
+| PANEL-03 | P2 | Persistir la configuración del panel por persona | §9 | Dev | 2 | PANEL-02, FR006-02 | Hecho | Config cifrada en el store de la persona; se restaura al desbloquear |
 
 ## S3 · Identidad, llaves y custodia (F1, 2026-10-26 → 2026-11-06) — 48 SP
 
@@ -207,13 +207,14 @@
 | OPS-07 | P2 | App admin-console (organizaciones, políticas, dispositivos, auditoría) | §17.1 | Dev | 8 | FR023-03 | Pendiente | Consola web autenticada por NIP-98 sobre policy-engine e identity-service |
 | FR005-05 | P3 | Tier enclave: firma dentro de Nitro Enclave con KMS condicionado por attestation | FR-005, §8.4 | Dev | 8 | FR005-02, DEC-09 | Pendiente | Prototipo con attestation verificada; backend general sin llave en claro |
 
-## S8 · Hardening, escalabilidad y release (Release, 2027-01-18 → 2027-01-29) — 31 SP
+## S8 · Hardening, escalabilidad y release (Release, 2027-01-18 → 2027-01-29) — 32 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
 | SEC-01 | P0 | Revisión criptográfica independiente (NIP-44/49/59, MLS, key service) | §20.3 | Seguridad | 8 | SEC-03, FR025-08, FR005-03 | Pendiente | Informe externo sin hallazgos críticos abiertos |
 | SEC-02 | P0 | Pentest de API, relay, key service y cliente | §20.3 | Seguridad | 8 | OPS-02, FR005-04, FR023-03 | Pendiente | Informe externo; hallazgos críticos y altos corregidos |
 | REL-01 | P1 | Checklist de Definition of Done automatizado en el pipeline de release | Apéndice D | Infra | 3 | SEC-01, SEC-02, NFR010-02, NFR003-02, FR020-03 | Pendiente | El release se bloquea si falta: tests, interop, restore, leak tests, firma, SBOM |
+| DEC-11 | P2 | Búsqueda y registro de la marca "Acceso Nostr" | §25.1-1 | Decisión | 1 | DEC-01 | Pendiente | Búsqueda de anterioridades y solicitud de registro presentada, o marca alternativa decidida |
 | NFR010-03 | P2 | Imágenes Docker reproducibles | NFR-010 | Infra | 3 | OPS-01 | Pendiente | Dos builds del mismo commit producen el mismo digest |
 | REL-02 | P2 | Release notes con los cambios de trust model por release | Apéndice D | Doc | 1 | REL-01 | Pendiente | Plantilla y primer release notes publicados |
 | NFR005-01 | P3 | Indexer escalable horizontalmente (reparto por relay y upserts idempotentes) | NFR-005 | Dev | 5 | FR014-01 | Pendiente | N réplicas sin duplicados ni pérdidas; test de concurrencia |

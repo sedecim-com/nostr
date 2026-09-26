@@ -28,8 +28,18 @@ export function normalizeRelayUrl(url: string): string {
 
 export class RelayPool {
   private readonly relays = new Map<string, RelayConnection>();
+  private readonly reconnectListeners = new Set<(relay: string) => void>();
 
   constructor(private readonly opts: RelayConnectionOptions = {}) {}
+
+  /**
+   * Fires when a relay connection is re-established after a drop or a failed attempt (FR-011), e.g. to
+   * run `engine.resume()`. Returns an unsubscribe function.
+   */
+  onReconnect(fn: (relay: string) => void): () => void {
+    this.reconnectListeners.add(fn);
+    return () => this.reconnectListeners.delete(fn);
+  }
 
   get signer(): Signer | undefined {
     return this.opts.signer;
@@ -39,7 +49,13 @@ export class RelayPool {
     const key = normalizeRelayUrl(url);
     let r = this.relays.get(key);
     if (!r) {
-      r = new RelayConnection(key, this.opts);
+      r = new RelayConnection(key, {
+        ...this.opts,
+        onReconnect: (url) => {
+          this.opts.onReconnect?.(url);
+          for (const l of this.reconnectListeners) l(url);
+        },
+      });
       this.relays.set(key, r);
     }
     return r;

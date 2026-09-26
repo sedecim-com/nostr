@@ -33,6 +33,7 @@ export class DeliveryEngine {
   private readonly rerun = new Set<string>();
   private readonly listeners = new Set<(r: OutboxRecord) => void>();
   private stopped = false;
+  private resuming?: Promise<OutboxRecord[]>;
   private readonly now: () => number;
   private readonly random: () => number;
 
@@ -214,12 +215,22 @@ export class DeliveryEngine {
     this.timers.set(opId, t);
   }
 
-  /** Re-drive every unfinished operation (app start, reconnect, "network back" events) — FR-011. */
-  async resume(): Promise<OutboxRecord[]> {
+  /**
+   * Re-drive every unfinished operation (app start, reconnect, "network back" events) — FR-011.
+   * Idempotent: calls made while a resume is in flight share it. Pending backoff timers are overtaken.
+   * Wire it to connectivity with `pool.onReconnect(() => engine.resume())` and, in browsers, `window.online`.
+   */
+  resume(): Promise<OutboxRecord[]> {
+    if (this.resuming) return this.resuming;
     this.stopped = false;
-    const recs = await this.list();
-    const open = recs.filter((r) => r.state !== 'FAILED' && Object.values(r.relayStatus).some((s) => !s.acceptedAt && !s.permanent));
-    return Promise.all(open.map((r) => this.process(r.opId)));
+    this.resuming = (async () => {
+      const recs = await this.list();
+      const open = recs.filter((r) => r.state !== 'FAILED' && Object.values(r.relayStatus).some((s) => !s.acceptedAt && !s.permanent));
+      return Promise.all(open.map((r) => this.process(r.opId)));
+    })().finally(() => {
+      this.resuming = undefined;
+    });
+    return this.resuming;
   }
 
   /**
@@ -275,6 +286,18 @@ export class DeliveryEngine {
   /** Read receipt (opt-in, can be disabled by profile). */
   markRead(opId: string) {
     return this.advance(opId, 'READ');
+  }
+
+  /**
+   * Applies an incoming application receipt (ADR 0005, `parseReceipt` in @sedecim/messaging) — FR-009.
+   * It matches the wrap sent to `receipt.from` for that rumor (`groupId` = rumor id, `meta.recipient`),
+   * so a receipt only counts when its authenticated sender (the seal signer) is that recipient.
+   * States never move backwards. Returns undefined when no operation matches.
+   */
+  async applyReceipt(receipt: { rumorId: string; type: 'delivered' | 'read'; from: string }): Promise<OutboxRecord | undefined> {
+    const rec = (await this.list()).find((r) => r.groupId === receipt.rumorId && r.meta?.recipient === receipt.from);
+    if (!rec) return undefined;
+    return this.advance(rec.opId, receipt.type === 'read' ? 'READ' : 'RECIPIENT_ACKED');
   }
 
   async findByEventId(eventId: string): Promise<OutboxRecord | undefined> {

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { finalizeEvent, generateSecretKey, getPublicKey, toUnsigned } from '@sedecim/nostr-core';
 import { createPgPool, migrate, nip98Fetch, resetScope } from '@sedecim/service-kit';
 import { createIdentityApi, MemoryIdentityRepository, PgIdentityRepository, type IdentityRepository } from '../src/index';
+import { iss, token, verifier } from './cognito-fixture';
 
 function suite(name: string, makeRepo: () => Promise<IdentityRepository>) {
   describe(name, () => {
@@ -13,7 +14,7 @@ function suite(name: string, makeRepo: () => Promise<IdentityRepository>) {
     const viewer = generateSecretKey();
 
     beforeAll(async () => {
-      api = createIdentityApi(await makeRepo(), { name: 'identity-test' });
+      api = createIdentityApi(await makeRepo(), { name: 'identity-test', cognito: verifier() });
       base = await api.listen();
     });
     afterAll(() => api.close());
@@ -50,6 +51,21 @@ function suite(name: string, makeRepo: () => Promise<IdentityRepository>) {
       const audit = (await nip98Fetch(a, `${base}/v1/accounts/me/audit`)).json.audit.map((x: { action: string }) => x.action);
       expect(audit).toEqual(['account.created', 'key_metadata.updated', 'persona.registered', 'link.created']);
     });
+
+    it('links an Acceso (Cognito) login only with a valid token, and never to two accounts (ADR 0008)', async () => {
+      const url = `${base}/v1/accounts/me/external-logins`;
+      const c = generateSecretKey();
+      await nip98Fetch(c, `${base}/v1/accounts`, 'POST', {});
+      expect((await nip98Fetch(a, url, 'POST', { provider: 'cognito', token: token({ exp: 1 }) })).status).toBe(401);
+      const ok = await nip98Fetch(a, url, 'POST', { provider: 'cognito', token: token({}) });
+      expect(ok.status).toBe(201);
+      expect(ok.json.external_logins).toEqual([{ accountId: expect.any(String), provider: 'cognito', issuer: iss, subject: 'user-1', username: 'ana' }]);
+      expect((await nip98Fetch(c, url, 'POST', { provider: 'cognito', token: token({}) })).status).toBe(409);
+      expect(JSON.stringify((await nip98Fetch(a, url)).json)).not.toContain('eyJ');
+      expect((await nip98Fetch(a, `${url}/cognito`, 'DELETE')).status).toBe(200);
+      expect((await nip98Fetch(a, url)).json.external_logins).toEqual([]);
+      expect((await nip98Fetch(c, url, 'POST', { provider: 'cognito', token: token({}) })).status).toBe(201);
+    });
   });
 }
 
@@ -58,7 +74,7 @@ const PG = process.env.TEST_DATABASE_URL;
 if (PG) {
   suite('identity-service (postgres)', async () => {
     const pool = createPgPool(PG);
-    await resetScope(pool, 'identity-service', ['identity_audit', 'key_metadata', 'identity_links', 'identity_personas', 'accounts']);
+    await resetScope(pool, 'identity-service', ['identity_audit', 'external_logins', 'key_metadata', 'identity_links', 'identity_personas', 'accounts']);
     await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'identity-service');
     return new PgIdentityRepository(pool);
   });

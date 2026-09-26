@@ -52,6 +52,10 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
     'ciphertext-user-key': d('Backup en la nube cifrado con clave del usuario: el operador almacena ciphertext pero no la clave de descifrado.', ['recuperabilidad'], [], ['Tu contraseña de backup.']),
     'operator-managed': d('Backup gestionado por el operador: el operador puede restaurar (y por tanto acceder a) los datos.', ['recuperabilidad', 'control-institucional'], ['privacidad-operador', 'soberania'], ['Operador.']),
   },
+  localProtection: {
+    passphrase: d('El almacén local se abre con tu contraseña (scrypt): sin ella, nadie con acceso a este dispositivo puede leer tus llaves.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Fortaleza de tu contraseña local.']),
+    device: d('Desbloqueo sin contraseña con una llave del dispositivo (WebCrypto, no exportable): cualquiera con acceso a este perfil del navegador puede abrir tus llaves.', [], ['soberania', 'privacidad-operador'], ['Seguridad física y de la sesión de este dispositivo.']),
+  },
   crashReports: {
     off: d('Crash reporting deshabilitado.', ['privacidad-operador'], [], []),
     'manual-export': d('Los informes de fallo quedan en local y solo salen si los exportas manualmente.', ['privacidad-operador'], [], []),

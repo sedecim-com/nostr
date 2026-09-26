@@ -1,0 +1,13 @@
+{
+  "mode": "saas",
+  "relays": ["wss://relay.nostr.acce.so"],
+  "buzzMedia": "https://relay.nostr.acce.so/media",
+  "blobStore": "https://blobs.nostr.acce.so",
+  "identityService": "https://id.nostr.acce.so",
+  "cognito": {
+    "region": "us-east-1",
+    "userPoolId": "us-east-1_XXXXXXXXX",
+    "userPoolClientId": "XXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "cookieDomain": "acce.so"
+  }
+}

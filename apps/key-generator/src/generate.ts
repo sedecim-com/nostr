@@ -1,4 +1,4 @@
-import { generateSecretKey, nip19, nip49, selfTestKey, wipe, type KeySelfTest } from '@sedecim/nostr-core';
+import { bytesToHex, generateSecretKey, nip19, nip49, selfTestKey, wipe, type KeySelfTest } from '@sedecim/nostr-core';
 
 export interface GeneratedKey {
   npub: string;
@@ -40,6 +40,21 @@ export function generateKey(opts: GenerateOptions = {}): GeneratedKey {
       selfTest,
       createdAt: new Date().toISOString(),
     };
+  } finally {
+    wipe(sk);
+  }
+}
+
+/**
+ * Key for a service identity that lives in the stack's .env (relay signing key, mirror NIP-42 identity):
+ * same CSPRNG and self-test as a user key, returned as hex because that is what the services read.
+ */
+export function generateServiceKey(): { secretHex: string; pubkeyHex: string; npub: string } {
+  const sk = generateSecretKey();
+  try {
+    const selfTest = selfTestKey(sk);
+    if (!selfTest.ok) throw new Error('self-test failed: refusing to output this key');
+    return { secretHex: bytesToHex(sk), pubkeyHex: selfTest.pubkey, npub: nip19.npubEncode(selfTest.pubkey) };
   } finally {
     wipe(sk);
   }
