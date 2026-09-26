@@ -36,7 +36,7 @@ firmados; las bases de datos son índices derivados.
 | `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none |
 | `profiles` | Configuración del panel, presets (Apéndice B), validación y disclosures |
 | `policy-client` | Evaluador RBAC/ABAC + device trust |
-| `sync` | Reconstrucción de historial por ventanas; NIP-77 enchufable |
+| `sync` | Reconstrucción de historial: NIP-77 (Negentropy) con detección NIP-11/sonda y fallback automático a REQ por ventanas; `rebuildHistory` (canales, DMs, evidencia para el outbox); export/import JSONL |
 | `service-kit` | HTTP mínimo con NIP-98/bearer y migraciones SQL |
 | `test-relay` | Relay/Blossom/SOCKS en memoria para E2E con inyección de fallos |
 

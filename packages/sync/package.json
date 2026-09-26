@@ -2,7 +2,7 @@
   "name": "@sedecim/sync",
   "version": "0.1.0",
   "private": true,
-  "description": "Sincronización/backfill por ventanas con detección NIP-77.",
+  "description": "Reconstrucción de historial: NIP-77 (Negentropy) con fallback a REQ por ventanas, export/import JSONL.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
@@ -11,7 +11,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@sedecim/messaging": "0.1.0",
     "@sedecim/nostr-core": "0.1.0",
-    "@sedecim/relay-pool": "0.1.0"
+    "@sedecim/relay-pool": "0.1.0",
+    "nostr-tools": "2.25.2"
   }
 }

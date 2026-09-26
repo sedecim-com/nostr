@@ -1,3 +1,4 @@
+import { createServer, type Server } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import {
@@ -14,6 +15,7 @@ import {
   type Filter,
   type NostrEvent,
 } from '@sedecim/nostr-core';
+import { NegentropyResponder } from './negentropy';
 
 export interface TestRelayOptions {
   port?: number;
@@ -28,7 +30,10 @@ export interface TestRelayOptions {
   rejectCreatedAtSkewSeconds?: number;
   /** Public URL clients use (for NIP-42 relay tag checks). Defaults to the bound ws:// URL. */
   publicUrl?: string;
-  /** Advertise NIP-77 support (answers NEG-OPEN with NEG-ERR "blocked" when false). */
+  /**
+   * Enable NIP-77 (Negentropy) reconciliation and advertise 77 in NIP-11. Off by default: NEG-OPEN is
+   * then answered like an unknown verb (NOTICE), as relays without NIP-77 do.
+   */
   supportsNegentropy?: boolean;
   /** Do not send OK after a successful AUTH (nostr-rs-relay 0.9 behaviour). */
   silentAuthOk?: boolean;
@@ -47,6 +52,8 @@ export interface FaultInjection {
   okDelayMs: number;
   /** Refuse new connections (simulates a relay outage) */
   offline: boolean;
+  /** Abort NIP-77 sessions with NEG-ERR after answering this many client messages (null = never). */
+  negErrorAfterMessages: number | null;
 }
 
 interface ClientState {
@@ -54,33 +61,45 @@ interface ClientState {
   challenge: string;
   authed: Set<string>;
   subs: Map<string, Filter[]>;
+  neg: Map<string, { responder: NegentropyResponder; messages: number }>;
 }
 
 const normalizeUrl = (u: string) => u.replace(/\/+$/, '').toLowerCase();
 
 export class TestRelay {
   readonly events = new Map<string, NostrEvent>();
-  readonly faults: FaultInjection = { dropOks: 0, rejectReason: null, okDelayMs: 0, offline: false };
+  readonly faults: FaultInjection = { dropOks: 0, rejectReason: null, okDelayMs: 0, offline: false, negErrorAfterMessages: null };
   readonly received: NostrEvent[] = [];
+  /** Number of EVENT messages sent to clients (to measure how much a sync transferred). */
+  sentEvents = 0;
+  /** NIP-77 messages received from clients, by verb. */
+  readonly negStats = { open: 0, msg: 0, close: 0 };
   private readonly heads = new Map<string, string>();
   private readonly deleted = new Set<string>();
   private readonly clients = new Set<ClientState>();
   private wss?: WebSocketServer;
+  private http?: Server;
   url = '';
 
   constructor(private readonly opts: TestRelayOptions = {}) {}
 
   async start(): Promise<string> {
-    this.wss = new WebSocketServer({ port: this.opts.port ?? 0, host: this.opts.host ?? '127.0.0.1' });
-    await new Promise<void>((resolve) => this.wss!.once('listening', () => resolve()));
-    const addr = this.wss.address() as AddressInfo;
+    // Plain HTTP answers NIP-11 (relay information document); upgrades go to the WebSocket server.
+    this.http = createServer((req, res) => {
+      const info = { name: 'sedecim test relay', software: '@sedecim/test-relay', supported_nips: [1, 9, 11, 42, 59, ...(this.opts.supportsNegentropy ? [77] : [])] };
+      res.writeHead(200, { 'content-type': 'application/nostr+json', 'access-control-allow-origin': '*' });
+      res.end(JSON.stringify(info));
+    });
+    this.wss = new WebSocketServer({ server: this.http });
+    await new Promise<void>((resolve) => this.http!.listen(this.opts.port ?? 0, this.opts.host ?? '127.0.0.1', () => resolve()));
+    const addr = this.http.address() as AddressInfo;
     this.url = this.opts.publicUrl ?? `ws://127.0.0.1:${addr.port}`;
     this.wss.on('connection', (ws) => this.onConnection(ws));
     return this.url;
   }
 
   get port(): number {
-    return (this.wss?.address() as AddressInfo).port;
+    return (this.http?.address() as AddressInfo).port;
   }
 
   get connectionCount(): number {
@@ -91,6 +110,7 @@ export class TestRelay {
     for (const c of this.clients) c.ws.terminate();
     this.clients.clear();
     await new Promise<void>((resolve) => (this.wss ? this.wss.close(() => resolve()) : resolve()));
+    await new Promise<void>((resolve) => (this.http?.listening ? this.http.close(() => resolve()) : resolve()));
   }
 
   /** Drop every open connection (simulates a network blip). */
@@ -116,7 +136,7 @@ export class TestRelay {
       ws.terminate();
       return;
     }
-    const state: ClientState = { ws, challenge: bytesToHex(randomBytes(16)), authed: new Set(), subs: new Map() };
+    const state: ClientState = { ws, challenge: bytesToHex(randomBytes(16)), authed: new Set(), subs: new Map(), neg: new Map() };
     this.clients.add(state);
     this.send(state, ['AUTH', state.challenge]);
     ws.on('message', (raw) => {
@@ -134,7 +154,9 @@ export class TestRelay {
   }
 
   private send(state: ClientState, msg: unknown[]) {
-    if (state.ws.readyState === state.ws.OPEN) state.ws.send(JSON.stringify(msg));
+    if (state.ws.readyState !== state.ws.OPEN) return;
+    if (msg[0] === 'EVENT') this.sentEvents++;
+    state.ws.send(JSON.stringify(msg));
   }
 
   private isAuthorized(state: ClientState): boolean {
@@ -159,7 +181,10 @@ export class TestRelay {
         state.subs.delete(rest[0] as string);
         return;
       case 'NEG-OPEN':
-        this.send(state, ['NEG-ERR', rest[0], this.opts.supportsNegentropy ? 'blocked: not implemented in test relay' : 'unsupported: NIP-77 not supported']);
+      case 'NEG-MSG':
+      case 'NEG-CLOSE':
+        if (this.opts.supportsNegentropy) return this.onNegentropy(state, type, rest);
+        this.send(state, ['NOTICE', `unsupported: ${type}`]);
         return;
       default:
         this.send(state, ['NOTICE', `unsupported: ${type}`]);
@@ -225,19 +250,66 @@ export class TestRelay {
     }
   }
 
-  private onReq(state: ClientState, subId: string, filters: Filter[]) {
-    if (typeof subId !== 'string' || filters.length === 0) return this.send(state, ['NOTICE', 'invalid: bad REQ']);
-    if (!this.isAuthorized(state)) return this.send(state, this.opts.authNoticeOnReq ? ['NOTICE', 'auth-required: authenticate before subscribing'] : ['CLOSED', subId, 'auth-required: authenticate first']);
+  /** Access check shared by REQ and NEG-OPEN: undefined when allowed, otherwise the machine-readable reason. */
+  private readDenied(state: ClientState, filters: Filter[]): string | undefined {
+    if (!this.isAuthorized(state)) return 'auth-required: authenticate first';
     const gated = this.opts.pGatedKinds ?? [];
     for (const f of filters) {
       const touchesGated = !f.kinds || f.kinds.some((k) => gated.includes(k));
       if (gated.length && touchesGated) {
         const ps = f['#p'];
-        if (!ps || ps.length === 0 || !ps.every((p) => state.authed.has(p))) {
-          return this.send(state, ['CLOSED', subId, 'restricted: p-gated events require #p matching your pubkey']);
-        }
+        if (!ps || ps.length === 0 || !ps.every((p) => state.authed.has(p))) return 'restricted: p-gated events require #p matching your pubkey';
       }
     }
+    return undefined;
+  }
+
+  /** NIP-77: NEG-OPEN / NEG-MSG / NEG-CLOSE, answered with NEG-MSG or NEG-ERR. */
+  private onNegentropy(state: ClientState, type: string, rest: unknown[]) {
+    const subId = rest[0];
+    if (typeof subId !== 'string') return this.send(state, ['NOTICE', `invalid: bad ${type}`]);
+    if (type === 'NEG-CLOSE') {
+      this.negStats.close++;
+      state.neg.delete(subId);
+      return;
+    }
+    let session = state.neg.get(subId);
+    let query: unknown;
+    if (type === 'NEG-OPEN') {
+      this.negStats.open++;
+      const filter = rest[1] as Filter;
+      query = rest[2];
+      if (!filter || typeof filter !== 'object' || typeof query !== 'string') return this.send(state, ['NEG-ERR', subId, 'invalid: bad NEG-OPEN']);
+      const denied = this.readDenied(state, [filter]);
+      if (denied) return this.send(state, ['NEG-ERR', subId, denied]);
+      const { limit: _limit, ...unlimited } = filter;
+      session = { responder: new NegentropyResponder(this.query([unlimited])), messages: 0 };
+      state.neg.set(subId, session); // replaces a previous session with the same id (NIP-77)
+    } else {
+      this.negStats.msg++;
+      query = rest[1];
+      if (!session) return this.send(state, ['NEG-ERR', subId, 'closed: unknown subscription']);
+      if (typeof query !== 'string') return this.send(state, ['NEG-ERR', subId, 'invalid: bad NEG-MSG']);
+    }
+    const limit = this.faults.negErrorAfterMessages;
+    if (limit !== null && session.messages >= limit) {
+      state.neg.delete(subId);
+      return this.send(state, ['NEG-ERR', subId, 'error: negentropy session aborted']);
+    }
+    session.messages++;
+    try {
+      this.send(state, ['NEG-MSG', subId, session.responder.respond(query)]);
+    } catch (err) {
+      state.neg.delete(subId);
+      this.send(state, ['NEG-ERR', subId, `invalid: ${(err as Error).message}`]);
+    }
+  }
+
+  private onReq(state: ClientState, subId: string, filters: Filter[]) {
+    if (typeof subId !== 'string' || filters.length === 0) return this.send(state, ['NOTICE', 'invalid: bad REQ']);
+    if (!this.isAuthorized(state)) return this.send(state, this.opts.authNoticeOnReq ? ['NOTICE', 'auth-required: authenticate before subscribing'] : ['CLOSED', subId, 'auth-required: authenticate first']);
+    const denied = this.readDenied(state, filters);
+    if (denied) return this.send(state, ['CLOSED', subId, denied]);
     state.subs.set(subId, filters);
     for (const evt of this.query(filters)) this.send(state, ['EVENT', subId, evt]);
     this.send(state, ['EOSE', subId]);

@@ -6,7 +6,8 @@ import { IdentityManager, type BackupPackage, type BackupPackageV2, type Persona
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, createDirectMessage, dmInboxFilter, openDirectMessage, type DirectMessage, type RelayAdapter } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, createDirectMessage, dmInboxFilter, joinRequest, openDirectMessage, type DirectMessage, type RelayAdapter } from '@sedecim/messaging';
+import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
 import { disclose, preset, validateConfig, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
 import { EncryptedGroupStorage, MarmotTsProvider, PoolGroupNetwork, assertHighSecurity, type GroupCryptoProvider, type GroupHandle, type GroupMessage, type GroupSession } from '@sedecim/marmot-adapter';
@@ -22,6 +23,16 @@ export interface SovereignOptions {
   relayAdapter?: RelayAdapter;
   /** High-security group provider (Marmot/MLS). Defaults to marmot-ts. */
   groupProvider?: GroupCryptoProvider;
+}
+
+export interface HistorySyncResult {
+  channels: Record<string, NostrEvent[]>;
+  dms: DirectMessage[];
+  /** outbox after reconciling the restored ledger with what the relays actually store */
+  outbox: OutboxRecord[];
+  /** strategy that completed per relay (e.g. nip77-negentropy or req-window) */
+  strategies: Record<string, string>;
+  history: RebuiltHistory;
 }
 
 interface Session {
@@ -138,6 +149,52 @@ export class SovereignClient {
   async sendChannel(personaId: string, groupId: string, text: string): Promise<OutboxRecord> {
     const s = await this.session(personaId);
     return s.engine.submit({ template: chatMessage(groupId, text) }, { relays: s.persona.relays, quorum: this.profileFor(s.persona).quorum, wait: true });
+  }
+
+  /** NIP-29 join request (kind 9021) for a channel. */
+  async joinChannel(personaId: string, groupId: string): Promise<OutboxRecord> {
+    const s = await this.session(personaId);
+    return s.engine.submit({ template: joinRequest(groupId) }, { relays: s.persona.relays, quorum: this.profileFor(s.persona).quorum, wait: true });
+  }
+
+  /**
+   * FR-013: rebuild channels and DMs from the persona's relays (NIP-77 where supported, REQ windows
+   * otherwise) and reconcile the outbox restored from the backup against what the relays store.
+   * `since` (seconds) limits the sync to what changed after the last sync; omit it for a full rebuild.
+   */
+  async syncHistory(personaId: string, opts: { since?: number; channels?: string[] } = {}): Promise<HistorySyncResult> {
+    const s = await this.session(personaId);
+    const now = Math.floor(Date.now() / 1000);
+    const since = opts.since ?? 0;
+    // Full rebuild: one paginated window; incremental: weekly windows back to `since`.
+    const window = new FilterWindowSync(s.pool, { since, windowSeconds: opts.since === undefined ? now + 1 : 7 * 24 * 3600, pageLimit: 500 });
+    const history = await rebuildHistory({ relays: s.persona.relays, pubkey: s.persona.pubkey, since: opts.since, channels: opts.channels, strategies: [new NegentropySync(s.pool), window], signer: s.signer });
+    const reconciler = new DeliveryEngine({ store: s.store.collection<OutboxRecord>('outbox'), publisher: s.pool, lookup: seenLookup(history.seenOn) });
+    await reconciler.reconcile();
+    const strategies = Object.fromEntries(Object.entries(history.reports.dms.perRelay).map(([relay, r]) => [relay, r.strategy]));
+    return { channels: history.channels, dms: history.dms, outbox: await s.engine.list(), strategies, history };
+  }
+
+  /** NFR008-02: the persona's history (own activity, channels, gift wraps) as JSONL of signed events. */
+  async exportHistory(personaId: string, opts: { since?: number } = {}): Promise<string> {
+    const { history } = await this.syncHistory(personaId, opts);
+    return exportEventsJsonl([...history.own, ...Object.values(history.channels).flat(), ...history.wraps]);
+  }
+
+  /** Verifies a JSONL export and (unless dryRun) republishes the valid events to the persona's relays. */
+  async importHistory(personaId: string, jsonl: string, opts: { dryRun?: boolean } = {}): Promise<{ valid: number; invalid: JsonlImportIssue[]; duplicates: number; published: number; rejected: number }> {
+    const parsed = importEventsJsonl(jsonl);
+    let published = 0;
+    let rejected = 0;
+    if (!opts.dryRun) {
+      const s = await this.session(personaId);
+      for (const e of parsed.events) {
+        const results = await s.pool.publish(e, s.persona.relays);
+        if (results.some((r) => r.ok)) published++;
+        else rejected++;
+      }
+    }
+    return { valid: parsed.events.length, invalid: parsed.invalid, duplicates: parsed.duplicates, published, rejected };
   }
 
   async readChannel(personaId: string, groupId: string, limit = 50): Promise<NostrEvent[]> {

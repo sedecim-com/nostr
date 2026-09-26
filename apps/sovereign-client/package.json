@@ -20,6 +20,7 @@
     "@sedecim/profiles": "0.1.0",
     "@sedecim/relay-pool": "0.1.0",
     "@sedecim/signer": "0.1.0",
+    "@sedecim/sync": "0.1.0",
     "@sedecim/telemetry-policy": "0.1.0",
     "@sedecim/tor-network": "0.1.0",
     "ws": "8.21.3"

@@ -117,7 +117,7 @@ docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, ru
 ```
 
 ## Pendiente (roadmap §22)
-- F2: NIP-77 Negentropy; persistencia en Postgres del policy-engine; notification-gateway.
+- F2: persistencia en Postgres del policy-engine; notification-gateway. (NIP-77 Negentropy ya está en `packages/sync`, con fallback a REQ por ventanas.)
 - F3: auditoría independiente de fugas; cliente móvil/desktop dedicado para Tor.
 - F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); unificar Marmot en Buzz si upstream acepta sus kinds.
 - F5: admin-console, directorio con passkeys/attestation, legal hold.

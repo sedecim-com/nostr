@@ -69,6 +69,7 @@ export class RelayConnection {
   /** Set when a connection dropped or an attempt failed; the next successful open is a reconnect. */
   private interrupted = false;
   private challengeWaiters: Array<() => void> = [];
+  private readonly rawListeners = new Set<(msg: unknown[]) => void>();
   private readonly opts: Required<Omit<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect'>> & Pick<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect'>;
 
   constructor(readonly url: string, opts: RelayConnectionOptions = {}) {
@@ -224,6 +225,7 @@ export class RelayConnection {
       return;
     }
     if (!Array.isArray(msg)) return;
+    for (const l of this.rawListeners) l(msg);
     const [type, a, b, c] = msg as [string, unknown, unknown, unknown];
     switch (type) {
       case 'EVENT': {
@@ -298,6 +300,26 @@ export class RelayConnection {
       default:
         return;
     }
+  }
+
+  /**
+   * Raw protocol hook for extensions the connection does not model (e.g. NIP-77 NEG-* messages).
+   * The listener sees every parsed relay message; returns an unsubscribe function.
+   */
+  onRawMessage(fn: (msg: unknown[]) => void): () => void {
+    this.rawListeners.add(fn);
+    return () => this.rawListeners.delete(fn);
+  }
+
+  /** Connects if needed and sends a raw protocol message. Resolves false if the socket is not open. */
+  async sendMessage(msg: unknown[]): Promise<boolean> {
+    await this.connect();
+    return this.sendRaw(msg);
+  }
+
+  /** true when a signer is configured and NIP-42 is allowed (used by extensions to retry after auth-required). */
+  get canAuthenticate(): boolean {
+    return this.canAuth();
   }
 
   private finishSub(id: string, reason: string) {

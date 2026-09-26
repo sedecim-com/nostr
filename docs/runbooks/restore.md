@@ -7,10 +7,17 @@
 3. Restaurar en un dispositivo limpio: importar el archivo (web: modo "Importar"; CLI:
    `sovereign persona import --backup backup.json --label NOMBRE --relay URL`). Se valida que el
    `ncryptsec` descifre a una llave que derive el mismo npub antes de guardarla (`openKeyBackup`).
-4. Backup completo de una persona (llave, relays, configuración del panel y estado MLS cifrado):
-   `sovereign backup export --persona ID --out persona.json` y, en el dispositivo nuevo,
-   `sovereign backup restore persona.json`. Todo va cifrado con la contraseña del backup (formato
+4. Backup completo de una persona (llave, relays, configuración del panel, estado MLS cifrado y
+   outbox de entregas): `sovereign backup export --persona ID --out persona.json` y, en el dispositivo
+   nuevo, `sovereign backup restore persona.json`. Todo va cifrado con la contraseña del backup (formato
    `sedecim-identity-backup` v2); los backups v1 siguen restaurándose.
+5. Reconstruir el historial (FR-013): `sovereign history sync --persona ID` recupera canales NIP-29
+   (descubiertos por la actividad propia y la lista kind 10009), DMs NIP-17 y concilia el outbox
+   restaurado con lo que los relays ya guardan; los pendientes se reenvían con `sovereign resume`
+   (mismo event id). Usa NIP-77 (Negentropy) si el relay lo soporta y, si no, REQ por ventanas.
+6. Portabilidad (NFR-008): `sovereign history export --persona ID --out historial.jsonl` escribe un
+   evento NIP-01 firmado por línea (orden `created_at`, luego `id`); `sovereign history import --persona
+   ID historial.jsonl [--dry-run]` verifica firmas, informa líneas inválidas y republica los válidos.
 
 ## Stack self-hosted (operador)
 | Dato | Dónde | Cómo respaldar |

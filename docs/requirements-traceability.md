@@ -18,7 +18,7 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-010 | Multi-relay + quorum | ✅ | `engine.test.ts` (2 de 3) |
 | FR-011 | Reintento desde outbox | ✅ | `engine.test.ts` (offline → online, mismo event id) |
 | FR-012 | Deduplicación | ✅ | `pool.test.ts`, `sync.test.ts` |
-| FR-013 | Sync tras reinstalar | 🟡 | `packages/sync` fallback por ventanas/paginación ✅; NIP-77 detectado pero no implementado (F2) |
+| FR-013 | Sync tras reinstalar | ✅ | `packages/sync`: NIP-77 (Negentropy, solo se transfieren los faltantes) con fallback automático a REQ por ventanas si el relay no lo soporta o aborta la sesión (`sync.test.ts`); gift wraps con timestamps de hasta 2 días sin pérdidas (`gift-wrap-window.test.ts`); E2E reinstalar → restaurar backup → canales, DMs y outbox iguales (`tests/e2e/reinstall-history.test.ts`) |
 | FR-014 | SaaS mirror | ✅ | `services/indexer/test` + `tests/browser/web-saas.e2e.ts` |
 | FR-015 | SaaS send | ✅ | `tests/browser/web-saas.e2e.ts` (web → relay → otro cliente) |
 | FR-016 | NIP-42 | ✅ | `pool.test.ts` (challenge/response, auth-required recuperable) |
@@ -32,7 +32,7 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-024 | Revocación | ✅ | `policy-engine.test.ts` (sesiones invalidadas, rotación señalada) |
 | FR-025 | Grupo Marmot | ✅ | `MarmotTsProvider` (marmot-ts + ts-mls rc.11): `packages/marmot-adapter/test`, `apps/sovereign-client/test/groups.test.ts` (alta, expulsión sin fuga, rotación PCS, estado cifrado, Tor). Buzz no acepta los kinds → relay secundario (`docs/marmot.md`) |
 | FR-026 | Migración de custodia | ✅ | `managed-signer.test.ts` (export → prueba de posesión → retención → borrado) |
-| FR-027 | Backup restore | ✅ | `identity.test.ts` (dispositivo limpio; backup v2 cifrado con relays, panel y estado MLS; compatibilidad v1), `groups.test.ts` (grupo MLS operativo tras restaurar) |
+| FR-027 | Backup restore | ✅ | `identity.test.ts` (dispositivo limpio; backup v2 cifrado con relays, panel, estado MLS y outbox; compatibilidad v1), `groups.test.ts` (grupo MLS operativo tras restaurar) |
 | FR-028 | Disclosures | ✅ | `profiles/test`, `web-saas.e2e.ts`, `npm run lint:claims` en CI (`tests/scripts/lint-claims.test.ts`) |
 
 | ID | Requisito | Estado | Evidencia / nota |
@@ -44,6 +44,6 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | NFR-005 | Escalabilidad | 🟡 | Indexer sin estado + Postgres; relay según Buzz |
 | NFR-006 | Sin secretos en logs | ✅ | `telemetry.test.ts`, `managed-signer.test.ts`; gitleaks en CI |
 | NFR-007 | Telemetría por perfil | ✅ | `TelemetryPolicy` + tests de endpoints permitidos |
-| NFR-008 | Portabilidad | ✅ | NIP-49 ncryptsec, eventos Nostr crudos, backup JSON abierto |
+| NFR-008 | Portabilidad | ✅ | NIP-49 ncryptsec, eventos Nostr crudos, backup JSON abierto; historial exportable/importable como JSONL de eventos firmados (`exportEventsJsonl`/`importEventsJsonl`, `sovereign history export/import`, verificado con nostr-tools) |
 | NFR-009 | Accesibilidad | 🟡 | Navegación por teclado, labels, contraste claro/oscuro; auditoría formal pendiente |
 | NFR-010 | Auditabilidad | 🟡 | SBOM (`npm run sbom`), checksums de keygen en CI; firma de releases pendiente de claves del proyecto |
