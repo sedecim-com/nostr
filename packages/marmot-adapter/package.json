@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@internet-privacy/marmot-ts": "0.5.1",
-    "@scure/base": "1.2.6",
+    "@scure/base": "2.4.0",
     "@sedecim/encrypted-store": "0.1.0",
     "@sedecim/nostr-core": "0.1.0",
     "@sedecim/relay-pool": "0.1.0",
