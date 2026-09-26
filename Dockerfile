@@ -13,7 +13,7 @@ COPY infra/web/flags.json infra/web/flags.json
 COPY infra/buzz/PIN infra/buzz/PIN
 RUN npm run build:web
 
-FROM nginx:1.27-alpine AS web
+FROM nginx:1.31-alpine AS web
 COPY infra/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-build /app/apps/web-saas/dist /usr/share/nginx/html
 
