@@ -50,6 +50,7 @@ Evidencia: [`docs/interop/buzz-02c6309-report.json`](interop/buzz-02c6309-report
 - **MinIO ya no publica imágenes descargables** (Docker Hub y quay.io responden `unauthorized`); el compose upstream de Buzz también depende de ellas. El stack usa **SeaweedFS 4.47** (Apache-2.0, fijado por digest) como S3 compatible.
 - Buzz rechaza las REQ **anónimas** con `NOTICE auth-required`: el indexer se autentica con una identidad de servicio (`INDEXER_NSEC`).
 - El fan-out **en vivo** de Buzz separa las suscripciones globales de las de canal: los mensajes NIP-29 solo llegan a suscripciones con `#h`. El indexer descubre los canales y mantiene una suscripción `#h`.
+- Buzz es multi-tenant por cabecera `Host`: un host no mapeado a una comunidad recibe **404**, y el tag `relay` del AUTH NIP-42 debe ser `ws(s)://<Host>`. Un servicio que conecta por la red interna (`ws://relay:3000`) debe presentar la URL pública: el indexer usa `INDEXER_RELAY_PUBLIC_URL` (por defecto `RELAY_URL`) para la cabecera `Host` y el tag `relay` (opción `authRelayUrl` del pool).
 - Buzz exige autorización BUD-01 también para **descargar** media.
 
 ## Hallazgos conocidos

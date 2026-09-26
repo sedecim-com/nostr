@@ -132,6 +132,8 @@ services:
     build: { context: ., target: service, args: { SERVICE: indexer } }
     environment:
       INDEXER_RELAYS: ws://relay:3000
+      # Buzz maps the Host header to a community and checks the NIP-42 relay tag against it: present the public URL.
+      INDEXER_RELAY_PUBLIC_URL: ${RELAY_URL:-ws://localhost:3000}
       # NIP-42 service identity of the mirror (Buzz refuses anonymous REQs). Allowlist its npub on private relays.
       INDEXER_NSEC: ${INDEXER_NSEC:-}
       INDEXER_CHANNEL_REFRESH_MS: ${INDEXER_CHANNEL_REFRESH_MS:-30000}

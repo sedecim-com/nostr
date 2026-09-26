@@ -33,6 +33,7 @@ services:
   indexer:
     ports: !reset []
     environment:
+      INDEXER_RELAY_PUBLIC_URL: wss://relay.${DOMAIN}
       PUBLIC_BASE_URL: https://mirror.${DOMAIN}
 
   identity-service:
