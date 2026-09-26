@@ -45,6 +45,7 @@ class FakeGitHub {
         ? { status: 200, body: { data: { repository: { issueFields: { nodes: [{ __typename: 'IssueFieldSingleSelect', fullDatabaseId: '1', name: 'Priority' }, { __typename: 'IssueFieldSingleSelect', fullDatabaseId: '2', name: 'Effort' }, { __typename: 'IssueFieldDate', fullDatabaseId: '3', name: 'Start date' }, { __typename: 'IssueFieldDate', fullDatabaseId: '4', name: 'Target date' }] } } } } }
         : { status: 200, body: { errors: [{ message: 'no fields' }] } };
     if (path === '/labels' && method === 'GET') return { status: 200, body: this.page(this.labels, u.searchParams) };
+    if (path === '/labels' && method === 'POST' && (body.name.includes(',') || body.name.length > 50)) return { status: 422, body: { message: 'Validation Failed', errors: [{ field: 'name', code: 'invalid' }] } };
     if (path === '/labels' && method === 'POST') return this.labels.push({ name: body.name }), { status: 201, body: {} };
     if (path === '/milestones' && method === 'GET') return { status: 200, body: this.page(this.milestones, u.searchParams) };
     if (path === '/milestones' && method === 'POST') {

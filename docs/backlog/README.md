@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **164 tareas** · 96 hechas · 13 parciales · 49 pendientes · 6 descartadas
-- **208 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **164 tareas** · 97 hechas · 12 parciales · 49 pendientes · 6 descartadas
+- **205 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -93,7 +93,7 @@
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| BUZZ-05 | P1 | Revisión mensual automática de la imagen upstream de Buzz con el gate | §6.3 | Infra | 3 | OPS-01 | Parcial | Workflow programado detecta un digest nuevo de ghcr.io/block/buzz, ejecuta stack + gate contra él y abre la PR del pin si pasa (ADR 0003) |
+| BUZZ-05 | P1 | Revisión mensual automática de la imagen upstream de Buzz con el gate | §6.3 | Infra | 3 | OPS-01 | Hecho | Workflow programado detecta un digest nuevo de ghcr.io/block/buzz, ejecuta stack + gate contra él y abre la PR del pin si pasa (ADR 0003) |
 | DEC-05 | P1 | Definir storage local cifrado por plataforma | §25.1-5 | Decisión | 2 | — | Hecho | ADR: IndexedDB (web), Keychain/Keystore (móvil), archivo cifrado (desktop/CLI) |
 | FR001-05 | P1 | E2E en navegador: la nsec nunca sale del cliente | FR-001 | QA | 2 | FR001-03 | Hecho | Test que inspecciona todas las peticiones y WebSocket y no encuentra nsec ni la llave en claro |
 | FR006-02 | P1 | Selector de persona en la web con banner "Enviando como…" | FR-006, §16.1 | Dev | 3 | FR006-01 | Hecho | Cambiar de persona cambia signer, relays y store; banner siempre visible |

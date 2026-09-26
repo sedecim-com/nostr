@@ -20,7 +20,8 @@ mes, a mano con `workflow_dispatch` y al fusionar en `main` un cambio del workfl
 de `ghcr.io/block/buzz:main` (token de GHCR + `HEAD` del manifiesto, que acepta índices OCI) y lo compara con
 `BUZZ_IMAGE` de `infra/buzz/PIN`. Si cambió, reutiliza el job `stack` de `ci.yml` (`workflow_call` con
 `buzz_image` y `stack_only`) contra la imagen candidata. Si el gate pasa, abre una PR en la rama
-`buzz-upstream/<digest>` que actualiza el PIN, el digest por defecto de `docker-compose.yml` y el informe en
+`buzz-upstream/<digest>` que actualiza el PIN, el digest por defecto de `docker-compose.yml`, los flags de
+despliegue (`infra/web/flags.json`, que llevan el commit del relay) y el informe en
 `docs/interop/`. Solo ese job tiene `contents: write` y `pull-requests: write`. Requisitos y límites:
 - Hay que activar *Allow GitHub Actions to create and approve pull requests* en los ajustes del repositorio.
   Sin él, el workflow deja la rama lista y abre un issue con el enlace para crear la PR a mano.

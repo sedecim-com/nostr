@@ -322,8 +322,8 @@
     "OPS-01"
    ],
    "sprint": "S2",
-   "status": "Parcial",
-   "evidence": ".github/workflows/buzz-upstream.yml + scripts/buzz-upstream.sh: detecta el digest, gate reutilizando ci.yml, PR del pin (dispara ci sobre la rama; issue si Actions no puede abrir PR) e issue si el gate falla; se ejecuta al fusionar en main. Falta la primera ejecución en GitHub"
+   "status": "Hecho",
+   "evidence": ".github/workflows/buzz-upstream.yml + scripts/buzz-upstream.sh. Primera ejecución en main (run 36219631189): digest nuevo 8096413eb360, gate verde contra él, rama del pin + issue #21 (Actions aún sin permiso para abrir PRs); PR #23 del pin fusionada. Los flags se regeneran con el pin (PR #22)"
   },
   {
    "id": "BUZZ-06",
