@@ -11,8 +11,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@noble/ciphers": "1.3.0",
     "@sedecim/nostr-core": "0.1.0",
     "@sedecim/encrypted-store": "0.1.0",
+    "@sedecim/profiles": "0.1.0",
     "@sedecim/signer": "0.1.0"
   }
 }

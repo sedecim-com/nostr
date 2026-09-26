@@ -6,6 +6,17 @@ import { neutralFileName, sanitizeMetadata } from './sanitize';
 
 export const BLOSSOM_AUTH_KIND = 24242;
 
+/** Raised by prepareBlob({ requireSanitizable }) for formats whose metadata cannot be removed safely. */
+export class UnsanitizableFileError extends Error {
+  constructor(
+    readonly format: string,
+    readonly reason?: string,
+  ) {
+    super(`file format cannot be sanitized (${format}${reason ? `: ${reason}` : ''}); refusing upload in this profile`);
+    this.name = 'UnsanitizableFileError';
+  }
+}
+
 export interface BlobDescriptor {
   url: string;
   sha256: string;
@@ -55,7 +66,7 @@ export function prepareBlob(input: Uint8Array, opts: PrepareOptions = {}): Prepa
   let removed: string[] = [];
   if (opts.sanitize ?? true) {
     const s = sanitizeMetadata(input);
-    if (s.unsanitized && opts.requireSanitizable) throw new Error('file format cannot be sanitized; refusing upload in this profile');
+    if (s.unsanitized && opts.requireSanitizable) throw new UnsanitizableFileError(s.format, s.reason);
     data = s.data;
     removed = s.removed;
   }

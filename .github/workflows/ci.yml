@@ -60,6 +60,8 @@ jobs:
         run: npx tsx scripts/disclosures.ts --check
       - name: Wait for moto
         run: curl -sf --retry 15 --retry-delay 2 --retry-connrefused -o /dev/null "$MOTO_ENDPOINT/moto-api/"
+      - name: No absolute privacy claims in user-facing copy (FR028-03)
+        run: npm run lint:claims
       - run: npm test
       - name: Browser E2E (web SaaS)
         run: |
@@ -67,6 +69,10 @@ jobs:
           npm run test:browser
       - name: Offline key generator bundle + checksum
         run: node apps/key-generator/build.mjs
+      - name: Air-gapped HTML key generator + checksum, E2E from file:// with network blocked (FR003-05)
+        run: |
+          node apps/key-generator/build-html.mjs
+          npm run test:keygen-html
       - name: SBOM
         run: npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
       - uses: actions/upload-artifact@v4
@@ -75,6 +81,8 @@ jobs:
           path: |
             apps/key-generator/dist/keygen.mjs
             apps/key-generator/dist/keygen.mjs.sha256
+            apps/key-generator/dist/keygen.html
+            apps/key-generator/dist/keygen.html.sha256
             sbom.cdx.json
 
   secrets:

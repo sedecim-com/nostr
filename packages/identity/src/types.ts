@@ -1,4 +1,5 @@
 import type { CustodyMode } from '@sedecim/nostr-core';
+import type { SovereigntyConfig } from '@sedecim/profiles';
 
 export type Compartment = 'standard' | 'high-risk' | 'institutional';
 export type LinkVisibility = 'private' | 'selective' | 'public';
@@ -36,11 +37,39 @@ export interface AuditEntry {
   details?: Record<string, string>;
 }
 
-export interface BackupPackage {
+/** Legacy backup (v1): persona configuration in clear, only the key encrypted. Still restorable. */
+export interface BackupPackageV1 {
   format: 'sedecim-identity-backup';
   version: 1;
   persona: Omit<PersonaConfig, 'id'> & { id: string };
   /** NIP-49 encrypted secret key (absent for external/managed custody) */
   ncryptsec?: string;
   createdAt: number;
+}
+
+/**
+ * Full backup (v2, FR027-02): everything except the timestamp is encrypted with the backup password.
+ * `ncryptsec` stays a standard NIP-49 string so the key alone can be imported in other clients.
+ */
+export interface BackupPackageV2 {
+  format: 'sedecim-identity-backup';
+  version: 2;
+  /** NIP-49 encrypted secret key (absent for external/managed custody) */
+  ncryptsec?: string;
+  /** Random 32-byte content key wrapped with NIP-49 (scrypt + XChaCha20-Poly1305) under the backup password. */
+  contentKey: string;
+  /** base64(nonce[24] || XChaCha20-Poly1305(contentKey, JSON(BackupContents))) */
+  sealed: string;
+  createdAt: number;
+}
+
+export type BackupPackage = BackupPackageV1 | BackupPackageV2;
+
+/** Sealed payload of a v2 backup. */
+export interface BackupContents {
+  persona: PersonaConfig;
+  /** The persona's sovereignty/privacy panel configuration (PANEL-03). */
+  config?: SovereigntyConfig;
+  /** Encrypted-at-rest MLS group state (EncryptedGroupStorage `mls-*` collections), values as stored. */
+  mls?: Record<string, Array<{ id: string; value: unknown }>>;
 }

@@ -2,7 +2,11 @@
  * sovereign — self-hosted Nostr client (Sovereign / Sovereign Tor modes).
  *
  *   sovereign persona create --label NAME --relay URL [--relay URL] [--tor] [--high-risk]
+ *   sovereign persona import --backup FILE --label NAME --relay URL [--tor] [--high-risk] [--password-file f]
+ *                                        (key backup from keygen or the web; ncryptsec must match the npub)
  *   sovereign persona list
+ *   sovereign backup export --persona ID --out FILE [--password-file f]   (key, relays, panel, MLS state)
+ *   sovereign backup restore FILE [--password-file f]
  *   sovereign whoami --persona ID
  *   sovereign channel send --persona ID --group G "text"
  *   sovereign channel read --persona ID --group G
@@ -22,9 +26,10 @@
  *   sovereign group list --persona ID
  *
  * Env: SOVEREIGN_DATA_DIR (default ./.data/sovereign), SOVEREIGN_PASSPHRASE, TOR_SOCKS (127.0.0.1:9050),
+ *      SOVEREIGN_BACKUP_PASSWORD (backup files, when --password-file is not given),
  *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present)
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags } from '@sedecim/messaging';
 import { SovereignClient } from './app';
 
@@ -41,6 +46,14 @@ const opt = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undef
 const opts = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1]!] : []));
 const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk'].includes(argv[i - 1]!))).slice(2);
 
+/** Password of a backup file: --password-file (first line) or SOVEREIGN_BACKUP_PASSWORD. */
+function backupPassword(): string {
+  const file = opt('--password-file');
+  const pw = file ? readFileSync(file, 'utf8').replace(/\r?\n$/, '') : process.env.SOVEREIGN_BACKUP_PASSWORD;
+  if (!pw) throw new Error('backup password required: --password-file FILE or SOVEREIGN_BACKUP_PASSWORD');
+  return pw;
+}
+
 async function main() {
   const passphrase = process.env.SOVEREIGN_PASSPHRASE;
   if (!passphrase) throw new Error('set SOVEREIGN_PASSPHRASE (protects the local encrypted stores)');
@@ -56,6 +69,22 @@ async function main() {
     const [a, b] = argv;
     if (a === 'persona' && b === 'create') {
       const p = await client.createPersona({ label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk') });
+      console.log(JSON.stringify(p, null, 2));
+    } else if (a === 'persona' && b === 'import') {
+      const file = opt('--backup');
+      if (!file) throw new Error('--backup FILE required (JSON from keygen or from the web)');
+      const p = await client.importBackup(readFileSync(file, 'utf8'), backupPassword(), { label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk') });
+      console.log(JSON.stringify(p, null, 2));
+    } else if (a === 'backup' && b === 'export') {
+      const out = opt('--out');
+      if (!out) throw new Error('--out FILE required');
+      const pkg = await client.exportBackup(need(), backupPassword());
+      writeFileSync(out, JSON.stringify(pkg, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+      console.log(`backup cifrado completo (llave, relays, panel, grupos MLS) escrito en ${out}`);
+    } else if (a === 'backup' && b === 'restore') {
+      const file = positional()[0];
+      if (!file) throw new Error('usage: sovereign backup restore FILE');
+      const p = await client.restoreBackup(JSON.parse(readFileSync(file, 'utf8')), backupPassword());
       console.log(JSON.stringify(p, null, 2));
     } else if (a === 'persona' && b === 'list') {
       for (const p of await (await client.identities()).list()) console.log(`${p.id}  ${p.label.padEnd(16)} ${p.network.padEnd(8)} ${p.compartment.padEnd(12)} ${p.relays.join(',')}`);

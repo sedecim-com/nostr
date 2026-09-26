@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 import { normalizePubkey, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { EncryptedStore, FileBackend } from '@sedecim/encrypted-store';
-import { IdentityManager, type PersonaConfig } from '@sedecim/identity';
+import { IdentityManager, type BackupPackage, type BackupPackageV2, type PersonaConfig } from '@sedecim/identity';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
@@ -73,7 +73,37 @@ export class SovereignClient {
     });
     const issues = validateConfig(this.profileFor(persona), 'cli').filter((i) => i.severity === 'error');
     if (issues.length) throw new Error(issues.map((i) => i.message).join('; '));
+    await mgr.saveConfig(persona.id, this.profileFor(persona));
     return persona;
+  }
+
+  /**
+   * FR002-03: create a persona from a key backup file (offline generator or web download). The
+   * ncryptsec must decrypt to the declared npub; the key is re-sealed under the local passphrase.
+   */
+  async importBackup(json: unknown, backupPassword: string, input: { label: string; relays: string[]; tor?: boolean; highRisk?: boolean }): Promise<PersonaConfig> {
+    const mgr = await this.identities();
+    const network = input.tor || input.highRisk ? 'tor-only' : 'direct';
+    const issues = validateConfig(this.profileFor({ relays: input.relays, network } as PersonaConfig), 'cli').filter((i) => i.severity === 'error');
+    if (issues.length) throw new Error(issues.map((i) => i.message).join('; '));
+    const persona = await mgr.importKeyBackup(json, backupPassword, this.opts.passphrase, {
+      label: input.label,
+      relays: input.relays,
+      compartment: input.highRisk ? 'high-risk' : 'standard',
+      network,
+      scryptLogN: this.opts.scryptLogN,
+    });
+    await mgr.saveConfig(persona.id, this.profileFor(persona));
+    return persona;
+  }
+
+  /** FR-027: full encrypted backup (key, relays, panel configuration, MLS group state). */
+  async exportBackup(personaId: string, backupPassword: string, opts: { scryptLogN?: number } = {}): Promise<BackupPackageV2> {
+    return (await this.identities()).exportBackup(personaId, backupPassword, { keyPassphrase: this.opts.passphrase, scryptLogN: opts.scryptLogN });
+  }
+
+  async restoreBackup(pkg: BackupPackage, backupPassword: string): Promise<PersonaConfig> {
+    return (await this.identities()).restoreBackup(pkg, backupPassword, this.opts.passphrase, { scryptLogN: this.opts.scryptLogN });
   }
 
   async session(personaId: string): Promise<Session> {

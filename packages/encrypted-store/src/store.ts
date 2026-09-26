@@ -59,6 +59,16 @@ export class EncryptedStore {
     return new Collection<T>(this, name);
   }
 
+  /** Names of the collections that currently hold entries, optionally filtered by a name prefix. */
+  async collectionNames(prefix = ''): Promise<string[]> {
+    const names = new Set<string>();
+    for (const k of await this.backend.keys(prefix)) {
+      const name = k.slice(0, k.indexOf(':'));
+      if (name && /^[a-z0-9-]+$/.test(name) && name.startsWith(prefix)) names.add(name);
+    }
+    return [...names].sort();
+  }
+
   /** @internal */
   entryKey(collection: string, id: string): string {
     return `${collection}:${bytesToHex(hmac(sha256, this.nameKey, utf8ToBytes(`${collection}\u0000${id}`))).slice(0, 40)}`;

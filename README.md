@@ -19,7 +19,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Blossom con saneamiento EXIF y cifrado cliente | `packages/blossom-client`, `services/blob-store` | ✅ (cifrados → blob-store; Buzz `/media` solo imágenes en claro) |
 | Sovereign Tor Mode (fail closed, DNS remoto, circuitos por persona) | `packages/tor-network`, `apps/sovereign-client` | ✅ |
 | Panel de soberanía con consecuencias verificables | `packages/profiles`, `apps/web-saas` | ✅ |
-| Generador de llaves offline standalone (bundle reproducible + checksum) | `apps/key-generator` | ✅ (QR/impresión pendiente) |
+| Generador de llaves offline standalone (bundle reproducible + checksum, QR, hoja imprimible, HTML air-gapped) | `apps/key-generator`, `packages/qr` | ✅ |
 | Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
@@ -72,9 +72,16 @@ usar una llave del dispositivo sin contraseña ([ADR 0007](docs/adr/0007-almacen
 ### Llave offline
 ```bash
 npm run keygen -- --out backup.json          # NIP-49 ncryptsec, sin red (primitivas bloqueadas)
+npm run keygen -- --out backup.json --qr qr/ --print backup.html   # + QR SVG de npub/ncryptsec y hoja imprimible local
 npm run keygen -- verify backup.json
 node apps/key-generator/build.mjs             # dist/keygen.mjs + .sha256 para distribución air-gapped
+node apps/key-generator/build-html.mjs        # dist/keygen.html + .sha256: generador en un solo HTML, CSP sin red
+npm run sovereign -- persona import --backup backup.json --label NOMBRE --relay wss://…   # importar el backup
 ```
+
+`dist/keygen.html` funciona abierto desde el disco (`file://`): genera la llave con `crypto.getRandomValues`,
+la cifra con NIP-49 y muestra npub, ncryptsec, sus QR y la hoja imprimible. Su CSP (`default-src 'none'`,
+script y estilos fijados por SHA-256) impide cualquier conexión; compara el checksum antes de usarlo.
 
 ### Cliente soberano (CLI)
 ```bash
