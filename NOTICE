@@ -1,0 +1,10 @@
+sedecim-nostr — Plataforma Nostr Soberana / SaaS
+Copyright 2026 sedecim
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party components
+- Block Buzz relay (https://github.com/block/buzz), Apache-2.0. Used unmodified as the upstream
+  container image pinned by digest in infra/buzz/PIN; no Buzz source code is included in or
+  distributed from this repository.
+- Runtime and build dependencies retain their own licenses as declared in package-lock.json.

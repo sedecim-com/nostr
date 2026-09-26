@@ -41,9 +41,9 @@ NIP-42 obligatorio, gift wraps solo al destinatario, también publicado como oni
 Incluye su URL en los relays de la persona (`--relay ws://localhost:7000`); la política de red de la
 persona (Tor-only, allowlist) se aplica también al tráfico MLS.
 
-Alternativa pendiente de decisión: parchear el fork de Buzz para aceptar 30443/445/10051 (y 444 dentro
-de 1059, ya aceptado). Contradice "minimizar modificaciones al relay" (§6.3) y exige revisar cómo Buzz
-interpreta el tag `h` de 445 como canal NIP-29.
+Ruta decidida en ADR 0006: los grupos MLS viven en el `secure-relay`. Parchear Buzz para aceptar
+30443/445/10051 queda descartado (no hay fork, ADR 0002); se reevalúa si upstream acepta esos kinds o
+añade un allowlist configurable.
 
 ## Interoperabilidad con un relay real
 La suite de conformidad pasa contra **nostr-rs-relay 0.9.0** (el `secure-relay` del stack) con NIP-42

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Relay Nostr en memoria para pruebas E2E (NIP-01/NIP-42) con inyección de fallos.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

@@ -1,7 +1,7 @@
 # ADR 0004 · Bibliotecas Nostr para Rust y Flutter
 
-- **Estado:** Propuesto · **Tarea:** DEC-04 (P1) · **Fecha:** 2026-09-26
-- **Aprobación:** pendiente
+- **Estado:** Aceptado · **Tarea:** DEC-04 (P1) · **Fecha:** 2026-09-26
+- **Aprobación:** responsable de producto (vic2099), 2026-09-26
 
 ## Contexto
 TypeScript ya está decidido (`docs/architecture.md`): `@noble/*` + `@scure/base` con `nostr-tools` como
@@ -20,16 +20,18 @@ Estado del ecosistema a 2026-09-26:
 | A · Dart puro, como Buzz mobile | Integración inmediata con el cliente de Buzz | Otra implementación criptográfica que auditar (NIP-44/49/59 en Dart); no hay MLS/Marmot en Dart |
 | B · `flutter_rust_bridge` sobre un núcleo Rust (rust-nostr + MDK) | Un solo núcleo criptográfico para desktop y móvil; MLS disponible; es lo que hacen los clientes Marmot de referencia | Complejidad de build (NDK, iOS); más tamaño |
 
-## Decisión propuesta
+## Decisión
 - **Rust: `nostr` (rust-nostr), en la misma línea de versiones que el relay de Buzz, y MDK para Marmot.**
   Así desktop, servicios nativos y relay comparten tipos y comportamiento.
 - **Flutter: opción B para todo lo criptográfico** (llaves, NIP-44/49/59, firmas, MLS) mediante
   `flutter_rust_bridge` sobre ese núcleo Rust. La capa Dart de Buzz mobile se conserva para UI y
-  plumbing mientras dure el early release (BUZZ-06).
+  plumbing si en algún momento se integra.
 - **Criterio de aceptación de cualquier implementación:** pasar los mismos vectores que el SDK TS. Para
   ello se añaden a `packages/nostr-core/test` vectores exportables (interop con nostr-tools, NIP-44 v2,
   NIP-49) que las suites de Rust y Dart consumen.
 
 ## Consecuencias
+- **Diferido:** el early release solo tiene clientes propios en TypeScript (ADR 0002). Esta dirección se
+  aplica cuando se decida una app nativa; hasta entonces las tareas nativas quedan como P3 sin sprint.
 - FR025-04 (interoperabilidad con MDK) pasa a ser también la validación del núcleo Rust.
 - Hay que exportar vectores de prueba en JSON (tarea derivada, SEC-03).

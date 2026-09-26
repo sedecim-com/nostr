@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Plataforma Nostr soberana / SaaS: SDK, servicios y clientes interoperables con grados configurables de soberan\u00eda.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "engines": {
     "node": ">=22"

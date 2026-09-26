@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Política de red: directa o Tor-only con fail-closed y DNS remoto (socks5h).",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

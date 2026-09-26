@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Canales NIP-29, DMs NIP-17 (NIP-44/NIP-59), receipts y feature flags.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

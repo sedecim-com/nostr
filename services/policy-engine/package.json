@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Servicio de políticas institucionales, dispositivos y revocación.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

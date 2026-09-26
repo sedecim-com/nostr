@@ -2,7 +2,7 @@
 
 ## Versión fijada
 Ver `infra/buzz/PIN`: commit `02c6309f` (2026-09-25) e imagen `ghcr.io/block/buzz@sha256:da30acf8…`.
-Buzz está bajo Apache-2.0: al distribuir el fork conservar `LICENSE`/`NOTICE` y marcar archivos modificados.
+Buzz está bajo Apache-2.0 y se usa **sin modificar** (ADR 0002): no hay fork ni código de Buzz en este repositorio; `NOTICE` lo atribuye.
 
 ## Qué se reutiliza / qué no se delega
 Reutilizamos el relay (NIP-01, NIP-29, NIP-42), su Postgres/Redis, búsqueda NIP-50, audit log y Blossom
@@ -10,10 +10,10 @@ Reutilizamos el relay (NIP-01, NIP-29, NIP-42), su Postgres/Redis, búsqueda NIP
 multi-relay y máquina de estados de entrega, Tor-only, mirror/vault cifrado, Marmot/MLS y políticas
 institucionales. Todo eso vive en este repositorio y habla Nostr, no APIs internas de Buzz.
 
-## Estrategia de fork
-`scripts/buzz-fork.sh` mantiene `vendor/upstream` = commit fijado y `product/main` con parches mínimos.
-Preferimos adaptadores en el SDK antes que modificar el relay. Cada actualización de upstream exige pasar
-el gate de interoperabilidad.
+## Sin fork: pin y actualización
+Usamos la imagen publicada por Block fijada por digest. Las divergencias se resuelven con adaptadores en el
+SDK o servicios aparte, nunca modificando el relay. Para probar una imagen nueva: ejecutar el workflow `ci`
+manualmente con el input `buzz_image`; los criterios de adopción y el rollback están en ADR 0003.
 
 ## Gate F0 → F0.5 (`npm run test:interop`)
 ```bash

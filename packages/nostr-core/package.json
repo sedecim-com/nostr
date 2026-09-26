@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Primitivas Nostr: eventos NIP-01, firmas BIP-340, NIP-19, NIP-44, NIP-49, NIP-98.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

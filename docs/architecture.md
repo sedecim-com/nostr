@@ -42,9 +42,9 @@ firmados; las bases de datos son índices derivados.
 
 ## Decisiones (ADR resumidas; ver §25.1)
 1. **Biblioteca base TS**: `@noble/*` + `@scure/base` directamente (auditadas, sin dependencias); `nostr-tools`
-   solo como oráculo de interoperabilidad en tests. Rust/Flutter: pendiente (móvil vía Buzz Flutter).
+   solo como oráculo de interoperabilidad en tests. Rust/Flutter: rust-nostr + MDK y `flutter_rust_bridge` (ADR 0004), diferido hasta que haya app nativa.
 2. **Storage local**: XChaCha20-Poly1305 con clave scrypt; nombres de entrada HMAC; escritura atómica.
-3. **Receipts**: rumor gift-wrapped kind provisional `16914`; lectura opt-in. Decisión abierta.
-4. **Marmot**: marmot-ts 0.5.1 + ts-mls rc.11 detrás de `GroupCryptoProvider`; tráfico por el relay secundario porque Buzz rechaza los kinds.
-5. **Licencia/nombre**: MIT (repositorio actual) con scope `@sedecim`; revisar compatibilidad con Apache-2.0 del fork.
-6. **Notificaciones móviles**, **región cloud/legal para managed** y **threat models por perfil formales**: abiertas.
+3. **Receipts**: rumor gift-wrapped kind `16914`; lectura opt-in (ADR 0005).
+4. **Marmot**: marmot-ts 0.5.1 + ts-mls rc.11 detrás de `GroupCryptoProvider`; tráfico por el relay secundario porque Buzz rechaza los kinds (ADR 0006).
+5. **Licencia/nombre**: Apache-2.0 con scope `@sedecim` (ADR 0001); Buzz upstream sin fork (ADR 0002). Marca comercial pendiente.
+6. **Notificaciones móviles**, **región cloud/legal para managed**: abiertas. Threat models por perfil en `docs/threat-models/`.

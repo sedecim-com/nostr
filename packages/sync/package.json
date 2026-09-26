@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Sincronización/backfill por ventanas con detección NIP-77.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

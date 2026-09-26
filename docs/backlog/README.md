@@ -5,25 +5,26 @@
 
 ## Resumen
 
-- **161 tareas** · 56 hechas · 25 parciales · 80 pendientes
-- **320 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **161 tareas** · 62 hechas · 17 parciales · 76 pendientes · 6 descartadas
+- **290 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
-- Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente**
-- IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, fork, operación, panel y gates.
+- Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
+- IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
 
 ## Plan de sprints
 
 | Sprint | Fechas | Fase | Objetivo | Tareas | SP | P0 |
 |---|---|---|---|---:|---:|---:|
 | v0.1 | hasta 2026-09-26 | — | Entregado | 50 | 116 | 31 |
-| S1 | 2026-09-28 → 2026-10-09 | F0 | Cierre F0 y gate de interoperabilidad | 15 | 27 | 6 |
-| S2 | 2026-10-12 → 2026-10-23 | F0.5 | Web SaaS como cliente completo | 18 | 50 | 0 |
+| S1 | 2026-09-28 → 2026-10-09 | F0 | Cierre F0 y gate de interoperabilidad | 12 | 22 | 5 |
+| S2 | 2026-10-12 → 2026-10-23 | F0.5 | Web SaaS como cliente completo | 17 | 47 | 0 |
 | S3 | 2026-10-26 → 2026-11-06 | F1 | Identidad, llaves y custodia | 20 | 48 | 1 |
 | S4 | 2026-11-09 → 2026-11-20 | F2 | OSS soberano, sync y operación | 18 | 48 | 0 |
-| S5 | 2026-11-23 → 2026-12-04 | F3 | Privacidad, Tor y observabilidad | 12 | 39 | 1 |
-| S6 | 2026-12-07 → 2026-12-18 | F4 | Grupos high-security | 8 | 39 | 0 |
+| S5 | 2026-11-23 → 2026-12-04 | F3 | Privacidad, Tor y observabilidad | 11 | 31 | 1 |
+| S6 | 2026-12-07 → 2026-12-18 | F4 | Grupos high-security | 6 | 26 | 0 |
 | S7 | 2027-01-04 → 2027-01-15 | F5 | Modo institucional | 13 | 51 | 1 |
 | S8 | 2027-01-18 → 2027-01-29 | Release | Hardening, escalabilidad y release | 7 | 31 | 2 |
+| Diferido | sin fecha | — | Sin planificar: requiere app nativa (ADR 0004) | 1 | 8 | 0 |
 
 ## Cobertura de requisitos
 
@@ -48,12 +49,12 @@
 | FR-017 | 5 | 3 | FR017-04 (S2), FR017-05 (S4) |
 | FR-018 | 5 | 3 | FR018-04 (S2), FR018-05 (S5) |
 | FR-019 | 3 | 1 | FR018-04 (S2), FR019-02 (S3) |
-| FR-020 | 3 | 1 | FR020-02 (S5), FR020-03 (S5) |
+| FR-020 | 3 | 1 | FR020-02 (Diferido), FR020-03 (S5) |
 | FR-021 | 2 | 1 | FR021-02 (S5) |
 | FR-022 | 2 | 1 | FR022-02 (S5) |
 | FR-023 | 6 | 2 | FR023-03 (S7), FR023-04 (S7), FR023-05 (S7), FR023-06 (S7) |
 | FR-024 | 3 | 1 | FR024-02 (S7), FR024-03 (S7) |
-| FR-025 | 10 | 3 | FR025-04 (S6), FR025-05 (S6), FR025-06 (S6), FR025-07 (S6), FR025-08 (S6), FR025-09 (S6), FR025-10 (S6) |
+| FR-025 | 10 | 4 | FR025-04 (S6), FR025-05 (S6), FR025-06 (S6), FR025-07 (S6), FR025-08 (S6), FR025-09 (S6) |
 | FR-026 | 3 | 2 | FR026-03 (S3) |
 | FR-027 | 3 | 1 | FR027-02 (S3), FR027-03 (S4) |
 | FR-028 | 3 | 1 | FR028-02 (S3), FR028-03 (S3) |
@@ -68,31 +69,31 @@
 | NFR-009 | 2 | 0 | NFR009-01 (S2), NFR009-02 (S3) |
 | NFR-010 | 4 | 1 | FR003-06 (S4), NFR010-02 (S4), NFR010-03 (S8) |
 
-## S1 · Cierre F0 y gate de interoperabilidad (F0, 2026-09-28 → 2026-10-09) — 27 SP
+## S1 · Cierre F0 y gate de interoperabilidad (F0, 2026-09-28 → 2026-10-09) — 22 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| BUZZ-01 | P0 | Crear repositorio fork con ramas vendor/upstream y product/main | §6.3 | Infra | 1 | DEC-02 | Parcial | Fork creado; vendor/upstream = commit fijado; protección de ramas |
-| DEC-01 | P0 | Decidir nombre y licencia del proyecto open source | §25.1-1 | Decisión | 2 | — | Parcial | ADR aprobado; LICENSE y package.json actualizados; compatibilidad con Apache-2.0 del fork revisada |
-| DEC-02 | P0 | Fijar subset de Buzz a forkear y commit/release de F0 | §25.1-2 | Decisión | 2 | — | Parcial | Lista de crates/apps incluidos; commit y digest en infra/buzz/PIN aprobados |
+| BUZZ-01 | P0 | Crear repositorio fork con ramas vendor/upstream y product/main | §6.3 | Infra | 1 | DEC-02 | Descartado | Fork creado; vendor/upstream = commit fijado; protección de ramas |
+| DEC-01 | P0 | Decidir nombre y licencia del proyecto open source | §25.1-1 | Decisión | 2 | — | Hecho | ADR aprobado; LICENSE, NOTICE y package.json actualizados |
+| DEC-02 | P0 | Decidir fork o Buzz upstream y fijar la versión de F0 | §25.1-2 | Decisión | 2 | — | Hecho | ADR aprobado; commit y digest en infra/buzz/PIN |
 | FR014-02 | P0 | Verificar el mirror contra Buzz en el stack Docker completo | FR-014 | QA | 2 | OPS-01 | Hecho | test:interop + indexer contra el relay del compose en CI |
 | FR018-03 | P0 | Validar la subida de imágenes en claro a Buzz /media con MinIO | FR-018 | QA | 1 | OPS-01 | Hecho | Informe del gate con plainImage.accepted = true |
 | OPS-01 | P0 | CI: construir todas las imágenes y levantar el stack completo con smoke test | §4.1 | Infra | 3 | — | Hecho | Job que hace docker compose up, espera healthchecks y ejecuta test:interop |
-| BUZZ-02 | P1 | Revisar obligaciones Apache-2.0 del fork (LICENSE, NOTICE, cambios marcados) | §21.2 | Doc | 1 | BUZZ-01, DEC-01 | Parcial | Checklist legal aprobado y NOTICE en el fork |
-| BUZZ-03 | P1 | Build reproducible de la imagen del relay desde el fork | §6.3 | Infra | 3 | BUZZ-01 | Parcial | Imagen construida en CI a partir de product/main con digest publicado |
-| DEC-03 | P1 | Definir política de compatibilidad con upstream Buzz | §25.1-3 | Decisión | 1 | DEC-02 | Parcial | Cadencia de sync, criterios de adopción y de rollback documentados |
-| DEC-04 | P1 | Elegir biblioteca Nostr base para Rust y Flutter | §25.1-4 | Decisión | 2 | — | Parcial | ADR con evaluación de TS (noble, decidido), Rust (rust-nostr/MDK) y Flutter |
-| DEC-06 | P1 | Definir receipt de aplicación y política de read receipts | §25.1-6 | Decisión | 1 | — | Parcial | Formato del rumor (kind definitivo) y opt-in por perfil aprobados; kind provisional 16914 reemplazado |
-| DEC-07 | P1 | Ratificar proveedor Marmot y ruta de relay (secure-relay vs parche Buzz) | §25.1-7 | Decisión | 1 | — | Parcial | ADR aprobado; marmot-ts/ts-mls fijados; decisión sobre parche de kinds 30443/445/10051 en el fork |
+| BUZZ-02 | P1 | Revisar obligaciones Apache-2.0 del fork (LICENSE, NOTICE, cambios marcados) | §21.2 | Doc | 1 | BUZZ-01, DEC-01 | Descartado | Checklist legal aprobado y NOTICE en el fork |
+| BUZZ-03 | P1 | Build reproducible de la imagen del relay desde el fork | §6.3 | Infra | 3 | BUZZ-01 | Descartado | Imagen construida en CI a partir de product/main con digest publicado |
+| DEC-03 | P1 | Definir política de pin y actualización de Buzz upstream | §25.1-3 | Decisión | 1 | DEC-02 | Hecho | Cadencia de sync, criterios de adopción y de rollback documentados |
+| DEC-04 | P1 | Elegir biblioteca Nostr base para Rust y Flutter | §25.1-4 | Decisión | 2 | — | Hecho | ADR con evaluación de TS (noble, decidido), Rust (rust-nostr/MDK) y Flutter |
+| DEC-06 | P1 | Definir receipt de aplicación y política de read receipts | §25.1-6 | Decisión | 1 | — | Hecho | Formato del rumor (kind definitivo) y opt-in por perfil aprobados; kind provisional 16914 reemplazado |
+| DEC-07 | P1 | Ratificar proveedor Marmot y ruta de relay (secure-relay vs parche Buzz) | §25.1-7 | Decisión | 1 | — | Hecho | ADR aprobado; marmot-ts/ts-mls fijados; ruta de relay decidida |
 | DEC-10 | P1 | Formalizar threat models por perfil (convenience, resilient, institutional, sovereign, Tor) | §25.1-10, §20.3 | Seguridad | 3 | — | Hecho | Un documento por perfil con activos, adversarios, mitigaciones y riesgos residuales, versionado por release |
 | FR017-03 | P1 | Activar el flag NIP-17 por entorno a partir de interop-report.json en CI | FR-017 | Infra | 2 | FR014-02 | Hecho | El despliegue lee enableFlag y recommendedJitterSeconds del gate |
 | OPS-02 | P1 | Proxy TLS (Caddy) y URLs públicas en el compose de producción | §4.1 | Infra | 2 | OPS-01 | Hecho | Override compose.tls.yml con certificados automáticos y RELAY_URL wss:// |
 
-## S2 · Web SaaS como cliente completo (F0.5, 2026-10-12 → 2026-10-23) — 50 SP
+## S2 · Web SaaS como cliente completo (F0.5, 2026-10-12 → 2026-10-23) — 47 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| BUZZ-05 | P1 | Pipeline de sync con upstream que ejecuta el gate de interoperabilidad | §6.3 | Infra | 3 | BUZZ-03, OPS-01 | Pendiente | PR automático de upstream que ejecuta test:interop contra la imagen nueva |
+| BUZZ-05 | P1 | Revisión mensual automática de la imagen upstream de Buzz con el gate | §6.3 | Infra | 3 | OPS-01 | Parcial | Workflow programado detecta un digest nuevo de ghcr.io/block/buzz, ejecuta stack + gate contra él y abre la PR del pin si pasa (ADR 0003) |
 | DEC-05 | P1 | Definir storage local cifrado por plataforma | §25.1-5 | Decisión | 2 | — | Parcial | ADR: IndexedDB (web), Keychain/Keystore (móvil), archivo cifrado (desktop/CLI) |
 | FR001-05 | P1 | E2E en navegador: la nsec nunca sale del cliente | FR-001 | QA | 2 | FR001-03 | Pendiente | Test que inspecciona todas las peticiones y WebSocket y no encuentra nsec ni la llave en claro |
 | FR006-02 | P1 | Selector de persona en la web con banner "Enviando como…" | FR-006, §16.1 | Dev | 3 | FR006-01 | Parcial | Cambiar de persona cambia signer, relays y store; banner siempre visible |
@@ -100,7 +101,7 @@
 | FR015-02 | P1 | Descubrimiento de canales (39000) y unión (9021) en la web | FR-015 | Dev | 3 | FR015-01 | Pendiente | Lista de canales visibles y botón de unirse |
 | FR015-03 | P1 | E2E de la web contra Buzz real (crear canal, unirse, enviar, leer) | FR-015 | QA | 2 | FR015-02, OPS-01 | Pendiente | Test en navegador contra el relay del compose |
 | PANEL-02 | P1 | Aplicar la configuración del panel al comportamiento real del cliente web | §9 | Dev | 5 | PANEL-01 | Pendiente | Red, telemetría, receipts, previews y quorum usan la configuración elegida (hoy solo se muestra) |
-| BUZZ-04 | P2 | Branding del fork (desktop Tauri/React) | §22 F0 | Dev | 3 | BUZZ-01, DEC-01 | Pendiente | Nombre, iconos y textos propios sin tocar el protocolo |
+| BUZZ-04 | P2 | Branding del fork (desktop Tauri/React) | §22 F0 | Dev | 3 | BUZZ-01, DEC-01 | Descartado | Nombre, iconos y textos propios sin tocar el protocolo |
 | FR001-04 | P2 | Backend IndexedDB para encrypted-store en navegador | FR-001, FR-008 | Dev | 3 | DEC-05 | Pendiente | Stores de llave y outbox sobre IndexedDB con tests en Chromium |
 | FR009-02 | P2 | Pasar a RECIPIENT_ACKED/READ con los receipts entrantes | FR-009, §11 | Dev | 3 | DEC-06, FR009-01 | Pendiente | Receipts gift-wrapped recibidos actualizan el estado de la operación |
 | FR011-02 | P2 | Lanzar resume() al recuperar conectividad (eventos online / reconexión del pool) | FR-011 | Dev | 2 | FR011-01 | Pendiente | La web y el CLI reanudan solos la outbox al volver la red |
@@ -159,15 +160,14 @@
 | OPS-09 | P2 | Documentación de build desde source | §21.2 | Doc | 2 | — | Parcial | Guía reproducible para todos los artefactos (servicios, web, keygen) |
 | FR017-05 | P3 | Seguir el issue upstream #4192 y retirar el adaptador cuando se corrija | FR-017, §25 | QA | 1 | BUZZ-05 | Pendiente | Re-ejecutar el gate en cada sync; volver al jitter estándar si pasa |
 
-## S5 · Privacidad, Tor y observabilidad (F3, 2026-11-23 → 2026-12-04) — 39 SP
+## S5 · Privacidad, Tor y observabilidad (F3, 2026-11-23 → 2026-12-04) — 31 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| FR020-03 | P0 | Tests de fugas con captura de red real (netns/pcap): DNS, IPv6, conexiones directas | FR-020, §20.3 | Seguridad | 5 | FR020-02 | Parcial | Suite que prueba cero tráfico fuera de Tor con el cliente real |
-| FR020-02 | P1 | Cliente desktop dedicado con Tor embebido | FR-020, §25 | Dev | 8 | DEC-04 | Pendiente | App desktop (Tauri) que usa el SDK con Tor integrado y el perfil sovereign-tor |
+| FR020-03 | P0 | Tests de fugas con captura de red real (netns/pcap): DNS, IPv6, conexiones directas | FR-020, §20.3 | Seguridad | 5 | — | Parcial | Suite que prueba cero tráfico fuera de Tor con el cliente soberano real (CLI); la app desktop, cuando exista, reutiliza la suite |
 | FR021-02 | P1 | Validar el perfil tor del compose (onion services de relay y secure-relay) | FR-021 | QA | 2 | OPS-01 | Pendiente | Arranque real y conexión del CLI a las direcciones .onion generadas |
 | FR022-02 | P1 | Test en CI de endpoints de salida permitidos por perfil | FR-022, NFR-007 | QA | 3 | FR020-03 | Parcial | Allowlist de egress por perfil verificada con el cliente real |
-| SEC-05 | P1 | Tests de fugas por WebRTC y previews remotas en web/desktop | §20.3 | Seguridad | 2 | FR020-02 | Pendiente | Sin candidatos ICE ni peticiones de previews en perfiles sensibles |
+| SEC-05 | P1 | Tests de fugas por WebRTC y previews remotas en la web | §20.3 | Seguridad | 2 | — | Pendiente | Sin candidatos ICE ni peticiones de previews en perfiles sensibles (la app desktop, cuando exista, reutiliza la suite) |
 | DEC-08 | P2 | Definir modelo de notificaciones móviles por perfil | §25.1-8 | Decisión | 2 | — | Pendiente | Matriz perfil × (push, privacy-push, none) con metadatos expuestos |
 | NFR004-01 | P2 | Exportar métricas (latencia P95 de ACK por relay y región) | NFR-004 | Dev | 3 | — | Parcial | Exportador Prometheus respetando el perfil de telemetría |
 | OPS-06 | P2 | Servicio notification-gateway con perfiles de privacidad | §17.1 | Dev | 5 | DEC-08 | Pendiente | Push opaco sin contenido ni remitente; deshabilitado en perfiles Tor |
@@ -176,7 +176,7 @@
 | FR018-05 | P3 | Lista de servidores Blossom del usuario (kind 10063) | FR-018 | Dev | 2 | FR018-01 | Pendiente | El cliente publica y respeta la lista de servidores |
 | NFR004-02 | P3 | Dashboard de latencia y degradación sin ocultarla | NFR-004 | Infra | 2 | NFR004-01, NFR001-02 | Pendiente | Panel P95/P99 por relay con alertas de degradación |
 
-## S6 · Grupos high-security (F4, 2026-12-07 → 2026-12-18) — 39 SP
+## S6 · Grupos high-security (F4, 2026-12-07 → 2026-12-18) — 26 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
@@ -185,16 +185,16 @@
 | FR025-06 | P2 | Multi-dispositivo: varios key packages por persona y sincronización del estado | FR-025 | Dev | 5 | FR025-01 | Pendiente | Un usuario con 2 dispositivos participa en el mismo grupo |
 | FR025-07 | P2 | UI de grupos high-security en la web | FR-025 | Dev | 5 | FR025-06, FR001-04 | Pendiente | Crear, invitar, chatear y expulsar desde la web con estado cifrado |
 | FR025-08 | P2 | Migrar a marmot-ts v2 / ts-mls estable cuando se publiquen | FR-025 | Dev | 3 | FR025-04 | Pendiente | Dependencias fijadas a versiones estables; conformidad y autoprueba en verde |
-| BUZZ-06 | P3 | Integración progresiva del cliente móvil Flutter de Buzz | §6.1 | Dev | 8 | BUZZ-03, DEC-04 | Pendiente | Mobile compila contra el relay del fork y pasa smoke test NIP-29 |
+| BUZZ-06 | P3 | Integración progresiva del cliente móvil Flutter de Buzz | §6.1 | Dev | 8 | BUZZ-03, DEC-04 | Descartado | Mobile compila contra el relay del fork y pasa smoke test NIP-29 |
 | FR025-09 | P3 | Flujo de propuestas de miembros no admin y commit por el admin | FR-025 | Dev | 3 | FR025-01 | Pendiente | Un miembro propone y el admin compromete; tests |
-| FR025-10 | P3 | Parche en el fork de Buzz para los kinds Marmot (solo si DEC-07 lo aprueba) | FR-025, DEC-07 | Dev | 5 | DEC-07, BUZZ-01 | Pendiente | El relay acepta 30443/445/10051 sin romper el tratamiento de #h de NIP-29 |
+| FR025-10 | P3 | Parche en el fork de Buzz para los kinds Marmot (solo si DEC-07 lo aprueba) | FR-025, DEC-07 | Dev | 5 | DEC-07, BUZZ-01 | Descartado | El relay acepta 30443/445/10051 sin romper el tratamiento de #h de NIP-29 |
 
 ## S7 · Modo institucional (F5, 2027-01-04 → 2027-01-15) — 51 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
 | FR023-03 | P0 | Persistencia del policy-engine en Postgres | FR-023 | Dev | 3 | FR023-02 | Pendiente | Sujetos, recursos, dispositivos y auditoría sobreviven reinicios |
-| FR023-04 | P1 | Sincronizar el allowlist NIP-42 del relay con el policy-engine | FR-023, §16 | Dev | 3 | FR023-03, BUZZ-03 | Pendiente | pubkey_allowlist de Buzz / secure-relay actualizado desde /v1/relay/allowlist |
+| FR023-04 | P1 | Sincronizar el allowlist NIP-42 del relay con el policy-engine | FR-023, §16 | Dev | 3 | FR023-03 | Pendiente | Allowlist NIP-42 de Buzz (configuración de la imagen upstream) y del secure-relay actualizado desde /v1/relay/allowlist |
 | FR023-05 | P1 | Aplicar la política en el indexer y las APIs derivadas | FR-023 | Dev | 3 | FR023-03, FR014-03 | Pendiente | Lecturas filtradas por evaluate(); tests de denegación |
 | FR024-02 | P1 | Ejecutar la rotación MLS automáticamente al revocar (commit Remove) | FR-024 | Dev | 3 | FR024-01, FR025-01, FR023-03 | Pendiente | La revocación dispara removeMember en los grupos afectados |
 | SEC-04 | P1 | Pruebas de pérdida de dispositivo de extremo a extremo | §20.3 | QA | 3 | FR024-02 | Pendiente | Revocar → sin sesión → grupos rotados → el dispositivo robado no lee |
@@ -218,6 +218,12 @@
 | REL-02 | P2 | Release notes con los cambios de trust model por release | Apéndice D | Doc | 1 | REL-01 | Pendiente | Plantilla y primer release notes publicados |
 | NFR005-01 | P3 | Indexer escalable horizontalmente (reparto por relay y upserts idempotentes) | NFR-005 | Dev | 5 | FR014-01 | Pendiente | N réplicas sin duplicados ni pérdidas; test de concurrencia |
 | NFR005-02 | P3 | Pruebas de carga del relay y el indexer | NFR-005 | QA | 3 | NFR005-01 | Pendiente | Informe con throughput y límites |
+
+## Diferido · Sin planificar: requiere app nativa (ADR 0004) (—, sin fecha) — 8 SP
+
+| ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
+|---|---|---|---|---|---:|---|---|---|
+| FR020-02 | P3 | Cliente desktop dedicado con Tor embebido | FR-020, §25 | Dev | 8 | DEC-04 | Pendiente | App desktop (Tauri) que usa el SDK con Tor integrado y el perfil sovereign-tor |
 
 ## Entregado en v0.1 — 50 tareas
 
