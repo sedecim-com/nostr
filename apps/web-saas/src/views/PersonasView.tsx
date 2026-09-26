@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardActions, CardContent, Checkbox, FormControlLabel, List, ListItem, ListItemText, MenuItem, Radio, RadioGroup, Stack, TextField, Typography } from '@mui/material';
 import { PRESETS, type PresetName } from '@sedecim/profiles';
-import { linkAccesoLogin } from '../lib/identity';
-import { createPersona, custodyFacts, custodyLabel, exportBackup, shortNpub, type NewPersona } from '../lib/session';
+import { fetchCloudBackup, linkAccesoLogin, saveCloudBackup } from '../lib/identity';
+import { backupJson, createPersona, custodyFacts, custodyLabel, exportBackup, shortNpub, type NewPersona } from '../lib/session';
 import { deviceKeyAllowed, setProtection } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
 import { LinkPersonas } from './LinkPersonas';
@@ -101,6 +101,24 @@ export function PersonasView() {
       setBackupPass('');
     });
 
+  // FR027-03: the same NIP-49 file, uploaded to the vault. Only ciphertext leaves the browser.
+  const cloudVault = cfg.backupVault;
+  const cloudAllowed = !!cloudVault && session?.persona.config?.cloudBackup !== 'off';
+  const saveToCloud = () =>
+    void run(async () => {
+      await saveCloudBackup(session!.signer, cloudVault!, await backupJson(session!.persona, backupPass), 'local');
+      setBackupPass('');
+      ws.notify('Copia cifrada guardada en la nube. Sin la contraseña del backup no se puede descifrar: guárdala aparte.', 'success');
+    });
+  // In SaaS the Acceso login authorizes the download (new device); otherwise the open persona signs it.
+  const restoreFromCloud = () =>
+    void run(async () => {
+      const auth = ws.user ? { token: async () => (await import('../lib/acceso')).accesoAccessToken() } : session ? { signer: session.signer } : undefined;
+      if (!auth) throw new Error('Para restaurar desde la nube necesitas iniciar sesión con Acceso o abrir una persona de la misma cuenta.');
+      const json = await fetchCloudBackup(cloudVault!, auth);
+      setBackupFile({ json, parsed: parseKeyBackup(json) });
+    });
+
   const toggleProtection = () =>
     void run(async () => {
       if (deviceVault) await setProtection(book.vault, { kind: 'passphrase', passphrase: vaultPass });
@@ -152,9 +170,21 @@ export function PersonasView() {
                 <Button id="export-backup" onClick={download} disabled={busy || backupPass.length < 8}>
                   Descargar backup cifrado (NIP-49)
                 </Button>
+                {cloudAllowed && (
+                  <Button id="cloud-backup" onClick={saveToCloud} disabled={busy || backupPass.length < 8}>
+                    Guardar copia cifrada en la nube
+                  </Button>
+                )}
               </>
             )}
           </CardActions>
+          {session.persona.custody === 'local' && cloudAllowed && (
+            <CardContent sx={{ pt: 0 }}>
+              <Typography variant="body2" color="text.secondary" id="cloud-backup-facts">
+                La copia en la nube se cifra en este navegador con la contraseña del backup (NIP-49). El servidor guarda el texto cifrado y tu npub, pero no recibe la contraseña: si la olvidas, el operador no puede recuperar la copia.
+              </Typography>
+            </CardContent>
+          )}
           {ws.user && cfg.identityService && (
             <CardContent>
               <FormControlLabel control={<Checkbox checked={linkConsent} onChange={(e) => setLinkConsent(e.target.checked)} />} label={`Vincular esta persona con mi cuenta de Acceso (${ws.user.username}). El servicio de identidad sabrá que esta npub es tuya.`} />
@@ -216,6 +246,11 @@ export function PersonasView() {
                     }}
                   />
                 </Button>
+                {cloudVault && (ws.user || session) && (
+                  <Button id="cloud-restore" variant="outlined" onClick={restoreFromCloud} disabled={busy}>
+                    Restaurar desde la nube
+                  </Button>
+                )}
                 {backupFile && <Alert severity="info" id="backup-npub">Backup de {backupFile.parsed.npub} ({backupFile.parsed.format}). Se comprobará al descifrarlo.</Alert>}
                 <TextField id="import-backup-pass" label="Contraseña del archivo de backup" type="password" autoComplete="off" value={ncPass} onChange={(e) => setNcPass(e.target.value)} required />
               </Stack>

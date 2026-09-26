@@ -1,0 +1,141 @@
+name: restore-drill
+
+# NFR003-02: nightly restore drill of the self-hosted stack (docs/runbooks/restore.md, docs/rpo-rto.md).
+# Stack up → known data written into every stateful component → scripts/backup.sh → clean host
+# (docker compose down -v, no .env) → scripts/restore.sh → the data is back → interop gate.
+# On failure an issue is opened (or commented) so the broken drill is not lost.
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/restore-drill.yml
+      - scripts/backup.sh
+      - scripts/restore.sh
+      - scripts/drill-data.ts
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restore-drill
+  cancel-in-progress: false
+
+env:
+  GITLEAKS_VERSION: 8.28.0
+  BUZZ_RELAY_URL: ws://localhost:3000
+  MARMOT_RELAY_URL: ws://localhost:7000
+  STACK_INDEXER_URL: http://localhost:8081
+  STACK_BLOB_URL: http://localhost:8085
+  STACK_WEB_URL: http://localhost:8080
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Configure stack
+        run: |
+          sh scripts/init-env.sh
+          echo "INDEXER_CHANNEL_REFRESH_MS=2000" >> .env
+      - name: Build images
+        run: docker compose build
+      - name: Start stack
+        run: |
+          docker compose up -d
+          sh scripts/wait-stack.sh
+      - name: Seed known data (Buzz, mirror, media, blob-store, secure relay)
+        run: npx tsx scripts/drill-data.ts seed "$RUNNER_TEMP/drill-state.json"
+      - name: Backup (scripts/backup.sh, as the runbook prescribes)
+        run: sh scripts/backup.sh "$RUNNER_TEMP/backup"
+      - name: Clean host (no containers, no volumes, no .env)
+        run: |
+          docker compose logs --no-color > compose-before.log 2>&1 || true
+          docker compose down -v
+          rm -f .env
+          left=$(docker volume ls -q --filter label=com.docker.compose.project=sedecim-nostr)
+          if [ -n "$left" ]; then echo "volumes left after down -v: $left"; exit 1; fi
+      - name: Restore (scripts/restore.sh)
+        run: |
+          start=$(date +%s)
+          sh scripts/restore.sh "$RUNNER_TEMP/backup"
+          sh scripts/wait-stack.sh
+          echo "RTO_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+      - name: The seeded data is back
+        run: npx tsx scripts/drill-data.ts verify "$RUNNER_TEMP/drill-state.json"
+      - name: Interop gate against the restored stack
+        run: npm run test:interop
+      - name: Drill summary
+        if: always()
+        run: |
+          {
+            echo "### Restore drill"
+            echo "- Restore + stack ready: ${RTO_SECONDS:-n/a} s (objetivo self-hosted en docs/rpo-rto.md)"
+            echo "- Backup: $(du -sh "$RUNNER_TEMP/backup" 2>/dev/null | cut -f1 || echo n/a)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect logs
+        if: always()
+        run: docker compose logs --no-color > compose.log 2>&1 || true
+      - name: Scan logs for secrets (NFR006-03)
+        if: always()
+        run: |
+          curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tgz gitleaks
+          env_file=.env
+          [ -f "$env_file" ] || env_file="$RUNNER_TEMP/backup/.env"
+          status=0
+          for log in compose-before.log compose.log; do
+            if [ -s "$log" ]; then GITLEAKS="$PWD/gitleaks" sh scripts/scan-logs.sh "$log" "$env_file" || status=1; fi
+          done
+          exit "$status"
+      # Never upload the backup itself: it contains .env with every secret of the drill stack.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: restore-drill
+          path: |
+            compose-before.log
+            compose.log
+            interop-report.json
+            interop-marmot-report.json
+            ${{ runner.temp }}/backup/SHA256SUMS
+            ${{ runner.temp }}/backup/INFO
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v
+
+  drill-failed:
+    needs: drill
+    if: always() && needs.drill.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open (or comment on) the drill issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Restore drill fallido"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Vuelve a fallar: $RUN_URL"
+            exit 0
+          fi
+          {
+            echo "El restore drill nocturno (NFR003-02) falló: $RUN_URL"
+            echo
+            echo "El drill levanta el stack, escribe datos conocidos, hace backup con \`scripts/backup.sh\`, borra contenedores, volúmenes y \`.env\`, restaura con \`scripts/restore.sh\`, comprueba los datos y ejecuta \`npm run test:interop\`."
+            echo
+            echo "Mientras falle, el procedimiento de \`docs/runbooks/restore.md\` no está verificado y los RPO/RTO de \`docs/rpo-rto.md\` no se pueden garantizar. Revisar el paso fallido y los logs del artefacto \`restore-drill\`."
+          } > "$RUNNER_TEMP/body.md"
+          gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md"

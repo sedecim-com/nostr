@@ -1,0 +1,81 @@
+# Stage: cluster sedecim-stage.k8s.local (kops, AWS us-east-1). Images from ECR only, public hosts under
+# *.ai.acce.so (ALB wildcard certificate), NodePort registered in the ALB target group (deploy/terraform).
+# Render: kubectl kustomize deploy/k8s/overlays/stage   ·   apply: deploy/k8s/scripts/deploy.sh --yes
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: acceso-nostr
+resources:
+  - ../../base
+  # SLO probes, alerts and dashboard (NFR001-02).
+  - ../../../monitoring
+components:
+  # SaaS only: the custodial signer (vault aws = KMS + Secrets Manager, ADR 0009).
+  - ../../components/managed-signer
+
+configMapGenerator:
+  - name: acceso-nostr-config
+    behavior: merge
+    literals:
+      - RELAY_URL=wss://nostr-stage-relay.ai.acce.so
+      - BUZZ_MEDIA_BASE_URL=https://nostr-stage-relay.ai.acce.so/media
+      - WEB_ORIGIN=https://nostr-stage.ai.acce.so
+      - INDEXER_PUBLIC_URL=https://nostr-stage-mirror.ai.acce.so
+      - IDENTITY_PUBLIC_URL=https://nostr-stage-id.ai.acce.so
+      - POLICY_PUBLIC_URL=https://nostr-stage-policy.ai.acce.so
+      - BLOB_PUBLIC_URL=https://nostr-stage-blobs.ai.acce.so
+      # Outputs of deploy/terraform (module acceso-nostr, env = stage).
+      - MANAGED_SIGNER_KMS_KEY_ID=alias/acceso-nostr-stage-managed-signer
+      - MANAGED_SIGNER_SECRET_PREFIX=acceso-nostr/stage/managed-keys/
+      # Acceso (Cognito) pool for stage: fill in before the first deploy (deploy.sh refuses empty values
+      # while the managed signer is enabled). Region us-east-1 as the rest of Sedecim.
+      - COGNITO_USER_POOL_ID=
+      - COGNITO_CLIENT_ID=
+  - name: web-config
+    behavior: replace
+    files:
+      - config.json=files/web-config.json
+  - name: secure-relay-config
+    behavior: replace
+    files:
+      - config.toml=files/secure-relay.config.toml
+
+patches:
+  # NodePort = port of the ALB target group (terraform var.node_port). 31800 belongs to buzz-hermes.
+  - target:
+      kind: Service
+      name: edge
+    patch: |-
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 31810
+
+# Every image comes from ECR (never Docker Hub or ghcr in stage). Mirrors keep the upstream digests
+# (deploy/k8s/scripts/mirror-ecr-deps.sh copies manifests with `docker buildx imagetools create`).
+images:
+  - name: ghcr.io/block/buzz
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-buzz
+  - name: chrislusf/seaweedfs
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-seaweedfs
+  - name: scsibug/nostr-rs-relay
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-secure-relay
+  - name: postgres
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-postgres
+  - name: redis
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-redis
+  - name: nginx
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-nginx
+  - name: prom/prometheus
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-prometheus
+  - name: prom/blackbox-exporter
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-blackbox-exporter
+  - name: prom/alertmanager
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-alertmanager
+  - name: grafana/grafana
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-grafana
+  # Built by deploy/k8s/scripts/build-push.sh; deploy.sh swaps `stage` for the commit being deployed.
+  - name: acceso-nostr-service
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-service
+    newTag: stage
+  - name: acceso-nostr-web
+    newName: 212568716371.dkr.ecr.us-east-1.amazonaws.com/acceso-nostr-web
+    newTag: stage

@@ -18,5 +18,7 @@ const cognito =
     ? new CognitoVerifier({ region: env.COGNITO_REGION ?? 'us-east-1', userPoolId: env.COGNITO_USER_POOL_ID, clientId: env.COGNITO_CLIENT_ID, ...(env.COGNITO_JWKS_URL ? { jwksUrl: env.COGNITO_JWKS_URL } : {}) })
     : undefined;
 const corsOrigins = (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-const api = createIdentityApi(repo, { name: 'identity-service', publicBaseUrl: env.PUBLIC_BASE_URL, corsOrigins, ...(cognito ? { cognito } : {}) });
+// FR027-03: encrypted backup vault limits (envelope size, versions kept per account).
+const backupVault = { ...(env.BACKUP_VAULT_MAX_BYTES ? { maxBytes: Number(env.BACKUP_VAULT_MAX_BYTES) } : {}), ...(env.BACKUP_VAULT_KEEP ? { keep: Number(env.BACKUP_VAULT_KEEP) } : {}) };
+const api = createIdentityApi(repo, { name: 'identity-service', publicBaseUrl: env.PUBLIC_BASE_URL, corsOrigins, backupVault, ...(cognito ? { cognito } : {}) });
 await api.listen(Number(env.PORT ?? 8082), env.HOST ?? '0.0.0.0');

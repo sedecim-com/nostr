@@ -4,7 +4,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { nip98 } from '@sedecim/nostr-core';
 import { createLogger, type Logger } from '@sedecim/telemetry-policy';
 
-export type AuthMode = 'none' | 'nip98' | 'bearer' | 'nip98-optional';
+/** 'nip98-or-token': NIP-98, or an `Authorization: Bearer` token handed to the route as `req.token` to verify (e.g. Cognito). */
+export type AuthMode = 'none' | 'nip98' | 'bearer' | 'nip98-optional' | 'nip98-or-token';
 
 export interface Req {
   method: string;
@@ -17,6 +18,8 @@ export interface Req {
   pubkey?: string;
   /** Authenticated service principal (bearer). */
   principal?: string;
+  /** Unverified bearer token ('nip98-or-token' routes): the handler must verify it. */
+  token?: string;
   json<T = unknown>(): T;
 }
 
@@ -99,6 +102,11 @@ export class Service {
       return;
     }
     if (route.auth === 'nip98-optional' && !header) return;
+    if (route.auth === 'nip98-or-token' && header?.startsWith('Bearer ')) {
+      req.token = header.slice(7).trim();
+      if (!req.token) throw new HttpError(401, 'empty bearer token');
+      return;
+    }
     const base = this.opts.publicBaseUrl ?? this.baseUrl;
     try {
       const evt = nip98.verifyAuthHeader(header, { url: base + rawUrl, method: req.method, body: req.rawBody });

@@ -9,7 +9,7 @@ import WebSocket from 'ws';
 import { generateSecretKey, getTagValue } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
-import { chatMessage, createGroup, createDirectMessage, dmInboxFilter, openDirectMessage, parseGroupMetadata } from '@sedecim/messaging';
+import { chatMessage, createGroup, createDirectMessage, dmInboxFilter, nip17GateDecision, openDirectMessage, parseGroupMetadata } from '@sedecim/messaging';
 import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
 import { EncryptedStore, MemoryBackend } from '@sedecim/encrypted-store';
 import { tinyPng } from '@sedecim/test-relay';
@@ -85,9 +85,9 @@ describe.skipIf(!URL_)('Buzz interop gate', () => {
       strategies: results,
       receivedByRecipient: opened.length,
       unscopedSubscriptionLeaks: unscoped.length,
-      // Gate decision: enable only with a strategy that is fully accepted AND received.
-      recommendedJitterSeconds: results['nip59-default-2d']!.accepted === 3 ? 172800 : results['bounded-5m']!.accepted === 3 ? 300 : null,
-      enableFlag: opened.length > 0 && (results['nip59-default-2d']!.accepted === 3 || results['bounded-5m']!.accepted === 3),
+      // Gate decision (FR017-05): standard 2-day jitter as soon as Buzz accepts it (#4192), else the
+      // bounded adapter; enabled only with a strategy that is fully accepted AND received.
+      ...nip17GateDecision(results, opened.length),
     };
     expect(unscoped.length).toBe(0);
   });

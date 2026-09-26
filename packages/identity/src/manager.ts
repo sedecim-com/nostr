@@ -22,6 +22,8 @@ import { openKeyBackup } from './key-backup';
 import type { AuditEntry, BackupContents, BackupPackage, BackupPackageV2, Compartment, IdentityLink, LinkVisibility, PersonaConfig } from './types';
 
 const BACKUP_AAD = utf8ToBytes('sedecim-identity-backup-v2');
+/** Persona-store collection used by the delivery engine's outbox (see apps/sovereign-client). */
+export const OUTBOX_COLLECTION = 'outbox';
 
 function toBase64(bytes: Uint8Array): string {
   let s = '';
@@ -285,12 +287,13 @@ export class IdentityManager {
 
   /**
    * FR-027: full encrypted backup of a persona (v2): key (NIP-49), persona settings and relays, panel
-   * configuration and the encrypted MLS group state, all sealed under the backup password.
+   * configuration, the encrypted MLS group state and the delivery outbox (FR013-03), all sealed under the
+   * backup password.
    */
   async exportBackup(
     personaId: string,
     backupPassword: string,
-    opts: { keyPassphrase?: string; scryptLogN?: number; config?: SovereigntyConfig; includeMls?: boolean } = {},
+    opts: { keyPassphrase?: string; scryptLogN?: number; config?: SovereigntyConfig; includeMls?: boolean; includeOutbox?: boolean } = {},
   ): Promise<BackupPackageV2> {
     const persona = await this.get(personaId);
     const logN = opts.scryptLogN ?? 18;
@@ -315,6 +318,10 @@ export class IdentityManager {
       for (const name of await store.collectionNames('mls-')) mls[name] = await store.collection<unknown>(name).all();
       if (Object.keys(mls).length) contents.mls = mls;
     }
+    if (opts.includeOutbox ?? true) {
+      const outbox = await store.collection<unknown>(OUTBOX_COLLECTION).all();
+      if (outbox.length) contents.outbox = outbox;
+    }
     const contentKey = randomBytes(32);
     try {
       const nonce = randomBytes(24);
@@ -327,7 +334,7 @@ export class IdentityManager {
         sealed: toBase64(concatBytes(nonce, ct)),
         createdAt: this.now(),
       };
-      await this.log({ action: 'backup.exported', subject: personaId, details: { version: '2', config: String(!!contents.config), mlsCollections: String(Object.keys(contents.mls ?? {}).length) } });
+      await this.log({ action: 'backup.exported', subject: personaId, details: { version: '2', config: String(!!contents.config), mlsCollections: String(Object.keys(contents.mls ?? {}).length), outbox: String(contents.outbox?.length ?? 0) } });
       return pkg;
     } finally {
       wipe(contentKey);
@@ -370,6 +377,10 @@ export class IdentityManager {
       if (!/^mls-[a-z0-9-]+$/.test(name)) throw new Error(`invalid MLS collection in backup: ${name}`);
       const col = store.collection<unknown>(name);
       for (const e of entries) await col.put(e.id, e.value);
+    }
+    if (contents.outbox?.length) {
+      const col = store.collection<unknown>(OUTBOX_COLLECTION);
+      for (const e of contents.outbox) if (!(await col.get(e.id))) await col.put(e.id, e.value); // never overwrite newer local state
     }
     await this.personas.put(persona.id, persona);
     await this.log({ action: 'backup.restored', subject: persona.id, details: { version: String(pkg.version) } });

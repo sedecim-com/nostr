@@ -1,0 +1,70 @@
+# Prometheus for the Acceso Nostr SLO (NFR001-02, docs/slo.md).
+# Target names are the service names shared by docker-compose.yml and deploy/k8s (same namespace /
+# network), so this file works unchanged in both. Only Buzz exposes its own metrics (:9102); every
+# service's availability SLI comes from blackbox probes of the same health endpoints the compose
+# healthchecks and the Kubernetes probes use.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    system: acceso-nostr
+
+rule_files:
+  - /etc/prometheus/rules/*.rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: blackbox-exporter
+    static_configs:
+      - targets: ['blackbox-exporter:9115']
+
+  # Buzz relay metrics (http_requests_total, buzz_readiness_state, buzz_ws_authenticated_connections_active).
+  - job_name: buzz
+    static_configs:
+      - targets: ['relay:9102']
+        labels:
+          service: relay
+
+  # Availability SLI: one probe per service every 30 s. `service` is the label every SLO rule groups by.
+  - job_name: slo-probes
+    metrics_path: /probe
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ['http://relay:8080/_readiness']
+        labels: { service: relay, module: http_2xx }
+      - targets: ['http://secure-relay:8080/']
+        labels: { service: secure-relay, module: http_nip11 }
+      - targets: ['http://indexer:8081/health']
+        labels: { service: indexer, module: http_2xx }
+      - targets: ['http://identity-service:8082/health']
+        labels: { service: identity-service, module: http_2xx }
+      - targets: ['http://policy-engine:8083/health']
+        labels: { service: policy-engine, module: http_2xx }
+      - targets: ['http://blob-store:8085/health']
+        labels: { service: blob-store, module: http_2xx }
+      - targets: ['http://web:8080/flags.json']
+        labels: { service: web, module: http_2xx }
+      # SaaS only (managed signer). Remove this target where the signer is not deployed.
+      - targets: ['http://managed-signer:8084/health']
+        labels: { service: managed-signer, module: http_2xx }
+      # Public entry (Kubernetes edge proxy behind the ALB). Not present in docker compose.
+      - targets: ['http://edge:80/_edge_health']
+        labels: { service: edge, module: http_2xx }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [module]
+        target_label: __param_module
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

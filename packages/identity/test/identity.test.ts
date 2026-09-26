@@ -93,10 +93,11 @@ describe('IdentityManager', () => {
     const store = await one.open(p.id);
     await store.collection('mls-groups').put('g1', { $obj: { epoch: { $bi: '7' }, secret: { $u8: 'AAEC' } } });
     await store.collection('mls-keypackages').put('kp1', 'opaque');
+    await store.collection('outbox').put('op1', { opId: 'op1', state: 'QUEUED', relays: ['wss://a.example'] });
     const pkg = await one.mgr.exportBackup(p.id, 'backup-pw', { keyPassphrase: 'pp', scryptLogN: LOGN });
     expect(pkg.version).toBe(2);
     const text = JSON.stringify(pkg);
-    for (const leak of ['wss://a.example', 'Grupos', 'multi-relay', 'mls-groups', 'AAEC', p.pubkey]) expect(text).not.toContain(leak);
+    for (const leak of ['wss://a.example', 'Grupos', 'multi-relay', 'mls-groups', 'AAEC', 'QUEUED', p.pubkey]) expect(text).not.toContain(leak);
     expect(Object.keys(pkg).sort()).toEqual(['contentKey', 'createdAt', 'format', 'ncryptsec', 'sealed', 'version']);
 
     const two = setup();
@@ -108,6 +109,7 @@ describe('IdentityManager', () => {
     const s2 = await two.open(p.id);
     expect(await s2.collection('mls-groups').get('g1')).toEqual({ $obj: { epoch: { $bi: '7' }, secret: { $u8: 'AAEC' } } });
     expect(await s2.collection('mls-keypackages').get('kp1')).toBe('opaque');
+    expect(await s2.collection('outbox').get('op1')).toEqual({ opId: 'op1', state: 'QUEUED', relays: ['wss://a.example'] });
     expect(await (await two.mgr.unlock(p.id, 'new-pp')).getPublicKey()).toBe(p.pubkey);
     expect((await two.mgr.auditLog()).at(-1)).toMatchObject({ action: 'backup.restored', details: { version: '2' } });
 

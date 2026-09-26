@@ -41,6 +41,7 @@
     "@vitejs/plugin-react-swc": "3.11.0",
     "axe-core": "4.13.0",
     "esbuild": "0.28.2",
+    "fast-check": "4.10.2",
     "nostr-tools": "2.25.2",
     "playwright": "1.56.1",
     "tsx": "4.23.15",

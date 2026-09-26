@@ -1,19 +1,39 @@
 import { randomBytes } from 'node:crypto';
 import { getTagValue, nip98, verifyEvent } from '@sedecim/nostr-core';
 import { Service, HttpError, isHex64, requireFields, CognitoTokenError, type CognitoVerifier, type ServiceOptions, type Req } from '@sedecim/service-kit';
-import { ExternalLoginTakenError, type IdentityRepository, type PersonaRow, type Visibility } from './repository';
+import { BackupEnvelopeError, MAX_VAULT_BACKUP_BYTES, validateBackupEnvelope, type VaultBackupMeta } from '@sedecim/identity/backup-vault';
+import { ExternalLoginTakenError, type BackupMetaRow, type IdentityRepository, type PersonaRow, type Visibility } from './repository';
 
 const CUSTODY = ['local', 'offline', 'external', 'encrypted-backup', 'managed', 'managed-enclave'];
 const VIS: Visibility[] = ['private', 'selective', 'public'];
 const FORBIDDEN_KEY_FIELDS = /(nsec|secret|seed|private|mnemonic|password)/i;
 const id = () => randomBytes(12).toString('hex');
 
+export interface BackupVaultOptions {
+  /** Max size of one stored envelope (default 512 KiB). */
+  maxBytes?: number;
+  /** Versions kept per account; older ones are pruned (default 5). */
+  keep?: number;
+}
+
+const backupMeta = (b: BackupMetaRow): VaultBackupMeta => ({
+  id: b.backupId,
+  format: b.format as VaultBackupMeta['format'],
+  format_version: b.formatVersion,
+  size: b.size,
+  sha256: b.sha256,
+  ...(b.npub ? { npub: b.npub } : {}),
+  created_at: b.createdAt,
+});
+
 /**
  * Identity service (spec §5.1): relates an application account with the npubs the user CHOOSES to
  * register. It never knows an nsec. Personas the user keeps unlinked are simply never registered.
  */
-export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions & { cognito?: CognitoVerifier }) {
-  const svc = new Service(opts);
+export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions & { cognito?: CognitoVerifier; backupVault?: BackupVaultOptions }) {
+  const maxBackup = opts.backupVault?.maxBytes ?? MAX_VAULT_BACKUP_BYTES;
+  const keepBackups = opts.backupVault?.keep ?? 5;
+  const svc = new Service({ ...opts, maxBodyBytes: Math.max(opts.maxBodyBytes ?? 1_000_000, maxBackup + 1024) });
   const base = () => opts.publicBaseUrl ?? svc.baseUrl;
 
   const me = async (req: Req) => {
@@ -189,6 +209,66 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
     },
     'nip98',
   );
+
+  // FR027-03: encrypted backup vault. Owner = identity account, proven by NIP-98 (any registered persona)
+  // or, in SaaS mode, by the Acceso (Cognito) token of a login linked to the account, so a new device
+  // can restore with the Acceso login plus the backup password. Contents are opaque and never logged.
+  const backupOwner = async (req: Req): Promise<{ accountId: string; actor: string }> => {
+    if (req.token === undefined) return { accountId: (await me(req)).accountId, actor: req.pubkey! };
+    if (!opts.cognito) throw new HttpError(401, 'bearer tokens are not accepted by this deployment');
+    let who;
+    try {
+      who = await opts.cognito.verify(req.token);
+    } catch (e) {
+      if (e instanceof CognitoTokenError) throw new HttpError(401, `invalid cognito token: ${e.message}`);
+      throw e;
+    }
+    const accountId = await repo.accountByExternalLogin('cognito', who.issuer, who.subject);
+    if (!accountId) throw new HttpError(404, 'no account linked to this Acceso login');
+    return { accountId, actor: `cognito:${who.subject}` };
+  };
+
+  svc.post(
+    '/v1/backups',
+    async (req) => {
+      const owner = await backupOwner(req);
+      let v;
+      try {
+        v = validateBackupEnvelope(req.rawBody, maxBackup);
+      } catch (e) {
+        if (e instanceof BackupEnvelopeError) throw new HttpError(e.message.startsWith('backup too large') ? 413 : 400, e.message);
+        throw e;
+      }
+      const row = { backupId: id(), accountId: owner.accountId, format: v.format, formatVersion: v.formatVersion, size: v.size, sha256: nip98.payloadHash(req.rawBody), ...(v.npub ? { npub: v.npub } : {}), createdAt: new Date().toISOString(), envelope: req.rawBody };
+      await repo.putBackup(row, keepBackups);
+      await repo.audit(owner.accountId, owner.actor, 'backup.stored', { backup: row.backupId, format: v.format, size: v.size });
+      const { envelope: _e, ...meta } = row;
+      return { status: 201, body: { backup: backupMeta(meta) } };
+    },
+    'nip98-or-token',
+  );
+  svc.get('/v1/backups', async (req) => ({ backups: (await repo.backupsOf((await backupOwner(req)).accountId)).map(backupMeta) }), 'nip98-or-token');
+  svc.get(
+    '/v1/backups/:id',
+    async (req) => {
+      const owner = await backupOwner(req);
+      const b = await repo.getBackup(owner.accountId, req.params.id!);
+      if (!b) throw new HttpError(404, 'backup not found');
+      await repo.audit(owner.accountId, owner.actor, 'backup.downloaded', { backup: b.backupId });
+      const { envelope, ...meta } = b;
+      return { backup: backupMeta(meta), envelope };
+    },
+    'nip98-or-token',
+  );
+  const deleteBackups = async (req: Req) => {
+    const owner = await backupOwner(req);
+    const deleted = await repo.deleteBackups(owner.accountId, req.params.id);
+    if (req.params.id && !deleted) throw new HttpError(404, 'backup not found');
+    await repo.audit(owner.accountId, owner.actor, 'backup.deleted', { backup: req.params.id ?? 'all', count: deleted });
+    return { deleted };
+  };
+  svc.delete('/v1/backups', deleteBackups, 'nip98-or-token');
+  svc.delete('/v1/backups/:id', deleteBackups, 'nip98-or-token');
 
   svc.get('/v1/accounts/me/audit', async (req) => ({ audit: await repo.auditOf((await me(req)).accountId) }), 'nip98');
   return svc;

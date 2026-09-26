@@ -31,6 +31,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 Trazabilidad completa FR/NFR → tests: [docs/requirements-traceability.md](docs/requirements-traceability.md).
 Backlog con tareas atómicas, prioridad, dependencias y sprint: vive en [GitHub Issues](https://github.com/sedecim-com/nostr/issues?q=label%3Abacklog) (milestones = sprints, epics con sub-issues) y se sincroniza a [docs/backlog/](docs/backlog/README.md) con una PR automática (ver [GITHUB.md](docs/backlog/GITHUB.md)).
 Arquitectura: [docs/architecture.md](docs/architecture.md) · Threat model: [docs/threat-model.md](docs/threat-model.md).
+Releases firmados (cosign keyless + provenance SLSA), build desde source y verificación: [docs/building.md](docs/building.md) (`sh scripts/verify-release.sh <tag>`).
 
 ## Inicio rápido
 
@@ -82,6 +83,7 @@ npm run sovereign -- persona import --backup backup.json --label NOMBRE --relay 
 `dist/keygen.html` funciona abierto desde el disco (`file://`): genera la llave con `crypto.getRandomValues`,
 la cifra con NIP-49 y muestra npub, ncryptsec, sus QR y la hoja imprimible. Su CSP (`default-src 'none'`,
 script y estilos fijados por SHA-256) impide cualquier conexión; compara el checksum antes de usarlo.
+Uso air-gapped verificable con un release firmado, paso a paso: [docs/keygen-air-gapped.md](docs/keygen-air-gapped.md).
 
 ### Cliente soberano (CLI)
 ```bash
@@ -102,6 +104,8 @@ npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 | `npm run test:browser` | Web en Chromium (Playwright): personas, canales, DMs con ruteo 10050, adjuntos, receipts, panel aplicado y persistido, vault, nsec que no sale del navegador, axe-core, modo SaaS con Acceso |
 | `BUZZ_RELAY_URL=… npx tsx tests/browser/web-buzz.e2e.ts` | Web contra Buzz real: crear canal, unirse, enviar y leer (FR015-03; job `stack` de CI) |
 | `npm run test:interop` | Gate contra Buzz real (`BUZZ_RELAY_URL`), genera `interop-report.json` |
+| `sh scripts/backup.sh` / `sh scripts/restore.sh DIR` | Backup y restore del stack self-hosted (`docs/runbooks/restore.md`; drill nocturno `restore-drill.yml`) |
+| `sh scripts/scan-logs.sh compose.log .env` | Busca secretos en los logs del stack: reglas de gitleaks + valores de `.env` (job `stack` de CI) |
 
 ## Estructura
 ```
@@ -111,15 +115,16 @@ packages/   SDK compartido (nostr-core, relay-pool, signer, delivery-engine, enc
 apps/       web-saas, sovereign-client, key-generator
 services/   indexer, identity-service, managed-signer, policy-engine, blob-store
 infra/      buzz (pin), tor, postgres, web
-docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, runbooks
+deploy/     Kubernetes (kustomize) y Terraform del SaaS en staging, monitorización de SLO (deploy/README.md)
+docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, runbooks, SLO, RPO/RTO
 ```
 
 ## Pendiente (roadmap §22)
-- F2: NIP-77 Negentropy; persistencia en Postgres del policy-engine; notification-gateway.
+- F2: persistencia en Postgres del policy-engine; notification-gateway. (NIP-77 Negentropy ya está en `packages/sync`, con fallback a REQ por ventanas.)
 - F3: auditoría independiente de fugas; cliente móvil/desktop dedicado para Tor.
 - F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); unificar Marmot en Buzz si upstream acepta sus kinds.
 - F5: admin-console, directorio con passkeys/attestation, legal hold.
-- Firma de releases (claves del proyecto), QR en el generador offline, enclave Nitro para managed.
+- Primer release firmado con `release.yml` (falta configurar el entorno `release`), QR en el generador offline, enclave Nitro para managed.
 
 ## Licencia
 Apache-2.0 (ver `LICENSE` y `NOTICE`). El relay Buzz (Apache-2.0) se usa sin modificar como imagen upstream fijada por digest.

@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: policy-engine
+  labels:
+    app: policy-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: policy-engine
+  template:
+    metadata:
+      labels:
+        app: policy-engine
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: policy-engine
+          image: acceso-nostr-service
+          ports:
+            - name: http
+              containerPort: 8083
+          envFrom:
+            - configMapRef:
+                name: acceso-nostr-config
+          env:
+            - name: SERVICE
+              value: policy-engine
+            - name: PORT
+              value: "8083"
+            - name: POLICY_SERVICE_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: POLICY_SERVICE_TOKENS
+                  optional: true
+            - name: PUBLIC_BASE_URL
+              value: $(POLICY_PUBLIC_URL)
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: policy-engine
+  labels:
+    app: policy-engine
+spec:
+  selector:
+    app: policy-engine
+  ports:
+    - name: http
+      port: 8083
+      targetPort: 8083

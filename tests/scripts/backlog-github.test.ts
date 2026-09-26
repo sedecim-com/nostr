@@ -150,7 +150,7 @@ describe('backlog ⇄ GitHub Issues (GitHub is the source)', () => {
   it('pull rebuilds exactly the same tasks from GitHub', async () => {
     const { backlog: next, warnings } = await pull(api, backlog);
     expect(warnings).toEqual([]);
-    expect(next.tasks.map(strip)).toEqual(backlog.tasks);
+    expect(next.tasks.map(strip)).toEqual(backlog.tasks.map(strip));
     expect(next.tasks.every((t: { issue: number }) => Number.isInteger(t.issue))).toBe(true);
     expect(next.meta.github).toBe('o/r');
   });
@@ -175,7 +175,7 @@ describe('backlog ⇄ GitHub Issues (GitHub is the source)', () => {
     const small = { meta: backlog.meta, tasks: backlog.tasks.slice(0, 5) };
     await seed(api2, small);
     expect(gh2.issues.filter((i) => i.issue_field_values).length).toBe(0);
-    expect((await pull(api2, small)).backlog.tasks.map(strip)).toEqual(small.tasks);
+    expect((await pull(api2, small)).backlog.tasks.map(strip)).toEqual(small.tasks.map(strip));
     gh2.stop();
   });
 });

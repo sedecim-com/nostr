@@ -9,6 +9,8 @@ export function encodeValue(v: unknown): unknown {
   if (v instanceof Map) return { $map: [...v.entries()].map(([k, x]) => [encodeValue(k), encodeValue(x)]) };
   if (v instanceof Set) return { $set: [...v].map(encodeValue) };
   if (v === undefined) return { $undef: 1 };
+  // JSON turns NaN/±Infinity into null and -0 into 0: tag them (found by SEC-03 fuzz).
+  if (typeof v === 'number' && (!Number.isFinite(v) || Object.is(v, -0))) return { $num: Object.is(v, -0) ? '-0' : String(v) };
   if (Array.isArray(v)) return v.map(encodeValue);
   if (v && typeof v === 'object') {
     if (ArrayBuffer.isView(v)) throw new Error(`unsupported typed array ${v.constructor.name}`);
@@ -27,6 +29,7 @@ export function decodeValue(v: unknown): unknown {
     if ('$map' in o) return new Map((o.$map as unknown[][]).map(([k, x]) => [decodeValue(k), decodeValue(x)]));
     if ('$set' in o) return new Set((o.$set as unknown[]).map(decodeValue));
     if ('$undef' in o) return undefined;
+    if ('$num' in o) return Number(o.$num);
     if ('$obj' in o) return Object.fromEntries(Object.entries(o.$obj as Record<string, unknown>).map(([k, x]) => [k, decodeValue(x)]));
   }
   return v;

@@ -1,0 +1,81 @@
+# promtool test rules deploy/monitoring/prometheus/tests/slo-availability.test.yml
+rule_files:
+  - ../rules/slo-availability.rules.yml
+
+evaluation_interval: 30s
+
+tests:
+  # indexer healthy for 1 h, then down for 20 min: fast-burn page. relay stays healthy: no alerts.
+  - interval: 30s
+    input_series:
+      - series: 'probe_success{job="slo-probes",service="indexer",instance="http://indexer:8081/health"}'
+        values: '1x120 0x40'
+      - series: 'probe_success{job="slo-probes",service="relay",instance="http://relay:8080/_readiness"}'
+        values: '1x160'
+      - series: 'up{job="blackbox-exporter"}'
+        values: '1x160'
+    promql_expr_test:
+      - expr: sli:availability:ratio_rate5m{service="relay"}
+        eval_time: 80m
+        exp_samples:
+          - labels: 'sli:availability:ratio_rate5m{service="relay"}'
+            value: 1
+      - expr: sli:availability:ratio_rate5m{service="indexer"}
+        eval_time: 80m
+        exp_samples:
+          - labels: 'sli:availability:ratio_rate5m{service="indexer"}'
+            value: 0
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: SLOAvailabilityBurnRateCritical
+        exp_alerts:
+          - exp_labels:
+              service: indexer
+              severity: page
+              slo: availability-99.9
+              window: 1h
+            exp_annotations:
+              summary: "indexer: consumo del presupuesto de error 14.4x (1h/5m)"
+              description: "indexer falla el 33.33% de las sondas en la ventana larga; a este ritmo consume 2 % del presupuesto mensual en 1 h. Runbook: docs/slo.md."
+              runbook: docs/slo.md
+      - eval_time: 80m
+        alertname: SLOProbesMissing
+        exp_alerts: []
+
+  # A single failed probe (30 s) is noise, not a page: under the 14.4x threshold over 1 h.
+  - interval: 30s
+    input_series:
+      - series: 'probe_success{job="slo-probes",service="web",instance="http://web:8080/flags.json"}'
+        values: '1x800 0 1x60'
+      - series: 'up{job="blackbox-exporter"}'
+        values: '1x861'
+    alert_rule_test:
+      - eval_time: 430m
+        alertname: SLOAvailabilityBurnRateCritical
+        exp_alerts: []
+      - eval_time: 430m
+        alertname: SLOAvailabilityBurnRateHigh
+        exp_alerts: []
+
+  # Blackbox exporter down: the SLI is blind and that must alert.
+  - interval: 30s
+    input_series:
+      - series: 'up{job="blackbox-exporter"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SLOProbesMissing
+        exp_alerts:
+          - exp_labels:
+              job: blackbox-exporter
+              severity: ticket
+              slo: availability-99.9
+            exp_annotations: &missing_annotations
+              summary: "Sin sondas de disponibilidad (blackbox exporter caído o sin objetivos)"
+              description: "El SLI no se está midiendo; revisar blackbox-exporter y prometheus.yml."
+              runbook: docs/slo.md
+          - exp_labels:
+              job: slo-probes
+              severity: ticket
+              slo: availability-99.9
+            exp_annotations: *missing_annotations

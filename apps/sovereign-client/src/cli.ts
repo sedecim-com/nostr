@@ -8,12 +8,16 @@
  *   sovereign backup export --persona ID --out FILE [--password-file f]   (key, relays, panel, MLS state)
  *   sovereign backup restore FILE [--password-file f]
  *   sovereign whoami --persona ID
+ *   sovereign channel join --persona ID --group G         (NIP-29 join request)
  *   sovereign channel send --persona ID --group G "text"
  *   sovereign channel read --persona ID --group G
  *   sovereign dm send --persona ID --to NPUB "text"
  *   sovereign dm inbox --persona ID
  *   sovereign outbox --persona ID        (delivery states per relay)
  *   sovereign resume --persona ID        (retry pending messages)
+ *   sovereign history sync --persona ID [--since UNIX] [--group G]   (rebuild channels/DMs; NIP-77 or REQ fallback)
+ *   sovereign history export --persona ID --out FILE [--since UNIX]  (JSONL, one signed NIP-01 event per line)
+ *   sovereign history import --persona ID FILE [--dry-run]           (verify signatures, republish valid events)
  *   sovereign disclose --persona ID      (what each setting implies)
  *   sovereign group keypackage --persona ID            (publish MLS key package so others can add you)
  *   sovereign group create --persona ID --name NAME     (Marmot/MLS: forward secrecy + PCS)
@@ -44,7 +48,8 @@ function relayAdapter() {
 const argv = process.argv.slice(2);
 const opt = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
 const opts = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1]!] : []));
-const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk'].includes(argv[i - 1]!))).slice(2);
+const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--dry-run'].includes(argv[i - 1]!))).slice(2);
+const since = () => (opt('--since') !== undefined ? Number(opt('--since')) : undefined);
 
 /** Password of a backup file: --password-file (first line) or SOVEREIGN_BACKUP_PASSWORD. */
 function backupPassword(): string {
@@ -90,6 +95,26 @@ async function main() {
       for (const p of await (await client.identities()).list()) console.log(`${p.id}  ${p.label.padEnd(16)} ${p.network.padEnd(8)} ${p.compartment.padEnd(12)} ${p.relays.join(',')}`);
     } else if (a === 'whoami') {
       console.log(await (await client.identities()).sendingAs(need()));
+    } else if (a === 'channel' && b === 'join') {
+      const rec = await client.joinChannel(need(), opt('--group')!);
+      console.log(`${rec.state}${rec.blockedReason ? ` — ${rec.blockedReason}` : ''} (op ${rec.opId})`);
+    } else if (a === 'history' && b === 'sync') {
+      const r = await client.syncHistory(need(), { since: since(), channels: opts('--group') });
+      for (const [relay, strategy] of Object.entries(r.strategies)) console.log(`${relay}  ${strategy}`);
+      for (const [g, events] of Object.entries(r.channels)) console.log(`canal ${g}: ${events.length} eventos`);
+      console.log(`DMs: ${r.dms.length}; outbox: ${r.outbox.map((o) => o.state).join(', ') || 'vacío'}`);
+    } else if (a === 'history' && b === 'export') {
+      const out = opt('--out');
+      if (!out) throw new Error('--out FILE required');
+      const jsonl = await client.exportHistory(need(), { since: since() });
+      writeFileSync(out, jsonl, { mode: 0o600, flag: 'wx' });
+      console.log(`${jsonl ? jsonl.trimEnd().split('\n').length : 0} eventos firmados exportados a ${out} (JSONL)`);
+    } else if (a === 'history' && b === 'import') {
+      const file = positional()[0];
+      if (!file) throw new Error('usage: sovereign history import --persona ID FILE [--dry-run]');
+      const r = await client.importHistory(need(), readFileSync(file, 'utf8'), { dryRun: argv.includes('--dry-run') });
+      for (const i of r.invalid) console.log(`línea ${i.line}: ${i.reason}`);
+      console.log(`válidos=${r.valid} inválidos=${r.invalid.length} duplicados=${r.duplicates} publicados=${r.published} rechazados=${r.rejected}`);
     } else if (a === 'channel' && b === 'send') {
       const rec = await client.sendChannel(need(), opt('--group')!, positional().join(' '));
       console.log(`${rec.state}${rec.blockedReason ? ` — ${rec.blockedReason}` : ''} (op ${rec.opId})`);

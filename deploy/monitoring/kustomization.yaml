@@ -1,0 +1,38 @@
+# SLO monitoring (NFR001-02): blackbox probes + Prometheus rules/alerts + Alertmanager + Grafana dashboard.
+# Included by deploy/k8s/overlays/stage; none of these services is exposed through the edge
+# (kubectl -n acceso-nostr port-forward svc/grafana 3000). Config files are shared with docker compose.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - monitoring.yaml
+configMapGenerator:
+  - name: prometheus-config
+    files:
+      - prometheus.yml=prometheus/prometheus.yml
+  - name: prometheus-rules
+    files:
+      - slo-availability.rules.yml=prometheus/rules/slo-availability.rules.yml
+  - name: blackbox-config
+    files:
+      - blackbox.yml=blackbox/blackbox.yml
+  - name: alertmanager-config
+    files:
+      - alertmanager.yml=alertmanager/alertmanager.yml
+  - name: grafana-provisioning-datasources
+    files:
+      - datasources.yaml=grafana/provisioning/datasources.yaml
+  - name: grafana-provisioning-dashboards
+    files:
+      - dashboards.yaml=grafana/provisioning/dashboards.yaml
+  - name: grafana-dashboards
+    files:
+      - slo-availability.json=grafana/dashboards/slo-availability.json
+images:
+  - name: prom/prometheus
+    newTag: v3.5.0
+  - name: prom/blackbox-exporter
+    newTag: v0.27.0
+  - name: prom/alertmanager
+    newTag: v0.28.1
+  - name: grafana/grafana
+    newTag: 12.1.1

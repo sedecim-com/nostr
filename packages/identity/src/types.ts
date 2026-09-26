@@ -72,4 +72,9 @@ export interface BackupContents {
   config?: SovereigntyConfig;
   /** Encrypted-at-rest MLS group state (EncryptedGroupStorage `mls-*` collections), values as stored. */
   mls?: Record<string, Array<{ id: string; value: unknown }>>;
+  /**
+   * Delivery ledger (`outbox` collection of the delivery engine, FR013-03): pending operations keep their
+   * signed event and per-relay state, so a restored device can resume or reconcile them instead of losing them.
+   */
+  outbox?: Array<{ id: string; value: unknown }>;
 }

@@ -20,6 +20,14 @@ Incluye: componente afectado, versión/commit, pasos de reproducción, impacto y
 que falle. Acusamos recibo en 3 días hábiles y acordamos una fecha de divulgación coordinada
 (por defecto 90 días, antes si hay explotación activa).
 
+## Verificar lo que instalas
+
+Los releases se firman sin llaves del proyecto (cosign keyless, Sigstore) desde el workflow
+`release.yml`, con provenance SLSA y SBOM, y las publica un entorno protegido que exige la aprobación de
+alguien distinto del autor del tag. Verifica antes de usar: `sh scripts/verify-release.sh <tag>`
+([docs/building.md](docs/building.md)); para el generador de llaves offline,
+[docs/keygen-air-gapped.md](docs/keygen-air-gapped.md).
+
 ## Alcance prioritario
 
 - Manejo de llaves (`packages/nostr-core`, `packages/signer`, `packages/identity`, `services/managed-signer`).

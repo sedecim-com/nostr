@@ -93,7 +93,11 @@ jobs:
             echo "branch $branch already exists: this digest already has a PR"
             exit 0
           fi
+          # FR017-05: keep the flags of the current pin to tell the reviewer if the NIP-17 jitter changes
+          # (e.g. upstream fixed #4192 and the gate went back to the standard 2-day jitter).
+          cp infra/web/flags.json "$RUNNER_TEMP/flags.before.json"
           sh scripts/buzz-upstream.sh apply "$IMAGE" "$REVISION" "$DATE"
+          jitter_note=$(npx tsx scripts/interop-flags.ts gate/interop-report.json --change-from "$RUNNER_TEMP/flags.before.json")
           # Same check ci runs on the PR: flags.json must match the gate report for the new pin.
           npx tsx scripts/interop-flags.ts gate/interop-report.json
           npx tsx scripts/interop-flags.ts gate/interop-report.json --check
@@ -102,7 +106,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git add infra/buzz/PIN docker-compose.yml infra/web/flags.json "$report"
+          git add infra/buzz/PIN docker-compose.yml deploy/k8s/base/kustomization.yaml infra/web/flags.json "$report"
           git commit -m "Pin Buzz upstream image $short (interop gate passed)"
           git push origin "$branch"
           {
@@ -112,6 +116,16 @@ jobs:
             echo "- Candidata: \`$IMAGE\`"
             echo "- Commit upstream (etiqueta OCI): ${REVISION:-desconocido: actualizar BUZZ_COMMIT y BUZZ_COMMIT_DATE a mano}"
             echo "- Informe del gate: \`$report\`"
+            if [ -n "$jitter_note" ]; then
+              echo "- NIP-17: $jitter_note"
+            else
+              jitter=$(jq -r '.nip17.timestampJitterSeconds' infra/web/flags.json)
+              if [ "$jitter" = 300 ]; then
+                echo "- NIP-17: sin cambios (jitter 300 s del adaptador: #4192 sigue sin resolverse upstream)."
+              else
+                echo "- NIP-17: sin cambios (jitter $jitter s)."
+              fi
+            fi
             echo
             echo "Antes de fusionar (ADR 0003): revisar el changelog upstream (kinds, NIP-42 y tenant por Host, fan-out, media, límites de timestamps), confirmar que los adaptadores del SDK siguen justificados y hacer backup antes de desplegar."
           } > "$RUNNER_TEMP/body.md"
