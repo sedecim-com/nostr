@@ -73,6 +73,13 @@
     "phase": "Release",
     "start": "2027-01-18",
     "end": "2027-01-29"
+   },
+   {
+    "id": "Diferido",
+    "name": "Sin planificar: requiere app nativa (ADR 0004)",
+    "phase": "—",
+    "start": "",
+    "end": ""
    }
   ],
   "assumedVelocitySP": 50
@@ -83,34 +90,34 @@
    "epic": "DEC · Decisiones de arquitectura",
    "req": "§25.1-1",
    "title": "Decidir nombre y licencia del proyecto open source",
-   "done": "ADR aprobado; LICENSE y package.json actualizados; compatibilidad con Apache-2.0 del fork revisada",
+   "done": "ADR aprobado; LICENSE, NOTICE y package.json actualizados",
    "type": "Decisión",
    "priority": "P0",
    "sp": 2,
    "deps": [],
    "sprint": "S1",
-   "status": "Parcial",
-   "evidence": "docs/adr/0001-nombre-y-licencia.md (Propuesto); falta aprobación"
+   "status": "Hecho",
+   "evidence": "docs/adr/0001-nombre-y-licencia.md (Aceptado: Apache-2.0); LICENSE, NOTICE, package.json"
   },
   {
    "id": "DEC-02",
    "epic": "DEC · Decisiones de arquitectura",
    "req": "§25.1-2",
-   "title": "Fijar subset de Buzz a forkear y commit/release de F0",
-   "done": "Lista de crates/apps incluidos; commit y digest en infra/buzz/PIN aprobados",
+   "title": "Decidir fork o Buzz upstream y fijar la versión de F0",
+   "done": "ADR aprobado; commit y digest en infra/buzz/PIN",
    "type": "Decisión",
    "priority": "P0",
    "sp": 2,
    "deps": [],
    "sprint": "S1",
-   "status": "Parcial",
-   "evidence": "docs/adr/0002-subset-y-pin-de-buzz.md (Propuesto) + infra/buzz/PIN; falta aprobación"
+   "status": "Hecho",
+   "evidence": "docs/adr/0002-subset-y-pin-de-buzz.md (Aceptado: Buzz upstream sin fork, pin 02c6309 por digest)"
   },
   {
    "id": "DEC-03",
    "epic": "DEC · Decisiones de arquitectura",
    "req": "§25.1-3",
-   "title": "Definir política de compatibilidad con upstream Buzz",
+   "title": "Definir política de pin y actualización de Buzz upstream",
    "done": "Cadencia de sync, criterios de adopción y de rollback documentados",
    "type": "Decisión",
    "priority": "P1",
@@ -119,8 +126,8 @@
     "DEC-02"
    ],
    "sprint": "S1",
-   "status": "Parcial",
-   "evidence": "docs/adr/0003-compatibilidad-con-upstream-buzz.md (Propuesto); falta aprobación"
+   "status": "Hecho",
+   "evidence": "docs/adr/0003-compatibilidad-con-upstream-buzz.md (Aceptado); ci.yml workflow_dispatch buzz_image"
   },
   {
    "id": "DEC-04",
@@ -133,8 +140,8 @@
    "sp": 2,
    "deps": [],
    "sprint": "S1",
-   "status": "Parcial",
-   "evidence": "docs/adr/0004-bibliotecas-nostr-rust-flutter.md (Propuesto); falta aprobación"
+   "status": "Hecho",
+   "evidence": "docs/adr/0004-bibliotecas-nostr-rust-flutter.md (Aceptado, aplicación diferida hasta que haya app nativa)"
   },
   {
    "id": "DEC-05",
@@ -161,22 +168,22 @@
    "sp": 1,
    "deps": [],
    "sprint": "S1",
-   "status": "Parcial",
-   "evidence": "docs/adr/0005-receipts-de-aplicacion.md (Propuesto); packages/profiles deliveryReceipts/receiptPolicy; kind definitivo pendiente de aprobación"
+   "status": "Hecho",
+   "evidence": "docs/adr/0005-receipts-de-aplicacion.md (Aceptado); packages/profiles receiptPolicy(); packages/messaging/src/receipts.ts"
   },
   {
    "id": "DEC-07",
    "epic": "DEC · Decisiones de arquitectura",
    "req": "§25.1-7",
    "title": "Ratificar proveedor Marmot y ruta de relay (secure-relay vs parche Buzz)",
-   "done": "ADR aprobado; marmot-ts/ts-mls fijados; decisión sobre parche de kinds 30443/445/10051 en el fork",
+   "done": "ADR aprobado; marmot-ts/ts-mls fijados; ruta de relay decidida",
    "type": "Decisión",
    "priority": "P1",
    "sp": 1,
    "deps": [],
    "sprint": "S1",
-   "status": "Parcial",
-   "evidence": "docs/adr/0006-marmot-proveedor-y-ruta-de-relay.md (Propuesto); falta aprobación"
+   "status": "Hecho",
+   "evidence": "docs/adr/0006-marmot-proveedor-y-ruta-de-relay.md (Aceptado: secure-relay, sin parche a Buzz)"
   },
   {
    "id": "DEC-08",
@@ -233,8 +240,8 @@
     "DEC-02"
    ],
    "sprint": "S1",
-   "status": "Parcial",
-   "evidence": "scripts/buzz-fork.sh + docs/buzz-fork/README.md (ramas y protección definidas); falta crear sedecim-com/buzz-fork"
+   "status": "Descartado",
+   "evidence": "ADR 0002: sin fork"
   },
   {
    "id": "BUZZ-02",
@@ -250,8 +257,8 @@
     "DEC-01"
    ],
    "sprint": "S1",
-   "status": "Parcial",
-   "evidence": "docs/buzz-fork/legal-checklist.md (borrador); falta aprobación y NOTICE en el fork"
+   "status": "Descartado",
+   "evidence": "ADR 0002: sin fork; la atribución de Buzz está en NOTICE"
   },
   {
    "id": "BUZZ-03",
@@ -266,8 +273,8 @@
     "BUZZ-01"
    ],
    "sprint": "S1",
-   "status": "Parcial",
-   "evidence": ".github/workflows/buzz-image.yml (build desde fork o upstream fijado, comprobación reproducible por digest); sin ejecutar aún"
+   "status": "Descartado",
+   "evidence": "ADR 0002: se usa la imagen upstream fijada por digest"
   },
   {
    "id": "BUZZ-04",
@@ -283,25 +290,24 @@
     "DEC-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Descartado",
+   "evidence": "ADR 0002: el early release usa solo clientes propios"
   },
   {
    "id": "BUZZ-05",
    "epic": "BUZZ · Early release sobre Buzz",
    "req": "§6.3",
-   "title": "Pipeline de sync con upstream que ejecuta el gate de interoperabilidad",
-   "done": "PR automático de upstream que ejecuta test:interop contra la imagen nueva",
+   "title": "Revisión mensual automática de la imagen upstream de Buzz con el gate",
+   "done": "Workflow programado detecta un digest nuevo de ghcr.io/block/buzz, ejecuta stack + gate contra él y abre la PR del pin si pasa (ADR 0003)",
    "type": "Infra",
    "priority": "P1",
    "sp": 3,
    "deps": [
-    "BUZZ-03",
     "OPS-01"
    ],
    "sprint": "S2",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Parcial",
+   "evidence": ".github/workflows/ci.yml: workflow_dispatch con input buzz_image (prueba manual de un candidato)"
   },
   {
    "id": "BUZZ-06",
@@ -317,8 +323,8 @@
     "DEC-04"
    ],
    "sprint": "S6",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Descartado",
+   "evidence": "ADR 0002: el early release usa solo clientes propios; app nativa diferida (ADR 0004)"
   },
   {
    "id": "OPS-01",
@@ -1724,12 +1730,12 @@
    "title": "Cliente desktop dedicado con Tor embebido",
    "done": "App desktop (Tauri) que usa el SDK con Tor integrado y el perfil sovereign-tor",
    "type": "Dev",
-   "priority": "P1",
+   "priority": "P3",
    "sp": 8,
    "deps": [
     "DEC-04"
    ],
-   "sprint": "S5",
+   "sprint": "Diferido",
    "status": "Pendiente",
    "evidence": ""
   },
@@ -1738,13 +1744,11 @@
    "epic": "FR · Privacidad y Sovereign Tor",
    "req": "FR-020, §20.3",
    "title": "Tests de fugas con captura de red real (netns/pcap): DNS, IPv6, conexiones directas",
-   "done": "Suite que prueba cero tráfico fuera de Tor con el cliente real",
+   "done": "Suite que prueba cero tráfico fuera de Tor con el cliente soberano real (CLI); la app desktop, cuando exista, reutiliza la suite",
    "type": "Seguridad",
    "priority": "P0",
    "sp": 5,
-   "deps": [
-    "FR020-02"
-   ],
+   "deps": [],
    "sprint": "S5",
    "status": "Parcial",
    "evidence": "packages/tor-network/test (socks5h, sin dns.lookup)"
@@ -1815,14 +1819,12 @@
    "id": "SEC-05",
    "epic": "FR · Privacidad y Sovereign Tor",
    "req": "§20.3",
-   "title": "Tests de fugas por WebRTC y previews remotas en web/desktop",
-   "done": "Sin candidatos ICE ni peticiones de previews en perfiles sensibles",
+   "title": "Tests de fugas por WebRTC y previews remotas en la web",
+   "done": "Sin candidatos ICE ni peticiones de previews en perfiles sensibles (la app desktop, cuando exista, reutiliza la suite)",
    "type": "Seguridad",
    "priority": "P1",
    "sp": 2,
-   "deps": [
-    "FR020-02"
-   ],
+   "deps": [],
    "sprint": "S5",
    "status": "Pendiente",
    "evidence": ""
@@ -1985,8 +1987,8 @@
     "BUZZ-01"
    ],
    "sprint": "S6",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Descartado",
+   "evidence": "ADR 0006: Marmot vive en el secure-relay; sin fork no hay parche (se reevalúa si upstream acepta los kinds)"
   },
   {
    "id": "FR023-01",
@@ -2039,13 +2041,12 @@
    "epic": "FR · Modo institucional",
    "req": "FR-023, §16",
    "title": "Sincronizar el allowlist NIP-42 del relay con el policy-engine",
-   "done": "pubkey_allowlist de Buzz / secure-relay actualizado desde /v1/relay/allowlist",
+   "done": "Allowlist NIP-42 de Buzz (configuración de la imagen upstream) y del secure-relay actualizado desde /v1/relay/allowlist",
    "type": "Dev",
    "priority": "P1",
    "sp": 3,
    "deps": [
-    "FR023-03",
-    "BUZZ-03"
+    "FR023-03"
    ],
    "sprint": "S7",
    "status": "Pendiente",

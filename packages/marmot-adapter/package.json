@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Grupos high-security Marmot/MLS (RFC 9420): interfaz GroupCryptoProvider y proveedor marmot-ts.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

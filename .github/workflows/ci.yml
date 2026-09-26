@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Try a candidate upstream Buzz image against the full stack (ADR 0003).
+  workflow_dispatch:
+    inputs:
+      buzz_image:
+        description: Candidate Buzz image pinned by digest (ghcr.io/block/buzz@sha256:...)
+        required: false
 
 permissions:
   contents: read
@@ -91,9 +97,15 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - name: Configure stack
+        env:
+          CANDIDATE_BUZZ_IMAGE: ${{ inputs.buzz_image }}
         run: |
           sh scripts/init-env.sh
           echo "INDEXER_CHANNEL_REFRESH_MS=2000" >> .env
+          if [ -n "$CANDIDATE_BUZZ_IMAGE" ]; then
+            case "$CANDIDATE_BUZZ_IMAGE" in *@sha256:*) ;; *) echo "buzz_image must be pinned by digest"; exit 1;; esac
+            echo "BUZZ_IMAGE=$CANDIDATE_BUZZ_IMAGE" >> .env
+          fi
       - name: Build images
         run: docker compose build
       - name: Start stack

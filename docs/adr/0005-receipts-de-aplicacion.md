@@ -1,15 +1,15 @@
 # ADR 0005 · Receipts de aplicación y read receipts
 
-- **Estado:** Propuesto · **Tarea:** DEC-06 (P1) · **Fecha:** 2026-09-26
-- **Aprobación:** pendiente
+- **Estado:** Aceptado · **Tarea:** DEC-06 (P1) · **Fecha:** 2026-09-26
+- **Aprobación:** responsable de producto (vic2099), 2026-09-26
 
 ## Contexto
 La máquina de estados distingue `REPLICATED` (OK del relay), `RECIPIENT_ACKED` y `READ` (§11). No hay un
 NIP estándar de receipts para NIP-17. El código usa un rumor provisional de kind `16914`
-(`packages/messaging/src/receipts.ts`). Un receipt revela actividad (cuándo se recibe y cuándo se
+(`packages/messaging/src/receipts.ts`), que esta decisión adopta como definitivo. Un receipt revela actividad (cuándo se recibe y cuándo se
 lee), así que es un dato sensible.
 
-## Decisión propuesta
+## Decisión
 1. **Formato:** el receipt es un **rumor NIP-59 con gift wrap**, de kind `16914` (específico de la
    aplicación, nunca publicado sin envolver), con los tags `["e", <rumor-id>]`, `["p", <destinatario>]`
    y `["receipt", "delivered" | "read"]`. Usa el mismo gift wrap que el mensaje, así que el relay no

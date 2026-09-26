@@ -26,7 +26,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Managed signer + vault (envelope local / AWS Secrets Manager) | `services/managed-signer` | ✅ (enclave Nitro pendiente) |
 | Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (persistencia en memoria) |
 | Stack self-hosted Docker Compose (Buzz fijado por digest, Tor opcional) | `docker-compose.yml`, `infra/` | ✅ |
-| Fork controlado de Buzz | `infra/buzz/PIN`, `scripts/buzz-fork.sh`, `docs/buzz-integration.md` | ✅ proceso; sin parches propios |
+| Buzz upstream sin fork, fijado por digest | `infra/buzz/PIN`, `docs/adr/0002-subset-y-pin-de-buzz.md`, `docs/buzz-integration.md` | ✅ (política de actualización: ADR 0003) |
 
 Trazabilidad completa FR/NFR → tests: [docs/requirements-traceability.md](docs/requirements-traceability.md).
 Backlog con tareas atómicas, prioridad, dependencias y sprint: [docs/backlog/](docs/backlog/README.md) (fuente `backlog.json`, CSV importable; `npm run backlog` valida y regenera).
@@ -90,9 +90,9 @@ docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, ru
 ## Pendiente (roadmap §22)
 - F2: NIP-77 Negentropy; persistencia en Postgres del policy-engine; notification-gateway.
 - F3: auditoría independiente de fugas; cliente móvil/desktop dedicado para Tor.
-- F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); decidir parche de Buzz para kinds Marmot.
+- F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); unificar Marmot en Buzz si upstream acepta sus kinds.
 - F5: admin-console, directorio con passkeys/attestation, legal hold.
 - Firma de releases (claves del proyecto), QR en el generador offline, enclave Nitro para managed.
 
 ## Licencia
-MIT (ver `LICENSE`). El relay Buzz es Apache-2.0 y se usa como imagen/fork separado.
+Apache-2.0 (ver `LICENSE` y `NOTICE`). El relay Buzz (Apache-2.0) se usa sin modificar como imagen upstream fijada por digest.
