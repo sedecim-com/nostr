@@ -33,7 +33,7 @@ jobs:
       revision: ${{ steps.check.outputs.revision }}
       date: ${{ steps.check.outputs.date }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Resolve the upstream digest and compare it with infra/buzz/PIN
         id: check
         env:
@@ -67,8 +67,8 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: interop-reports
           path: gate

@@ -47,8 +47,8 @@ jobs:
       TEST_DATABASE_URL: postgres://sedecim:sedecim@localhost:5432/sedecim_test
       MOTO_ENDPOINT: http://localhost:5055
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -75,7 +75,7 @@ jobs:
           npm run test:keygen-html
       - name: SBOM
         run: npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-artifacts
           path: |
@@ -89,7 +89,7 @@ jobs:
     if: ${{ !inputs.stack_only }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Secret scanning (blocks CI, NFR-006)
@@ -105,7 +105,7 @@ jobs:
     if: ${{ !inputs.stack_only }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate docker compose (all profiles, TLS override)
         run: |
           sh scripts/init-env.sh
@@ -121,8 +121,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -163,7 +163,7 @@ jobs:
       - name: Collect logs
         if: always()
         run: docker compose logs --no-color > compose.log 2>&1 || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: interop-reports

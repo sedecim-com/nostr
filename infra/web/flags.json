@@ -3,7 +3,7 @@
     "enabled": true,
     "timestampJitterSeconds": 300
   },
-  "relay": "buzz@02c6309",
+  "relay": "buzz@781d395",
   "source": "tests/interop/buzz.interop.test.ts",
-  "generatedAt": "2026-09-26T00:35:20.713Z"
+  "generatedAt": "2026-09-26T05:04:22.998Z"
 }
