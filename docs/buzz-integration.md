@@ -36,7 +36,7 @@ Evidencia: [`docs/interop/buzz-02c6309-report.json`](interop/buzz-02c6309-report
 | NIP-17 con jitter acotado ±5 min | ✅ 3/3 aceptados y recibidos/descifrados por el destinatario |
 | Suscripción kind 1059 sin `#p` propio | ✅ 0 fugas |
 | Blossom `/media` con blob cifrado en cliente | ❌ 415 `disallowed content type` (el media de Buzz solo acepta imágenes/vídeo detectados por magic bytes) |
-| Blossom `/media` con imagen en claro | ⚠️ no verificable en este entorno (sin S3/MinIO → 500); repetir con `docker compose` |
+| Blossom `/media` con imagen en claro | ✅ aceptada y descargada con verificación de hash (backend S3: SeaweedFS). Buzz exige autorización BUD-01 `get` también para leer; el cliente reintenta con ella ante un 401 |
 | Cliente soberano E2E (canal + DM) contra Buzz | ✅ |
 | Kinds Marmot 30443 / 445 / 10051 | ❌ `restricted: unknown event kind` → grupos MLS por `secure-relay` (`docs/marmot.md`) |
 
@@ -45,6 +45,12 @@ Evidencia: [`docs/interop/buzz-02c6309-report.json`](interop/buzz-02c6309-report
   declarado en la UI. El flag NIP-17 puede habilitarse para esta versión fijada con este adaptador.
 - Adjuntos cifrados en cliente → `services/blob-store` (Blossom agnóstico al contenido); Buzz `/media`
   queda para imágenes en claro ya saneadas (Buzz además rechaza imágenes con metadatos).
+
+## Hallazgos del sprint S1 (2026-09-26)
+- **MinIO ya no publica imágenes descargables** (Docker Hub y quay.io responden `unauthorized`); el compose upstream de Buzz también depende de ellas. El stack usa **SeaweedFS 4.47** (Apache-2.0, fijado por digest) como S3 compatible.
+- Buzz rechaza las REQ **anónimas** con `NOTICE auth-required`: el indexer se autentica con una identidad de servicio (`INDEXER_NSEC`).
+- El fan-out **en vivo** de Buzz separa las suscripciones globales de las de canal: los mensajes NIP-29 solo llegan a suscripciones con `#h`. El indexer descubre los canales y mantiene una suscripción `#h`.
+- Buzz exige autorización BUD-01 también para **descargar** media.
 
 ## Hallazgos conocidos
 - Issues upstream #4677 (desktop no muestra ciertos kind 1059) y #4192 (rechazo de gift wraps con

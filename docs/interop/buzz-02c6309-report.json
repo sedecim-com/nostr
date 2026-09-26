@@ -65,8 +65,9 @@
   "blossom": {
     "buzzMedia": {
       "plainImage": {
-        "accepted": false,
-        "error": "blossom upload failed: 500 {\"error\":\"internal error\"}"
+        "accepted": true,
+        "url": "http://127.0.0.1:3000/media/f78324a3d1694c16d07b199eeae7738382a488185cebfd4633a5929aba9da24f.png",
+        "verified": true
       },
       "clientEncrypted": {
         "accepted": false,
@@ -78,13 +79,13 @@
   "finishedAt": "2026-09-26T00:35:20.713Z",
   "environment": {
     "buzz_commit": "02c6309f534050e54c8d36f5ce90e48e4dd152b1",
-    "build": "cargo build -p buzz-relay (debug), local Postgres 16 + Redis, no S3 backend",
+    "build": "cargo build -p buzz-relay (debug), local Postgres 16 + Redis, SeaweedFS 4.47 S3",
     "config": "BUZZ_REQUIRE_AUTH_TOKEN=false, BUZZ_REQUIRE_RELAY_MEMBERSHIP=false"
   },
   "notes": [
-    "Plain image upload returned 500 because no S3/MinIO backend was available in this environment; re-run with docker compose (MinIO included).",
     "Encrypted blob rejection (415) happens in content validation before storage and is independent of S3.",
-    "2026-09-26: Marmot kinds 30443/445/10051 rejected with \"restricted: unknown event kind\" -> MLS groups use the secure relay."
+    "2026-09-26: Marmot kinds 30443/445/10051 rejected with \"restricted: unknown event kind\" -> MLS groups use the secure relay.",
+    "2026-09-26: plain image upload accepted and hash-verified with SeaweedFS as S3 backend (Buzz requires BUD-01 get auth for downloads)."
   ],
   "marmotKinds": {
     "445": {

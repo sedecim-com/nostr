@@ -10,6 +10,8 @@ export class TestBlossomServer {
   url = '';
   /** Corrupt served bytes (to test hash verification). */
   corruptDownloads = false;
+  /** Require a BUD-01 `get` authorization for downloads (Buzz /media behaviour). */
+  requireGetAuth = false;
 
   async start(): Promise<string> {
     this.server = createServer((req, res) => {
@@ -54,6 +56,11 @@ export class TestBlossomServer {
     }
     const m = /^\/([0-9a-f]{64})(\.[a-z0-9]+)?$/.exec(url.pathname);
     if ((req.method === 'GET' || req.method === 'HEAD') && m) {
+      if (this.requireGetAuth) {
+        const auth = this.checkAuth(req.headers.authorization, 'get');
+        if (typeof auth === 'string') return { status: 401, body: auth };
+        if (!getTagValues(auth, 'x').includes(m[1]!)) return { status: 403, body: 'hash not authorized' };
+      }
       const blob = this.blobs.get(m[1]!);
       if (!blob) return { status: 404, body: 'not found' };
       let data = blob.data;
