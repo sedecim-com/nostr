@@ -25,6 +25,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
 | Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma autorizada con el token de Acceso) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; enclave Nitro pendiente) |
 | Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (persistencia en memoria) |
+| Notificaciones push opacas por perfil (Web Push VAPID + RFC 8291; sin contenido, remitente ni recuento; deshabilitadas en sovereign/Tor) | `services/notification-gateway`, [ADR 0010](docs/adr/0010-notificaciones-push-por-perfil.md) | ✅ opt-in (perfil compose `push`; registros en memoria) |
 | Stack self-hosted Docker Compose (Buzz fijado por digest, Tor opcional) | `docker-compose.yml`, `infra/` | ✅ |
 | Buzz upstream sin fork, fijado por digest | `infra/buzz/PIN`, `docs/adr/0002-subset-y-pin-de-buzz.md`, `docs/buzz-integration.md` | ✅ (política de actualización: ADR 0003) |
 
@@ -113,14 +114,14 @@ packages/   SDK compartido (nostr-core, relay-pool, signer, delivery-engine, enc
             messaging, marmot-adapter, blossom-client, tor-network, telemetry-policy, profiles,
             policy-client, sync, service-kit, test-relay)
 apps/       web-saas, sovereign-client, key-generator
-services/   indexer, identity-service, managed-signer, policy-engine, blob-store
+services/   indexer, identity-service, managed-signer, policy-engine, blob-store, notification-gateway
 infra/      buzz (pin), tor, postgres, web
 deploy/     Kubernetes (kustomize) y Terraform del SaaS en staging, monitorización de SLO (deploy/README.md)
 docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, runbooks, SLO, RPO/RTO
 ```
 
 ## Pendiente (roadmap §22)
-- F2: persistencia en Postgres del policy-engine; notification-gateway. (NIP-77 Negentropy ya está en `packages/sync`, con fallback a REQ por ventanas.)
+- F2: persistencia en Postgres del policy-engine; transportes push nativos (APNs/FCM/UnifiedPush) tras la interfaz del notification-gateway. (NIP-77 Negentropy ya está en `packages/sync`, con fallback a REQ por ventanas.)
 - F3: auditoría independiente de fugas; cliente móvil/desktop dedicado para Tor.
 - F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); unificar Marmot en Buzz si upstream acepta sus kinds.
 - F5: admin-console, directorio con passkeys/attestation, legal hold.

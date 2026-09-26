@@ -46,7 +46,7 @@ export const PRESETS = {
     messaging: 'marmot',
     files: 'client-encrypted',
     telemetry: 'standard',
-    notifications: 'privacy-push',
+    notifications: 'push',
     cloudBackup: 'operator-managed',
     crashReports: 'opt-in',
     localProtection: 'passphrase',

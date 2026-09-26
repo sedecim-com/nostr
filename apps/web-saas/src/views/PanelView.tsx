@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, Link, List, ListItem, ListItemText, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { PRESETS, disclose, preset, summarize, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
 import { useWorkspace } from '../lib/workspace';
+import { NotificationsControl } from './NotificationsControl';
 
 const OPTIONS: Record<string, string[]> = {
   custody: ['local', 'offline', 'external', 'encrypted-backup', 'managed', 'managed-enclave'],
@@ -108,6 +109,7 @@ export function PanelView() {
           </Accordion>
         ))}
       </Box>
+      <NotificationsControl />
       <Card>
         <CardContent>
           <Typography variant="h6" component="h2">

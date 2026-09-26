@@ -28,6 +28,11 @@ export interface DeploymentConfig {
   /** SaaS only: custodial managed-signer (opt-in, ADR 0009). */
   managedSigner?: string;
   cognito?: CognitoSettings;
+  /**
+   * ADR 0010: services/notification-gateway base URL. Unset: the "Notificaciones" control is not shown.
+   * Pushes are opaque (no content, sender or count); sovereign and Tor personas never register.
+   */
+  notificationGateway?: string;
 }
 
 export const DEFAULT_CONFIG: DeploymentConfig = { mode: 'self-hosted', relays: ['ws://localhost:3000'] };

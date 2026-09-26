@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# One image for all TypeScript services; select with --build-arg SERVICE=<indexer|identity-service|policy-engine|managed-signer>
+# One image for all TypeScript services; select with --build-arg SERVICE=<indexer|identity-service|policy-engine|managed-signer|blob-store|notification-gateway>
 FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./

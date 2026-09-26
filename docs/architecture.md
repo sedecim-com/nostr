@@ -6,6 +6,7 @@ firmados; las bases de datos son índices derivados.
 ```
         CLIENTES                      SERVICIOS PROPIOS (API solo para cuenta/políticas/custodia)
   web-saas · sovereign-client ─┐      identity-service (NIP-98) · policy-engine · managed-signer
+                               │      notification-gateway (push opaco, opt-in, ADR 0010)
   Buzz Desktop/Mobile          │                     │
                                ▼                     │
                      SDK (packages/*) ───────────────┘
@@ -34,7 +35,7 @@ firmados; las bases de datos son índices derivados.
 | `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
 | `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none |
-| `profiles` | Configuración del panel, presets (Apéndice B), validación y disclosures |
+| `profiles` | Configuración del panel, presets (Apéndice B), validación, disclosures y matriz de notificaciones push (ADR 0010) |
 | `policy-client` | Evaluador RBAC/ABAC + device trust |
 | `sync` | Reconstrucción de historial: NIP-77 (Negentropy) con detección NIP-11/sonda y fallback automático a REQ por ventanas; `rebuildHistory` (canales, DMs, evidencia para el outbox); export/import JSONL |
 | `service-kit` | HTTP mínimo con NIP-98/bearer y migraciones SQL |

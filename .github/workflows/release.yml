@@ -80,6 +80,7 @@ jobs:
           - { name: policy-engine, context: ., target: service, service: policy-engine }
           - { name: blob-store, context: ., target: service, service: blob-store }
           - { name: managed-signer, context: ., target: service, service: managed-signer }
+          - { name: notification-gateway, context: ., target: service, service: notification-gateway }
           - { name: web, context: ., target: web, service: '' }
           - { name: tor, context: infra/tor, target: '', service: '' }
     steps:
@@ -141,6 +142,7 @@ jobs:
           - { name: policy-engine, sbom: true }
           - { name: blob-store, sbom: true }
           - { name: managed-signer, sbom: true }
+          - { name: notification-gateway, sbom: true }
           - { name: web, sbom: true }
           # Alpine + tor only: the npm SBOM does not describe it.
           - { name: tor, sbom: false }

@@ -1,7 +1,7 @@
 # Threat model · private-resilient (v0.1)
 
 **Configuración:** signer externo (NIP-46/NIP-07), varios relays con quorum 2, identidad pseudónima,
-persistencia replicada, NIP-17, archivos cifrados en el cliente, telemetría mínima, push opaco,
+persistencia replicada, NIP-17, archivos cifrados en el cliente, telemetría mínima, push de solo aviso (privacy-push, ADR 0010),
 backup solo en ciphertext, confirmaciones de entrega activadas y de lectura desactivadas.
 
 ## Activos

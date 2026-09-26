@@ -20,6 +20,7 @@ import { BlossomClient } from '@sedecim/blossom-client';
 import { CognitoVerifier, createIdentityApi, MemoryIdentityRepository } from '@sedecim/identity-service';
 import { createManagedSignerApi, ManagedSigner, MemoryVault } from '@sedecim/managed-signer';
 import { backupFile, generateKey } from '@sedecim/key-generator';
+import { createNotificationApi, generateVapidKeys, NotificationGateway, createWebPushSender } from '@sedecim/notification-gateway';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -94,7 +95,12 @@ const managed = createManagedSignerApi(managedCore, {
   cognito: new CognitoVerifier({ region: cognito.region, userPoolId: cognito.userPoolId, clientId: cognito.userPoolClientId, fetch: (async () => new Response(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'e2e', alg: 'RS256' }] }))) as typeof fetch }),
 });
 const managedUrl = await managed.listen();
-const selfHosted = { mode: 'self-hosted', relays: [relay.url], buzzMedia: media.url, blobStore: blobs.url, identityService: identityUrl };
+// Opaque push gateway (ADR 0010): the web only offers the opt-in control; nothing registers unless clicked.
+const vapid = generateVapidKeys();
+const gatewayCore = new NotificationGateway({ pool: new RelayPool({ webSocketFactory: factory }), sender: createWebPushSender({ vapid, subject: 'mailto:e2e@example.org' }), relays: [{ public: relay.url }] });
+const gateway = createNotificationApi(gatewayCore, { name: 'notification-e2e', corsOrigins: [base], vapid });
+const gatewayUrl = await gateway.listen();
+const selfHosted = { mode: 'self-hosted', relays: [relay.url], buzzMedia: media.url, blobStore: blobs.url, identityService: identityUrl, notificationGateway: gatewayUrl };
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const context = await browser.newContext();
@@ -356,6 +362,24 @@ try {
   await page.locator('#dim-privacidad-operador-h').click();
   assert((await page.locator('#dim-privacidad-operador').textContent())?.includes('ver consecuencia'), 'each dimension lists the statements that move it, linked to their disclosure');
 
+  // --- ADR 0010 / OPS-06: opt-in opaque push, never offered to sovereign/Tor personas
+  await page.locator('#notifications-toggle').waitFor();
+  assert(!(await page.isChecked('#notifications-toggle')), 'the Notificaciones control is offered (gateway configured) and off by default (opt-in)');
+  assert((await page.textContent('#notifications-control'))?.includes('no incluye contenido, remitente ni número de mensajes'), 'the control explains that pushes are opaque');
+  await page.locator('#preset').click();
+  await page.getByRole('option', { name: 'sovereign', exact: true }).click();
+  await page.locator('#panel-save').click();
+  await page.locator('#notifications-off').waitFor();
+  assert((await page.locator('#notifications-toggle').count()) === 0 && (await page.textContent('#notifications-off'))?.includes('no usa notificaciones push'), 'sovereign persona: no push switch, with an explanation');
+  assert(gatewayCore.size === 0, 'nothing was registered with the notification gateway');
+  const swScope = await page.evaluate(async () => {
+    const r = await navigator.serviceWorker.register('./sw.js', { scope: './push/e2e/' });
+    const scope = r.scope;
+    await r.unregister();
+    return scope;
+  });
+  assert(swScope === `${base}/push/e2e/`, 'the push service worker registers under a per-persona scope within the CSP (script-src self)');
+
   // --- a deployment whose gate rejected NIP-17 blocks it
   const gated = await context.newPage();
   await gated.route('**/flags.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ nip17: { enabled: false, timestampJitterSeconds: null }, relay: 'buzz@test', source: 'test', generatedAt: '' }) }));
@@ -541,6 +565,8 @@ try {
   server.close();
   await identity.close();
   await managed.close();
+  gatewayCore.stop();
+  await gateway.close();
   await media.stop();
   await blobs.stop();
   await relay.stop();

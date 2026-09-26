@@ -1,0 +1,15 @@
+# Opaque push notification gateway (ADR 0010, OPS-06; compose profile `push`). Opt-in: add
+# `components: [../../components/notification-gateway]` to an overlay and set NOTIFY_RELAYS / NOTIFY_PUBLIC_URL
+# there. NOTIFY_VAPID_PRIVATE_KEY and NOTIFY_NSEC come from acceso-nostr-secrets (optional keys).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - notification-gateway.yaml
+configMapGenerator:
+  - name: acceso-nostr-config
+    behavior: merge
+    literals:
+      - NOTIFY_RELAYS=ws://relay:3000
+      - NOTIFY_PUBLIC_URL=http://notification-gateway:8086
+      - NOTIFY_VAPID_SUBJECT=mailto:admin@localhost
+      - NOTIFY_MAX_SUBSCRIPTIONS=10000

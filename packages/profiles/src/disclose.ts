@@ -44,9 +44,9 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
     none: d('Sin telemetría: no se emite ninguna llamada de analytics ni crash reporting.', ['privacidad-operador'], [], []),
   },
   notifications: {
-    push: d('Push convencional: Apple/Google y el gateway de push ven cuándo recibes mensajes.', [], ['privacidad-operador'], ['APNs/FCM y gateway de push.']),
-    'privacy-push': d('Push con contenido opaco: los servicios push ven que hubo actividad, no el contenido ni el remitente.', [], [], ['APNs/FCM (metadatos de tiempo).']),
-    none: d('Sin notificaciones push: nada se revela a servicios push; debes abrir la app para ver mensajes.', ['privacidad-operador'], [], []),
+    push: d('Push opaco: el aviso no lleva contenido, remitente ni recuento y sale agrupado con un retardo aleatorio. El servicio push del navegador o del sistema ve cuándo llega un aviso a tu dispositivo; el gateway de notificaciones sabe qué npub vigila para ese dispositivo.', [], ['privacidad-operador'], ['Servicio push (Apple/Google/Mozilla) y operador del gateway de notificaciones.']),
+    'privacy-push': d('Push de solo aviso de actividad: sin contenido, remitente ni recuento, agrupado con un retardo aleatorio largo que difumina los tiempos. El gateway de notificaciones sigue sabiendo qué npub vigila para tu dispositivo.', [], ['privacidad-operador'], ['Servicio push (metadatos de tiempo) y operador del gateway de notificaciones.']),
+    none: d('Sin notificaciones push: nada se revela a servicios push ni al gateway; la app consulta los relays solo mientras está abierta.', ['privacidad-operador'], [], []),
   },
   cloudBackup: {
     off: d('Sin backup en la nube.', ['privacidad-operador'], ['recuperabilidad'], []),
@@ -68,7 +68,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.0.0';
+export const DISCLOSURE_VERSION = '1.1.0';
 
 /** Every statement the panel can show, for review and versioning (not tied to one configuration). */
 export function disclosureCatalog(): Disclosure[] {

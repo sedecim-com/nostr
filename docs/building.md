@@ -13,7 +13,7 @@ publicado y qué partes son reproducibles bit a bit (y cuáles no). Los releases
 | `sbom.cdx.json`: SBOM CycloneDX de las dependencias de producción | assets del GitHub Release | `sbom.cdx.json.sigstore.json`, attestation SLSA |
 | `images.txt`: lista `imagen@sha256:…` de las imágenes del release | assets del GitHub Release | `images.txt.sigstore.json` |
 | `SHA256SUMS`: checksums de los cuatro archivos anteriores | assets del GitHub Release | `SHA256SUMS.sigstore.json` |
-| Imágenes `ghcr.io/sedecim-com/nostr-<servicio>:<tag>`: `indexer`, `identity-service`, `policy-engine`, `blob-store`, `managed-signer`, `web`, `tor` | GHCR, fijadas por digest en `images.txt` | firma cosign en el registry, attestation SLSA (y SBOM salvo `tor`) en el registry y en GitHub |
+| Imágenes `ghcr.io/sedecim-com/nostr-<servicio>:<tag>`: `indexer`, `identity-service`, `policy-engine`, `blob-store`, `managed-signer`, `notification-gateway`, `web`, `tor` | GHCR, fijadas por digest en `images.txt` | firma cosign en el registry, attestation SLSA (y SBOM salvo `tor`) en el registry y en GitHub |
 
 Las firmas son *keyless* (Sigstore): no hay una llave del proyecto que custodiar. El certificado de
 cada firma lo emite Fulcio para la identidad OIDC del workflow, que es exactamente
@@ -135,7 +135,7 @@ resultado. Puede variar con otra versión de npm.
 ```bash
 docker compose build                                                     # todas, como el stack local
 docker buildx build --target service --build-arg SERVICE=indexer -t nostr-indexer .   # una a una:
-#   SERVICE = indexer | identity-service | policy-engine | blob-store | managed-signer
+#   SERVICE = indexer | identity-service | policy-engine | blob-store | managed-signer | notification-gateway
 docker buildx build --target web -t nostr-web .
 docker buildx build -t nostr-tor infra/tor
 ```
