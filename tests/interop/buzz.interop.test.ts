@@ -12,6 +12,8 @@ import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { chatMessage, createGroup, createDirectMessage, dmInboxFilter, openDirectMessage, parseGroupMetadata } from '@sedecim/messaging';
 import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
+import { EncryptedStore, MemoryBackend } from '@sedecim/encrypted-store';
+import { EncryptedGroupStorage, MarmotTsProvider, PoolGroupNetwork, runConformance } from '@sedecim/marmot-adapter';
 
 const URL_ = process.env.BUZZ_RELAY_URL;
 const HTTP = URL_?.replace(/^ws/, 'http');
@@ -120,4 +122,36 @@ describe.skipIf(!URL_)('Buzz interop gate', () => {
     report.blossom = { buzzMedia: { plainImage: plain, clientEncrypted: encrypted }, encryptedAttachmentsRoute: encrypted.accepted ? 'buzz-media' : 'blob-store' };
     expect(plain.accepted, JSON.stringify(plain)).toBe(true);
   });
+  it('records which Marmot kinds the relay accepts (30443 key package, 445 group message, 10051 relay list)', async () => {
+    const probe: Record<number, { ok: boolean; message: string }> = {};
+    for (const kind of [30443, 445, 10051]) {
+      const tags = kind === 30443 ? [['d', 'interop-probe']] : kind === 445 ? [['h', 'ab'.repeat(32)]] : [['relay', URL_!]];
+      const res = await pa.publishTo(await alice.signEvent({ kind, content: 'probe', tags }), URL_!);
+      probe[kind] = { ok: res.ok, message: res.message };
+    }
+    report.marmotKinds = probe;
+    report.marmotRoute = Object.values(probe).every((p) => p.ok) ? 'buzz' : 'secure-relay';
+    expect(Object.keys(probe)).toHaveLength(3);
+  });
+});
+
+const MARMOT_URL = process.env.MARMOT_RELAY_URL;
+
+describe.skipIf(!MARMOT_URL)('Marmot/MLS conformance on the secure relay', () => {
+  it('passes add / message / remove / rotate through a real relay', async () => {
+    const pools: RelayPool[] = [];
+    const makeMember = (name: string) => {
+      const signer = new LocalSigner(generateSecretKey());
+      const pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'auto' });
+      pools.push(pool);
+      return { signer, storage: new EncryptedGroupStorage(EncryptedStore.withKey(new MemoryBackend(), new Uint8Array(32).fill(name.charCodeAt(0)))), network: new PoolGroupNetwork(pool, [MARMOT_URL!]) };
+    };
+    try {
+      const failures = await runConformance({ provider: new MarmotTsProvider(), makeMember, relays: [MARMOT_URL!] });
+      writeFileSync('interop-marmot-report.json', JSON.stringify({ relay: MARMOT_URL, provider: new MarmotTsProvider().properties, failures, at: new Date().toISOString() }, null, 2) + '\n');
+      expect(failures).toEqual([]);
+    } finally {
+      pools.forEach((p) => p.close());
+    }
+  }, 60_000);
 });

@@ -38,6 +38,7 @@ Evidencia: [`docs/interop/buzz-02c6309-report.json`](interop/buzz-02c6309-report
 | Blossom `/media` con blob cifrado en cliente | ❌ 415 `disallowed content type` (el media de Buzz solo acepta imágenes/vídeo detectados por magic bytes) |
 | Blossom `/media` con imagen en claro | ⚠️ no verificable en este entorno (sin S3/MinIO → 500); repetir con `docker compose` |
 | Cliente soberano E2E (canal + DM) contra Buzz | ✅ |
+| Kinds Marmot 30443 / 445 / 10051 | ❌ `restricted: unknown event kind` → grupos MLS por `secure-relay` (`docs/marmot.md`) |
 
 **Decisiones derivadas**
 - `BUZZ_PINNED_ADAPTER` (`packages/messaging/src/adapters.ts`): jitter de gift wrap 300 s, explícito y

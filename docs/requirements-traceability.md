@@ -30,7 +30,7 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-022 | Sin telemetría | ✅ | `telemetry-policy/test` (nivel none bloquea endpoints); `sovereign.test.ts` |
 | FR-023 | RBAC/ABAC | ✅ | `policy-client/test`, `services/policy-engine/test` |
 | FR-024 | Revocación | ✅ | `policy-engine.test.ts` (sesiones invalidadas, rotación señalada) |
-| FR-025 | Grupo Marmot | ⏳ F4 | Interfaz `GroupCryptoProvider` + suite de conformidad; proveedor MDK no integrado (fail closed) |
+| FR-025 | Grupo Marmot | ✅ | `MarmotTsProvider` (marmot-ts + ts-mls rc.11): `packages/marmot-adapter/test`, `apps/sovereign-client/test/groups.test.ts` (alta, expulsión sin fuga, rotación PCS, estado cifrado, Tor). Buzz no acepta los kinds → relay secundario (`docs/marmot.md`) |
 | FR-026 | Migración de custodia | ✅ | `managed-signer.test.ts` (export → prueba de posesión → retención → borrado) |
 | FR-027 | Backup restore | ✅ | `identity.test.ts` (dispositivo limpio) |
 | FR-028 | Disclosures | ✅ | `profiles/test`, `web-saas.e2e.ts` |

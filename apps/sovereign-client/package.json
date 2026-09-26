@@ -14,6 +14,7 @@
     "@sedecim/delivery-engine": "0.1.0",
     "@sedecim/encrypted-store": "0.1.0",
     "@sedecim/identity": "0.1.0",
+    "@sedecim/marmot-adapter": "0.1.0",
     "@sedecim/messaging": "0.1.0",
     "@sedecim/nostr-core": "0.1.0",
     "@sedecim/profiles": "0.1.0",

@@ -16,6 +16,7 @@ red (IP, horarios) · outbox local · backups · credenciales de servicio (KEK, 
 | Compromiso de cuenta cloud | El backup cloud solo contiene ciphertext; NIP-98 en APIs (sin contraseñas de servidor) | Disponibilidad |
 | Correlación entre identidades | Personas sin vínculo por defecto, compartimentos con store/relays/circuito Tor separados (IsolateSOCKSAuth), avisos de reutilización de contactos/archivos, banner "Enviando como…" | Estilo de escritura, horarios, errores humanos |
 | Insider organizacional | RBAC/ABAC default-deny, auditoría sin plaintext, dispositivos registrados para recursos sensibles | Admins con privilegios amplios |
+| Bug en biblioteca criptográfica | Autoprueba de secreto post-expulsión al abrir sesiones MLS (fail closed); override de ts-mls rc.11 tras hallar que rc.10 omitía UpdatePath en un Remove (RFC 9420 §12.4) | Otros fallos no cubiertos por la autoprueba; revisión independiente pendiente |
 | Supply chain | Dependencias fijadas (versiones exactas + lockfile), noble/scure auditadas, keygen sin dependencias en runtime y bundle reproducible, SBOM, gitleaks, Dependabot | Firma de releases pendiente |
 | Error humano | Advertencia antes de mostrar nsec, confirmación explícita para vínculos, no sobrescribir backups, disclosures por opción | — |
 
@@ -27,7 +28,7 @@ red (IP, horarios) · outbox local · backups · credenciales de servicio (KEK, 
 | Servidor obtiene nsec | Solo managed | No | No (validación rechaza managed) |
 | Relay ve IP | Sí | Sí | Mitigado por Tor |
 | Relay ve plaintext de canal | Canales NIP-29 sí | No si cifrado cliente | No si cifrado cliente |
-| Forward secrecy | Solo Marmot/MLS | Solo Marmot/MLS | Solo Marmot/MLS (proveedor pendiente) |
+| Forward secrecy | Solo Marmot/MLS | Solo Marmot/MLS | Solo Marmot/MLS (marmot-ts alpha, vía relay secundario) |
 | Cloud recovery | Sí | Solo ciphertext | Off por defecto |
 
 ## Gates de seguridad (§20.3) — estado
@@ -35,7 +36,7 @@ red (IP, horarios) · outbox local · backups · credenciales de servicio (KEK, 
 - [ ] Revisión criptográfica independiente.
 - [ ] Pentest de API, relay, key service y cliente.
 - [x] Tests automatizados de Tor/DNS: DNS remoto verificado y ausencia de fallback clearnet. [ ] WebRTC (no aplica en CLI; pendiente en web/móvil).
-- [x] Pérdida de dispositivo y revocación (policy-engine). [ ] Rotación MLS real (F4).
+- [x] Pérdida de dispositivo y revocación (policy-engine). [x] Rotación MLS (self-update) y expulsión con secreto post-expulsión (tests de conformidad + autoprueba en runtime).
 - [x] Restore completo de identidad en dispositivo limpio (test). [ ] Drill de restore del stack (runbook).
 - [ ] Fuzz/property tests de serialización (parcial: interop contra nostr-tools).
 - [x] Dependency scanning (Dependabot), SBOM, gitleaks. [ ] Firma de releases.

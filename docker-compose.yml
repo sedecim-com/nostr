@@ -140,6 +140,17 @@ services:
       PORT: "8083"
     ports: ["${POLICY_PORT:-8083}:8083"]
 
+  # Secondary relay for Marmot/MLS groups (kinds 30443/445/10051 are rejected by the pinned Buzz build)
+  # and for Sovereign Tor personas via its onion service. NIP-42 required; gift wraps only to recipients.
+  secure-relay:
+    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5}
+    volumes:
+      - ./infra/secure-relay/config.toml:/usr/src/app/config.toml:ro
+      - secure-relay-data:/usr/src/app/db
+    ports: ["${SECURE_RELAY_PORT:-7000}:8080"]
+    restart: unless-stopped
+    networks: [nostr]
+
   # Content-agnostic Blossom for client-encrypted attachments (Buzz /media only accepts images/video).
   blob-store:
     <<: *service
@@ -194,6 +205,7 @@ volumes:
   relay-git:
   managed-vault:
   blob-data:
+  secure-relay-data:
   tor-data:
 
 networks:

@@ -15,7 +15,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Identidad, personas, custodia (local, offline, NIP-46, NIP-07, managed) | `packages/identity`, `packages/signer` | ✅ |
 | Máquina de estados de entrega + outbox cifrada + quorum multi-relay | `packages/delivery-engine` | ✅ |
 | DMs NIP-17 (NIP-44 + NIP-59) tras feature flag, canales NIP-29 | `packages/messaging` | ✅ gate ejecutado contra Buzz `02c6309` (requiere adaptador de jitter acotado) |
-| Grupos high-security Marmot/MLS | `packages/marmot-adapter` | ⏳ interfaz + conformidad; sin proveedor (fail closed) |
+| Grupos high-security Marmot/MLS | `packages/marmot-adapter`, `docs/marmot.md` | ✅ marmot-ts + ts-mls (alpha upstream; vía relay secundario, Buzz no acepta los kinds) |
 | Blossom con saneamiento EXIF y cifrado cliente | `packages/blossom-client`, `services/blob-store` | ✅ (cifrados → blob-store; Buzz `/media` solo imágenes en claro) |
 | Sovereign Tor Mode (fail closed, DNS remoto, circuitos por persona) | `packages/tor-network`, `apps/sovereign-client` | ✅ |
 | Panel de soberanía con consecuencias verificables | `packages/profiles`, `apps/web-saas` | ✅ |
@@ -90,7 +90,7 @@ docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, ru
 - F0/F0.5: repetir `test:interop` con el stack Docker completo (MinIO) para validar la subida de imágenes en claro a Buzz `/media`.
 - F2: NIP-77 Negentropy; persistencia en Postgres del policy-engine; notification-gateway.
 - F3: auditoría independiente de fugas; cliente móvil/desktop dedicado para Tor.
-- F4: proveedor Marmot (MDK fijado) que pase `runConformance`.
+- F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); decidir parche de Buzz para kinds Marmot.
 - F5: admin-console, directorio con passkeys/attestation, legal hold.
 - Firma de releases (claves del proyecto), QR en el generador offline, enclave Nitro para managed.
 
