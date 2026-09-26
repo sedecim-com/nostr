@@ -473,7 +473,7 @@ try {
   await a11y.getByRole('button', { name: 'Crear almacén' }).click();
   await a11y.getByRole('button', { name: 'Crear persona' }).click();
   await a11y.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como'));
-  for (const t of ['Personas', 'Canales', 'Mensajes directos', 'Entrega', 'Soberanía y privacidad']) {
+  for (const t of ['Personas', 'Canales', 'Mensajes directos', 'Grupos seguros', 'Entrega', 'Soberanía y privacidad']) {
     await tab(a11y, t);
     await a11y.waitForTimeout(300);
     await audit(t);

@@ -14,6 +14,11 @@ export interface DeploymentConfig {
   /** 'saas': an Acceso (Cognito) login is required before any identity is opened (ADR 0008). */
   mode: 'self-hosted' | 'saas';
   relays: string[];
+  /**
+   * FR025-07 / ADR 0006: secondary secure relay(s) for Marmot/MLS groups (kinds 30443/444/445/10051), which
+   * the pinned Buzz rejects. Unset: groups use the persona relays.
+   */
+  secureRelays?: string[];
   /** Blossom server of the Buzz relay: plain, sanitized channel images (FR018-04). */
   buzzMedia?: string;
   /** Client-encrypted blobs (DM attachments). */

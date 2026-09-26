@@ -1,6 +1,7 @@
 {
   "mode": "saas",
   "relays": ["wss://relay.nostr.acce.so"],
+  "secureRelays": ["wss://secure.nostr.acce.so"],
   "buzzMedia": "https://relay.nostr.acce.so/media",
   "blobStore": "https://blobs.nostr.acce.so",
   "identityService": "https://id.nostr.acce.so",

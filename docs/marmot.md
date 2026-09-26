@@ -224,6 +224,28 @@ sovereign group read       --persona B --group <gid>                # muestra [a
 sovereign group fetch-file --persona B --group <gid> --sha <x> --out foto.jpg
 ```
 
+## Uso (web, FR025-07)
+La vista **Grupos seguros** de la web (`apps/web-saas/src/views/GroupsView.tsx`, carga diferida junto con
+marmot-ts/ts-mls) usa la misma API pública (`MarmotTsProvider` → `GroupSession`):
+- **Relay**: la clave `secureRelays` de `config.json` apunta al `secure-relay` (ADR 0006). Sin ella se usan
+  los relays de la persona y la vista avisa de que Buzz rechaza los kinds de Marmot. El tráfico sale por el
+  pool de la persona (NIP-42 bajo demanda).
+- **Flujo**: publicar key package, crear grupo (nombre, descripción), invitar por npub (busca el key package
+  en el relay de grupos; avisa de las npubs sin key package y rechaza invitar a otra persona propia), aceptar
+  invitaciones (Welcome en gift wrap), chatear (kind 445, sondeo cada 4 s), expulsar (solo admin) y salir.
+  Muestra época, miembros/admins y la insignia «cifrado de extremo a extremo (MLS)».
+- **Estado**: el estado MLS va al vault cifrado del navegador (IndexedDB, `EncryptedGroupStorage`) en
+  colecciones por persona (`mls-<persona>-groups|keypackages|invites`); el historial descifrado, también
+  sellado, en `mlsmsg-<persona>` (las claves de épocas pasadas se borran, así que no se puede volver a
+  descifrar tras recargar). Nada en `localStorage`. Las operaciones MLS se serializan por sesión.
+- **Perfiles**: una persona Tor-only no abre sesión MLS en el navegador (mismo bloqueo que el resto de vistas).
+- **Verificación**: `tests/browser/web-groups.e2e.ts` (en `npm run test:browser`): Alice y Bob en dos
+  contextos, invitación, chat en ambos sentidos, recarga con estado restaurado, expulsión (Bob no lee lo
+  posterior), comprobación de IndexedDB/localStorage y axe.
+- **Límites**: una misma persona abierta en dos pestañas o dispositivos con el mismo vault puede bifurcar el
+  estado MLS (no hay bloqueo entre pestañas); la descripción del grupo no se muestra (`GroupHandle` no la
+  expone); la recepción es por sondeo, no por suscripción.
+
 ## Límites
 - marmot-ts es alpha: no apto para producción high-risk sin revisión independiente (spec §20.3).
 - Solo los admins de `NostrGroupData` hacen commits (salvo self-update); los miembros proponen.

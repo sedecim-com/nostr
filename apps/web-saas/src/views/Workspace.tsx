@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppBar, Box, Button, Chip, Container, MenuItem, Snackbar, Tab, Tabs, TextField, Toolbar, Typography } from '@mui/material';
 import type { DeploymentFlags } from '@sedecim/messaging';
 import type { SovereigntyConfig } from '@sedecim/profiles';
@@ -15,10 +15,14 @@ import { OutboxView } from './OutboxView';
 import { PanelView } from './PanelView';
 import { PersonasView } from './PersonasView';
 
+// MLS (marmot-ts / ts-mls) is heavy: the high-security groups view and its crypto load on first use.
+const GroupsView = lazy(() => import('./GroupsView').then((m) => ({ default: m.GroupsView })));
+
 const TABS = [
   { id: 'personas', label: 'Personas' },
   { id: 'channels', label: 'Canales' },
   { id: 'dm', label: 'Mensajes directos' },
+  { id: 'groups', label: 'Grupos seguros' },
   { id: 'outbox', label: 'Entrega' },
   { id: 'panel', label: 'Soberanía y privacidad' },
 ] as const;
@@ -183,6 +187,12 @@ function View({ id }: { id: TabId }) {
       return <ChannelsView />;
     case 'dm':
       return <DmView />;
+    case 'groups':
+      return (
+        <Suspense fallback={<Alert severity="info">Cargando grupos seguros…</Alert>}>
+          <GroupsView />
+        </Suspense>
+      );
     case 'outbox':
       return <OutboxView />;
     case 'panel':
