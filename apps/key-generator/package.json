@@ -12,5 +12,8 @@
   },
   "dependencies": {
     "@sedecim/nostr-core": "0.1.0"
+  },
+  "scripts": {
+    "build": "node build.mjs"
   }
 }

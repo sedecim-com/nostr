@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws: wss: http://localhost:* https:; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Nostr Soberano — Web</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Saltar al contenido</a>
+  <header>
+    <h1>Nostr Soberano</h1>
+    <p id="sending-as" class="sending-as" aria-live="polite">Sin identidad activa</p>
+  </header>
+  <nav aria-label="Secciones">
+    <button data-tab="identity" aria-controls="identity" class="tab" aria-selected="true">Identidad</button>
+    <button data-tab="channel" aria-controls="channel" class="tab">Canal</button>
+    <button data-tab="dm" aria-controls="dm" class="tab">Mensajes directos</button>
+    <button data-tab="outbox" aria-controls="outbox" class="tab">Entrega</button>
+    <button data-tab="panel" aria-controls="panel" class="tab">Soberanía y privacidad</button>
+  </nav>
+  <main id="main">
+    <section id="identity" class="view" aria-labelledby="identity-h">
+      <h2 id="identity-h">Identidad y custodia</h2>
+      <form id="unlock-form">
+        <label for="local-pass">Contraseña local (cifra llaves y outbox en este navegador)</label>
+        <input id="local-pass" type="password" autocomplete="current-password" required minlength="8" />
+        <fieldset>
+          <legend>Modo de llave</legend>
+          <label><input type="radio" name="custody" value="create" checked /> Crear llave local nueva (la nsec no sale del navegador)</label>
+          <label><input type="radio" name="custody" value="import" /> Importar nsec / ncryptsec</label>
+          <label><input type="radio" name="custody" value="nip07" /> Extensión del navegador (NIP-07)</label>
+          <label><input type="radio" name="custody" value="nip46" /> Signer remoto (NIP-46 bunker://)</label>
+          <label><input type="radio" name="custody" value="unlock" /> Desbloquear llave guardada en este navegador</label>
+        </fieldset>
+        <label for="secret-input">nsec, ncryptsec o bunker:// (según el modo)</label>
+        <input id="secret-input" type="password" autocomplete="off" spellcheck="false" />
+        <label for="ncryptsec-pass">Contraseña del ncryptsec (si aplica)</label>
+        <input id="ncryptsec-pass" type="password" autocomplete="off" />
+        <label for="relays">Relays (uno por línea; el mismo relay que Buzz Desktop/Mobile)</label>
+        <textarea id="relays" rows="3" spellcheck="false">ws://localhost:3000</textarea>
+        <button type="submit">Activar identidad</button>
+      </form>
+      <div id="identity-status" role="status"></div>
+      <div id="custody-facts" class="facts"></div>
+      <button id="export-backup" type="button" hidden>Descargar backup cifrado (NIP-49)</button>
+    </section>
+
+    <section id="channel" class="view" hidden aria-labelledby="channel-h">
+      <h2 id="channel-h">Canal (NIP-29)</h2>
+      <p class="warn">Los canales de workspace NO son E2EE: el operador del relay puede leer el contenido.</p>
+      <form id="channel-join"><label for="group-id">ID de canal (#h)</label><input id="group-id" required /><button>Abrir</button></form>
+      <ol id="channel-log" class="log" aria-live="polite"></ol>
+      <form id="channel-send">
+        <p class="sending-as" data-sending-as></p>
+        <label for="channel-text">Mensaje</label>
+        <textarea id="channel-text" rows="2" required></textarea>
+        <button>Enviar</button>
+      </form>
+    </section>
+
+    <section id="dm" class="view" hidden aria-labelledby="dm-h">
+      <h2 id="dm-h">Mensajes directos (NIP-17)</h2>
+      <p class="warn">NIP-17 es draft y queda deshabilitado hasta pasar la suite E2E contra la versión fijada del relay. NIP-44 no ofrece forward secrecy ni post-compromise security.</p>
+      <label><input type="checkbox" id="nip17-flag" /> Habilitar NIP-17 en esta sesión (feature flag)</label>
+      <form id="dm-send">
+        <p class="sending-as" data-sending-as></p>
+        <label for="dm-to">Destinatario (npub)</label><input id="dm-to" required spellcheck="false" />
+        <label for="dm-text">Mensaje</label><textarea id="dm-text" rows="2" required></textarea>
+        <button>Enviar cifrado</button>
+      </form>
+      <button id="dm-refresh" type="button">Actualizar bandeja</button>
+      <ol id="dm-log" class="log" aria-live="polite"></ol>
+    </section>
+
+    <section id="outbox" class="view" hidden aria-labelledby="outbox-h">
+      <h2 id="outbox-h">Estado de entrega</h2>
+      <p>“Aceptado por relay” (OK de NIP-01) no significa “recibido” ni “leído”.</p>
+      <button id="outbox-resume" type="button">Reintentar pendientes</button>
+      <table><caption>Outbox local cifrada</caption><thead><tr><th scope="col">Operación</th><th scope="col">Estado</th><th scope="col">Relays</th><th scope="col">Detalle</th></tr></thead><tbody id="outbox-rows"></tbody></table>
+    </section>
+
+    <section id="panel" class="view" hidden aria-labelledby="panel-h">
+      <h2 id="panel-h">Panel de soberanía, privacidad y seguridad</h2>
+      <label for="preset">Perfil de referencia</label>
+      <select id="preset"></select>
+      <form id="panel-form" class="grid"></form>
+      <div id="panel-issues" role="alert"></div>
+      <div id="panel-dimensions" class="dimensions"></div>
+      <h3>Consecuencias de cada opción</h3>
+      <ul id="panel-disclosures"></ul>
+    </section>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

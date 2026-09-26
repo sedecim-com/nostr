@@ -22,7 +22,8 @@
     "sovereign": "tsx apps/sovereign-client/src/cli.ts",
     "dev:relay": "tsx packages/test-relay/src/cli.ts",
     "build:web": "node apps/web-saas/build.mjs",
-    "sbom": "npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json"
+    "sbom": "npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json",
+    "test:browser": "npm run build:web && tsx tests/browser/web-saas.e2e.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.4",
@@ -30,6 +31,7 @@
     "@types/ws": "8.18.1",
     "esbuild": "0.28.2",
     "nostr-tools": "2.25.2",
+    "playwright": "^1.56.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vitest": "3.2.7"
