@@ -2,7 +2,7 @@
  * NIP-46 remote signing ("Nostr Connect"). The client never holds the user's nsec: it holds an
  * ephemeral client keypair and sends NIP-44 encrypted JSON-RPC requests (kind 24133) through relays.
  */
-import { bytesToHex, generateSecretKey, randomBytes, verifyEvent, type EventTemplate, type NostrEvent, type Signer, type CustodyMode } from '@sedecim/nostr-core';
+import { bytesToHex, generateSecretKey, getPublicKey, randomBytes, verifyEvent, type EventTemplate, type NostrEvent, type Signer, type CustodyMode } from '@sedecim/nostr-core';
 import { RelayPool } from '@sedecim/relay-pool';
 import { LocalSigner } from './local';
 
@@ -34,6 +34,76 @@ export function formatBunkerUrl(p: BunkerPointer): string {
   return `bunker://${p.remoteSignerPubkey}?${q.toString()}`;
 }
 
+/** Kinds the Acceso Nostr web asks a remote signer to sign, with a human label (FR004-04). */
+export const KIND_LABELS: Record<number, string> = {
+  5: 'Borrar mensajes propios (NIP-09)',
+  7: 'Reacciones',
+  9: 'Mensajes de canal (NIP-29)',
+  13: 'Sellos de mensajes directos (NIP-17)',
+  9007: 'Crear canales',
+  9021: 'Solicitar unirse a canales',
+  10050: 'Lista de relays de mensajes directos',
+  22242: 'Autenticación en relays (NIP-42)',
+  24242: 'Autorizar subidas de archivos (Blossom)',
+  27235: 'Autenticación HTTP en servicios (NIP-98)',
+};
+
+/** Minimal permissions for the web client: only the kinds it signs, plus NIP-44 for DMs (spec §8.3). */
+export const WEB_NIP46_PERMISSIONS = ['get_public_key', 'nip44_encrypt', 'nip44_decrypt', ...Object.keys(KIND_LABELS).map((k) => `sign_event:${k}`)];
+
+const METHOD_LABELS: Record<string, string> = {
+  get_public_key: 'Conocer tu clave pública',
+  nip44_encrypt: 'Cifrar mensajes directos (NIP-44)',
+  nip44_decrypt: 'Descifrar mensajes directos (NIP-44)',
+  sign_event: 'Firmar eventos',
+};
+
+/** Human-readable list of the permissions a client requests, shown before connecting. */
+export function describePermissions(perms: string[]): Array<{ permission: string; method: string; kind?: number; label: string }> {
+  return perms.map((permission) => {
+    const [method, k] = permission.split(':') as [string, string | undefined];
+    const kind = k !== undefined ? Number(k) : undefined;
+    const label = kind !== undefined ? `Firmar: ${KIND_LABELS[kind] ?? `kind ${kind}`}` : (METHOD_LABELS[method] ?? method);
+    return { permission, method, ...(kind !== undefined ? { kind } : {}), label };
+  });
+}
+
+/** Client-initiated connection (FR004-03): the user scans or pastes this into their signer app. */
+export interface NostrConnectOffer {
+  uri: string;
+  clientSecretKey: Uint8Array;
+  secret: string;
+  relays: string[];
+  permissions: string[];
+}
+
+export function createNostrConnect(opts: { relays: string[]; permissions?: string[]; name?: string; url?: string; clientSecretKey?: Uint8Array }): NostrConnectOffer {
+  if (opts.relays.length === 0) throw new Error('nostrconnect needs at least one relay');
+  const clientSecretKey = opts.clientSecretKey ?? generateSecretKey();
+  const secret = bytesToHex(randomBytes(16));
+  const permissions = opts.permissions ?? WEB_NIP46_PERMISSIONS;
+  const q = new URLSearchParams();
+  opts.relays.forEach((r) => q.append('relay', r));
+  q.set('secret', secret);
+  q.set('perms', permissions.join(','));
+  if (opts.name) q.set('name', opts.name);
+  if (opts.url) q.set('url', opts.url);
+  const clientPubkey = getPublicKey(clientSecretKey);
+  return { uri: `nostrconnect://${clientPubkey}?${q.toString()}`, clientSecretKey, secret, relays: opts.relays, permissions };
+}
+
+export function parseNostrConnect(uri: string): { clientPubkey: string; relays: string[]; secret: string; permissions: string[]; name?: string } {
+  const u = new URL(uri);
+  if (u.protocol !== 'nostrconnect:') throw new Error('expected nostrconnect:// uri');
+  const clientPubkey = (u.hostname || u.pathname.replace(/^\/+/, '')).toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(clientPubkey)) throw new Error('invalid client pubkey');
+  const relays = u.searchParams.getAll('relay');
+  const secret = u.searchParams.get('secret');
+  if (relays.length === 0 || !secret) throw new Error('nostrconnect uri needs relay and secret');
+  const name = u.searchParams.get('name') ?? undefined;
+  return { clientPubkey, relays, secret, permissions: (u.searchParams.get('perms') ?? '').split(',').filter(Boolean), ...(name ? { name } : {}) };
+}
+
 export interface Nip46SignerOptions {
   pool: RelayPool;
   /** Ephemeral client key; generated if omitted. Persist it to keep a stable session with the bunker. */
@@ -41,6 +111,10 @@ export interface Nip46SignerOptions {
   /** Minimal, visible permissions requested from the signer (spec §8.3). */
   permissions?: string[];
   timeoutMs?: number;
+  /** The signer asks the user to approve in a web page (NIP-46 auth_url): open it; the request keeps waiting. */
+  onAuthUrl?: (url: string) => void;
+  /** How long to keep waiting after an auth_url challenge (default 5 min). */
+  authTimeoutMs?: number;
 }
 
 interface Pending {
@@ -87,7 +161,16 @@ export class Nip46Signer implements Signer {
     }
     const p = msg.id ? this.pending.get(msg.id) : undefined;
     if (!p) return;
-    if (msg.result === 'auth_url') return; // auth challenge: keep waiting for the real response
+    if (msg.result === 'auth_url') {
+      // Auth challenge (FR004-05): show the URL and keep waiting, longer, for the real response.
+      if (msg.error && /^https:\/\//.test(msg.error)) this.opts.onAuthUrl?.(msg.error);
+      clearTimeout(p.timer);
+      p.timer = setTimeout(() => {
+        this.pending.delete(msg.id!);
+        p.reject(new Error('remote signer: auth_url not completed'));
+      }, this.opts.authTimeoutMs ?? 300_000);
+      return;
+    }
     this.pending.delete(msg.id!);
     clearTimeout(p.timer);
     if (msg.error) p.reject(new Error(`remote signer: ${msg.error}`));
@@ -116,6 +199,39 @@ export class Nip46Signer implements Signer {
       throw new Error(`could not reach remote signer relays: ${acks.map((a) => a.message).join('; ')}`);
     }
     return result;
+  }
+
+  /**
+   * Waits for a signer to answer a nostrconnect:// offer: the response carries the offer secret and its
+   * author is the remote signer. The returned signer is already connected (no bunker secret needed).
+   */
+  static async fromNostrConnect(offer: NostrConnectOffer, opts: Omit<Nip46SignerOptions, 'clientSecretKey'> & { signal?: AbortSignal; onReady?: () => void }): Promise<Nip46Signer> {
+    const client = new LocalSigner(offer.clientSecretKey);
+    const me = await client.getPublicKey();
+    const remote = await new Promise<string>((resolve, reject) => {
+      let sub: { close(): void } | undefined;
+      const done = (fn: () => void) => {
+        clearTimeout(timer);
+        sub?.close();
+        fn();
+      };
+      const timer = setTimeout(() => done(() => reject(new Error('nostrconnect: no signer answered'))), opts.timeoutMs ?? 300_000);
+      opts.signal?.addEventListener('abort', () => done(() => reject(new Error('nostrconnect cancelled'))));
+      // Responses are ephemeral (kind 24133, never stored): show the offer only once this subscription is live.
+      sub = opts.pool.subscribe(offer.relays, [{ kinds: [NOSTR_CONNECT_KIND], '#p': [me], since: Math.floor(Date.now() / 1000) - 10 }], {
+        oneose: () => opts.onReady?.(),
+        onevent: (evt) =>
+          void client
+            .nip44Decrypt(evt.pubkey, evt.content)
+            .then((raw) => {
+              const msg = JSON.parse(raw) as { result?: string; error?: string };
+              if (msg.result === offer.secret) done(() => resolve(evt.pubkey));
+              else if (msg.result === 'auth_url' && msg.error && /^https:\/\//.test(msg.error)) opts.onAuthUrl?.(msg.error);
+            })
+            .catch(() => undefined),
+      });
+    });
+    return new Nip46Signer({ remoteSignerPubkey: remote, relays: offer.relays }, { ...opts, clientSecretKey: offer.clientSecretKey, permissions: offer.permissions });
   }
 
   async connect(): Promise<void> {
@@ -182,6 +298,16 @@ export class Nip46Bunker {
   ) {
     this.transport = new LocalSigner(transportSecretKey);
     this.secret = secret;
+  }
+
+  /** Accept a client-initiated nostrconnect:// offer: answer with its secret and authorize that client. */
+  async acceptNostrConnect(uri: string): Promise<void> {
+    const offer = parseNostrConnect(uri);
+    const content = await this.transport.nip44Encrypt(offer.clientPubkey, JSON.stringify({ id: bytesToHex(randomBytes(8)), result: offer.secret }));
+    const evt = await this.transport.signEvent({ kind: NOSTR_CONNECT_KIND, content, tags: [['p', offer.clientPubkey]] });
+    this.connected.add(offer.clientPubkey);
+    this.policy.onRequest?.({ clientPubkey: offer.clientPubkey, method: 'connect', allowed: true });
+    await this.pool.publish(evt, offer.relays);
   }
 
   async pointer(): Promise<BunkerPointer> {

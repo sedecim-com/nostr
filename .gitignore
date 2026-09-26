@@ -11,3 +11,4 @@ interop-report.json
 interop-marmot-report.json
 infra/secure-relay/config.tls.toml
 dump.rdb
+.claude/worktrees/

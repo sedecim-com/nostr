@@ -12,12 +12,14 @@ import type { AddressInfo } from 'node:net';
 import { chromium, type Page } from 'playwright';
 import WebSocket from 'ws';
 import { bytesToHex, finalizeEvent, generateSecretKey, getPublicKey, getTagValue, nip19, npubEncode, toUnsigned } from '@sedecim/nostr-core';
-import { LocalSigner } from '@sedecim/signer';
+import { LocalSigner, Nip46Bunker } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestBlossomServer, TestRelay, tinyPng } from '@sedecim/test-relay';
 import { APP_RECEIPT_KIND, chatMessage, createDirectMessage, createReceipt, dmInboxFilter, FILE_MESSAGE_KIND, openDirectMessage, unwrap } from '@sedecim/messaging';
 import { BlossomClient } from '@sedecim/blossom-client';
 import { CognitoVerifier, createIdentityApi, MemoryIdentityRepository } from '@sedecim/identity-service';
+import { createManagedSignerApi, ManagedSigner, MemoryVault } from '@sedecim/managed-signer';
+import { backupFile, generateKey } from '@sedecim/key-generator';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -84,12 +86,22 @@ const identity = createIdentityApi(identityRepo, {
   cognito: new CognitoVerifier({ region: cognito.region, userPoolId: cognito.userPoolId, clientId: cognito.userPoolClientId, fetch: (async () => new Response(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'e2e', alg: 'RS256' }] }))) as typeof fetch }),
 });
 const identityUrl = await identity.listen();
+// Custodial managed-signer (SaaS only, ADR 0009): authorized by the same simulated Acceso tokens.
+const managedCore = new ManagedSigner(new MemoryVault());
+const managed = createManagedSignerApi(managedCore, {
+  name: 'managed-e2e',
+  corsOrigins: [base],
+  cognito: new CognitoVerifier({ region: cognito.region, userPoolId: cognito.userPoolId, clientId: cognito.userPoolClientId, fetch: (async () => new Response(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'e2e', alg: 'RS256' }] }))) as typeof fetch }),
+});
+const managedUrl = await managed.listen();
 const selfHosted = { mode: 'self-hosted', relays: [relay.url], buzzMedia: media.url, blobStore: blobs.url, identityService: identityUrl };
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const context = await browser.newContext();
 await context.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(selfHosted) }));
 const page = await context.newPage();
+// E2E_CPU_THROTTLE=6 emulates a slow CI runner (surfaces races such as ephemeral NIP-46 responses).
+if (process.env.E2E_CPU_THROTTLE) await (await context.newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.E2E_CPU_THROTTLE) });
 const errors: string[] = [];
 const external: string[] = [];
 const outbound: string[] = [];
@@ -264,10 +276,82 @@ try {
   await page.getByLabel('Crear llave local nueva (la nsec no sale del navegador)').check();
   await page.getByRole('button', { name: 'Crear persona' }).click();
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Personal'));
-  await page.getByRole('combobox', { name: 'Persona' }).click();
+  await page.locator('#persona-select').click();
   await page.getByRole('option', { name: /Trabajo/ }).click();
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
   assert(true, 'switching persona changes the sending identity');
+
+  // --- import the offline key generator's backup: the npub is verified on decryption (FR002-03)
+  const offline = generateKey({ password: 'clave-del-generador', logN: 14 });
+  await tab(page, 'Personas');
+  await fill(page, 'persona-label', 'Offline');
+  await page.getByLabel('Importar archivo de backup (generador offline o esta web)').check();
+  await page.locator('input[type=file][accept="application/json,.json"]').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backupFile(offline, 14))) });
+  assert((await page.textContent('#backup-npub'))?.includes(offline.npub), 'the backup npub is shown before asking for the password');
+  await fill(page, 'import-backup-pass', 'incorrecta');
+  await page.getByRole('button', { name: 'Crear persona' }).click();
+  await page.getByText(/wrong passphrase|corrupted/i).waitFor({ timeout: 20_000 });
+  await fill(page, 'import-backup-pass', 'clave-del-generador');
+  await page.getByRole('button', { name: 'Crear persona' }).click();
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Offline'), undefined, { timeout: 20_000 });
+  await page.getByRole('button', { name: 'Mostrar QR de mi npub' }).click();
+  assert(await page.getByRole('img', { name: 'Código QR de tu npub' }).isVisible(), 'imported persona can show its npub as a QR (FR003-03)');
+  assert(await page.getByRole('img', { name: 'Código QR de tu npub' }).locator('path').count() === 1, 'QR drawn as a single SVG path, no external resources');
+
+  // --- remote signer via client-initiated nostrconnect:// (FR004-03/04): the nsec never reaches the browser
+  const remoteUser = new LocalSigner(generateSecretKey());
+  const bunkerPool = new RelayPool({ webSocketFactory: factory, signer: new LocalSigner(generateSecretKey()) });
+  pools.push(bunkerPool);
+  const bunker = new Nip46Bunker(remoteUser, bunkerPool, [relay.url], { allowedKinds: [5, 7, 9, 13, 9007, 9021, 10050, 22242, 24242, 27235] });
+  await bunker.start();
+  await tab(page, 'Personas');
+  await fill(page, 'persona-label', 'Remota');
+  await page.getByLabel('Signer remoto (NIP-46)').check();
+  assert((await page.textContent('#nip46-permissions'))?.includes('Firmar: Mensajes de canal (NIP-29)'), 'requested NIP-46 permissions are listed before connecting (FR004-04)');
+  await page.getByRole('button', { name: 'Generar código de conexión' }).click();
+  const uri = await page.inputValue('#nostrconnect-uri');
+  assert(await page.getByRole('img', { name: 'Código QR de conexión nostrconnect' }).isVisible(), 'the nostrconnect offer is also shown as a QR');
+  assert(uri.startsWith('nostrconnect://') && uri.includes('perms='), 'web shows a nostrconnect:// offer with its permissions');
+  await bunker.acceptNostrConnect(uri);
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Remota'), undefined, { timeout: 15_000 });
+  await tab(page, 'Canales');
+  await page.locator('#channel-list').getByText('General').click();
+  await fill(page, 'channel-text', 'firmado por el signer remoto');
+  await page.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  const remoteMsg = await (async () => {
+    for (let i = 0; i < 40; i++) {
+      const e = (await pool.query([relay.url], [{ kinds: [9], '#h': ['general'] }], 2000)).find((x) => x.content === 'firmado por el signer remoto');
+      if (e) return e;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  })();
+  assert(remoteMsg?.pubkey === (await remoteUser.getPublicKey()), 'channel message signed through the remote signer (FR004-03)');
+  bunker.stop();
+
+  // --- linking personas explains the consequences first (FR007-03)
+  await page.locator('#persona-select').click();
+  await page.getByRole('option', { name: /Trabajo/ }).click();
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
+  await tab(page, 'Personas');
+  await page.locator('#link-target').click();
+  await page.getByRole('option', { name: /^Personal/ }).click();
+  await page.getByLabel('Selectivo (solo las personas que elijas)').check();
+  await fill(page, 'link-audience', npubEncode(getPublicKey(bobKey)));
+  await page.getByRole('button', { name: 'Vincular…' }).click();
+  assert((await page.getByRole('dialog').textContent())?.includes('la desanonimización no se puede deshacer'), 'link dialog explains the de-anonymization before confirming');
+  const accountBefore = await identityRepo.personaByPubkey(webPub);
+  assert(!accountBefore, 'nothing is sent to the identity service before confirming');
+  await page.getByRole('button', { name: 'Entiendo las consecuencias, vincular' }).click();
+  await page.getByText('Personas vinculadas (selective)').waitFor({ timeout: 10_000 });
+  const acct = (await identityRepo.personaByPubkey(webPub))!.accountId;
+  const personasOf = await identityRepo.personasOf(acct);
+  const links = await identityRepo.linksOf(personasOf.map((p) => p.personaId));
+  assert(personasOf.length === 2 && links.length === 1 && links[0]!.visibility === 'selective' && links[0]!.audience[0] === getPublicKey(bobKey), 'identity service registered both personas (with proof of key control) and a selective link');
+
+  // --- panel: per-dimension indicators backed by statements (PANEL-04)
+  await tab(page, 'Soberanía y privacidad');
+  await page.locator('#dim-privacidad-operador-h').click();
+  assert((await page.locator('#dim-privacidad-operador').textContent())?.includes('ver consecuencia'), 'each dimension lists the statements that move it, linked to their disclosure');
 
   // --- a deployment whose gate rejected NIP-17 blocks it
   const gated = await context.newPage();
@@ -309,6 +393,13 @@ try {
     await a11y.addScriptTag({ path: axePath });
     const v = await a11y.evaluate(async () => (await (window as unknown as { axe: { run(): Promise<{ violations: Array<{ id: string; impact: string; nodes: unknown[] }> }> } }).axe.run()).violations.filter((x) => x.impact === 'serious' || x.impact === 'critical').map((x) => `${x.id}(${x.nodes.length}: ${(x.nodes as Array<{ target: string[]; failureSummary?: string }>).map((n) => `${n.target.join(' ')} ${n.failureSummary ?? ''}`.replace(/\s+/g, ' ').slice(0, 220)).join(' | ')})`));
     assert(v.length === 0, `axe: no serious/critical violations on ${label} (${v.join(', ')})`);
+    // axe rates duplicate ids as minor, but they break label/aria wiring and tests (found once in Personas).
+    const dup = await a11y.evaluate(() => {
+      const seen = new Map<string, number>();
+      for (const el of document.querySelectorAll('[id]')) seen.set(el.id, (seen.get(el.id) ?? 0) + 1);
+      return [...seen].filter(([, n]) => n > 1).map(([id]) => id);
+    });
+    assert(dup.length === 0, `no duplicate ids on ${label} (${dup.join(', ')})`);
   };
   await a11y.goto(base);
   await a11y.getByText('Crear almacén').waitFor();
@@ -326,7 +417,7 @@ try {
 
   // --- SaaS mode (ADR 0008): Acceso login first, then optional linking of a persona
   const saasCtx = await browser.newContext();
-  await saasCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...selfHosted, mode: 'saas', cognito }) }));
+  await saasCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...selfHosted, mode: 'saas', cognito, managedSigner: managedUrl }) }));
   const cognitoCalls: string[] = [];
   await saasCtx.route(`https://cognito-idp.${cognito.region}.amazonaws.com/**`, async (r) => {
     const target = r.request().headers()['x-amz-target'] ?? '';
@@ -369,12 +460,48 @@ try {
   await saas.getByText('Cuenta de Acceso vinculada a esta persona').waitFor({ timeout: 10_000 });
   const logins = await identityRepo.externalLoginsOf((await account())!);
   assert(logins.length === 1 && logins[0]!.subject === 'acceso-user-1' && logins[0]!.issuer === iss, 'identity-service verified the Cognito token and linked it to the persona account');
+
+  // --- managed custody: explicit opt-in (FR005-07), signatures authorized by the Acceso token (FR005-04)
+  await saas.fill('#persona-label', 'Gestionada');
+  await saas.getByLabel('Llave gestionada por la plataforma (custodial, opcional)').check();
+  assert((await saas.getByRole('alert').filter({ hasText: 'capacidad técnica de firmar' }).count()) > 0, 'managed custody shows the custodial disclosure before creating');
+  assert(await saas.getByRole('button', { name: 'Crear persona' }).isDisabled(), 'managed custody is never created without explicit consent');
+  await saas.locator('#managed-consent').check();
+  await saas.getByRole('button', { name: 'Crear persona' }).click();
+  await saas.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Gestionada'), undefined, { timeout: 15_000 });
+  const owner = `${iss}#acceso-user-1`;
+  const managedKey = (await managedCore.list(owner))[0];
+  assert(managedKey && (await saas.textContent('#sending-as'))?.includes('custodial'), 'managed key created for the Acceso user and flagged as custodial');
+  await tab(saas, 'Canales');
+  await saas.locator('#channel-list').getByText('General').click();
+  await saas.fill('#channel-text', 'firmado por la custodia gestionada');
+  await saas.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  const managedMsg = await (async () => {
+    for (let i = 0; i < 40; i++) {
+      const e = (await pool.query([relay.url], [{ kinds: [9], '#h': ['general'] }], 2000)).find((x) => x.content === 'firmado por la custodia gestionada');
+      if (e) return e;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  })();
+  assert(managedMsg?.pubkey === managedKey!.pubkey, 'channel message signed by the managed signer with the Acceso token');
+  assert((await managedCore.usageOf(managedKey!.keyId, owner)).some((u) => u.action === 'sign' && u.principal === owner), 'each managed signature is audited under the Acceso user');
+
+  // --- migration back to local custody with verification (FR026-03)
+  await tab(saas, 'Personas');
+  await saas.fill('#migration-pass', 'exportacion-segura-123');
+  await saas.getByRole('button', { name: 'Exportar y verificar' }).click();
+  await saas.getByText('Tu llave ya vive en este navegador').waitFor({ timeout: 60_000 });
+  assert((await saas.textContent('#sending-as'))?.includes('Llave local (navegador)'), 'after verified export the persona signs locally');
+  await saas.getByRole('button', { name: 'Borrar la copia gestionada' }).click();
+  await saas.locator('#migration-done').waitFor({ timeout: 10_000 });
+  assert((await managedCore.list(owner)).length === 0, 'managed copy deleted only after the verified migration (destroyed after the retention window)');
   await saasCtx.close();
 } finally {
   for (const p of pools) p.close();
   await browser.close();
   server.close();
   await identity.close();
+  await managed.close();
   await media.stop();
   await blobs.stop();
   await relay.stop();

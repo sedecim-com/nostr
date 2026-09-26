@@ -46,6 +46,28 @@ export function generateKey(opts: GenerateOptions = {}): GeneratedKey {
 }
 
 /**
+ * Same as generateKey but with the async scrypt (does not block a browser's UI thread while the
+ * NIP-49 key is derived). Used by the air-gapped HTML generator.
+ */
+export async function generateKeyAsync(opts: GenerateOptions = {}): Promise<GeneratedKey> {
+  const sk = generateSecretKey();
+  try {
+    const selfTest = selfTestKey(sk);
+    if (!selfTest.ok) throw new Error('self-test failed: refusing to output this key');
+    return {
+      npub: nip19.npubEncode(selfTest.pubkey),
+      pubkeyHex: selfTest.pubkey,
+      ...(opts.revealNsec ? { nsec: nip19.nsecEncode(sk) } : {}),
+      ...(opts.password ? { ncryptsec: await nip49.encryptKeyAsync(sk, opts.password, opts.logN ?? 18, 0x01) } : {}),
+      selfTest,
+      createdAt: new Date().toISOString(),
+    };
+  } finally {
+    wipe(sk);
+  }
+}
+
+/**
  * Key for a service identity that lives in the stack's .env (relay signing key, mirror NIP-42 identity):
  * same CSPRNG and self-test as a user key, returned as hex because that is what the services read.
  */

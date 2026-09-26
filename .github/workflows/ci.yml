@@ -39,8 +39,13 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U sedecim" --health-interval 5s --health-timeout 5s --health-retries 10
+      # AWS Secrets Manager + KMS emulator for the managed-signer vault tests (FR005-02).
+      moto:
+        image: motoserver/moto:5.2.3@sha256:91fd602a21f49cf9eb82fdf474015a3c131d40104c8297ea6a2ca920708ae32c
+        ports: ["5055:5000"]
     env:
       TEST_DATABASE_URL: postgres://sedecim:sedecim@localhost:5432/sedecim_test
+      MOTO_ENDPOINT: http://localhost:5055
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,6 +56,12 @@ jobs:
       - run: npm run typecheck
       - name: Backlog is valid and generated files are up to date
         run: node scripts/backlog.mjs --check
+      - name: Disclosure copy under review is versioned and up to date (FR028-02)
+        run: npx tsx scripts/disclosures.ts --check
+      - name: Wait for moto
+        run: curl -sf --retry 15 --retry-delay 2 --retry-connrefused -o /dev/null "$MOTO_ENDPOINT/moto-api/"
+      - name: No absolute privacy claims in user-facing copy (FR028-03)
+        run: npm run lint:claims
       - run: npm test
       - name: Browser E2E (web SaaS)
         run: |
@@ -58,6 +69,10 @@ jobs:
           npm run test:browser
       - name: Offline key generator bundle + checksum
         run: node apps/key-generator/build.mjs
+      - name: Air-gapped HTML key generator + checksum, E2E from file:// with network blocked (FR003-05)
+        run: |
+          node apps/key-generator/build-html.mjs
+          npm run test:keygen-html
       - name: SBOM
         run: npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
       - uses: actions/upload-artifact@v4
@@ -66,6 +81,8 @@ jobs:
           path: |
             apps/key-generator/dist/keygen.mjs
             apps/key-generator/dist/keygen.mjs.sha256
+            apps/key-generator/dist/keygen.html
+            apps/key-generator/dist/keygen.html.sha256
             sbom.cdx.json
 
   secrets:

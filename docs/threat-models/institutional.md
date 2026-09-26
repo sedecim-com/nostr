@@ -26,12 +26,13 @@ de auditoría, dispositivos registrados.
 | Ex-miembro leyendo la sala | Expulsión MLS sin fuga (autoprueba y conformidad) | `packages/marmot-adapter/test`, `docs/marmot.md` |
 | Secretos en logs o tablas | Vault envelope; logs y uso sin secreto; tablas solo con metadatos | `services/managed-signer/test` |
 | Uso indebido de la llave managed | Auditoría de cada firma; migración verificada a llave local | `managed-signer.test.ts` (FR-026) |
+| Suplantación de otro usuario en el managed-signer | Cada petición lleva el token de Acceso (Cognito) verificado; el dueño es `issuer#sub` y nunca sale de `x-account-id` | `managed-signer.test.ts` (FR005-04) |
+| Pérdida del registro de llaves al reiniciar | Registro y log de uso en Postgres; retención de 12 meses para el uso y de 30 días para el material borrado | `registry.test.ts` (FR005-03, DEC-09) |
 
 ## Riesgos residuales
 | Riesgo | Nivel | Nota |
 |---|---|---|
 | **El operador puede firmar como el usuario (managed)** | Alto | Declarado en el panel y en la API; el tier con enclave (FR005-05) lo reduce |
-| Registro de llaves del managed-signer en memoria | Alto | Un reinicio pierde la asociación de llaves (FR005-03, P0) |
 | Policy-engine sin persistencia | Alto | Los datos de política se pierden al reiniciar (FR023-03, P0) |
 | La rotación MLS tras revocar no es automática | Medio | Se señala pero no se ejecuta (FR024-02) |
 | Administrador malicioso | Medio | Falta separación de funciones y auditoría inmutable |

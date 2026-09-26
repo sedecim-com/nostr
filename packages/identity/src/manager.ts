@@ -1,18 +1,37 @@
+import { xchacha20poly1305 } from '@noble/ciphers/chacha';
 import {
   bytesToHex,
+  bytesToUtf8,
+  concatBytes,
   generateSecretKey,
   getPublicKey,
+  isHex,
   nip19,
   nip49,
   npubEncode,
   randomBytes,
   selfTestKey,
+  utf8ToBytes,
   wipe,
   type Signer,
 } from '@sedecim/nostr-core';
 import type { Collection, EncryptedStore } from '@sedecim/encrypted-store';
+import type { SovereigntyConfig } from '@sedecim/profiles';
 import { LocalSigner } from '@sedecim/signer';
-import type { AuditEntry, BackupPackage, Compartment, IdentityLink, LinkVisibility, PersonaConfig } from './types';
+import { openKeyBackup } from './key-backup';
+import type { AuditEntry, BackupContents, BackupPackage, BackupPackageV2, Compartment, IdentityLink, LinkVisibility, PersonaConfig } from './types';
+
+const BACKUP_AAD = utf8ToBytes('sedecim-identity-backup-v2');
+
+function toBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+function fromBase64(b64: string): Uint8Array {
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
 
 export class ConsentRequiredError extends Error {
   constructor(what: string) {
@@ -30,8 +49,18 @@ export interface CreatePersonaInput {
   scryptLogN?: number;
 }
 
+export interface ImportMeta {
+  label: string;
+  relays: string[];
+  compartment?: Compartment;
+  network?: 'direct' | 'tor-only';
+  scryptLogN?: number;
+}
+
 export type ImportInput =
   | { nsec: string; keyPassphrase: string; expectedPubkey?: string }
+  /** Raw secret key (already decrypted, e.g. by openKeyBackup); wiped after import. */
+  | { secretKey: Uint8Array; keyPassphrase: string; expectedPubkey?: string }
   | { ncryptsec: string; password: string; keyPassphrase: string; expectedPubkey?: string }
   | { bunker: string; pubkey: string }
   | { managedKeyId: string; pubkey: string };
@@ -108,17 +137,18 @@ export class IdentityManager {
   }
 
   /** FR-002: import and validate pubkey/secret correspondence (or register an external/managed signer). */
-  async importPersona(input: ImportInput, meta: { label: string; relays: string[]; compartment?: Compartment; network?: 'direct' | 'tor-only'; scryptLogN?: number }): Promise<PersonaConfig> {
+  async importPersona(input: ImportInput, meta: ImportMeta): Promise<PersonaConfig> {
     let custody: PersonaConfig['custody'];
     let pubkey: string;
     let sk: Uint8Array | undefined;
     const extra: Partial<PersonaConfig> = {};
-    if ('nsec' in input || 'ncryptsec' in input) {
+    if ('nsec' in input || 'ncryptsec' in input || 'secretKey' in input) {
       if ('nsec' in input) {
         const d = nip19.decode(input.nsec);
         if (d.type !== 'nsec') throw new Error('expected nsec');
         sk = d.data;
-      } else sk = (await nip49.decryptKeyAsync(input.ncryptsec, input.password)).secretKey;
+      } else if ('secretKey' in input) sk = input.secretKey;
+      else sk = (await nip49.decryptKeyAsync(input.ncryptsec, input.password)).secretKey;
       const test = selfTestKey(sk, input.expectedPubkey);
       if (!test.ok) throw new Error('imported key does not match expected pubkey or failed self-test');
       pubkey = test.pubkey;
@@ -152,6 +182,19 @@ export class IdentityManager {
     await this.personas.put(persona.id, persona);
     await this.log({ action: 'persona.imported', subject: persona.id, details: { custody } });
     return persona;
+  }
+
+  /**
+   * FR002-03: import a key backup file (offline generator `sedecim-offline-key` or web
+   * `acceso-nostr-key-backup`). The ncryptsec must decrypt to the declared npub or nothing is created.
+   */
+  async importKeyBackup(json: unknown, backupPassword: string, keyPassphrase: string, meta: ImportMeta): Promise<PersonaConfig> {
+    const { secretKey, pubkey } = await openKeyBackup(json, backupPassword);
+    try {
+      return await this.importPersona({ secretKey, keyPassphrase, expectedPubkey: pubkey }, meta);
+    } finally {
+      wipe(secretKey);
+    }
   }
 
   /** Unlocks a local persona's signer from its own compartment store. */
@@ -230,28 +273,88 @@ export class IdentityManager {
     return warnings;
   }
 
-  /** FR-027: encrypted backup (NIP-49) of a persona's identity and configuration. */
-  async exportBackup(personaId: string, backupPassword: string, opts: { keyPassphrase?: string; scryptLogN?: number } = {}): Promise<BackupPackage> {
+  /** Persist the persona's sovereignty/privacy panel configuration in its own compartment (PANEL-03). */
+  async saveConfig(personaId: string, config: SovereigntyConfig): Promise<void> {
+    await this.get(personaId);
+    await (await this.openPersonaStore(personaId)).collection<SovereigntyConfig>('settings').put('sovereignty', config);
+  }
+
+  async getConfig(personaId: string): Promise<SovereigntyConfig | undefined> {
+    return (await this.openPersonaStore(personaId)).collection<SovereigntyConfig>('settings').get('sovereignty');
+  }
+
+  /**
+   * FR-027: full encrypted backup of a persona (v2): key (NIP-49), persona settings and relays, panel
+   * configuration and the encrypted MLS group state, all sealed under the backup password.
+   */
+  async exportBackup(
+    personaId: string,
+    backupPassword: string,
+    opts: { keyPassphrase?: string; scryptLogN?: number; config?: SovereigntyConfig; includeMls?: boolean } = {},
+  ): Promise<BackupPackageV2> {
     const persona = await this.get(personaId);
+    const logN = opts.scryptLogN ?? 18;
+    const store = await this.openPersonaStore(personaId);
     let ncryptsec: string | undefined;
     if (persona.custody === 'local' || persona.custody === 'offline') {
       if (!opts.keyPassphrase) throw new Error('keyPassphrase required to export a local key');
-      const store = await this.openPersonaStore(personaId);
       const enc = await store.collection<string>('key').get('ncryptsec');
-      const { secretKey } = await nip49.decryptKeyAsync(enc!, opts.keyPassphrase);
+      if (!enc) throw new Error('no key material for persona in this device');
+      const { secretKey } = await nip49.decryptKeyAsync(enc, opts.keyPassphrase);
       try {
-        ncryptsec = await nip49.encryptKeyAsync(secretKey, backupPassword, opts.scryptLogN ?? 18, 0x01);
+        ncryptsec = await nip49.encryptKeyAsync(secretKey, backupPassword, logN, 0x01);
       } finally {
         wipe(secretKey);
       }
     }
-    await this.log({ action: 'backup.exported', subject: personaId });
-    return { format: 'sedecim-identity-backup', version: 1, persona, ...(ncryptsec ? { ncryptsec } : {}), createdAt: this.now() };
+    const contents: BackupContents = { persona };
+    const config = opts.config ?? (await this.getConfig(personaId));
+    if (config) contents.config = config;
+    if (opts.includeMls ?? true) {
+      const mls: NonNullable<BackupContents['mls']> = {};
+      for (const name of await store.collectionNames('mls-')) mls[name] = await store.collection<unknown>(name).all();
+      if (Object.keys(mls).length) contents.mls = mls;
+    }
+    const contentKey = randomBytes(32);
+    try {
+      const nonce = randomBytes(24);
+      const ct = xchacha20poly1305(contentKey, nonce, BACKUP_AAD).encrypt(utf8ToBytes(JSON.stringify(contents)));
+      const pkg: BackupPackageV2 = {
+        format: 'sedecim-identity-backup',
+        version: 2,
+        ...(ncryptsec ? { ncryptsec } : {}),
+        contentKey: await nip49.encryptKeyAsync(contentKey, backupPassword, logN, 0x01),
+        sealed: toBase64(concatBytes(nonce, ct)),
+        createdAt: this.now(),
+      };
+      await this.log({ action: 'backup.exported', subject: personaId, details: { version: '2', config: String(!!contents.config), mlsCollections: String(Object.keys(contents.mls ?? {}).length) } });
+      return pkg;
+    } finally {
+      wipe(contentKey);
+    }
   }
 
+  /** Decrypts a backup's contents (v2 sealed payload, or the clear v1 persona) without writing anything. */
+  async readBackup(pkg: BackupPackage, backupPassword: string): Promise<BackupContents> {
+    if (pkg?.format !== 'sedecim-identity-backup') throw new Error('unsupported backup format');
+    if (pkg.version === 1) return { persona: pkg.persona };
+    if (pkg.version !== 2) throw new Error('unsupported backup format');
+    const { secretKey: contentKey } = await nip49.decryptKeyAsync(pkg.contentKey, backupPassword);
+    try {
+      const raw = fromBase64(pkg.sealed);
+      const pt = xchacha20poly1305(contentKey, raw.subarray(0, 24), BACKUP_AAD).decrypt(raw.subarray(24));
+      const contents = JSON.parse(bytesToUtf8(pt)) as BackupContents;
+      if (!contents?.persona?.id || !isHex(contents.persona.pubkey, 32)) throw new Error('malformed backup contents');
+      return contents;
+    } finally {
+      wipe(contentKey);
+    }
+  }
+
+  /** Restores a v1 or v2 backup: key, persona (relays), panel configuration and MLS group state. */
   async restoreBackup(pkg: BackupPackage, backupPassword: string, keyPassphrase: string, opts: { scryptLogN?: number } = {}): Promise<PersonaConfig> {
-    if (pkg.format !== 'sedecim-identity-backup' || pkg.version !== 1) throw new Error('unsupported backup format');
-    const { persona } = pkg;
+    const contents = await this.readBackup(pkg, backupPassword);
+    const { persona } = contents;
     if (pkg.ncryptsec) {
       const { secretKey } = await nip49.decryptKeyAsync(pkg.ncryptsec, backupPassword);
       try {
@@ -261,8 +364,15 @@ export class IdentityManager {
         wipe(secretKey);
       }
     }
+    const store = await this.openPersonaStore(persona.id);
+    if (contents.config) await store.collection<SovereigntyConfig>('settings').put('sovereignty', contents.config);
+    for (const [name, entries] of Object.entries(contents.mls ?? {})) {
+      if (!/^mls-[a-z0-9-]+$/.test(name)) throw new Error(`invalid MLS collection in backup: ${name}`);
+      const col = store.collection<unknown>(name);
+      for (const e of entries) await col.put(e.id, e.value);
+    }
     await this.personas.put(persona.id, persona);
-    await this.log({ action: 'backup.restored', subject: persona.id });
+    await this.log({ action: 'backup.restored', subject: persona.id, details: { version: String(pkg.version) } });
     return persona;
   }
 

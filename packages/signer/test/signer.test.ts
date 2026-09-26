@@ -3,7 +3,7 @@ import WebSocket from 'ws';
 import { generateSecretKey, getPublicKey, verifyEvent } from '@sedecim/nostr-core';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestRelay } from '@sedecim/test-relay';
-import { LocalSigner, Nip46Bunker, Nip46Signer, parseBunkerUrl, formatBunkerUrl } from '../src/index';
+import { LocalSigner, Nip46Bunker, Nip46Signer, parseBunkerUrl, formatBunkerUrl, createNostrConnect, parseNostrConnect, describePermissions, WEB_NIP46_PERMISSIONS, NOSTR_CONNECT_KIND } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
 
@@ -64,6 +64,54 @@ describe('NIP-46 remote signing (FR-004)', () => {
     await expect(remote.signEvent({ kind: 0, content: '{}' })).rejects.toThrow(/unauthorized/);
     expect(log.some((l) => l.method === 'sign_event' && l.kind === 0 && !l.allowed)).toBe(true);
     remote.close();
+  });
+
+  it('connects from a client-initiated nostrconnect:// offer (FR004-03)', async () => {
+    const offer = createNostrConnect({ relays: [relay.url], name: 'Acceso Nostr' });
+    const parsed = parseNostrConnect(offer.uri);
+    expect(parsed.permissions).toEqual(WEB_NIP46_PERMISSIONS);
+    expect(parsed.name).toBe('Acceso Nostr');
+    let ready!: () => void;
+    const isReady = new Promise<void>((r) => (ready = r));
+    const waiting = Nip46Signer.fromNostrConnect(offer, { pool: clientPool, timeoutMs: 5000, onReady: ready });
+    await isReady;
+    await bunker.acceptNostrConnect(offer.uri);
+    const remote = await waiting;
+    expect(await remote.getPublicKey()).toBe(getPublicKey(userKey));
+    expect(verifyEvent(await remote.signEvent({ kind: 13, content: 'x' }))).toBe(true);
+    remote.close();
+  });
+
+  it('describes the requested permissions for the user before connecting (FR004-04)', () => {
+    const d = describePermissions(['get_public_key', 'sign_event:9', 'sign_event:31337']);
+    expect(d.map((x) => x.label)).toEqual(['Conocer tu clave pública', 'Firmar: Mensajes de canal (NIP-29)', 'Firmar: kind 31337']);
+    expect(d[1]).toMatchObject({ method: 'sign_event', kind: 9 });
+    expect(WEB_NIP46_PERMISSIONS).not.toContain('sign_event');
+  });
+
+  it('surfaces auth_url and keeps waiting for the real response (FR004-05)', async () => {
+    // A signer that first demands approval in a web page, then answers.
+    const transport = new LocalSigner(generateSecretKey());
+    const approvalPool = new RelayPool({ webSocketFactory: factory });
+    const urls: string[] = [];
+    const remote = new Nip46Signer({ remoteSignerPubkey: await transport.getPublicKey(), relays: [relay.url] }, { pool: clientPool, timeoutMs: 1000, onAuthUrl: (u) => urls.push(u) });
+    const me = await remote.clientPubkey();
+    const sub = approvalPool.subscribe([relay.url], [{ kinds: [NOSTR_CONNECT_KIND], '#p': [await transport.getPublicKey()] }], {
+      onevent: async (evt) => {
+        const req = JSON.parse(await transport.nip44Decrypt(evt.pubkey, evt.content)) as { id: string };
+        const send = async (body: object) =>
+          approvalPool.publish(await transport.signEvent({ kind: NOSTR_CONNECT_KIND, content: await transport.nip44Encrypt(me, JSON.stringify({ id: req.id, ...body })), tags: [['p', me]] }), [relay.url]);
+        await send({ result: 'auth_url', error: 'https://signer.example/approve/123' });
+        await new Promise((r) => setTimeout(r, 1500)); // longer than timeoutMs: the auth window must apply
+        await send({ result: getPublicKey(userKey) });
+      },
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(await remote.getPublicKey()).toBe(getPublicKey(userKey));
+    expect(urls).toEqual(['https://signer.example/approve/123']);
+    sub.close();
+    remote.close();
+    approvalPool.close();
   });
 
   it('rejects clients with a wrong secret', async () => {

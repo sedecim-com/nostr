@@ -204,14 +204,30 @@
    "epic": "DEC · Decisiones de arquitectura",
    "req": "§25.1-9",
    "title": "Definir región cloud y requisitos legales de la custodia managed",
-   "done": "Región, marco legal, retención y términos de custodia aprobados por legal",
+   "done": "Región, marco legal y retención decididos en un ADR; términos de custodia redactados",
    "type": "Decisión",
    "priority": "P1",
    "sp": 2,
    "deps": [],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "docs/adr/0009-custodia-managed-region-y-marco-legal.md (us-east-1 según sedecim-com/infrastructure, LFPDPPP, 30 días / 12 meses); borrador docs/legal/custodia-managed.md"
+  },
+  {
+   "id": "DEC-12",
+   "epic": "DEC · Decisiones de arquitectura",
+   "req": "§25.1-9",
+   "title": "Aprobación legal de los términos de custodia managed y del aviso de privacidad",
+   "done": "Asesoría legal aprueba docs/legal/custodia-managed.md (LFPDPPP) antes de ofrecer la custodia managed en producción",
+   "type": "Decisión",
+   "priority": "P1",
+   "sp": 1,
+   "deps": [
+    "DEC-09"
+   ],
+   "sprint": "S3",
+   "status": "Parcial",
+   "evidence": "docs/legal/custodia-managed.md (borrador listo para revisión)"
   },
   {
    "id": "DEC-10",
@@ -520,8 +536,8 @@
     "PANEL-02"
    ],
    "sprint": "S3",
-   "status": "Parcial",
-   "evidence": "apps/web-saas (resumen por dimensión)"
+   "status": "Hecho",
+   "evidence": "apps/web-saas/src/views/PanelView.tsx (indicadores por dimensión con las declaraciones y enlaces a cada consecuencia, sin puntuación única); tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR001-01",
@@ -647,8 +663,8 @@
     "FR003-01"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "packages/identity/src/key-backup.ts (parseKeyBackup/openKeyBackup verifican la npub); web (Importar archivo de backup) y CLI (persona import --backup); tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR003-01",
@@ -695,8 +711,8 @@
     "FR003-01"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "packages/qr (codificador propio verificado contra vectores ISO y matrices de referencia); keygen --qr; QR de npub y nostrconnect en la web"
   },
   {
    "id": "FR003-04",
@@ -711,8 +727,8 @@
     "FR003-03"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "apps/key-generator keygen --print (HTML local con CSP estricta, sin recursos remotos, QR inline)"
   },
   {
    "id": "FR003-05",
@@ -727,8 +743,8 @@
     "FR003-01"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "apps/key-generator/build-html.mjs → dist/keygen.html + .sha256 (CSP por hash); tests/browser/keygen-html.e2e.ts desde file:// sin red; construido en CI"
   },
   {
    "id": "FR003-06",
@@ -806,8 +822,8 @@
     "FR004-01"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "packages/signer createNostrConnect/Nip46Signer.fromNostrConnect (la oferta se muestra con la suscripción ya activa); web con QR; tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR004-04",
@@ -822,8 +838,8 @@
     "FR004-01"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "describePermissions + WEB_NIP46_PERMISSIONS (solo los kinds que firma la web), listados antes de conectar; tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR004-05",
@@ -838,8 +854,8 @@
     "FR004-01"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "Nip46Signer onAuthUrl con ventana de espera ampliada; alerta \"Abrir aprobación\" en la web; packages/signer/test"
   },
   {
    "id": "FR005-01",
@@ -860,7 +876,7 @@
    "epic": "FR · Identidad, llaves y custodia",
    "req": "FR-005, §8.4",
    "title": "Adaptador real de AWS Secrets Manager + KMS",
-   "done": "SecretsManagerVault con el SDK de AWS; tests contra LocalStack",
+   "done": "SecretsManagerVault con el SDK de AWS; tests contra un emulador de AWS (moto) en CI",
    "type": "Dev",
    "priority": "P2",
    "sp": 3,
@@ -869,8 +885,8 @@
     "DEC-09"
    ],
    "sprint": "S3",
-   "status": "Parcial",
-   "evidence": "services/managed-signer/src/vault.ts (interfaz)"
+   "status": "Hecho",
+   "evidence": "services/managed-signer SecretsManagerVault (sobre KMS, contexto de cifrado, retención 7..30 días); tests contra moto en CI"
   },
   {
    "id": "FR005-03",
@@ -885,8 +901,8 @@
     "FR005-01"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "services/managed-signer PgKeyRegistry + migración 001 (registro y log de uso sobreviven reinicios; retención 12 meses); test create → restart → sign"
   },
   {
    "id": "FR005-04",
@@ -901,8 +917,8 @@
     "FR005-03"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "managed-signer autoriza con el token de Acceso (dueño issuer#sub; x-account-id solo para service tokens); tests de suplantación"
   },
   {
    "id": "FR005-05",
@@ -951,8 +967,8 @@
     "PANEL-02"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "apps/web-saas ManagedCustody (opt-in con el disclosure custodial, nunca por defecto; firma con token de Acceso); tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR006-01",
@@ -1044,8 +1060,8 @@
     "FR006-02"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "apps/web-saas LinkPersonas (diálogo de consecuencias antes de enviar; prueba de control de la segunda llave); tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR007-04",
@@ -1109,8 +1125,8 @@
     "FR005-04"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "apps/web-saas MigrationWizard (exportar, verificar npub, firmar reto, pasar a local; borrado explícito con fecha de destrucción); tests/browser/web-saas.e2e.ts"
   },
   {
    "id": "FR027-01",
@@ -1142,8 +1158,8 @@
     "PANEL-03"
    ],
    "sprint": "S3",
-   "status": "Parcial",
-   "evidence": "packages/identity (config de persona)"
+   "status": "Hecho",
+   "evidence": "packages/identity backup v2 (relays, configuración del panel y estado MLS cifrado; restaura v1); CLI backup export/restore; test con grupo MLS real"
   },
   {
    "id": "FR027-03",
@@ -1191,8 +1207,8 @@
     "DEC-09"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Parcial",
+   "evidence": "docs/disclosures.md v1.0.0 generado desde packages/profiles, comprobado en CI y ligado a DISCLOSURE_VERSION por test; falta aprobación legal/UX"
   },
   {
    "id": "FR028-03",
@@ -1207,8 +1223,8 @@
     "FR028-01"
    ],
    "sprint": "S3",
-   "status": "Parcial",
-   "evidence": "packages/profiles (solo textos del panel)"
+   "status": "Hecho",
+   "evidence": "scripts/lint-claims.ts (npm run lint:claims) en CI sobre todo el copy de web, CLI, keygen y profiles"
   },
   {
    "id": "FR008-01",
@@ -1706,8 +1722,8 @@
     "FR019-01"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Hecho",
+   "evidence": "packages/blossom-client sanitize: WebP sin EXIF/XMP/ICC; HEIC/HEIF/AVIF rechazados explícitamente con requireSanitizable"
   },
   {
    "id": "FR020-01",
@@ -2461,8 +2477,8 @@
     "NFR009-01"
    ],
    "sprint": "S3",
-   "status": "Pendiente",
-   "evidence": ""
+   "status": "Parcial",
+   "evidence": "docs/accessibility-review.md (correcciones automatizables aplicadas, ids duplicados comprobados en tests/browser/web-saas.e2e.ts); falta la revisión manual con NVDA/VoiceOver"
   },
   {
    "id": "NFR010-01",

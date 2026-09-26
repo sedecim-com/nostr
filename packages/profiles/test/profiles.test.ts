@@ -65,3 +65,14 @@ describe('localProtection (ADR 0007)', () => {
     expect(disclose({ ...preset('convenience'), localProtection: 'device' }).find((d) => d.control === 'localProtection')?.statement).toMatch(/cualquiera con acceso/);
   });
 });
+
+describe('disclosure copy versioning (FR028-02)', () => {
+  it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
+    const { createHash } = await import('node:crypto');
+    const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626' };
+    const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
+    expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
+    for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();
+  });
+});

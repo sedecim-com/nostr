@@ -7,8 +7,8 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | ID | Requisito | Estado | Evidencia |
 |----|-----------|--------|-----------|
 | FR-001 | Crear identidad local | ✅ | `packages/identity/test/identity.test.ts` (crea, firma, verifica); `packages/nostr-core` `selfTestKey` |
-| FR-002 | Importar identidad | ✅ | `identity.test.ts` (nsec/ncryptsec con validación de pubkey, bunker, managed) |
-| FR-003 | Generador offline | ✅ | `apps/key-generator/test/keygen.test.ts` (todas las primitivas de red bloqueadas; bundle reproducible con checksum) |
+| FR-002 | Importar identidad | ✅ | `identity.test.ts` (nsec/ncryptsec con validación de pubkey, bunker, managed; backups `sedecim-offline-key` y `acceso-nostr-key-backup` con `parseKeyBackup`/`openKeyBackup`), `sovereign-client/test/import.test.ts` (`persona import --backup`) |
+| FR-003 | Generador offline | ✅ | `apps/key-generator/test/keygen.test.ts` (primitivas de red bloqueadas; bundle reproducible con checksum; `--qr`; hoja `--print` sin recursos remotos; HTML air-gapped con CSP por hash), `packages/qr/test` (vectores de referencia + decodificador independiente), `tests/browser/keygen-html.e2e.ts` (file:// con red bloqueada) |
 | FR-004 | External signer NIP-46 | ✅ | `packages/signer/test/signer.test.ts` (bunker ↔ cliente sobre relay, permisos por kind) |
 | FR-005 | Managed key | ✅ | `services/managed-signer/test` (vault dedicado; logs/uso/archivos sin secreto) |
 | FR-006 | Múltiples personas | ✅ | `identity.test.ts` (≥3 personas, stores y relays independientes) |
@@ -24,7 +24,7 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-016 | NIP-42 | ✅ | `pool.test.ts` (challenge/response, auth-required recuperable) |
 | FR-017 | NIP-17 con gate | ✅ | Feature flag + `tests/interop` ejecutado contra Buzz `02c6309`: requiere adaptador de jitter acotado (`docs/interop/buzz-02c6309-report.json`) |
 | FR-018 | Blossom | ✅ | `packages/blossom-client/test`, `services/blob-store/test` (cifrados); Buzz `/media` rechaza blobs cifrados → blob-store |
-| FR-019 | Saneamiento EXIF | ✅ | `blossom.test.ts` (JPEG APP1/COM, PNG tEXt) |
+| FR-019 | Saneamiento EXIF | ✅ | `blossom.test.ts` (JPEG APP1/COM, PNG tEXt, WebP EXIF/XMP/ICCP con flags VP8X; HEIC/HEIF/AVIF rechazado con `requireSanitizable`) |
 | FR-020 | Tor-only fail closed | ✅ | `tor-network/test`, `delivery-engine/test`, `apps/sovereign-client/test` |
 | FR-021 | Relay .onion | ✅ | `tor.test.ts`, `sovereign.test.ts` (SOCKS5h, DNS remoto, sin lookups locales) |
 | FR-022 | Sin telemetría | ✅ | `telemetry-policy/test` (nivel none bloquea endpoints); `sovereign.test.ts` |
@@ -32,8 +32,8 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-024 | Revocación | ✅ | `policy-engine.test.ts` (sesiones invalidadas, rotación señalada) |
 | FR-025 | Grupo Marmot | ✅ | `MarmotTsProvider` (marmot-ts + ts-mls rc.11): `packages/marmot-adapter/test`, `apps/sovereign-client/test/groups.test.ts` (alta, expulsión sin fuga, rotación PCS, estado cifrado, Tor). Buzz no acepta los kinds → relay secundario (`docs/marmot.md`) |
 | FR-026 | Migración de custodia | ✅ | `managed-signer.test.ts` (export → prueba de posesión → retención → borrado) |
-| FR-027 | Backup restore | ✅ | `identity.test.ts` (dispositivo limpio) |
-| FR-028 | Disclosures | ✅ | `profiles/test`, `web-saas.e2e.ts` |
+| FR-027 | Backup restore | ✅ | `identity.test.ts` (dispositivo limpio; backup v2 cifrado con relays, panel y estado MLS; compatibilidad v1), `groups.test.ts` (grupo MLS operativo tras restaurar) |
+| FR-028 | Disclosures | ✅ | `profiles/test`, `web-saas.e2e.ts`, `npm run lint:claims` en CI (`tests/scripts/lint-claims.test.ts`) |
 
 | ID | Requisito | Estado | Evidencia / nota |
 |----|-----------|--------|------------------|

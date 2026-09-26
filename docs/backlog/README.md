@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **162 tareas** · 78 hechas · 13 parciales · 65 pendientes · 6 descartadas
-- **247 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **163 tareas** · 96 hechas · 12 parciales · 49 pendientes · 6 descartadas
+- **205 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -18,7 +18,7 @@
 | v0.1 | hasta 2026-09-26 | — | Entregado | 50 | 116 | 31 |
 | S1 | 2026-09-28 → 2026-10-09 | F0 | Cierre F0 y gate de interoperabilidad | 12 | 22 | 5 |
 | S2 | 2026-10-12 → 2026-10-23 | F0.5 | Web SaaS como cliente completo | 17 | 47 | 0 |
-| S3 | 2026-10-26 → 2026-11-06 | F1 | Identidad, llaves y custodia | 20 | 48 | 1 |
+| S3 | 2026-10-26 → 2026-11-06 | F1 | Identidad, llaves y custodia | 21 | 49 | 1 |
 | S4 | 2026-11-09 → 2026-11-20 | F2 | OSS soberano, sync y operación | 18 | 48 | 0 |
 | S5 | 2026-11-23 → 2026-12-04 | F3 | Privacidad, Tor y observabilidad | 11 | 31 | 1 |
 | S6 | 2026-12-07 → 2026-12-18 | F4 | Grupos high-security | 6 | 26 | 0 |
@@ -31,12 +31,12 @@
 | Requisito | Tareas | Hechas | Pendientes (sprint) |
 |---|---:|---:|---|
 | FR-001 | 5 | 5 | — |
-| FR-002 | 3 | 2 | FR002-03 (S3) |
-| FR-003 | 7 | 2 | FR003-03 (S3), FR003-04 (S3), FR003-05 (S3), FR003-06 (S4), FR003-07 (S4) |
-| FR-004 | 5 | 2 | FR004-03 (S3), FR004-04 (S3), FR004-05 (S3) |
-| FR-005 | 7 | 1 | FR005-02 (S3), FR005-03 (S3), FR005-04 (S3), FR005-05 (S7), FR005-06 (S7), FR005-07 (S3) |
+| FR-002 | 3 | 3 | — |
+| FR-003 | 7 | 5 | FR003-06 (S4), FR003-07 (S4) |
+| FR-004 | 5 | 5 | — |
+| FR-005 | 7 | 5 | FR005-05 (S7), FR005-06 (S7) |
 | FR-006 | 3 | 3 | — |
-| FR-007 | 4 | 2 | FR007-03 (S3), FR007-04 (S5) |
+| FR-007 | 4 | 3 | FR007-04 (S5) |
 | FR-008 | 2 | 2 | — |
 | FR-009 | 2 | 2 | — |
 | FR-010 | 2 | 2 | — |
@@ -48,16 +48,16 @@
 | FR-016 | 1 | 1 | — |
 | FR-017 | 5 | 4 | FR017-05 (S4) |
 | FR-018 | 5 | 4 | FR018-05 (S5) |
-| FR-019 | 3 | 2 | FR019-02 (S3) |
+| FR-019 | 3 | 3 | — |
 | FR-020 | 3 | 1 | FR020-02 (Diferido), FR020-03 (S5) |
 | FR-021 | 2 | 1 | FR021-02 (S5) |
 | FR-022 | 2 | 1 | FR022-02 (S5) |
 | FR-023 | 6 | 2 | FR023-03 (S7), FR023-04 (S7), FR023-05 (S7), FR023-06 (S7) |
 | FR-024 | 3 | 1 | FR024-02 (S7), FR024-03 (S7) |
 | FR-025 | 10 | 4 | FR025-04 (S6), FR025-05 (S6), FR025-06 (S6), FR025-07 (S6), FR025-08 (S6), FR025-09 (S6) |
-| FR-026 | 3 | 2 | FR026-03 (S3) |
-| FR-027 | 3 | 1 | FR027-02 (S3), FR027-03 (S4) |
-| FR-028 | 3 | 1 | FR028-02 (S3), FR028-03 (S3) |
+| FR-026 | 3 | 3 | — |
+| FR-027 | 3 | 2 | FR027-03 (S4) |
+| FR-028 | 3 | 2 | FR028-02 (S3) |
 | NFR-001 | 3 | 0 | NFR001-01 (S4), NFR001-02 (S4), NFR001-03 (S7) |
 | NFR-002 | 2 | 1 | NFR002-02 (S4) |
 | NFR-003 | 2 | 0 | NFR003-01 (S4), NFR003-02 (S4) |
@@ -112,30 +112,31 @@
 | OPS-03 | P2 | Instalador/configurador de llaves y secretos del stack | §4.1 | Infra | 2 | FR003-01 | Hecho | scripts/init-env genera también la llave del relay y del owner con el keygen offline |
 | PANEL-03 | P2 | Persistir la configuración del panel por persona | §9 | Dev | 2 | PANEL-02, FR006-02 | Hecho | Config cifrada en el store de la persona; se restaura al desbloquear |
 
-## S3 · Identidad, llaves y custodia (F1, 2026-10-26 → 2026-11-06) — 48 SP
+## S3 · Identidad, llaves y custodia (F1, 2026-10-26 → 2026-11-06) — 49 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| FR005-03 | P0 | Persistir el registro de llaves y el log de uso en Postgres | FR-005 | Dev | 3 | FR005-01 | Pendiente | Sobrevive reinicios (hoy el registro vive en memoria y el vault en disco) |
-| DEC-09 | P1 | Definir región cloud y requisitos legales de la custodia managed | §25.1-9 | Decisión | 2 | — | Pendiente | Región, marco legal, retención y términos de custodia aprobados por legal |
-| FR004-04 | P1 | UI de permisos mínimos visibles al conectar un signer | FR-004, §8.3 | Dev | 2 | FR004-01 | Pendiente | La web lista los métodos y kinds solicitados antes de conectar |
-| FR005-04 | P1 | Autorización por usuario final (sesión SaaS firmada), no solo bearer de servicio | FR-005 | Seguridad | 3 | FR005-03 | Pendiente | x-account-id respaldado por token de sesión verificable; tests de suplantación |
-| FR005-07 | P1 | Opt-in explícito de custodia managed en el onboarding web | FR-005, §1 | Dev | 2 | FR005-04, PANEL-02 | Pendiente | Confirmación con el disclosure "la plataforma puede firmar"; nunca por defecto |
-| FR002-03 | P2 | Importar el backup del key-generator (sedecim-offline-key) en web y CLI | FR-002 | Dev | 2 | FR002-01, FR003-01 | Pendiente | Importar el JSON del generador offline valida npub y crea la persona |
-| FR003-03 | P2 | Exportación QR de npub y ncryptsec sin dependencias de red | FR-003 | Dev | 3 | FR003-01 | Pendiente | Codificador QR embebido; test de ida y vuelta |
-| FR003-05 | P2 | Versión HTML standalone air-gapped del generador (un solo archivo) | FR-003 | Dev | 3 | FR003-01 | Pendiente | Archivo único que funciona abierto desde disco sin red; CSP estricta |
-| FR004-03 | P2 | Flujo nostrconnect:// iniciado por el cliente (QR) | FR-004 | Dev | 3 | FR004-01 | Pendiente | La web muestra un QR nostrconnect y completa la conexión |
-| FR005-02 | P2 | Adaptador real de AWS Secrets Manager + KMS | FR-005, §8.4 | Dev | 3 | FR005-01, DEC-09 | Parcial | SecretsManagerVault con el SDK de AWS; tests contra LocalStack |
-| FR007-03 | P2 | UI de vínculos con advertencia de desanonimización | FR-007, §25 | Dev | 2 | FR007-02, FR006-02 | Pendiente | Diálogo que explica las consecuencias antes de vincular |
-| FR019-02 | P2 | Soporte WebP/HEIC o rechazo según el perfil sensible | FR-019 | Dev | 3 | FR019-01 | Pendiente | Saneamiento o rechazo explícito con requireSanitizable |
-| FR026-03 | P2 | UI de migración de custodia en la web con verificación | FR-026 | Dev | 3 | FR026-01, FR005-04 | Pendiente | Asistente paso a paso con verificación de posesión y confirmación del borrado |
-| FR027-02 | P2 | Incluir en el backup la configuración completa (relays, panel, grupos MLS) | FR-027 | Dev | 3 | FR027-01, PANEL-03 | Parcial | La restauración recupera relays, perfil y estado MLS cifrado |
-| FR028-02 | P2 | Revisión legal/UX de los textos de disclosure | FR-028 | Doc | 2 | FR028-01, DEC-09 | Pendiente | Textos aprobados por legal y UX; versionados |
-| NFR009-02 | P2 | Corregir los hallazgos de accesibilidad y revisión manual con lector de pantalla | NFR-009 | Dev | 3 | NFR009-01 | Pendiente | Informe de la revisión y correcciones aplicadas |
-| FR003-04 | P3 | Plantilla imprimible del backup (HTML local, sin CDN) | FR-003 | Dev | 2 | FR003-03 | Pendiente | Hoja con npub, QR y ncryptsec; sin recursos remotos |
-| FR004-05 | P3 | Soporte de auth_url del signer remoto | FR-004 | Dev | 1 | FR004-01 | Pendiente | La UI abre auth_url y espera la respuesta real |
-| FR028-03 | P3 | Lint en CI que prohíbe afirmaciones absolutas en toda la UI | FR-028, §2.2 | QA | 1 | FR028-01 | Parcial | assertNoAbsoluteClaims aplicado a todo el copy de la web |
-| PANEL-04 | P3 | Indicadores visuales por dimensión respaldados por declaraciones verificables | §9.1 | Dev | 2 | PANEL-02 | Parcial | Cada indicador enlaza a sus disclosures; sin score único |
+| FR005-03 | P0 | Persistir el registro de llaves y el log de uso en Postgres | FR-005 | Dev | 3 | FR005-01 | Hecho | Sobrevive reinicios (hoy el registro vive en memoria y el vault en disco) |
+| DEC-09 | P1 | Definir región cloud y requisitos legales de la custodia managed | §25.1-9 | Decisión | 2 | — | Hecho | Región, marco legal y retención decididos en un ADR; términos de custodia redactados |
+| DEC-12 | P1 | Aprobación legal de los términos de custodia managed y del aviso de privacidad | §25.1-9 | Decisión | 1 | DEC-09 | Parcial | Asesoría legal aprueba docs/legal/custodia-managed.md (LFPDPPP) antes de ofrecer la custodia managed en producción |
+| FR004-04 | P1 | UI de permisos mínimos visibles al conectar un signer | FR-004, §8.3 | Dev | 2 | FR004-01 | Hecho | La web lista los métodos y kinds solicitados antes de conectar |
+| FR005-04 | P1 | Autorización por usuario final (sesión SaaS firmada), no solo bearer de servicio | FR-005 | Seguridad | 3 | FR005-03 | Hecho | x-account-id respaldado por token de sesión verificable; tests de suplantación |
+| FR005-07 | P1 | Opt-in explícito de custodia managed en el onboarding web | FR-005, §1 | Dev | 2 | FR005-04, PANEL-02 | Hecho | Confirmación con el disclosure "la plataforma puede firmar"; nunca por defecto |
+| FR002-03 | P2 | Importar el backup del key-generator (sedecim-offline-key) en web y CLI | FR-002 | Dev | 2 | FR002-01, FR003-01 | Hecho | Importar el JSON del generador offline valida npub y crea la persona |
+| FR003-03 | P2 | Exportación QR de npub y ncryptsec sin dependencias de red | FR-003 | Dev | 3 | FR003-01 | Hecho | Codificador QR embebido; test de ida y vuelta |
+| FR003-05 | P2 | Versión HTML standalone air-gapped del generador (un solo archivo) | FR-003 | Dev | 3 | FR003-01 | Hecho | Archivo único que funciona abierto desde disco sin red; CSP estricta |
+| FR004-03 | P2 | Flujo nostrconnect:// iniciado por el cliente (QR) | FR-004 | Dev | 3 | FR004-01 | Hecho | La web muestra un QR nostrconnect y completa la conexión |
+| FR005-02 | P2 | Adaptador real de AWS Secrets Manager + KMS | FR-005, §8.4 | Dev | 3 | FR005-01, DEC-09 | Hecho | SecretsManagerVault con el SDK de AWS; tests contra un emulador de AWS (moto) en CI |
+| FR007-03 | P2 | UI de vínculos con advertencia de desanonimización | FR-007, §25 | Dev | 2 | FR007-02, FR006-02 | Hecho | Diálogo que explica las consecuencias antes de vincular |
+| FR019-02 | P2 | Soporte WebP/HEIC o rechazo según el perfil sensible | FR-019 | Dev | 3 | FR019-01 | Hecho | Saneamiento o rechazo explícito con requireSanitizable |
+| FR026-03 | P2 | UI de migración de custodia en la web con verificación | FR-026 | Dev | 3 | FR026-01, FR005-04 | Hecho | Asistente paso a paso con verificación de posesión y confirmación del borrado |
+| FR027-02 | P2 | Incluir en el backup la configuración completa (relays, panel, grupos MLS) | FR-027 | Dev | 3 | FR027-01, PANEL-03 | Hecho | La restauración recupera relays, perfil y estado MLS cifrado |
+| FR028-02 | P2 | Revisión legal/UX de los textos de disclosure | FR-028 | Doc | 2 | FR028-01, DEC-09 | Parcial | Textos aprobados por legal y UX; versionados |
+| NFR009-02 | P2 | Corregir los hallazgos de accesibilidad y revisión manual con lector de pantalla | NFR-009 | Dev | 3 | NFR009-01 | Parcial | Informe de la revisión y correcciones aplicadas |
+| FR003-04 | P3 | Plantilla imprimible del backup (HTML local, sin CDN) | FR-003 | Dev | 2 | FR003-03 | Hecho | Hoja con npub, QR y ncryptsec; sin recursos remotos |
+| FR004-05 | P3 | Soporte de auth_url del signer remoto | FR-004 | Dev | 1 | FR004-01 | Hecho | La UI abre auth_url y espera la respuesta real |
+| FR028-03 | P3 | Lint en CI que prohíbe afirmaciones absolutas en toda la UI | FR-028, §2.2 | QA | 1 | FR028-01 | Hecho | assertNoAbsoluteClaims aplicado a todo el copy de la web |
+| PANEL-04 | P3 | Indicadores visuales por dimensión respaldados por declaraciones verificables | §9.1 | Dev | 2 | PANEL-02 | Hecho | Cada indicador enlaza a sus disclosures; sin score único |
 
 ## S4 · OSS soberano, sync y operación (F2, 2026-11-09 → 2026-11-20) — 48 SP
 

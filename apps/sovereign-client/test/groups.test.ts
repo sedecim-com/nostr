@@ -79,6 +79,25 @@ describe('sovereign client — Marmot/MLS high-security groups (FR-025)', () => 
     }
   });
 
+  it('full backup restores relays, panel config and MLS group state on a clean device (FR027-02)', async () => {
+    const alice = (await (await client.identities()).list()).find((p) => p.label === 'Alice')!;
+    const pkg = await client.exportBackup(alice.id, 'backup-pass', { scryptLogN: 4 });
+    expect(JSON.stringify(pkg)).not.toMatch(/Redacción|mls-|\$u8|127\.0\.0\.1/);
+    const clean = new SovereignClient({ dataDir: await mkdtemp(join(tmpdir(), 'sovereign-restore-')), passphrase: 'otra-pass', scryptLogN: 4 });
+    try {
+      const restored = await clean.restoreBackup(JSON.parse(JSON.stringify(pkg)), 'backup-pass');
+      expect(restored).toEqual(alice);
+      expect(await (await clean.identities()).getConfig(alice.id)).toEqual(client.profileFor(alice));
+      const [g] = await clean.groupList(alice.id);
+      expect(g!.name).toBe('Redacción');
+      await clean.groupSend(alice.id, g!.groupId, 'desde el backup');
+      const carol = (await (await client.identities()).list()).find((p) => p.label === 'Carol')!;
+      expect((await client.groupSync(carol.id, g!.groupId)).map((m) => m.content)).toContain('desde el backup');
+    } finally {
+      clean.close();
+    }
+  });
+
   it('Tor-only personas run groups over an onion relay via SOCKS only', async () => {
     const other = new SovereignClient({ dataDir: await mkdtemp(join(tmpdir(), 'sovereign-other-')), passphrase: 'p2', scryptLogN: 4, socksPort: socks.port });
     try {

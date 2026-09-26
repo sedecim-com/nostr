@@ -2,13 +2,19 @@
  * Offline Nostr key generator (spec §8.2). Standalone: no analytics, no network, no remote fonts/CDN.
  * All network primitives are disabled before any key material is created.
  *
- *   keygen [--out backup.json] [--password-file f] [--logn 18] [--show-nsec --i-understand]
+ *   keygen [--out backup.json] [--qr DIR] [--print backup.html] [--password-file f] [--logn 18] [--show-nsec --i-understand]
+ *          --qr DIR            writes DIR/npub.svg and DIR/ncryptsec.svg (self-contained SVG QR codes)
+ *          --print backup.html printable backup sheet: npub, ncryptsec, both QR, date and recovery steps
+ *                              (single local HTML file, strict CSP, no remote resources)
  *   keygen verify backup.json [--password-file f]
  *   keygen service-key --i-understand   (hex secret for a service .env: relay key, mirror identity)
  */
 import { enforceOffline } from './offline-guard';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { backupQrSvgs, backupSheetHtml } from './backup-sheet';
 import { backupFile, generateKey, generateServiceKey, verifyBackup, type BackupFile } from './generate';
 
 enforceOffline();
@@ -67,28 +73,49 @@ async function main() {
   }
   const logN = Number(opt('--logn') ?? 18);
   const out = opt('--out');
+  const qrDir = flag('--qr') ? opt('--qr') : undefined;
+  const print = flag('--print') ? opt('--print') : undefined;
+  if (flag('--qr') && (!qrDir || qrDir.startsWith('--'))) throw new Error('--qr requiere un directorio de salida');
+  if (flag('--print') && (!print || print.startsWith('--'))) throw new Error('--print requiere un archivo de salida (.html)');
   const reveal = flag('--show-nsec');
   if (reveal && !flag('--i-understand')) {
     console.error('ADVERTENCIA: la nsec da control total de la identidad. Cualquiera que la vea puede suplantarte.\nAñade --i-understand para mostrarla en pantalla.');
     process.exit(2);
   }
+  const qrFiles = qrDir ? [join(qrDir, 'npub.svg'), join(qrDir, 'ncryptsec.svg')] : [];
+  const targets = [out, print, ...qrFiles].filter((f): f is string => !!f);
   let pw: string | undefined;
-  if (out) {
+  if (targets.length) {
+    // Every persistent output carries the ncryptsec, so it needs the backup password.
     pw = await password(true);
     if (pw.length < 12) throw new Error('la contraseña debe tener al menos 12 caracteres');
-    if (existsSync(out)) throw new Error(`${out} ya existe: no se sobrescribe`);
+    for (const f of targets) if (existsSync(f)) throw new Error(`${f} ya existe: no se sobrescribe`);
   }
   const key = generateKey({ password: pw, logN, revealNsec: reveal });
   console.log(`npub:        ${key.npub}`);
   console.log(`pubkey hex:  ${key.pubkeyHex}`);
   console.log(`self-test:   derivación=${key.selfTest.checks.derivation} firma BIP-340=${key.selfTest.checks.signature} rechazo-manipulación=${key.selfTest.checks.tamperRejected}`);
   if (key.nsec) console.log(`\n!!! nsec (NO la compartas, NO la fotografíes): ${key.nsec}\n`);
+  const write = (file: string, content: string) => writeFileSync(file, content, { mode: 0o600, flag: 'wx' });
   if (out) {
-    writeFileSync(out, JSON.stringify(backupFile(key, logN), null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    write(out, JSON.stringify(backupFile(key, logN), null, 2) + '\n');
     console.log(`backup cifrado (NIP-49) escrito en ${out}`);
   }
-  if (!out && !reveal) console.log('\nNota: sin --out ni --show-nsec la llave se descarta. Usa --out para guardar un backup cifrado.');
+  if (qrDir) {
+    mkdirSync(qrDir, { recursive: true, mode: 0o700 });
+    const svgs = backupQrSvgs({ npub: key.npub, ncryptsec: key.ncryptsec! });
+    write(qrFiles[0]!, svgs.npub + '\n');
+    write(qrFiles[1]!, svgs.ncryptsec + '\n');
+    console.log(`QR (SVG) escritos en ${qrFiles.join(' y ')}`);
+  }
+  if (print) {
+    const html = await backupSheetHtml({ npub: key.npub, ncryptsec: key.ncryptsec!, createdAt: key.createdAt }, (t) => createHash('sha256').update(t, 'utf8').digest('base64'));
+    write(print, html);
+    console.log(`hoja de respaldo imprimible escrita en ${print} (ábrela en el navegador e imprímela; no carga recursos remotos)`);
+  }
+  if (!targets.length && !reveal) console.log('\nNota: sin --out, --print, --qr ni --show-nsec la llave se descarta. Usa --out para guardar un backup cifrado.');
 }
+
 
 main().catch((err: Error) => {
   console.error(`error: ${err.message}`);

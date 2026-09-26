@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
-import { cfg, iss, token, verifier } from './cognito-fixture';
+import { createTestCognito } from '../src/index';
+
+const { cfg, issuer: iss, token, verifier } = createTestCognito();
 
 describe('CognitoVerifier (Acceso login, ADR 0008)', () => {
   const v = verifier();
