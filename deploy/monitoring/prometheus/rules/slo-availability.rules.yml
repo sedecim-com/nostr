@@ -7,7 +7,9 @@
 #   ticket  3x    1d & 2h   (10 % of the budget in 1 d)
 #   ticket  1x    3d & 6h   (10 % of the budget in 3 d)
 groups:
-  - name: slo-availability-sli
+  # One group on purpose: rules in a group run in order, so every alert reads the SLI recorded in the same
+  # evaluation. Separate groups run concurrently and an alert could read the SLI from the previous tick.
+  - name: slo-availability
     interval: 30s
     rules:
       - record: sli:availability:ratio_rate5m
@@ -35,8 +37,6 @@ groups:
       - record: sli:buzz_http_errors:ratio_rate5m
         expr: sum by (service) (rate(http_requests_total{job="buzz",code=~"5.."}[5m])) / sum by (service) (rate(http_requests_total{job="buzz"}[5m]))
 
-  - name: slo-availability-alerts
-    rules:
       - alert: SLOAvailabilityBurnRateCritical
         expr: |
           (1 - sli:availability:ratio_rate1h) > (14.4 * 0.001)
