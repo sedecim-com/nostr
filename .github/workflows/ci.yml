@@ -136,7 +136,7 @@ jobs:
           ./promtool check config deploy/monitoring/prometheus/prometheus.yml
           ./promtool check rules deploy/monitoring/prometheus/rules/*.rules.yml
           ./promtool test rules deploy/monitoring/prometheus/tests/*.test.yml
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.9.8
       - name: Terraform fmt + validate
