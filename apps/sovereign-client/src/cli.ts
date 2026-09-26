@@ -5,7 +5,8 @@
  *   sovereign persona import --backup FILE --label NAME --relay URL [--tor] [--high-risk] [--password-file f]
  *                                        (key backup from keygen or the web; ncryptsec must match the npub)
  *   sovereign persona list
- *   sovereign backup export --persona ID --out FILE [--password-file f]   (key, relays, panel, MLS state)
+ *   sovereign backup export --persona ID --out FILE [--password-file f] [--no-mls]   (key, relays, panel, MLS state;
+ *                                        --no-mls: to set up an additional device, then `group add-device`)
  *   sovereign backup restore FILE [--password-file f]
  *   sovereign whoami --persona ID
  *   sovereign channel join --persona ID --group G         (NIP-29 join request)
@@ -28,12 +29,25 @@
  *   sovereign group remove --persona ID --group GID --member NPUB
  *   sovereign group rotate --persona ID --group GID     (self-update: post-compromise security)
  *   sovereign group list --persona ID
+ *   sovereign group device --persona ID [--label NAME]           (this installation's MLS device id / label)
+ *   sovereign group devices --persona ID --group GID             (leaves: one per device of each persona)
+ *   sovereign group add-device --persona ID --group GID [--member NPUB]
+ *                                        (admin: commit; member: propose; default member = this persona)
+ *   sovereign group remove-device --persona ID --group GID --leaf N          (admin)
+ *   sovereign group propose --persona ID --group GID (--add NPUB | --remove NPUB)   (any member)
+ *   sovereign group proposals --persona ID --group GID
+ *   sovereign group commit --persona ID --group GID [--ref REF ...]          (admin commits proposals)
+ *   sovereign group rejoin --persona ID [--group GID]            (after backup restore: new leaf, old removed)
+ *   sovereign group send-file --persona ID --group GID --file PATH [--mime TYPE] [--server URL] ["caption"]
+ *   sovereign group fetch-file --persona ID --group GID --sha HEX --out FILE (MIP-04 download + decrypt)
  *
  * Env: SOVEREIGN_DATA_DIR (default ./.data/sovereign), SOVEREIGN_PASSPHRASE, TOR_SOCKS (127.0.0.1:9050),
  *      SOVEREIGN_BACKUP_PASSWORD (backup files, when --password-file is not given),
+ *      SOVEREIGN_BLOB_STORE (fallback Blossom/blob-store URL for encrypted group media),
  *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present)
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, extname } from 'node:path';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags } from '@sedecim/messaging';
 import { SovereignClient } from './app';
 
@@ -48,7 +62,8 @@ function relayAdapter() {
 const argv = process.argv.slice(2);
 const opt = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
 const opts = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1]!] : []));
-const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--dry-run'].includes(argv[i - 1]!))).slice(2);
+const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--dry-run', '--no-mls'].includes(argv[i - 1]!))).slice(2);
+const MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.pdf': 'application/pdf', '.txt': 'text/plain' };
 const since = () => (opt('--since') !== undefined ? Number(opt('--since')) : undefined);
 
 /** Password of a backup file: --password-file (first line) or SOVEREIGN_BACKUP_PASSWORD. */
@@ -64,7 +79,14 @@ async function main() {
   if (!passphrase) throw new Error('set SOVEREIGN_PASSPHRASE (protects the local encrypted stores)');
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
   const needsDm = argv[0] === 'dm' && argv[1] === 'send';
-  const client = new SovereignClient({ dataDir: process.env.SOVEREIGN_DATA_DIR ?? './.data/sovereign', passphrase, socksHost, socksPort: Number(socksPort), ...(needsDm ? { relayAdapter: relayAdapter() } : {}) });
+  const client = new SovereignClient({
+    dataDir: process.env.SOVEREIGN_DATA_DIR ?? './.data/sovereign',
+    passphrase,
+    socksHost,
+    socksPort: Number(socksPort),
+    ...(needsDm ? { relayAdapter: relayAdapter() } : {}),
+    ...(process.env.SOVEREIGN_BLOB_STORE ? { blobStore: process.env.SOVEREIGN_BLOB_STORE } : {}),
+  });
   const persona = opt('--persona');
   const need = () => {
     if (!persona) throw new Error('--persona ID required');
@@ -83,9 +105,9 @@ async function main() {
     } else if (a === 'backup' && b === 'export') {
       const out = opt('--out');
       if (!out) throw new Error('--out FILE required');
-      const pkg = await client.exportBackup(need(), backupPassword());
+      const pkg = await client.exportBackup(need(), backupPassword(), argv.includes('--no-mls') ? { includeMls: false } : {});
       writeFileSync(out, JSON.stringify(pkg, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
-      console.log(`backup cifrado completo (llave, relays, panel, grupos MLS) escrito en ${out}`);
+      console.log(`backup cifrado (llave, relays, panel${argv.includes('--no-mls') ? '' : ', grupos MLS'}) escrito en ${out}`);
     } else if (a === 'backup' && b === 'restore') {
       const file = positional()[0];
       if (!file) throw new Error('usage: sovereign backup restore FILE');
@@ -141,10 +163,46 @@ async function main() {
       else if (b === 'invite') show(await client.groupInvite(id, gid!, opt('--to')!));
       else if (b === 'accept') (await client.groupAccept(id)).forEach(show);
       else if (b === 'send') await client.groupSend(id, gid!, positional().join(' '));
-      else if (b === 'read') for (const m of await client.groupSync(id, gid!)) console.log(`[${new Date(m.createdAt * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.content}`);
+      else if (b === 'read')
+        for (const m of await client.groupSync(id, gid!)) {
+          console.log(`[${new Date(m.createdAt * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.content}`);
+          for (const f of m.media ?? []) console.log(`   [archivo ${f.filename} ${f.type} ${f.size ?? '?'} B] --sha ${f.sha256}`);
+        }
       else if (b === 'remove') show(await client.groupRemove(id, gid!, opt('--member')!));
       else if (b === 'rotate') show(await client.groupRotate(id, gid!));
       else if (b === 'list') (await client.groupList(id)).forEach(show);
+      else if (b === 'device') {
+        const label = opt('--label');
+        const d = label !== undefined ? await client.setDeviceLabel(id, label) : await client.device(id);
+        console.log(`dispositivo ${d.id}${d.label ? ` (${d.label})` : ''}${d.cloned ? ' — restaurado de backup: ejecuta group rejoin' : ''}`);
+      } else if (b === 'devices')
+        for (const d of await client.groupDevices(id, gid!)) console.log(`hoja ${d.leafIndex}  ${d.pubkey.slice(0, 8)}  ${d.deviceId ?? '?'}${d.label ? ` (${d.label})` : ''}${d.self ? '  ← este dispositivo' : ''}`);
+      else if (b === 'add-device') {
+        const r = await client.groupAddDevice(id, gid!, opt('--member'));
+        if (r.committed) show(r.group);
+        else console.log(`propuesto (${r.proposals.length}); un admin debe ejecutar group commit`);
+      } else if (b === 'remove-device') show(await client.groupRemoveDevice(id, gid!, Number(opt('--leaf'))));
+      else if (b === 'propose') {
+        const r = await client.groupPropose(id, gid!, { ...(opt('--add') ? { add: opt('--add')! } : {}), ...(opt('--remove') ? { remove: opt('--remove')! } : {}) });
+        for (const p of r) console.log(`propuesta ${p.type} ${p.ref}`);
+      } else if (b === 'proposals')
+        for (const p of await client.groupProposals(id, gid!)) console.log(`${p.ref}  ${p.type.padEnd(7)} de ${p.proposer?.slice(0, 8) ?? '?'} → ${p.target?.slice(0, 8) ?? '-'}${p.admissible ? '' : '  (no admisible)'}`);
+      else if (b === 'commit') show(await client.groupCommit(id, gid!, opts('--ref')));
+      else if (b === 'rejoin') for (const r of await client.groupRejoin(id, gid)) console.log(`${r.groupId}  ${r.status === 'joined' ? 'nueva hoja propia' : 'pendiente del commit de un admin (repite group rejoin)'}`);
+      else if (b === 'send-file') {
+        const file = opt('--file');
+        if (!file) throw new Error('--file PATH required');
+        const mimeType = opt('--mime') ?? MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
+        const servers = opts('--server');
+        const ref = await client.groupSendFile(id, gid!, { data: new Uint8Array(readFileSync(file)), filename: basename(file), mimeType, caption: positional().join(' ') }, servers.length ? { servers } : {});
+        console.log(`enviado ${ref.attachment.filename} (época ${ref.epoch}) → ${ref.attachment.url}`);
+      } else if (b === 'fetch-file') {
+        const out = opt('--out');
+        if (!out) throw new Error('--out FILE required');
+        const r = await client.groupFetchFile(id, gid!, opt('--sha')!);
+        writeFileSync(out, r.data, { mode: 0o600, flag: 'wx' });
+        console.log(`${r.attachment.filename} descifrado en ${out}`);
+      }
       else throw new Error(`unknown group command: ${b}`);
     } else if (a === 'disclose') {
       for (const d of await client.disclosures(need())) console.log(`• [${d.control}=${d.option}] ${d.statement}`);

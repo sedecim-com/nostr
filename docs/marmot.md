@@ -6,7 +6,7 @@ dispositivo). La implementación por defecto es `MarmotTsProvider`:
 
 | Componente | Versión fijada | Licencia | Nota |
 |---|---|---|---|
-| `@internet-privacy/marmot-ts` | 0.5.1 | MIT | Implementación TS del proyecto Marmot (MIP-00…03). Upstream: **alpha** |
+| `@internet-privacy/marmot-ts` | 0.5.1 | MIT | Implementación TS del proyecto Marmot (MIP-00…04). Upstream: **alpha** |
 | `ts-mls` | **2.0.0-rc.16** (override) | MIT | RFC 9420. marmot-ts 0.5.1 pide rc.10, que es vulnerable (ver abajo) |
 
 Kinds: key package `30443` (lee también el legado `443`), Welcome `444` dentro de gift wrap `1059`,
@@ -32,6 +32,94 @@ Mitigación en este repo:
 2. **autoprueba de comportamiento** (`assertRemovalSecrecy`) al abrir la primera sesión del proceso:
    crea un grupo en memoria, expulsa a un miembro y comprueba que no descifra. Si falla, el proveedor
    **falla cerrado** (`UnsafeMlsImplementationError`). Verificado: falla con rc.10, pasa con rc.11.
+
+## Multi-dispositivo (FR025-06)
+En MLS cada dispositivo es **su propia hoja**: una persona (misma pubkey Nostr, misma credencial `basic`)
+con dos dispositivos tiene dos hojas en el árbol. Implementación (`ExtendedGroupSession`, que implementan las
+sesiones de `MarmotTsProvider`; `GroupSession` no cambia):
+- **Key package por dispositivo**: kind `30443` direccionable con `d` = id del dispositivo
+  (`SessionOptions.deviceId`). `findKeyPackages(pubkey)` devuelve el más reciente de cada `d` (el legado
+  `443` solo si no hay ninguno direccionable).
+- **Invitar a una persona añade todos sus dispositivos** en un único commit (`invitePersona` /
+  `inviteMany`; `sovereign group invite` ya lo hace). Se envía **un** Welcome por persona: el mismo Welcome
+  lleva los secretos de todas sus hojas nuevas y cada dispositivo solo se une si tiene uno de los key
+  packages referenciados (los demás lo ignoran).
+- **Dispositivo nuevo de un miembro existente**: `missingDeviceKeyPackages` detecta los dispositivos que
+  aún no están (por el roster o por la clave de firma de la hoja) y `group add-device` los añade: el admin
+  hace commit directamente; un miembro no admin (p. ej. otro dispositivo de la misma persona) envía una
+  propuesta Add que el admin compromete. marmot-ts 0.5.1 no admite *external commits* (su política de
+  admins rechaza todo commit sin hoja emisora), así que el autoalta pasa por propuesta.
+- **Roster de dispositivos**: tras unirse, cada dispositivo anuncia dentro del grupo (mensaje de aplicación
+  MLS con kind interno `9443`, nunca publicado en claro) su `d` y una etiqueta opcional, ligados a la clave
+  de firma de su hoja; el admin lo reenvía tras cada alta para que los recién llegados lo conozcan. Las
+  etiquetas solo las ven los miembros. Una entrada solo la acepta el propio dispositivo o un admin, y solo
+  para hojas vivas.
+- Los mensajes de un dispositivo los ven los demás dispositivos de la persona (son hojas distintas);
+  `GroupMessage` incluye `senderLeaf` y `epoch`. Un miembro no puede hablar en nombre de otra pubkey: el
+  rumor se descarta si su `pubkey` no coincide con la credencial de la hoja emisora.
+- **Expulsar a una persona elimina todas sus hojas**; `removeDevice` (`group remove-device --leaf N`)
+  elimina solo una (dispositivo perdido).
+
+### Hallazgo: ts-mls rc.16 impedía el multi-dispositivo
+La política por defecto de ts-mls 2.0.0-rc.16 (`defaultKeyPackageEqualityConfig`) considera "ya en el grupo"
+un Add cuya **credencial** ya tiene una hoja, y marmot-ts 0.5.1 no pasa `ClientConfig`, así que se aplica al
+crear y al validar commits/propuestas. Con credenciales = pubkey Nostr eso prohíbe el segundo dispositivo que
+MIP-00 permite. `allowMultiDeviceCredentials()` (se aplica al importar el adaptador, en las dos copias de
+ts-mls) reduce la comparación a la clave de firma, que es lo que exige RFC 9420 (claves de firma y HPKE
+únicas, que ts-mls sigue comprobando aparte).
+
+### Backup y restauración: nunca clonar una hoja
+El backup v2 (`packages/identity`) incluye el estado MLS, es decir, las claves privadas de la hoja del
+dispositivo origen. Usar esa copia en otro dispositivo clonaría la hoja: dos dispositivos con el mismo
+secret tree y la misma posición en el árbol rompen el secreto hacia adelante (reutilización de generaciones)
+y bifurcan épocas. Por eso:
+1. El **id de dispositivo** vive fuera de las colecciones `mls-*` (colección `device` del almacén de la
+   persona) y no viaja en el backup; `restoreBackup` crea uno nuevo aleatorio y marca la restauración.
+2. El adaptador guarda el dispositivo dueño del estado (`mls-device`). Si al abrir la sesión no coincide (o no
+   existe y `clonedState` está activo), todos los grupos quedan **restaurados**: se borran los key packages
+   privados copiados (son del `d` del origen) y `send`, `rotate`, `invite`, `commit`… fallan con
+   `RestoredGroupStateError`. Leer (`sync`) sí está permitido.
+3. `group rejoin` (`rejoin`) hace que el dispositivo entre como **hoja nueva** con un key package propio y
+   elimina la hoja clonada: si la persona es admin, la hoja clonada añade la nueva, el dispositivo se une por
+   Welcome (sustituyendo la copia local) y la hoja nueva elimina la clonada (un committer no puede eliminarse a
+   sí mismo, de ahí los dos commits); si no es admin, la hoja clonada propone Add(hoja nueva) + Remove(sí
+   misma), el admin compromete y un segundo `rejoin` (o `group accept`) completa la entrada.
+4. El dispositivo origen, si seguía vivo, queda fuera del grupo. Para tener **dos dispositivos a la vez** no
+   se restaura un backup completo: se exporta sin MLS (`backup export --no-mls`) y se usa `group add-device`.
+
+## Propuestas de miembros y commit del admin (FR025-09)
+- Cualquier miembro propone Add/Remove como mensaje de grupo kind `445` (`proposeAdd`, `proposeRemove`,
+  `group propose`); el admin (lista `adminPubkeys` de `NostrGroupData`, MIP-01) las ve con `pendingProposals`
+  y las compromete con `commitProposals` (`group commit`, todas las admisibles o `--ref`).
+- **Los no admin no pueden hacer commit**: marmot-ts se niega a construirlo y, al recibir, la política MIP-03
+  rechaza cualquier commit de un no admin que no sea un self-update (probado forjando uno con ts-mls:
+  `rejectedCommits = 1`, la época no avanza).
+- Política de admisión (el adaptador filtra `unappliedProposals` antes de cada commit, porque ts-mls incluye
+  siempre todas las pendientes): Add y Update de cualquiera; Remove de hojas propias o de no admins; cualquier
+  cosa propuesta por un admin. Una propuesta de expulsar a un admin o de cambiar la extensión del grupo
+  enviada por un no admin nunca se compromete. En commits "incidentales" (invitar, expulsar) solo entran Add,
+  Update y autoexpulsiones; expulsar a otro exige `commitProposals` explícito.
+- **Propuestas obsoletas**: las propuestas pertenecen a su época. Si la época avanza sin comprometerlas
+  (otro commit, `rotate`), se descartan y `commitProposals` responde que no hay pendientes; el miembro debe
+  volver a proponer (probado).
+
+## Media cifrada en grupos: MIP-04 (FR025-05)
+Versión `mip04-v2`, la que implementa marmot-ts 0.5.1 (se usan sus primitivas AEAD y el parser de `imeta`):
+- `media_secret = MLS-Exporter("marmot", "encrypted-media", 32)` de la **época del mensaje** que lleva el
+  adjunto; `file_key = HKDF-Expand-SHA256(media_secret, "mip04-v2"‖0‖sha256(plano)‖0‖mime‖0‖filename‖0‖"key", 32)`;
+  ChaCha20-Poly1305 con nonce aleatorio de 12 bytes y AAD `"mip04-v2"‖0‖sha256‖0‖mime‖0‖filename`; al
+  descifrar se verifica el tag y el SHA-256 del plano.
+- `imeta`: `url m x filename n v size` (+ `dim`, `blurhash`, `alt`). Las etiquetas `mip04-v1` o mal formadas
+  se ignoran.
+- El receptor necesita el secreto de la época de envío, no el de su época actual: el adaptador guarda el
+  `media_secret` de cada época (cifrado en `mls-mediakeys`, retención 128 épocas) y las referencias recibidas
+  (`mls-mediarefs`). Un miembro expulsado no tiene el secreto de las épocas posteriores y no descifra la media
+  nueva (`MediaKeyUnavailableError`, probado); los miembros restantes siguen descifrando media antigua.
+- Cliente soberano (`group send-file` / `group fetch-file`): EXIF saneado antes de cifrar → subida del
+  ciphertext a la lista Blossom del usuario (kind `10063`, con espejo) o, sin lista, al blob-store
+  (`SOVEREIGN_BLOB_STORE`) → mensaje kind 9 con `imeta`. La descarga prueba la URL compartida y luego los
+  servidores de la lista del emisor, verifica el hash del blob antes de descifrar y pasa por la política de
+  red de la persona (Tor-only, allowlist ampliada solo con esos servidores).
 
 ## Integración con Buzz: no soportado por el relay fijado
 El Buzz fijado (`02c6309`) tiene una lista cerrada de kinds y responde
@@ -62,10 +150,41 @@ sovereign group send   --persona A --group <gid> "texto"
 sovereign group read   --persona B --group <gid>
 sovereign group remove --persona A --group <gid> --member <npub-B>
 sovereign group rotate --persona A --group <gid>
+
+# Multi-dispositivo: segundo dispositivo de B (backup solo de llave) y alta de sus dispositivos
+sovereign backup export --persona B --out b.json --no-mls          # en el dispositivo 1
+sovereign backup restore b.json && sovereign group device --persona B --label "Portátil"   # dispositivo 2
+sovereign group keypackage --persona B                             # en el dispositivo 2 (key package propio, otro `d`)
+sovereign group add-device --persona A --group <gid> --member <npub-B>   # admin: commit
+sovereign group add-device --persona B --group <gid>               # miembro no admin: propuesta
+sovereign group proposals --persona A --group <gid>
+sovereign group commit    --persona A --group <gid>                # el admin compromete las propuestas
+sovereign group devices   --persona A --group <gid>
+sovereign group propose   --persona B --group <gid> --remove <npub-C>
+sovereign group remove-device --persona A --group <gid> --leaf 3   # dispositivo perdido
+
+# Tras restaurar un backup completo en un dispositivo nuevo
+sovereign group rejoin --persona A                                 # hoja nueva; la clonada se elimina
+
+# MIP-04
+sovereign group send-file  --persona A --group <gid> --file foto.jpg "pie de foto"
+sovereign group read       --persona B --group <gid>                # muestra [archivo … --sha <x>]
+sovereign group fetch-file --persona B --group <gid> --sha <x> --out foto.jpg
 ```
 
 ## Límites
 - marmot-ts es alpha: no apto para producción high-risk sin revisión independiente (spec §20.3).
-- Solo el creador/admin puede hacer commits (política de marmot-ts); miembros no admin proponen.
-- MIP-04 (media cifrada en grupos) y la rama Marmot v2 de marmot-ts (no publicada) no se integran aún.
+- Solo los admins de `NostrGroupData` hacen commits (salvo self-update); los miembros proponen.
+- Mientras haya propuestas pendientes nadie puede enviar mensajes de aplicación (ts-mls, RFC 9420): el admin
+  debe comprometerlas (o un `rotate` las descarta y quedan obsoletas).
+- Multi-dispositivo requiere que **todos** los miembros relajen la política de igualdad de ts-mls
+  (`allowMultiDeviceCredentials`, ver arriba); clientes Marmot sin ese ajuste rechazan el commit que añade un
+  segundo dispositivo de una persona ya presente.
+- El roster de dispositivos (kind interno `9443`) es una convención de este repo; otros clientes lo ignoran y
+  para ellos los dispositivos aparecen sin etiqueta.
+- MIP-04 se implementa como `mip04-v2` (la versión de marmot-ts 0.5.1). La especificación nueva
+  (`encrypted-media-v2`: etiquetas y campos `imeta` distintos, `ciphertext_sha256`, `locator`) no es
+  compatible byte a byte; migrar cuando marmot-ts la publique. La rama Marmot v2 de marmot-ts no se integra.
+- Backups antiguos (sin registro de dueño en el estado MLS) solo se detectan como restaurados porque el
+  cliente soberano marca la restauración (`clonedState`); otra integración debe pasar esa pista.
 - Interoperabilidad con MDK/whitenoise no verificada en este repo.

@@ -41,4 +41,10 @@ export class VolatileGroupStorage {
   async keys(ns: string) {
     return [...this.data.keys()].filter((k) => k.startsWith(`${ns}\u0000`)).map((k) => k.slice(ns.length + 1));
   }
+  /** Deep copy (simulates restoring a backup of this storage on another device). */
+  clone(): VolatileGroupStorage {
+    const c = new VolatileGroupStorage();
+    for (const [k, v] of this.data) c.data.set(k, structuredClone(v));
+    return c;
+  }
 }

@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import WebSocket from 'ws';
-import { normalizePubkey, type NostrEvent, type Signer } from '@sedecim/nostr-core';
+import { bytesToHex, normalizePubkey, randomBytes, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { EncryptedStore, FileBackend } from '@sedecim/encrypted-store';
 import { IdentityManager, type BackupPackage, type BackupPackageV2, type PersonaConfig } from '@sedecim/identity';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
@@ -10,7 +10,24 @@ import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, createDirectMessage, d
 import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
 import { disclose, preset, validateConfig, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
-import { EncryptedGroupStorage, MarmotTsProvider, PoolGroupNetwork, assertHighSecurity, type GroupCryptoProvider, type GroupHandle, type GroupMessage, type GroupSession } from '@sedecim/marmot-adapter';
+import {
+  EncryptedGroupStorage,
+  MarmotTsProvider,
+  PoolGroupNetwork,
+  assertHighSecurity,
+  ciphertextHashFromUrl,
+  isExtendedGroupSession,
+  type ExtendedGroupSession,
+  type GroupCryptoProvider,
+  type GroupDevice,
+  type GroupHandle,
+  type GroupMediaAttachment,
+  type GroupMediaReference,
+  type GroupMessage,
+  type GroupProposal,
+  type GroupSession,
+} from '@sedecim/marmot-adapter';
+import { downloadFromServers, fetchServerList, sanitizeMetadata, selectUploadServers, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
 
 export interface SovereignOptions {
   dataDir: string;
@@ -23,6 +40,23 @@ export interface SovereignOptions {
   relayAdapter?: RelayAdapter;
   /** High-security group provider (Marmot/MLS). Defaults to marmot-ts. */
   groupProvider?: GroupCryptoProvider;
+  /**
+   * Deployment default for encrypted blobs (the blob-store) when the persona has no usable kind 10063
+   * Blossom server list (MIP-04 group media, FR018-05 routing).
+   */
+  blobStore?: string;
+}
+
+/**
+ * This installation's identity as an MLS device of a persona. Kept in the persona store *outside* the
+ * `mls-*` collections, so it is never part of a backup: a restored backup gets a new device id.
+ */
+export interface DeviceRecord {
+  /** Key package `d` slot of this installation. */
+  id: string;
+  label?: string;
+  /** Written by `restoreBackup`: the MLS state here is a copy of another device's. */
+  cloned?: boolean;
 }
 
 export interface HistorySyncResult {
@@ -109,12 +143,46 @@ export class SovereignClient {
   }
 
   /** FR-027: full encrypted backup (key, relays, panel configuration, MLS group state). */
-  async exportBackup(personaId: string, backupPassword: string, opts: { scryptLogN?: number } = {}): Promise<BackupPackageV2> {
-    return (await this.identities()).exportBackup(personaId, backupPassword, { keyPassphrase: this.opts.passphrase, scryptLogN: opts.scryptLogN });
+  /**
+   * `includeMls: false` exports only key, relays and panel: the way to set up an *additional* device of
+   * the persona (then `group add-device`). A backup with MLS state restores this device's groups instead.
+   */
+  async exportBackup(personaId: string, backupPassword: string, opts: { scryptLogN?: number; includeMls?: boolean } = {}): Promise<BackupPackageV2> {
+    return (await this.identities()).exportBackup(personaId, backupPassword, { keyPassphrase: this.opts.passphrase, scryptLogN: opts.scryptLogN, ...(opts.includeMls === false ? { includeMls: false } : {}) });
   }
 
+  /**
+   * Restores a backup. The MLS group state it carries belongs to the source device's leaves: this
+   * installation gets a fresh device id and its groups are marked restored, so it cannot send with the
+   * cloned leaf until `groupRejoin` makes it a new leaf and removes the old one (FR025-06).
+   */
   async restoreBackup(pkg: BackupPackage, backupPassword: string): Promise<PersonaConfig> {
-    return (await this.identities()).restoreBackup(pkg, backupPassword, this.opts.passphrase, { scryptLogN: this.opts.scryptLogN });
+    const persona = await (await this.identities()).restoreBackup(pkg, backupPassword, this.opts.passphrase, { scryptLogN: this.opts.scryptLogN });
+    const store = await this.openStore(join(this.opts.dataDir, 'personas', persona.id));
+    const record: DeviceRecord = { id: bytesToHex(randomBytes(16)), cloned: true };
+    await store.collection<DeviceRecord>('device').put('self', record);
+    return persona;
+  }
+
+  /** This installation's device record for a persona (created on first use). */
+  async device(personaId: string): Promise<DeviceRecord> {
+    const s = await this.session(personaId);
+    const col = s.store.collection<DeviceRecord>('device');
+    let rec = await col.get('self');
+    if (!rec) {
+      // Original installation (and installs from before multi-device): the persona id was the `d` slot.
+      rec = { id: s.persona.id };
+      await col.put('self', rec);
+    }
+    return rec;
+  }
+
+  /** Local label of this device, announced only inside the groups (takes effect on the next session). */
+  async setDeviceLabel(personaId: string, label: string): Promise<DeviceRecord> {
+    const s = await this.session(personaId);
+    const rec = { ...(await this.device(personaId)), label: label.slice(0, 64) };
+    await s.store.collection<DeviceRecord>('device').put('self', rec);
+    return rec;
   }
 
   async session(personaId: string): Promise<Session> {
@@ -247,7 +315,15 @@ export class SovereignClient {
     s.groups ??= (async () => {
       const provider = this.opts.groupProvider ?? new MarmotTsProvider();
       assertHighSecurity(provider);
-      return provider.openSession({ signer: s.signer, network: new PoolGroupNetwork(s.pool, s.persona.relays), storage: new EncryptedGroupStorage(s.store), deviceId: s.persona.id });
+      const dev = await this.device(personaId);
+      return provider.openSession({
+        signer: s.signer,
+        network: new PoolGroupNetwork(s.pool, s.persona.relays),
+        storage: new EncryptedGroupStorage(s.store),
+        deviceId: dev.id,
+        ...(dev.label ? { deviceLabel: dev.label } : {}),
+        ...(dev.cloned ? { clonedState: true } : {}),
+      });
     })();
     s.groups.catch(() => (s.groups = undefined));
     return s.groups;
@@ -273,7 +349,142 @@ export class SovereignClient {
     const kp = await gs.findKeyPackage(pubkey, s.persona.relays);
     if (!kp) throw new Error('el invitado no ha publicado un key package en los relays de esta persona');
     await mgr.recordUsage(personaId, { contact: pubkey });
+    // Multi-device (FR025-06): add every current device of the persona in one commit.
+    if (isExtendedGroupSession(gs)) return gs.invitePersona(groupId, pubkey, s.persona.relays);
     return gs.invite(groupId, kp);
+  }
+
+  private async extended(personaId: string): Promise<ExtendedGroupSession> {
+    const gs = await this.groupSession(personaId);
+    if (!isExtendedGroupSession(gs)) throw new Error('el proveedor de grupos no soporta multi-dispositivo/propuestas/MIP-04');
+    return gs;
+  }
+
+  /**
+   * Adds the devices of `member` (default: this persona) that are not in the group yet. Admins commit
+   * directly; other members send Add proposals for an admin to commit (FR025-06/09).
+   */
+  async groupAddDevice(personaId: string, groupId: string, member?: string): Promise<{ committed: true; group: GroupHandle } | { committed: false; proposals: GroupProposal[] }> {
+    const s = await this.session(personaId);
+    const gs = await this.extended(personaId);
+    const pubkey = member ? normalizePubkey(member) : s.persona.pubkey;
+    await gs.sync(groupId);
+    const g = await gs.group(groupId);
+    if (g.admins.includes(s.persona.pubkey)) return { committed: true, group: await gs.invitePersona(groupId, pubkey, s.persona.relays) };
+    const kps = await gs.missingDeviceKeyPackages(groupId, pubkey, s.persona.relays);
+    if (!kps.length) throw new Error('no hay key packages de dispositivos que no estén ya en el grupo');
+    return { committed: false, proposals: await gs.proposeAdd(groupId, kps) };
+  }
+
+  async groupDevices(personaId: string, groupId: string): Promise<GroupDevice[]> {
+    const gs = await this.extended(personaId);
+    await gs.sync(groupId);
+    return gs.devices(groupId);
+  }
+
+  async groupRemoveDevice(personaId: string, groupId: string, leafIndex: number): Promise<GroupHandle> {
+    return (await this.extended(personaId)).removeDevice(groupId, leafIndex);
+  }
+
+  /** Non-admin members propose; the proposal travels as a kind 445 group message (FR025-09). */
+  async groupPropose(personaId: string, groupId: string, p: { add?: string; remove?: string }): Promise<GroupProposal[]> {
+    const s = await this.session(personaId);
+    const gs = await this.extended(personaId);
+    if (p.add) {
+      const pubkey = normalizePubkey(p.add);
+      const mgr = await this.identities();
+      const warnings = await mgr.reuseWarnings(personaId, { contact: pubkey });
+      if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')}`);
+      await gs.sync(groupId);
+      const kps = await gs.missingDeviceKeyPackages(groupId, pubkey, s.persona.relays);
+      if (!kps.length) throw new Error('el invitado no tiene key packages de dispositivos fuera del grupo');
+      await mgr.recordUsage(personaId, { contact: pubkey });
+      return gs.proposeAdd(groupId, kps);
+    }
+    if (p.remove) return gs.proposeRemove(groupId, { pubkey: normalizePubkey(p.remove) });
+    throw new Error('indica --add NPUB o --remove NPUB');
+  }
+
+  async groupProposals(personaId: string, groupId: string): Promise<GroupProposal[]> {
+    const gs = await this.extended(personaId);
+    await gs.sync(groupId);
+    return gs.pendingProposals(groupId);
+  }
+
+  /** Admin: commit pending proposals (all admissible ones, or the given refs). */
+  async groupCommit(personaId: string, groupId: string, refs?: string[]): Promise<GroupHandle> {
+    return (await this.extended(personaId)).commitProposals(groupId, refs?.length ? { refs } : {});
+  }
+
+  /**
+   * After a backup restore: re-enter the restored groups as a new leaf of this device (the cloned leaf
+   * is removed). Admins finish at once; members wait for an admin commit and run it again.
+   */
+  async groupRejoin(personaId: string, groupId?: string): Promise<Array<{ groupId: string; status: 'joined' | 'pending' }>> {
+    const s = await this.session(personaId);
+    const gs = await this.extended(personaId);
+    const ids = groupId ? [groupId] : await gs.restoredGroups();
+    const out: Array<{ groupId: string; status: 'joined' | 'pending' }> = [];
+    for (const id of ids) out.push({ groupId: id, status: (await gs.rejoin(id, s.persona.relays)).status });
+    return out;
+  }
+
+  /** HTTP through a guard with the persona's network policy, allowing only these extra hosts. */
+  private async blobHttp(personaId: string, urls: string[]): Promise<HttpClient> {
+    const s = await this.session(personaId);
+    const guard = new NetworkGuard({
+      mode: s.persona.network,
+      socksHost: this.opts.socksHost,
+      socksPort: this.opts.socksPort,
+      isolationKey: s.persona.id,
+      allowedHosts: [...new Set([...s.persona.relays, ...urls].map((u) => new URL(u).hostname))],
+    });
+    return (url, init) => guard.fetch(url, init);
+  }
+
+  /**
+   * MIP-04: sanitize → encrypt with a key derived from the MLS exporter of the current epoch → upload the
+   * ciphertext to the persona's Blossom servers (kind 10063; blob-store fallback) → kind 9 with `imeta`.
+   */
+  async groupSendFile(
+    personaId: string,
+    groupId: string,
+    file: { data: Uint8Array; filename: string; mimeType: string; caption?: string },
+    opts: { servers?: string[]; sanitize?: boolean } = {},
+  ): Promise<GroupMediaReference> {
+    const s = await this.session(personaId);
+    const gs = await this.extended(personaId);
+    const userServers = opts.servers ?? (await fetchServerList(s.pool, s.persona.relays, s.persona.pubkey).catch(() => []));
+    const servers = selectUploadServers({ userServers, encrypted: true, ...(this.opts.blobStore ? { fallback: this.opts.blobStore } : {}) });
+    if (!servers.length) throw new Error('sin servidor Blossom: publica tu lista (kind 10063) o configura el blob-store');
+    const http = await this.blobHttp(personaId, servers);
+    const data = (opts.sanitize ?? true) ? sanitizeMetadata(file.data).data : file.data;
+    return gs.sendMedia(
+      groupId,
+      { data, filename: file.filename, type: file.mimeType },
+      async (ciphertext, sha256) => {
+        const blob: PreparedBlob = { data: ciphertext, sha256, originalSha256: sha256, mimeType: 'application/octet-stream', removedMetadata: [] };
+        const up = await uploadToServers(blob, servers, s.signer, { http, mirror: true });
+        return { url: up.descriptor.url || `${up.server}/${sha256}` };
+      },
+      file.caption ?? '',
+    );
+  }
+
+  /** Downloads (hash-verified) and decrypts a MIP-04 attachment received in the group. */
+  async groupFetchFile(personaId: string, groupId: string, sha256: string): Promise<{ data: Uint8Array; attachment: GroupMediaAttachment }> {
+    const s = await this.session(personaId);
+    const gs = await this.extended(personaId);
+    await gs.sync(groupId);
+    const ref = await gs.mediaReference(groupId, sha256);
+    if (!ref) throw new Error('adjunto desconocido en este grupo (ejecuta group read primero)');
+    const url = ref.attachment.url;
+    const hash = url ? ciphertextHashFromUrl(url) : undefined;
+    if (!url || !hash) throw new Error('el adjunto no tiene una URL Blossom válida');
+    const servers = await fetchServerList(s.pool, s.persona.relays, ref.sender).catch(() => []);
+    const http = await this.blobHttp(personaId, [url, ...servers]);
+    const { data } = await downloadFromServers(hash, { url, servers }, s.signer, { http });
+    return { data: await gs.decryptMedia(groupId, data, ref.attachment, ref.epoch), attachment: ref.attachment };
   }
 
   async groupAccept(personaId: string): Promise<GroupHandle[]> {
