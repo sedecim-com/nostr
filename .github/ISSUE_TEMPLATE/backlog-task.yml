@@ -1,0 +1,46 @@
+name: Tarea del backlog
+description: Nueva tarea del backlog (GitHub Issues es la fuente de docs/backlog; ver docs/backlog/GITHUB.md)
+title: '[XXX-00] '
+labels: [backlog]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Título: `[ID] tarea` (p. ej. `[FR012-05] …`, `[OPS-07] …`). Después de crearla asigna **milestone** (sprint), un label de **prioridad** (`P0`–`P3`), el label `epic:…` y, si ya hay base hecha, `status:parcial`. Añádela como sub-issue de su epic y usa "blocked by" para las dependencias.
+  - type: input
+    id: req
+    attributes:
+      label: Requisito
+      description: Requisito(s) de la especificación, p. ej. "FR-012" o "§25.1-3"
+    validations:
+      required: true
+  - type: dropdown
+    id: type
+    attributes:
+      label: Tipo
+      options: [Dev, Infra, Seguridad, QA, Doc, Decisión]
+    validations:
+      required: true
+  - type: dropdown
+    id: sp
+    attributes:
+      label: Story points
+      options: ['1', '2', '3', '5', '8']
+    validations:
+      required: true
+  - type: input
+    id: deps
+    attributes:
+      label: Depende de
+      description: IDs separados por coma (además de los enlaces "blocked by")
+  - type: textarea
+    id: done
+    attributes:
+      label: Criterio de hecho
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidencia
+      description: Archivos, PRs o ADRs que prueban el avance (obligatoria al cerrar o marcar como parcial)

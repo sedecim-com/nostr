@@ -1,12 +1,12 @@
 # Backlog — Acceso Nostr
 
-> Generado por `node scripts/backlog.mjs` desde `backlog.json` (fuente única). No editar a mano.
+> Generado por `node scripts/backlog.mjs` desde `backlog.json`. Pendiente de sembrar en GitHub Issues (ver [GITHUB.md](GITHUB.md)); no editar a mano.
 > Base: Scope_Plataforma_Nostr_Soberana_SaaS_v0.1 (25/09/2026). Estado del código: `main@65ed066` (2026-09-26).
 
 ## Resumen
 
-- **163 tareas** · 96 hechas · 12 parciales · 49 pendientes · 6 descartadas
-- **205 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **164 tareas** · 96 hechas · 13 parciales · 49 pendientes · 6 descartadas
+- **208 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -19,7 +19,7 @@
 | S1 | 2026-09-28 → 2026-10-09 | F0 | Cierre F0 y gate de interoperabilidad | 12 | 22 | 5 |
 | S2 | 2026-10-12 → 2026-10-23 | F0.5 | Web SaaS como cliente completo | 17 | 47 | 0 |
 | S3 | 2026-10-26 → 2026-11-06 | F1 | Identidad, llaves y custodia | 21 | 49 | 1 |
-| S4 | 2026-11-09 → 2026-11-20 | F2 | OSS soberano, sync y operación | 18 | 48 | 0 |
+| S4 | 2026-11-09 → 2026-11-20 | F2 | OSS soberano, sync y operación | 19 | 51 | 0 |
 | S5 | 2026-11-23 → 2026-12-04 | F3 | Privacidad, Tor y observabilidad | 11 | 31 | 1 |
 | S6 | 2026-12-07 → 2026-12-18 | F4 | Grupos high-security | 6 | 26 | 0 |
 | S7 | 2027-01-04 → 2027-01-15 | F5 | Modo institucional | 13 | 51 | 1 |
@@ -138,7 +138,7 @@
 | FR028-03 | P3 | Lint en CI que prohíbe afirmaciones absolutas en toda la UI | FR-028, §2.2 | QA | 1 | FR028-01 | Hecho | assertNoAbsoluteClaims aplicado a todo el copy de la web |
 | PANEL-04 | P3 | Indicadores visuales por dimensión respaldados por declaraciones verificables | §9.1 | Dev | 2 | PANEL-02 | Hecho | Cada indicador enlaza a sus disclosures; sin score único |
 
-## S4 · OSS soberano, sync y operación (F2, 2026-11-09 → 2026-11-20) — 48 SP
+## S4 · OSS soberano, sync y operación (F2, 2026-11-09 → 2026-11-20) — 51 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
@@ -159,6 +159,7 @@
 | NFR008-02 | P2 | Exportar el historial completo (JSONL de eventos firmados) | NFR-008 | Dev | 2 | FR013-01 | Pendiente | Export/import de eventos canónicos entre clientes |
 | OPS-08 | P2 | Separación de funciones en releases (quién construye vs quién publica) | §21.2 | Infra | 1 | — | Pendiente | Entorno de release protegido con aprobadores distintos al autor |
 | OPS-09 | P2 | Documentación de build desde source | §21.2 | Doc | 2 | — | Parcial | Guía reproducible para todos los artefactos (servicios, web, keygen) |
+| OPS-10 | P2 | Backlog vivo en GitHub Issues con sincronización automática a docs/backlog | Proceso | Infra | 3 | — | Parcial | Cada tarea es un issue (milestone = sprint, labels de prioridad/epic/estado, campos Priority/Effort/fechas, sub-issues del epic y "blocked by"); un workflow regenera docs/backlog desde los issues y abre la PR de sync |
 | FR017-05 | P3 | Seguir el issue upstream #4192 y retirar el adaptador cuando se corrija | FR-017, §25 | QA | 1 | BUZZ-05 | Pendiente | Re-ejecutar el gate en cada sync; volver al jitter estándar si pasa |
 
 ## S5 · Privacidad, Tor y observabilidad (F3, 2026-11-23 → 2026-12-04) — 31 SP
