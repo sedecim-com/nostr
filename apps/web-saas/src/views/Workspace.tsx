@@ -7,6 +7,7 @@ import type { DeploymentConfig } from '../lib/config';
 import { custodyLabel, openPersona, publishDmRelays, shortNpub, type PersonaSession } from '../lib/session';
 import type { PersonaBook, PersonaRecord } from '../lib/vault';
 import { WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
+import { onSignerAuthUrl } from '../lib/authUrl';
 import { BRAND } from '../theme';
 import { ChannelsView } from './ChannelsView';
 import { DmView } from './DmView';
@@ -38,6 +39,8 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
   const [tab, setTab] = useState<TabId>('personas');
   const [toast, setToast] = useState<{ message: string; severity: 'success' | 'info' | 'warning' | 'error' } | undefined>();
   const current = useRef<PersonaSession | undefined>(undefined);
+  const [authUrl, setAuthUrl] = useState<string | undefined>();
+  useEffect(() => onSignerAuthUrl(setAuthUrl), []);
 
   const reloadPersonas = useCallback(async () => setPersonas(await book.list()), [book]);
 
@@ -91,6 +94,10 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
 
   return (
     <WorkspaceContext.Provider value={ws}>
+      {/* NFR009-02: keyboard users jump past the header and tabs. */}
+      <Box component="a" href="#main" sx={{ position: 'absolute', left: -9999, top: 8, zIndex: 2000, p: 1, bgcolor: 'background.paper', '&:focus': { left: 8 } }}>
+        Saltar al contenido
+      </Box>
       <AppBar position="sticky" color="default" elevation={1}>
         <Toolbar sx={{ gap: 2, flexWrap: 'wrap' }}>
           <Typography variant="h6" component="h1" sx={{ flexGrow: 1 }}>
@@ -124,13 +131,27 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
         <Box id="sending-as" role="status" aria-live="polite" sx={{ px: 3, py: 0.5, bgcolor: 'action.hover', typography: 'body2' }}>
           {sendingAs}
         </Box>
+        {/* FR004-05: the remote signer asks for approval in its own page; opened only by an explicit click. */}
+        {authUrl && (
+          <Alert
+            severity="warning"
+            onClose={() => setAuthUrl(undefined)}
+            action={
+              <Button color="inherit" href={authUrl} target="_blank" rel="noopener noreferrer" onClick={() => setAuthUrl(undefined)}>
+                Abrir aprobación
+              </Button>
+            }
+          >
+            Tu signer remoto pide aprobar esta acción en {new URL(authUrl).host}.
+          </Alert>
+        )}
         <Tabs value={tab} onChange={(_, v: TabId) => setTab(v)} variant="scrollable" aria-label="Secciones">
           {TABS.map((t) => (
             <Tab key={t.id} value={t.id} label={t.label} id={`tab-${t.id}`} aria-controls={`view-${t.id}`} />
           ))}
         </Tabs>
       </AppBar>
-      <Container component="main" id="main" maxWidth="lg" sx={{ py: 3 }}>
+      <Container component="main" id="main" tabIndex={-1} maxWidth="lg" sx={{ py: 3, outline: 'none' }}>
         {TABS.map((t) => (
           <Box key={t.id} role="tabpanel" id={`view-${t.id}`} aria-labelledby={`tab-${t.id}`} hidden={tab !== t.id}>
             {tab === t.id && (!session && t.id !== 'personas' ? <Alert severity="info">Crea o elige una persona primero.</Alert> : <View id={t.id} />)}

@@ -1,4 +1,5 @@
 import type { Dimension, Disclosure, SovereigntyConfig } from './types';
+import { PRESETS } from './presets';
 
 type Entry = Omit<Disclosure, 'control' | 'option'>;
 const d = (statement: string, improves: Dimension[], sacrifices: Dimension[], trustAssumptions: string[] = []): Entry => ({ statement, improves, sacrifices, trustAssumptions });
@@ -62,6 +63,26 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
     'opt-in': d('Informes de fallo opt-in con limpieza de datos sensibles.', [], ['privacidad-operador'], ['Operador.']),
   },
 };
+
+/**
+ * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
+ * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
+ */
+export const DISCLOSURE_VERSION = '1.0.0';
+
+/** Every statement the panel can show, for review and versioning (not tied to one configuration). */
+export function disclosureCatalog(): Disclosure[] {
+  const out: Disclosure[] = [];
+  for (const [control, options] of Object.entries(CATALOG) as Array<[keyof SovereigntyConfig, Record<string, Entry>]>) {
+    for (const [option, entry] of Object.entries(options)) out.push({ control, option, ...entry });
+  }
+  const base = { ...PRESETS.convenience } as SovereigntyConfig;
+  for (const flag of ['remotePreviews', 'deliveryReceipts', 'readReceipts'] as const) {
+    for (const v of [true, false]) out.push(disclose({ ...base, [flag]: v }).find((x) => x.control === flag)!);
+  }
+  out.push(disclose({ ...base, quorum: 2 }).find((x) => x.control === 'quorum')!);
+  return out;
+}
 
 export function disclose(config: SovereigntyConfig): Disclosure[] {
   const out: Disclosure[] = [];

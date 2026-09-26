@@ -12,7 +12,7 @@ import type { AddressInfo } from 'node:net';
 import { chromium, type Page } from 'playwright';
 import WebSocket from 'ws';
 import { bytesToHex, finalizeEvent, generateSecretKey, getPublicKey, getTagValue, nip19, npubEncode, toUnsigned } from '@sedecim/nostr-core';
-import { LocalSigner } from '@sedecim/signer';
+import { LocalSigner, Nip46Bunker } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestBlossomServer, TestRelay, tinyPng } from '@sedecim/test-relay';
 import { APP_RECEIPT_KIND, chatMessage, createDirectMessage, createReceipt, dmInboxFilter, FILE_MESSAGE_KIND, openDirectMessage, unwrap } from '@sedecim/messaging';
@@ -264,10 +264,64 @@ try {
   await page.getByLabel('Crear llave local nueva (la nsec no sale del navegador)').check();
   await page.getByRole('button', { name: 'Crear persona' }).click();
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Personal'));
-  await page.getByRole('combobox', { name: 'Persona' }).click();
+  await page.locator('#persona-select').click();
   await page.getByRole('option', { name: /Trabajo/ }).click();
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
   assert(true, 'switching persona changes the sending identity');
+
+  // --- remote signer via client-initiated nostrconnect:// (FR004-03/04): the nsec never reaches the browser
+  const remoteUser = new LocalSigner(generateSecretKey());
+  const bunkerPool = new RelayPool({ webSocketFactory: factory, signer: new LocalSigner(generateSecretKey()) });
+  pools.push(bunkerPool);
+  const bunker = new Nip46Bunker(remoteUser, bunkerPool, [relay.url], { allowedKinds: [5, 7, 9, 13, 9007, 9021, 10050, 22242, 24242, 27235] });
+  await bunker.start();
+  await tab(page, 'Personas');
+  await fill(page, 'persona-label', 'Remota');
+  await page.getByLabel('Signer remoto (NIP-46)').check();
+  assert((await page.textContent('#nip46-permissions'))?.includes('Firmar: Mensajes de canal (NIP-29)'), 'requested NIP-46 permissions are listed before connecting (FR004-04)');
+  await page.getByRole('button', { name: 'Generar código de conexión' }).click();
+  const uri = await page.inputValue('#nostrconnect-uri');
+  assert(uri.startsWith('nostrconnect://') && uri.includes('perms='), 'web shows a nostrconnect:// offer with its permissions');
+  await bunker.acceptNostrConnect(uri);
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Remota'), undefined, { timeout: 15_000 });
+  await tab(page, 'Canales');
+  await page.locator('#channel-list').getByText('General').click();
+  await fill(page, 'channel-text', 'firmado por el signer remoto');
+  await page.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  const remoteMsg = await (async () => {
+    for (let i = 0; i < 40; i++) {
+      const e = (await pool.query([relay.url], [{ kinds: [9], '#h': ['general'] }], 2000)).find((x) => x.content === 'firmado por el signer remoto');
+      if (e) return e;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  })();
+  assert(remoteMsg?.pubkey === (await remoteUser.getPublicKey()), 'channel message signed through the remote signer (FR004-03)');
+  bunker.stop();
+
+  // --- linking personas explains the consequences first (FR007-03)
+  await page.locator('#persona-select').click();
+  await page.getByRole('option', { name: /Trabajo/ }).click();
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
+  await tab(page, 'Personas');
+  await page.locator('#link-target').click();
+  await page.getByRole('option', { name: /^Personal/ }).click();
+  await page.getByLabel('Selectivo (solo las personas que elijas)').check();
+  await fill(page, 'link-audience', npubEncode(getPublicKey(bobKey)));
+  await page.getByRole('button', { name: 'Vincular…' }).click();
+  assert((await page.getByRole('dialog').textContent())?.includes('la desanonimización no se puede deshacer'), 'link dialog explains the de-anonymization before confirming');
+  const accountBefore = await identityRepo.personaByPubkey(webPub);
+  assert(!accountBefore, 'nothing is sent to the identity service before confirming');
+  await page.getByRole('button', { name: 'Entiendo las consecuencias, vincular' }).click();
+  await page.getByText('Personas vinculadas (selective)').waitFor({ timeout: 10_000 });
+  const acct = (await identityRepo.personaByPubkey(webPub))!.accountId;
+  const personasOf = await identityRepo.personasOf(acct);
+  const links = await identityRepo.linksOf(personasOf.map((p) => p.personaId));
+  assert(personasOf.length === 2 && links.length === 1 && links[0]!.visibility === 'selective' && links[0]!.audience[0] === getPublicKey(bobKey), 'identity service registered both personas (with proof of key control) and a selective link');
+
+  // --- panel: per-dimension indicators backed by statements (PANEL-04)
+  await tab(page, 'Soberanía y privacidad');
+  await page.locator('#dim-privacidad-operador-h').click();
+  assert((await page.locator('#dim-privacidad-operador').textContent())?.includes('ver consecuencia'), 'each dimension lists the statements that move it, linked to their disclosure');
 
   // --- a deployment whose gate rejected NIP-17 blocks it
   const gated = await context.newPage();

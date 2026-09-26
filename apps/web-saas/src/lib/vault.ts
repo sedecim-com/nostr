@@ -21,6 +21,8 @@ export interface PersonaRecord {
   /** local custody only: the secret key, stored inside the sealed vault (never in clear at rest). */
   secretHex?: string;
   bunker?: string;
+  /** nip46: the ephemeral client key the signer authorized, so later sessions skip the bunker secret. */
+  nip46ClientSecretHex?: string;
   relays: string[];
   preset: PresetName | 'custom';
   config: SovereigntyConfig;

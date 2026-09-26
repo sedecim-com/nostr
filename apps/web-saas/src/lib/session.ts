@@ -1,6 +1,7 @@
 import { bytesToHex, hexToBytes, nip19, nip49, generateSecretKey, getPublicKey, npubEncode, selfTestKey, wipe, CUSTODY_FACTS, type Signer } from '@sedecim/nostr-core';
 import { RelayPool } from '@sedecim/relay-pool';
-import { LocalSigner, Nip07Signer, Nip46Signer, parseBunkerUrl } from '@sedecim/signer';
+import { formatBunkerUrl, LocalSigner, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS } from '@sedecim/signer';
+import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
 import { publishDmRelayList } from '@sedecim/messaging';
 import { preset, type PresetName } from '@sedecim/profiles';
@@ -25,7 +26,12 @@ export type NewPersona =
   | { kind: 'import'; secret: string; ncryptsecPass?: string }
   | { kind: 'secret'; secretKey: Uint8Array }
   | { kind: 'nip07' }
-  | { kind: 'nip46'; bunker: string };
+  | { kind: 'nip46'; bunker: string }
+  /** Already connected through a client-initiated nostrconnect:// offer (FR004-03). */
+  | { kind: 'nip46-connected'; signer: Nip46Signer; clientSecretKey: Uint8Array };
+
+/** Pool for NIP-46 traffic: NIP-42 on the signer relays authenticates the ephemeral client key only. */
+const nip46Pool = (clientKey: Uint8Array) => new RelayPool({ signer: new LocalSigner(clientKey), authMode: 'on-demand' });
 
 const newId = () => bytesToHex(crypto.getRandomValues(new Uint8Array(8)));
 
@@ -34,6 +40,7 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
   let pubkey: string;
   let secretHex: string | undefined;
   let bunker: string | undefined;
+  let nip46ClientSecretHex: string | undefined;
   const local = (sk: Uint8Array) => {
     if (!selfTestKey(sk).ok) throw new Error('la llave no pasó el self-test');
     custody = 'local';
@@ -63,18 +70,29 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
       pubkey = await new Nip07Signer().getPublicKey();
       break;
     case 'nip46': {
-      const remote = new Nip46Signer(parseBunkerUrl(input.bunker.trim()), { pool: new RelayPool() });
+      const clientKey = generateSecretKey();
+      const pointer = parseBunkerUrl(input.bunker.trim());
+      const remote = new Nip46Signer(pointer, { pool: nip46Pool(clientKey), clientSecretKey: clientKey, permissions: WEB_NIP46_PERMISSIONS, onAuthUrl: raiseSignerAuthUrl });
       await remote.connect();
       custody = 'nip46';
       pubkey = await remote.getPublicKey();
-      bunker = input.bunker.trim();
+      // Keep the authorized client key, never the (often single-use) bunker secret.
+      bunker = formatBunkerUrl({ remoteSignerPubkey: pointer.remoteSignerPubkey, relays: pointer.relays });
+      nip46ClientSecretHex = bytesToHex(clientKey);
+      remote.close();
       break;
     }
+    case 'nip46-connected':
+      custody = 'nip46';
+      pubkey = await input.signer.getPublicKey();
+      bunker = formatBunkerUrl(input.signer.bunker);
+      nip46ClientSecretHex = bytesToHex(input.clientSecretKey);
+      break;
   }
   const existing = (await book.list()).find((p) => p.pubkey === pubkey!);
   if (existing) throw new Error(`esa llave ya es la persona "${existing.label}"`);
   const config = { ...preset(opts.preset), ...(opts.deviceKey ? { localProtection: 'device' as const } : {}) };
-  const persona: PersonaRecord = { id: newId(), label: opts.label, pubkey: pubkey!, custody: custody!, relays: opts.relays, preset: opts.preset, config, createdAt: Date.now(), ...(secretHex ? { secretHex } : {}), ...(bunker ? { bunker } : {}) };
+  const persona: PersonaRecord = { id: newId(), label: opts.label, pubkey: pubkey!, custody: custody!, relays: opts.relays, preset: opts.preset, config, createdAt: Date.now(), ...(secretHex ? { secretHex } : {}), ...(bunker ? { bunker } : {}), ...(nip46ClientSecretHex ? { nip46ClientSecretHex } : {}) };
   await book.save(persona);
   return persona;
 }
@@ -87,9 +105,17 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord): Pr
     wipe(sk);
   } else if (persona.custody === 'nip07') signer = new Nip07Signer();
   else {
-    const remote = new Nip46Signer(parseBunkerUrl(persona.bunker!), { pool: new RelayPool() });
-    await remote.connect();
-    signer = remote;
+    const opts = { permissions: WEB_NIP46_PERMISSIONS, onAuthUrl: raiseSignerAuthUrl };
+    if (persona.nip46ClientSecretHex) {
+      const clientKey = hexToBytes(persona.nip46ClientSecretHex);
+      signer = new Nip46Signer(parseBunkerUrl(persona.bunker!), { ...opts, pool: nip46Pool(clientKey), clientSecretKey: clientKey });
+    } else {
+      // Personas created before the client key was stored: connect with the bunker URL as before.
+      const clientKey = generateSecretKey();
+      const remote = new Nip46Signer(parseBunkerUrl(persona.bunker!), { ...opts, pool: nip46Pool(clientKey), clientSecretKey: clientKey });
+      await remote.connect();
+      signer = remote;
+    }
   }
   const pool = new RelayPool({ signer, authMode: 'on-demand' });
   const engine = new DeliveryEngine({ store: book.store.collection<OutboxRecord>(`outbox-${persona.id}`), publisher: pool, signer, retry: { baseMs: 2000, maxMs: 60_000 } });

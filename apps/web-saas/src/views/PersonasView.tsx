@@ -5,6 +5,9 @@ import { linkAccesoLogin } from '../lib/identity';
 import { createPersona, custodyFacts, custodyLabel, exportBackup, shortNpub, type NewPersona } from '../lib/session';
 import { deviceKeyAllowed, setProtection } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
+import { LinkPersonas } from './LinkPersonas';
+import { RemoteSigner } from './RemoteSigner';
+import type { Nip46Signer, NostrConnectOffer } from '@sedecim/signer';
 
 type Mode = 'create' | 'import' | 'nip07' | 'nip46';
 
@@ -16,6 +19,7 @@ export function PersonasView() {
   const [mode, setMode] = useState<Mode>('create');
   const [secret, setSecret] = useState('');
   const [ncPass, setNcPass] = useState('');
+  const [nip46Mode, setNip46Mode] = useState<'bunker' | 'nostrconnect'>('nostrconnect');
   const [relays, setRelays] = useState(cfg.relays.join('\n'));
   const [vaultPass, setVaultPass] = useState('');
   const [backupPass, setBackupPass] = useState('');
@@ -38,11 +42,20 @@ export function PersonasView() {
     }
   };
 
-  const create = (e: FormEvent) => {
-    e.preventDefault();
+  const create = (e?: FormEvent, connected?: { signer: Nip46Signer; offer: NostrConnectOffer }) => {
+    e?.preventDefault();
+    if (mode === 'nip46' && nip46Mode === 'nostrconnect' && !connected) return;
     void run(async () => {
       if (needsPassword) await setProtection(book.vault, { kind: 'passphrase', passphrase: vaultPass });
-      const input: NewPersona = mode === 'create' ? { kind: 'create' } : mode === 'import' ? { kind: 'import', secret, ncryptsecPass: ncPass } : mode === 'nip07' ? { kind: 'nip07' } : { kind: 'nip46', bunker: secret };
+      const input: NewPersona = connected
+        ? { kind: 'nip46-connected', signer: connected.signer, clientSecretKey: connected.offer.clientSecretKey }
+        : mode === 'create'
+          ? { kind: 'create' }
+          : mode === 'import'
+            ? { kind: 'import', secret, ncryptsecPass: ncPass }
+            : mode === 'nip07'
+              ? { kind: 'nip07' }
+              : { kind: 'nip46', bunker: secret };
       const p = await createPersona(book, input, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device' });
       setSecret('');
       setNcPass('');
@@ -123,6 +136,8 @@ export function PersonasView() {
         </Card>
       )}
 
+      {session && <LinkPersonas />}
+
       <Card component="form" onSubmit={create}>
         <CardContent>
           <Stack spacing={2}>
@@ -144,9 +159,19 @@ export function PersonasView() {
               <FormControlLabel value="create" control={<Radio />} label="Crear llave local nueva (la nsec no sale del navegador)" />
               <FormControlLabel value="import" control={<Radio />} label="Importar nsec / ncryptsec" />
               <FormControlLabel value="nip07" control={<Radio />} label="Extensión del navegador (NIP-07)" />
-              <FormControlLabel value="nip46" control={<Radio />} label="Signer remoto (NIP-46 bunker://)" />
+              <FormControlLabel value="nip46" control={<Radio />} label="Signer remoto (NIP-46)" />
             </RadioGroup>
-            {(mode === 'import' || mode === 'nip46') && <TextField id="secret-input" label={mode === 'import' ? 'nsec o ncryptsec' : 'bunker://'} type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} required />}
+            {mode === 'import' && <TextField id="secret-input" label="nsec o ncryptsec" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} required />}
+            {mode === 'nip46' && (
+              <RemoteSigner
+                relays={relays.split('\n').map((r) => r.trim()).filter(Boolean)}
+                bunker={secret}
+                onBunkerChange={setSecret}
+                mode={nip46Mode}
+                onModeChange={setNip46Mode}
+                onConnected={(signer, offer) => create(undefined, { signer, offer })}
+              />
+            )}
             {mode === 'import' && secret.startsWith('ncryptsec') && <TextField id="ncryptsec-pass" label="Contraseña del ncryptsec" type="password" autoComplete="off" value={ncPass} onChange={(e) => setNcPass(e.target.value)} />}
             <TextField id="relays" label="Relays (uno por línea; el mismo relay que Buzz Desktop/Mobile)" multiline minRows={2} value={relays} onChange={(e) => setRelays(e.target.value)} />
             {needsPassword && (
@@ -156,11 +181,13 @@ export function PersonasView() {
               </>
             )}
             {error && <Alert severity="error">{error}</Alert>}
-            <Box>
-              <Button type="submit" variant="contained" disabled={busy}>
-                Crear persona
-              </Button>
-            </Box>
+            {!(mode === 'nip46' && nip46Mode === 'nostrconnect') && (
+              <Box>
+                <Button type="submit" variant="contained" disabled={busy}>
+                  Crear persona
+                </Button>
+              </Box>
+            )}
           </Stack>
         </CardContent>
       </Card>

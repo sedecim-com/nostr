@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, List, ListItem, ListItemText, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, Link, List, ListItem, ListItemText, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { PRESETS, disclose, preset, summarize, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
 import { useWorkspace } from '../lib/workspace';
 
@@ -79,17 +79,33 @@ export function PanelView() {
           </Stack>
         </CardContent>
       </Card>
-      <Box id="panel-dimensions" sx={{ display: 'grid', gridTemplateColumns: { sm: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 2 }}>
+      {/* PANEL-04: one indicator per dimension, each backed by the statements that move it; never a single score. */}
+      <Box id="panel-dimensions" sx={{ display: 'grid', gridTemplateColumns: { sm: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 2, alignItems: 'start' }}>
         {Object.entries(summarize(draft)).map(([k, v]) => (
-          <Card key={k}>
-            <CardContent>
-              <Typography variant="subtitle1" component="h3">
-                {DIMENSIONS[k]}
-              </Typography>
-              <Typography variant="body2">Refuerzan: {v.improvedBy.length}</Typography>
-              <Typography variant="body2">Reducen: {v.reducedBy.length}</Typography>
-            </CardContent>
-          </Card>
+          <Accordion key={k} disableGutters>
+            <AccordionSummary aria-controls={`dim-${k}`} id={`dim-${k}-h`}>
+              <Stack spacing={1}>
+                <Typography variant="subtitle1" component="h3">
+                  {DIMENSIONS[k]}
+                </Typography>
+                <Stack direction="row" spacing={1}>
+                  <Chip size="small" variant="outlined" label={`Refuerzan: ${v.improvedBy.length}`} />
+                  <Chip size="small" variant="outlined" label={`Reducen: ${v.reducedBy.length}`} />
+                </Stack>
+              </Stack>
+            </AccordionSummary>
+            <AccordionDetails>
+              {[...v.improvedBy.map((st) => ['Refuerza', st] as const), ...v.reducedBy.map((st) => ['Reduce', st] as const)].map(([kind, st]) => {
+                const d = disclose(draft).find((x) => x.statement === st);
+                return (
+                  <Typography key={`${kind}:${st}`} variant="body2" sx={{ mb: 1 }}>
+                    <strong>{kind}:</strong> {st} {d && <Link href={`#disc-${d.control}`}>ver consecuencia</Link>}
+                  </Typography>
+                );
+              })}
+              {v.improvedBy.length + v.reducedBy.length === 0 && <Typography variant="body2">Ningún ajuste afecta a esta dimensión.</Typography>}
+            </AccordionDetails>
+          </Accordion>
         ))}
       </Box>
       <Card>
@@ -99,7 +115,7 @@ export function PanelView() {
           </Typography>
           <List id="panel-disclosures" dense>
             {disclose(draft).map((d) => (
-              <ListItem key={`${d.control}:${d.option}`}>
+              <ListItem key={`${d.control}:${d.option}`} id={`disc-${d.control}`}>
                 <ListItemText primary={`[${d.control}: ${d.option}] ${d.statement}`} secondary={d.trustAssumptions.length ? `Confías en: ${d.trustAssumptions.join(' ')}` : undefined} />
               </ListItem>
             ))}
