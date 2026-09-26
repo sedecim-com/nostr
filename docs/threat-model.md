@@ -17,7 +17,7 @@ red (IP, horarios) · outbox local · backups · credenciales de servicio (KEK, 
 | Correlación entre identidades | Personas sin vínculo por defecto, compartimentos con store/relays/circuito Tor separados (IsolateSOCKSAuth), avisos de reutilización de contactos/archivos, banner "Enviando como…" | Estilo de escritura, horarios, errores humanos |
 | Insider organizacional | RBAC/ABAC default-deny, auditoría sin plaintext, dispositivos registrados para recursos sensibles | Admins con privilegios amplios |
 | Bug en biblioteca criptográfica | Autoprueba de secreto post-expulsión al abrir sesiones MLS (fail closed); override de ts-mls rc.11 tras hallar que rc.10 omitía UpdatePath en un Remove (RFC 9420 §12.4) | Otros fallos no cubiertos por la autoprueba; revisión independiente pendiente |
-| Supply chain | Dependencias fijadas (versiones exactas + lockfile), noble/scure auditadas, keygen sin dependencias en runtime y bundle reproducible, SBOM, gitleaks, Dependabot | Firma de releases pendiente |
+| Supply chain | Dependencias fijadas (versiones exactas + lockfile), noble/scure auditadas, keygen sin dependencias en runtime y bundle reproducible, SBOM, gitleaks, Dependabot, releases firmados con cosign keyless + provenance SLSA desde un entorno protegido (`release.yml`, docs/building.md) | Imágenes no reproducibles bit a bit (bases por tag); primer release firmado pendiente |
 | Error humano | Advertencia antes de mostrar nsec, confirmación explícita para vínculos, no sobrescribir backups, disclosures por opción | — |
 
 ## Propiedades por modo (§20.2)

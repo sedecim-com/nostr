@@ -31,6 +31,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 Trazabilidad completa FR/NFR → tests: [docs/requirements-traceability.md](docs/requirements-traceability.md).
 Backlog con tareas atómicas, prioridad, dependencias y sprint: vive en [GitHub Issues](https://github.com/sedecim-com/nostr/issues?q=label%3Abacklog) (milestones = sprints, epics con sub-issues) y se sincroniza a [docs/backlog/](docs/backlog/README.md) con una PR automática (ver [GITHUB.md](docs/backlog/GITHUB.md)).
 Arquitectura: [docs/architecture.md](docs/architecture.md) · Threat model: [docs/threat-model.md](docs/threat-model.md).
+Releases firmados (cosign keyless + provenance SLSA), build desde source y verificación: [docs/building.md](docs/building.md) (`sh scripts/verify-release.sh <tag>`).
 
 ## Inicio rápido
 
@@ -82,6 +83,7 @@ npm run sovereign -- persona import --backup backup.json --label NOMBRE --relay 
 `dist/keygen.html` funciona abierto desde el disco (`file://`): genera la llave con `crypto.getRandomValues`,
 la cifra con NIP-49 y muestra npub, ncryptsec, sus QR y la hoja imprimible. Su CSP (`default-src 'none'`,
 script y estilos fijados por SHA-256) impide cualquier conexión; compara el checksum antes de usarlo.
+Uso air-gapped verificable con un release firmado, paso a paso: [docs/keygen-air-gapped.md](docs/keygen-air-gapped.md).
 
 ### Cliente soberano (CLI)
 ```bash
@@ -119,7 +121,7 @@ docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, ru
 - F3: auditoría independiente de fugas; cliente móvil/desktop dedicado para Tor.
 - F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); unificar Marmot en Buzz si upstream acepta sus kinds.
 - F5: admin-console, directorio con passkeys/attestation, legal hold.
-- Firma de releases (claves del proyecto), QR en el generador offline, enclave Nitro para managed.
+- Primer release firmado con `release.yml` (falta configurar el entorno `release`), QR en el generador offline, enclave Nitro para managed.
 
 ## Licencia
 Apache-2.0 (ver `LICENSE` y `NOTICE`). El relay Buzz (Apache-2.0) se usa sin modificar como imagen upstream fijada por digest.
