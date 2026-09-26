@@ -6,6 +6,7 @@
   "buzzMedia": "https://nostr-stage-relay.ai.acce.so/media",
   "blobStore": "https://nostr-stage-blobs.ai.acce.so",
   "identityService": "https://nostr-stage-id.ai.acce.so",
+  "backupVault": "https://nostr-stage-id.ai.acce.so",
   "managedSigner": "https://nostr-stage-signer.ai.acce.so",
   "cognito": {
     "region": "us-east-1",

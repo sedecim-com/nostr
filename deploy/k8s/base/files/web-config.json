@@ -3,5 +3,6 @@
   "relays": ["ws://localhost:3000"],
   "buzzMedia": "http://localhost:3000/media",
   "blobStore": "http://localhost:8085",
-  "identityService": "http://localhost:8082"
+  "identityService": "http://localhost:8082",
+  "backupVault": "http://localhost:8082"
 }
