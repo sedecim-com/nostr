@@ -41,7 +41,7 @@ export function createClient({ token, repo, baseUrl = 'https://api.github.com', 
       }
       const text = await res.text();
       const json = text ? JSON.parse(text) : undefined;
-      if (!res.ok) throw Object.assign(new Error(`${method} ${path}: ${res.status} ${json?.message ?? text}`), { status: res.status });
+      if (!res.ok) throw Object.assign(new Error(`${method} ${path}: ${res.status} ${json?.message ?? text}${json?.errors ? ` ${JSON.stringify(json.errors)}` : ''}`), { status: res.status });
       if (method !== 'GET' && writeDelayMs) await sleep(writeDelayMs);
       return json;
     }
@@ -81,7 +81,8 @@ export function parseTitle(title) {
   const m = /^\[([A-Z0-9]+-[0-9A-Z]+)\]\s*(.+)$/.exec(title.trim());
   return m ? { id: m[1], title: m[2].trim() } : undefined;
 }
-const epicLabel = (epic) => `epic:${epic}`.slice(0, 50);
+// GitHub rejects commas in label names (422) and caps them at 50 chars; pull maps them back to the epic.
+const epicLabel = (epic) => `epic:${epic.replace(/,/g, '')}`.slice(0, 50);
 const milestoneTitle = (s) => `${s.id} · ${s.name}`;
 const sprintOfMilestone = (title) => title?.split(' · ')[0];
 
