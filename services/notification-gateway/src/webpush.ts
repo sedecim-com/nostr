@@ -65,10 +65,17 @@ export interface VapidKeys {
   privateKey: Uint8Array;
 }
 
+/** `ECDH.getPrivateKey()` drops leading zero bytes (about 1 key in 256): restore the fixed 32-byte scalar. */
+function scalar32(key: Uint8Array): Uint8Array {
+  const out = new Uint8Array(32);
+  out.set(key, 32 - key.length);
+  return out;
+}
+
 export function generateVapidKeys(): VapidKeys {
   const ecdh = createECDH('prime256v1');
   ecdh.generateKeys();
-  return { publicKey: new Uint8Array(ecdh.getPublicKey()), privateKey: new Uint8Array(ecdh.getPrivateKey()) };
+  return { publicKey: new Uint8Array(ecdh.getPublicKey()), privateKey: scalar32(ecdh.getPrivateKey()) };
 }
 
 export function vapidKeysFromPrivate(privateKey: Uint8Array): VapidKeys {
