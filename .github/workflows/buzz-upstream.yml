@@ -72,6 +72,12 @@ jobs:
         with:
           name: interop-reports
           path: gate
+      # scripts/interop-flags.ts (the deployment flags carry the pinned relay commit, FR-017)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
       - name: Update the pin and open the PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,12 +94,15 @@ jobs:
             exit 0
           fi
           sh scripts/buzz-upstream.sh apply "$IMAGE" "$REVISION" "$DATE"
+          # Same check ci runs on the PR: flags.json must match the gate report for the new pin.
+          npx tsx scripts/interop-flags.ts gate/interop-report.json
+          npx tsx scripts/interop-flags.ts gate/interop-report.json --check
           report="docs/interop/buzz-upstream-$short-report.json"
           cp gate/interop-report.json "$report"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git add infra/buzz/PIN docker-compose.yml "$report"
+          git add infra/buzz/PIN docker-compose.yml infra/web/flags.json "$report"
           git commit -m "Pin Buzz upstream image $short (interop gate passed)"
           git push origin "$branch"
           {
