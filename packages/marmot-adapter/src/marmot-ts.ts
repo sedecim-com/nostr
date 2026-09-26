@@ -10,7 +10,7 @@ import { MemoryGroupNetwork, VolatileGroupStorage } from './memory-network';
 import { MARMOT_KINDS, type GroupCryptoProperties, type GroupCryptoProvider, type GroupHandle, type GroupMessage, type GroupNetwork, type GroupSession, type GroupStorage, type SessionOptions } from './types';
 
 export const MARMOT_TS_VERSION = '0.5.1';
-export const TS_MLS_VERSION = '2.0.0-rc.11';
+export const TS_MLS_VERSION = '2.0.0-rc.16';
 export const DEFAULT_CIPHERSUITE = 'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519';
 
 /** GenericKeyValueStore<T> expected by marmot-ts, over our encrypted GroupStorage. */

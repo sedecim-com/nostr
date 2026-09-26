@@ -16,6 +16,6 @@
     "@sedecim/encrypted-store": "0.1.0",
     "@sedecim/nostr-core": "0.1.0",
     "@sedecim/relay-pool": "0.1.0",
-    "ts-mls": "2.0.0-rc.11"
+    "ts-mls": "2.0.0-rc.16"
   }
 }

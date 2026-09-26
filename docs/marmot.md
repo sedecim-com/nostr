@@ -7,7 +7,7 @@ dispositivo). La implementación por defecto es `MarmotTsProvider`:
 | Componente | Versión fijada | Licencia | Nota |
 |---|---|---|---|
 | `@internet-privacy/marmot-ts` | 0.5.1 | MIT | Implementación TS del proyecto Marmot (MIP-00…03). Upstream: **alpha** |
-| `ts-mls` | **2.0.0-rc.11** (override) | MIT | RFC 9420. marmot-ts 0.5.1 pide rc.10, que es vulnerable (ver abajo) |
+| `ts-mls` | **2.0.0-rc.16** (override) | MIT | RFC 9420. marmot-ts 0.5.1 pide rc.10, que es vulnerable (ver abajo) |
 
 Kinds: key package `30443` (lee también el legado `443`), Welcome `444` dentro de gift wrap `1059`,
 mensajes de grupo `445` (firmante efímero por mensaje, tag `h` = id Nostr del grupo), lista de relays
@@ -28,7 +28,7 @@ relay autenticado con compuerta `#p` y relay `.onion` vía SOCKS:
 Un commit con un único Remove salía sin path, `commit_secret` = 0 y el miembro expulsado podía derivar
 la época siguiente y leer mensajes posteriores (viola RFC 9420 §12.4). Corregido upstream en rc.11.
 Mitigación en este repo:
-1. `overrides` en `package.json` fuerza `ts-mls@2.0.0-rc.11` para marmot-ts;
+1. `overrides` en `package.json` fuerza `ts-mls@2.0.0-rc.16` (la corrección llegó en rc.11) para marmot-ts;
 2. **autoprueba de comportamiento** (`assertRemovalSecrecy`) al abrir la primera sesión del proceso:
    crea un grupo en memoria, expulsa a un miembro y comprueba que no descifra. Si falla, el proveedor
    **falla cerrado** (`UnsafeMlsImplementationError`). Verificado: falla con rc.10, pasa con rc.11.
