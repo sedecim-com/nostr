@@ -1,0 +1,20 @@
+[package]
+name = "mdk-harness"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "FR025-04: MDK (Rust Marmot Development Kit) peer driven over JSON lines by tests/interop/marmot-mdk.interop.test.ts"
+
+# Exact pins: the interop report names these versions. Cargo.lock is committed and CI builds with --locked.
+[dependencies]
+mdk-core = "=0.8.0"
+mdk-memory-storage = "=0.8.0"
+mdk-storage-traits = "=0.8.0"
+nostr-sdk = { version = "=0.44.1", default-features = false, features = ["nip59"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "time"] }
+serde_json = "1"
+hex = "0.4"
+
+[profile.release]
+debug = false

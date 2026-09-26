@@ -53,7 +53,7 @@ export interface GroupHandle {
 export interface GroupDevice {
   pubkey: string;
   leafIndex: number;
-  /** Key package `d` slot of the device, when the device announced it inside the group. */
+  /** Device id announced by the device inside the group (its key package `d` slot is a separate random value). */
   deviceId?: string;
   /** Human label announced by the device (only group members ever see it: it travels inside MLS). */
   label?: string;

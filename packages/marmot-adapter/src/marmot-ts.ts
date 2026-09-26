@@ -20,7 +20,7 @@ import {
 } from '@internet-privacy/marmot-ts';
 import type { EventSigner } from 'applesauce-core';
 import { contentTypes, defaultKeyPackageEqualityConfig, defaultProposalTypes, getOwnLeafNode, mlsExporter, nodeTypes, type ClientState, type Proposal } from 'ts-mls';
-import { generateSecretKey, finalizeEvent, getEventHash, getPublicKey, nip44, toUnsigned, type EventTemplate, type Filter, type NostrEvent, type Signer } from '@sedecim/nostr-core';
+import { bytesToHex, randomBytes, generateSecretKey, finalizeEvent, getEventHash, getPublicKey, nip44, toUnsigned, type EventTemplate, type Filter, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { MemoryGroupNetwork, VolatileGroupStorage } from './memory-network';
 import { MEDIA_SECRET_RETENTION_EPOCHS, MIP04_EXPORTER_CONTEXT, MIP04_EXPORTER_LABEL, buildMediaImetaTag, decryptGroupMedia, encryptGroupMedia, parseMediaAttachments } from './media';
 import {
@@ -159,6 +159,22 @@ function ephemeralSigner(): Signer {
   };
 }
 
+/**
+ * marmot-ts 0.5.1 stamps key packages (including the creator's own leaf) with not_before = the current
+ * second and no clock-skew margin. OpenMLS, used by MDK, accepts a lifetime only while
+ * not_before < now (strict), so a key package or Welcome processed by MDK within the same second is
+ * rejected ("Lifetime is not acceptable"). Before handing out either, let the clock move past that
+ * second. See docs/marmot.md (interoperabilidad con MDK).
+ */
+async function settleLifetime(): Promise<void> {
+  const second = Math.floor(Date.now() / 1000);
+  const wait = (second + 1) * 1000 - Date.now() + 50;
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+}
+
+const META_NS = 'meta';
+const SLOT_KEY = 'keypackage-slot';
+
 let selfTest: Promise<void> | undefined;
 
 /**
@@ -204,6 +220,8 @@ const NS = { device: 'device', roster: 'roster', restored: 'restored', mediaKeys
 
 interface RosterEntry {
   deviceId: string;
+  /** Random `d` slot of the device's kind 30443 key package (distinct from the device id since FR025-04). */
+  slot?: string;
   label?: string;
   /** `self`: announced by the leaf itself; `admin`: re-broadcast by an admin. */
   src: 'self' | 'admin';
@@ -266,6 +284,8 @@ const removeProposal = (removed: number) => ({ proposalType: defaultProposalType
 
 export class MarmotTsSession implements ExtendedGroupSession {
   pubkey = '';
+  /** Addressable `d` slot of this device's kind 30443 key package: random 32-byte hex (MIP-00). */
+  private slot = '';
   private readonly client: MarmotClient;
   private readonly seen = new Map<string, Set<string>>();
   private readonly restoredIds = new Set<string>();
@@ -299,6 +319,15 @@ export class MarmotTsSession implements ExtendedGroupSession {
       for (const k of await st.keys('keypackages')) await st.delete('keypackages', k);
     }
     await st.put(NS.device, 'owner', this.opts.deviceId);
+    // MDK rejects key packages whose `d` is not 64 hex chars, and the device id must not leak on relays:
+    // one random slot per device, persisted with the MLS state. A restored copy gets a slot of its own so it
+    // never overwrites the source device's key package.
+    const stored = await st.get(META_NS, SLOT_KEY);
+    if (!cloned && typeof stored === 'string' && /^[0-9a-f]{64}$/.test(stored)) this.slot = stored;
+    else {
+      this.slot = bytesToHex(randomBytes(32));
+      await st.put(META_NS, SLOT_KEY, this.slot);
+    }
     await this.client.groups.loadAll();
     for (const g of this.client.groups.loaded) {
       if (cloned && !(await st.get(NS.restored, g.idStr))) {
@@ -397,7 +426,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
   }
 
   async publishKeyPackage(relays: string[]): Promise<NostrEvent> {
-    const kp = await this.client.keyPackages.create({ relays, client: 'sedecim-nostr' });
+    const kp = await this.client.keyPackages.create({ relays, client: 'sedecim-nostr', identifier: this.slot });
     const evt = (await this.client.keyPackages.get(kp.keyPackageRef))?.published?.at(-1) as NostrEvent | undefined;
     if (!evt) throw new Error('key package event was not recorded');
     // marmot-ts ignores relay OK responses when publishing key packages: verify it is actually retrievable.
@@ -408,6 +437,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
       if (attempt >= 8) throw new Error('key package was not accepted by any relay');
       await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
     }
+    await settleLifetime();
     return evt;
   }
 
@@ -442,8 +472,14 @@ export class MarmotTsSession implements ExtendedGroupSession {
   async missingDeviceKeyPackages(groupId: string, pubkey: string, relays: string[]): Promise<NostrEvent[]> {
     const g = await this.load(groupId);
     const devices = this.deviceList(g, await this.roster(g.idStr)).filter((d) => d.pubkey === pubkey);
-    const knownDevices = new Set(devices.flatMap((d) => (d.deviceId ? [d.deviceId] : [])));
-    if (pubkey === this.pubkey) knownDevices.add(this.opts.deviceId);
+    const roster = await this.roster(g.idStr);
+    const knownDevices = new Set(
+      devices.flatMap((d) => {
+        const slot = roster[hex(leafAt(g.state, d.leafIndex)!.signaturePublicKey)]?.slot;
+        return [...(d.deviceId ? [d.deviceId] : []), ...(slot ? [slot] : [])];
+      }),
+    );
+    if (pubkey === this.pubkey) knownDevices.add(this.opts.deviceId).add(this.slot);
     const leafSigs = new Set(devices.map((d) => hex(leafAt(g.state, d.leafIndex)!.signaturePublicKey)));
     return (await this.findKeyPackages(pubkey, relays)).filter((e) => {
       const d = getKeyPackageIdentifier(e as never);
@@ -455,6 +491,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
   async createGroup(o: { name: string; description?: string; relays: string[]; admins?: string[] }): Promise<GroupHandle> {
     const g = await this.client.groups.create(o.name, { description: o.description ?? '', relays: o.relays, adminPubkeys: o.admins ?? [this.pubkey] });
     this.attach(g);
+    await settleLifetime();
     return this.handle(g);
   }
 
@@ -640,11 +677,16 @@ export class MarmotTsSession implements ExtendedGroupSession {
   private async announce(g: MarmotGroup<any, any>, asAdmin = false): Promise<void> {
     try {
       const own = getOwnLeafNode(g.state);
-      const devices: Array<{ sig: string; device: string; label?: string }> = [{ sig: hex(own.signaturePublicKey), device: this.opts.deviceId, ...(this.label ? { label: this.label } : {}) }];
+      const devices: Array<{ sig: string; device: string; slot?: string; label?: string }> = [
+        { sig: hex(own.signaturePublicKey), device: this.opts.deviceId, slot: this.slot, ...(this.label ? { label: this.label } : {}) },
+      ];
       if (asAdmin) {
-        for (const d of this.deviceList(g, await this.roster(g.idStr))) {
+        const roster = await this.roster(g.idStr);
+        for (const d of this.deviceList(g, roster)) {
           if (d.self || !d.deviceId) continue;
-          devices.push({ sig: hex(leafAt(g.state, d.leafIndex)!.signaturePublicKey), device: d.deviceId, ...(d.label ? { label: d.label } : {}) });
+          const sig = hex(leafAt(g.state, d.leafIndex)!.signaturePublicKey);
+          const slot = roster[sig]?.slot;
+          devices.push({ sig, device: d.deviceId, ...(slot ? { slot } : {}), ...(d.label ? { label: d.label } : {}) });
         }
       }
       const pending = Object.keys(g.state.unappliedProposals).length;
@@ -659,7 +701,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
 
   private async onRoster(g: MarmotGroup<any, any>, senderLeaf: number, sender: string, content: string) {
     if (pubkeyAt(g.state, senderLeaf) !== sender) return;
-    let body: { v?: number; devices?: Array<{ sig?: unknown; device?: unknown; label?: unknown }> };
+    let body: { v?: number; devices?: Array<{ sig?: unknown; device?: unknown; slot?: unknown; label?: unknown }> };
     try {
       body = JSON.parse(content);
     } catch {
@@ -673,7 +715,8 @@ export class MarmotTsSession implements ExtendedGroupSession {
     for (const d of body.devices.slice(0, 256)) {
       if (typeof d.sig !== 'string' || typeof d.device !== 'string' || d.device.length > 128 || !liveSigs.has(d.sig)) continue;
       const label = typeof d.label === 'string' ? d.label.slice(0, 64) : undefined;
-      const entry: RosterEntry = { deviceId: d.device, src: d.sig === senderSig ? 'self' : 'admin', ...(label ? { label } : {}) };
+      const slot = typeof d.slot === 'string' && /^[0-9a-f]{64}$/.test(d.slot) ? d.slot : undefined;
+      const entry: RosterEntry = { deviceId: d.device, src: d.sig === senderSig ? 'self' : 'admin', ...(slot ? { slot } : {}), ...(label ? { label } : {}) };
       if (entry.src === 'self' || (senderIsAdmin && roster[d.sig]?.src !== 'self')) roster[d.sig] = entry;
     }
     for (const sig of Object.keys(roster)) if (!liveSigs.has(sig)) delete roster[sig];

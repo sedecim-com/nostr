@@ -1,0 +1,65 @@
+name: marmot-upstream
+
+# FR025-08: monthly check for the stable releases the Marmot provider waits for (ts-mls >= 2.0.0 stable,
+# @internet-privacy/marmot-ts >= 1.0.0). When one exists, open (or comment on) a review issue with the
+# versions and the migration checklist. It never bumps dependencies by itself (docs/marmot.md).
+on:
+  schedule:
+    - cron: '41 6 1 * *'
+  workflow_dispatch:
+  # A change to the check itself runs it once on main.
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/marmot-upstream.yml
+      - scripts/marmot-upstream.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marmot-upstream
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+      ts_mls: ${{ steps.check.outputs.ts_mls }}
+      marmot_ts: ${{ steps.check.outputs.marmot_ts }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Query the npm registry for stable ts-mls / marmot-ts
+        id: check
+        run: sh scripts/marmot-upstream.sh check | tee -a "$GITHUB_OUTPUT"
+
+  issue:
+    needs: detect
+    if: needs.detect.outputs.available == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Open (or comment on) the migration issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TS_MLS: ${{ needs.detect.outputs.ts_mls }}
+          MARMOT_TS: ${{ needs.detect.outputs.marmot_ts }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Marmot upstream: versiones estables disponibles"
+          {
+            sh scripts/marmot-upstream.sh body "$TS_MLS" "$MARMOT_TS"
+            echo
+            echo "Ejecución: $RUN_URL"
+          } > "$RUNNER_TEMP/body.md"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Siguen disponibles: ts-mls ${TS_MLS:-(ninguna)}, marmot-ts ${MARMOT_TS:-(ninguna)}. $RUN_URL"
+          else
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi

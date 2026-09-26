@@ -1,0 +1,4 @@
+[toolchain]
+# Same toolchain locally and in CI (ci.yml job marmot-mdk); MDK 0.8.0 needs >= 1.90.
+channel = "1.94.1"
+profile = "minimal"

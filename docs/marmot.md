@@ -140,6 +140,58 @@ Hallazgos corregidos en el SDK: ese relay no envía `OK` tras un `AUTH` correcto
 silencioso tras `authTimeoutMs`) y confirma antes de persistir (la verificación del key package reintenta).
 Reproducir: `MARMOT_RELAY_URL=ws://localhost:7000 npm run test:interop`.
 
+## Interoperabilidad con MDK (FR025-04)
+Grupo mixto marmot-ts ↔ **MDK** (Marmot Development Kit en Rust, el de whitenoise) verificado con
+mensajes en ambos sentidos y con el creador en cada lado:
+[`docs/interop/marmot-mdk-0.8.0-report.json`](interop/marmot-mdk-0.8.0-report.json).
+
+- Lado MDK: `interop/mdk-harness` (Rust; `mdk-core` / `mdk-memory-storage` **0.8.0**, la última versión
+  publicada en crates.io, y `nostr-sdk` 0.44.1, todo fijado en `Cargo.lock`; toolchain en
+  `rust-toolchain.toml`). Es un proceso que el test maneja por stdin/stdout (JSON por línea): publica key
+  package, acepta Welcomes (gift wrap 1059 → 444), sincroniza y envía kind 445, crea grupos.
+- Test: `tests/interop/marmot-mdk.interop.test.ts`, contra `packages/test-relay` (NIP-42, 1059 solo
+  para su destinatario, como el secure-relay) o el relay de `MDK_RELAY_URL`. Se salta si el binario no
+  está compilado; en CI (job `marmot-mdk`) falla (`MDK_INTEROP_REQUIRED=1`).
+
+```bash
+(cd interop/mdk-harness && cargo build --release --locked)
+npx vitest run tests/interop/marmot-mdk.interop.test.ts     # escribe interop-mdk-report.json
+MDK_RELAY_URL=ws://localhost:7000 npx vitest run tests/interop/marmot-mdk.interop.test.ts  # secure-relay
+```
+
+Coinciden en ambos lados: ciphersuite `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (**0x0001**, el
+único que usan los dos), extensión Nostr Group Data `0xf2ee` (MDK lee nombre, admins y relays del grupo
+creado por marmot-ts y viceversa), `last_resort`, kinds 30443 / 444 en 1059 / 445 (`h` = id Nostr del
+grupo, cifrado MIP-03 con `MLS-Exporter("marmot", "group-event")` + ChaCha20-Poly1305) / 10051. Es normal
+que quien entra por Welcome no descifre el commit que lo añadió (época anterior): MDK lo informa como
+error de ese evento y sigue.
+
+Incompatibilidades encontradas (marmot-ts 0.5.1 / ts-mls 2.0.0-rc.16 frente a MDK 0.8.0):
+
+| Hallazgo | Estado |
+|---|---|
+| **`mls_proposals`**: MDK ≥ 0.7 rechaza key packages kind 30443 sin la etiqueta `mls_proposals` = `0x000a` (propuesta SelfRemove, MIP-00): `Missing required tag: mls_proposals`. ts-mls rc.16 no implementa SelfRemove, así que marmot-ts ni anuncia la capacidad ni la etiqueta. **Un cliente MDK no puede añadir a un miembro marmot-ts por su key package actual** (la dirección marmot-ts crea → MDK entra sí funciona). | **Abierta, upstream.** No se arregla aquí: poner la etiqueta sin soportar la propuesta sería anunciar algo falso. El test lo afirma y, para cubrir el resto de la dirección MDK crea → marmot-ts entra (Welcome, mensajes), vuelve a publicar el mismo key package como kind 443 legado, que MDK 0.8.0 aún acepta sin `mls_proposals`. El producto no publica 443 (legado desde el 31-05-2026). |
+| **Lifetime**: marmot-ts pone `not_before` = segundo actual, sin margen; OpenMLS exige `not_before < ahora` (estricto). Un Welcome o key package procesado por MDK en el mismo segundo falla con `Lifetime is not acceptable`. | **Mitigada en el adaptador**: `createGroup` y `publishKeyPackage` esperan al segundo siguiente (≤ 1 s). Queda: si el reloj de quien recibe va por detrás del del creador, lo rechaza hasta alcanzarlo (upstream debería retrasar `not_before`, OpenMLS usa 1 h). Además marmot-ts usa 90 días de vida y OpenMLS define 84 días + 1 h como máximo (aún no lo aplica en 0.8.1). |
+| **`d` del key package**: MDK exige 64 hex (32 bytes aleatorios, MIP-00). El adaptador usaba el `deviceId` (en el CLI soberano, el id de la persona, visible en relays). | **Corregida**: slot aleatorio de 32 bytes por dispositivo, guardado cifrado con el estado MLS. |
+
+MDK `main` (0.10.x, reescritura sobre `cgka-engine`, sin publicar en crates.io) no se probó: según su
+código exige además una prueba de identidad de cuenta en cada hoja (componente `0x8009` / extensión
+legada `0xf2f1`), que marmot-ts 0.5.1 no genera; se evaluará cuando se publique.
+
+## Seguimiento de versiones estables (FR025-08)
+Hoy no hay versiones estables: ts-mls solo tiene 2.0.0-rc.x (su `latest` es 1.6.4, la major anterior)
+y marmot-ts `latest` es 0.5.1 (`next` 0.5.2-next…). El workflow `.github/workflows/marmot-upstream.yml`
+(mensual y a mano) ejecuta `scripts/marmot-upstream.sh check`, que consulta el registro de npm por
+ts-mls ≥ 2.0.0 estable y `@internet-privacy/marmot-ts` ≥ 1.0.0 (incluye v2). Si aparece alguna, abre
+(o comenta) la issue **“Marmot upstream: versiones estables disponibles”** con las versiones y la lista de
+comprobación (`sh scripts/marmot-upstream.sh body TS_MLS MARMOT_TS`): subir dependencia y `overrides`,
+`npx vitest run packages/marmot-adapter tests/fuzz`, autoprueba `assertRemovalSecrecy`, job `marmot-mdk`
+y el gate del secure-relay. No migra solo: la subida es una PR revisada.
+
+```bash
+sh scripts/marmot-upstream.sh check     # ts_mls=, marmot_ts=, pinned_*=, available=true|false
+```
+
 ## Uso (CLI soberano)
 ```bash
 sovereign group keypackage --persona B                 # B publica su key package
@@ -187,4 +239,6 @@ sovereign group fetch-file --persona B --group <gid> --sha <x> --out foto.jpg
   compatible byte a byte; migrar cuando marmot-ts la publique. La rama Marmot v2 de marmot-ts no se integra.
 - Backups antiguos (sin registro de dueño en el estado MLS) solo se detectan como restaurados porque el
   cliente soberano marca la restauración (`clonedState`); otra integración debe pasar esa pista.
-- Interoperabilidad con MDK/whitenoise no verificada en este repo.
+- Con MDK/whitenoise: un cliente MDK no puede invitar a un miembro marmot-ts hasta que marmot-ts/ts-mls
+  soporten SelfRemove (`mls_proposals`, ver arriba); al revés sí funciona. El multi-dispositivo y MIP-04 no se
+  han probado contra MDK.

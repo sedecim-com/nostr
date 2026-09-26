@@ -78,10 +78,13 @@ describe('multi-device personas (FR025-06)', () => {
 
     // A third device: only its key package is missing (the others rotated theirs after joining).
     const { s: b3 } = await w.open(bob, 'bob-tablet');
-    await b3.publishKeyPackage(RELAYS);
+    const tabletKp = await b3.publishKeyPackage(RELAYS);
     const missing = await a.missingDeviceKeyPackages(g.groupId, b1.pubkey, RELAYS);
     expect(missing).toHaveLength(1);
-    expect(missing[0]!.tags.find((t) => t[0] === 'd')?.[1]).toBe('bob-tablet');
+    // The `d` slot is a random 64-hex value per device (MDK requirement), never the device id.
+    const slot = missing[0]!.tags.find((t) => t[0] === 'd')?.[1];
+    expect(slot).toMatch(/^[0-9a-f]{64}$/);
+    expect(slot).toBe(tabletKp.tags.find((t) => t[0] === 'd')?.[1]);
     const withTablet = await a.invitePersona(g.groupId, b1.pubkey, RELAYS);
     expect(withTablet.devices!.filter((d) => d.pubkey === b1.pubkey)).toHaveLength(3);
     await expect(a.invitePersona(g.groupId, b1.pubkey, RELAYS)).rejects.toThrow(/already in the group/);
