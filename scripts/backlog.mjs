@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // Validates docs/backlog/backlog.json and renders docs/backlog/README.md + backlog.csv.
+// Once meta.github is set, backlog.json is itself generated from GitHub Issues (scripts/backlog-github.mjs,
+// docs/backlog/GITHUB.md): edit the issues, not these files.
 //   node scripts/backlog.mjs          (validate + render)
 //   node scripts/backlog.mjs --check  (validate only; exits 1 on errors or stale outputs)
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -20,7 +22,9 @@ for (const t of tasks) {
   if (t.sprint === 'v0.1' && t.status !== 'Hecho') errors.push(`${t.id}: only done tasks belong to v0.1`);
   if (t.status !== 'Pendiente' && !t.evidence) errors.push(`${t.id}: ${t.status} requires evidence`);
   if (![1, 2, 3, 5, 8].includes(t.sp)) errors.push(`${t.id}: story points must be 1,2,3,5,8`);
+  if (t.issue !== undefined && !(Number.isInteger(t.issue) && t.issue > 0)) errors.push(`${t.id}: issue must be a GitHub issue number`);
 }
+if (meta.github !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(meta.github)) errors.push(`meta.github must be "owner/repo"`);
 for (const t of tasks) {
   for (const d of t.deps) {
     const dep = byId.get(d);
@@ -59,7 +63,11 @@ const open = tasks.filter((t) => t.status !== 'Hecho' && t.status !== 'Descartad
 const dates = (s) => (s.start ? `${s.start} → ${s.end}` : s.end ? `hasta ${s.end}` : 'sin fecha');
 const lines = [];
 lines.push('# Backlog — Acceso Nostr', '');
-lines.push(`> Generado por \`node scripts/backlog.mjs\` desde \`backlog.json\` (fuente única). No editar a mano.`);
+lines.push(
+  meta.github
+    ? `> Fuente: [GitHub Issues](https://github.com/${meta.github}/issues?q=label%3Abacklog) (ver [GITHUB.md](GITHUB.md)). \`backlog.json\`, este archivo y \`backlog.csv\` se regeneran desde los issues; no editar a mano.`
+    : `> Generado por \`node scripts/backlog.mjs\` desde \`backlog.json\`. Pendiente de sembrar en GitHub Issues (ver [GITHUB.md](GITHUB.md)); no editar a mano.`,
+);
 lines.push(`> Base: ${meta.source}. Estado del código: \`${meta.baseline}\` (${meta.version}).`, '');
 lines.push('## Resumen', '');
 lines.push(`- **${tasks.length} tareas** · ${tasks.filter((t) => t.status === 'Hecho').length} hechas · ${tasks.filter((t) => t.status === 'Parcial').length} parciales · ${tasks.filter((t) => t.status === 'Pendiente').length} pendientes · ${tasks.filter((t) => t.status === 'Descartado').length} descartadas`);
@@ -79,7 +87,8 @@ for (const [r, ts] of coverage) {
   const pend = active(ts).filter((t) => t.status !== 'Hecho');
   lines.push(`| ${r} | ${ts.length} | ${ts.length - pend.length} | ${pend.map((t) => `${t.id} (${t.sprint})`).join(', ') || '—'} |`);
 }
-const row = (t) => `| ${t.id} | ${t.priority} | ${esc(t.title)} | ${esc(t.req)} | ${t.type} | ${t.sp} | ${t.deps.join(', ') || '—'} | ${t.status} | ${esc(t.done)} |`;
+const idCell = (t) => (meta.github && t.issue ? `[${t.id}](https://github.com/${meta.github}/issues/${t.issue})` : t.id);
+const row = (t) => `| ${idCell(t)} | ${t.priority} | ${esc(t.title)} | ${esc(t.req)} | ${t.type} | ${t.sp} | ${t.deps.join(', ') || '—'} | ${t.status} | ${esc(t.done)} |`;
 const head = ['| ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |', '|---|---|---|---|---|---:|---|---|---|'];
 for (const s of meta.sprints.filter((x) => x.id !== 'v0.1')) {
   const ts = tasks.filter((t) => t.sprint === s.id).sort((a, b) => a.priority.localeCompare(b.priority) || a.id.localeCompare(b.id));
@@ -87,13 +96,13 @@ for (const s of meta.sprints.filter((x) => x.id !== 'v0.1')) {
 }
 const done = tasks.filter((t) => t.sprint === 'v0.1');
 lines.push('', `## Entregado en v0.1 — ${done.length} tareas`, '', '| ID | Tarea | Requisito | Evidencia |', '|---|---|---|---|');
-for (const t of done) lines.push(`| ${t.id} | ${esc(t.title)} | ${esc(t.req)} | \`${esc(t.evidence)}\` |`);
+for (const t of done) lines.push(`| ${idCell(t)} | ${esc(t.title)} | ${esc(t.req)} | \`${esc(t.evidence)}\` |`);
 lines.push('');
 const md = lines.join('\n');
 
 const csvCell = (v) => `"${String(v).replace(/"/g, '""')}"`;
-const csv = [['ID', 'Epic', 'Requisito', 'Tarea', 'Criterio de hecho', 'Tipo', 'Prioridad', 'Story points', 'Depende de', 'Sprint', 'Fecha fin sprint', 'Estado', 'Evidencia'].map(csvCell).join(',')]
-  .concat(tasks.map((t) => [t.id, t.epic, t.req, t.title, t.done, t.type, t.priority, t.sp, t.deps.join(' '), t.sprint, meta.sprints.find((s) => s.id === t.sprint).end, t.status, t.evidence].map(csvCell).join(',')))
+const csv = [['ID', 'Epic', 'Requisito', 'Tarea', 'Criterio de hecho', 'Tipo', 'Prioridad', 'Story points', 'Depende de', 'Sprint', 'Fecha fin sprint', 'Estado', 'Evidencia', 'Issue'].map(csvCell).join(',')]
+  .concat(tasks.map((t) => [t.id, t.epic, t.req, t.title, t.done, t.type, t.priority, t.sp, t.deps.join(' '), t.sprint, meta.sprints.find((s) => s.id === t.sprint).end, t.status, t.evidence, t.issue && meta.github ? `https://github.com/${meta.github}/issues/${t.issue}` : ''].map(csvCell).join(',')))
   .join('\n') + '\n';
 
 if (process.argv.includes('--check')) {

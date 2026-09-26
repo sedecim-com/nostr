@@ -323,7 +323,7 @@
    ],
    "sprint": "S2",
    "status": "Parcial",
-   "evidence": ".github/workflows/buzz-upstream.yml + scripts/buzz-upstream.sh (detecta digest, gate reutilizando ci.yml, PR del pin); sin ejecutar aún en GitHub"
+   "evidence": ".github/workflows/buzz-upstream.yml + scripts/buzz-upstream.sh: detecta el digest, gate reutilizando ci.yml, PR del pin (dispara ci sobre la rama; issue si Actions no puede abrir PR) e issue si el gate falla; se ejecuta al fusionar en main. Falta la primera ejecución en GitHub"
   },
   {
    "id": "BUZZ-06",
@@ -475,6 +475,20 @@
    "sprint": "S4",
    "status": "Parcial",
    "evidence": "README.md, docs/runbooks/restore.md"
+  },
+  {
+   "id": "OPS-10",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "Proceso",
+   "title": "Backlog vivo en GitHub Issues con sincronización automática a docs/backlog",
+   "done": "Cada tarea es un issue (milestone = sprint, labels de prioridad/epic/estado, campos Priority/Effort/fechas, sub-issues del epic y \"blocked by\"); un workflow regenera docs/backlog desde los issues y abre la PR de sync",
+   "type": "Infra",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [],
+   "sprint": "S4",
+   "status": "Parcial",
+   "evidence": "scripts/backlog-github.mjs + tests/scripts/backlog-github.test.ts, .github/workflows/backlog-sync.yml, .github/ISSUE_TEMPLATE/backlog-task.yml, docs/backlog/GITHUB.md. Falta sembrar los issues (primera ejecución al fusionar)"
   },
   {
    "id": "PANEL-01",

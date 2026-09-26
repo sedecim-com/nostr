@@ -1,13 +1,20 @@
 name: buzz-upstream
 
 # BUZZ-05 (ADR 0003): monthly review of the upstream Buzz image. If ghcr.io/block/buzz:main points to a
-# new digest, run the same stack + interop gate as ci.yml against it and, if it passes, open the pin PR.
+# new digest, run the same stack + interop gate as ci.yml against it and, if it passes, open the pin PR;
+# if it fails, open an issue for the manual review ADR 0003 asks for.
 on:
   schedule:
     # Mondays; detect only proceeds on the first Monday of the month (cron ORs day-of-month and
     # day-of-week, so "1-7 * 1" would also fire every Monday).
     - cron: '23 6 * * 1'
   workflow_dispatch:
+  # A change to the review itself runs it once on main (also how the first run happens after merging).
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/buzz-upstream.yml
+      - scripts/buzz-upstream.sh
 
 permissions:
   contents: read
@@ -55,7 +62,9 @@ jobs:
     if: needs.detect.outputs.changed == 'true' && needs.gate.result == 'success'
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
+      issues: write
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
@@ -97,4 +106,54 @@ jobs:
             echo
             echo "Antes de fusionar (ADR 0003): revisar el changelog upstream (kinds, NIP-42 y tenant por Host, fan-out, media, límites de timestamps), confirmar que los adaptadores del SDK siguen justificados y hacer backup antes de desplegar."
           } > "$RUNNER_TEMP/body.md"
-          gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --title "Buzz upstream: pin $short" --body-file "$RUNNER_TEMP/body.md"
+          if url=$(gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --title "Buzz upstream: pin $short" --body-file "$RUNNER_TEMP/body.md"); then
+            echo "opened $url"
+            # PRs opened with GITHUB_TOKEN don't trigger `ci`; a workflow_dispatch does, and its checks
+            # show up on the PR's head commit.
+            gh workflow run ci.yml --ref "$branch" || echo "::warning::could not dispatch ci on $branch: run it by hand"
+          else
+            # Repo setting "Allow GitHub Actions to create and approve pull requests" is off: leave the
+            # branch and an issue so the review is not lost.
+            echo "::warning::could not open the PR; opening an issue instead"
+            {
+              echo "No se pudo abrir la PR automática (activar *Allow GitHub Actions to create and approve pull requests* en Settings → Actions → General)."
+              echo
+              echo "Rama lista para la PR: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$GITHUB_REF_NAME...$branch"
+              echo
+              cat "$RUNNER_TEMP/body.md"
+            } > "$RUNNER_TEMP/issue.md"
+            gh issue create --title "Buzz upstream: pin $short pendiente de PR" --body-file "$RUNNER_TEMP/issue.md"
+          fi
+
+  # Gate failed against the candidate: no PR (ADR 0003), but leave a trace to review by hand.
+  gate-failed:
+    needs: [detect, gate]
+    if: always() && needs.detect.outputs.changed == 'true' && needs.gate.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open (or comment on) the review issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          IMAGE: ${{ needs.detect.outputs.image }}
+          PINNED: ${{ needs.detect.outputs.pinned }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          short=$(printf '%s' "${IMAGE#*@sha256:}" | cut -c1-12)
+          title="Buzz upstream: el gate falla con $short"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Vuelve a fallar: $RUN_URL"
+            exit 0
+          fi
+          {
+            echo "La revisión mensual (BUZZ-05, ADR 0003) encontró una imagen nueva de Buzz y el gate (stack + interop + flags) falla contra ella: $RUN_URL"
+            echo
+            echo "- Fijada: \`$PINNED\`"
+            echo "- Candidata: \`$IMAGE\`"
+            echo
+            echo "Seguimos con la imagen fijada. Revisar el changelog upstream y el informe del gate; decidir si se adapta el SDK (adaptador, nunca un fork) o se espera a otra versión."
+          } > "$RUNNER_TEMP/body.md"
+          gh issue create --title "$title" --body-file "$RUNNER_TEMP/body.md"
