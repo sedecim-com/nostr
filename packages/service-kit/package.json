@@ -1,8 +1,8 @@
 {
-  "name": "@sedecim/managed-signer",
+  "name": "@sedecim/service-kit",
   "version": "0.1.0",
   "private": true,
-  "description": "Servicio de firma custodial (vault) — modo explícitamente custodial.",
+  "description": "Kit HTTP mínimo para servicios: router JSON, autenticación NIP-98/bearer, migraciones SQL.",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
@@ -11,9 +11,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@noble/ciphers": "1.3.0",
     "@sedecim/nostr-core": "0.1.0",
-    "@sedecim/service-kit": "0.1.0",
-    "@sedecim/signer": "0.1.0"
+    "@sedecim/telemetry-policy": "0.1.0",
+    "pg": "8.23.0"
   }
 }

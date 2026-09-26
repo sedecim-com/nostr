@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@sedecim/nostr-core": "0.1.0",
+    "@sedecim/service-kit": "0.1.0",
     "pg": "8.23.0"
   }
 }
