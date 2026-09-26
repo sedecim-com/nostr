@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@noble/ciphers": "2.4.0",
+    "@sedecim/metrics": "0.1.0",
     "@sedecim/nostr-core": "0.1.0",
     "@sedecim/relay-pool": "0.1.0",
     "@sedecim/service-kit": "0.1.0",

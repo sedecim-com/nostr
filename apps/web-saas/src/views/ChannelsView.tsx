@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Chip, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
-import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
+import { BlossomClient, prepareBlob, uploadToServers } from '@sedecim/blossom-client';
+import { blossomServersOf, uploadTargets } from '../lib/blossom';
 import type { NostrEvent } from '@sedecim/nostr-core';
 import { channelFilter, chatMessage, createGroup, joinRequest, NIP29, parseGroupMetadata, type GroupMetadata } from '@sedecim/messaging';
 import { shortNpub } from '../lib/session';
@@ -92,9 +93,11 @@ export function ChannelsView() {
       if (file) {
         // FR018-04: channel images are public to channel members: sanitized (EXIF removed) and stored in Buzz /media.
         if (config.files !== 'relay-plain') throw new Error('Tu perfil exige adjuntos cifrados y los canales NIP-29 no son E2EE: comparte el archivo por mensaje directo.');
-        if (!ws.cfg.buzzMedia) throw new Error('Este despliegue no tiene servidor de media configurado.');
+        // FR018-05: the user's Blossom servers (kind 10063, primary first), else the relay media server.
+        const targets = uploadTargets(ws.cfg, await blossomServersOf(s), false);
+        if (targets.length === 0) throw new Error('Este despliegue no tiene servidor de media configurado.');
         const prepared = prepareBlob(new Uint8Array(await file.arrayBuffer()), { sanitize: true, requireSanitizable: config.stripFileMetadata, mimeType: file.type, fileName: file.name });
-        const desc = await new BlossomClient(ws.cfg.buzzMedia, s.signer).upload(prepared);
+        const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
         tmpl.content = [text, desc.url].filter(Boolean).join('\n');
         (tmpl.tags ??= []).push(['imeta', `url ${desc.url}`, `m ${prepared.mimeType}`, `x ${prepared.sha256}`]);
       }

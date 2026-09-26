@@ -12,18 +12,18 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-004 | External signer NIP-46 | ✅ | `packages/signer/test/signer.test.ts` (bunker ↔ cliente sobre relay, permisos por kind) |
 | FR-005 | Managed key | ✅ | `services/managed-signer/test` (vault dedicado; logs/uso/archivos sin secreto) |
 | FR-006 | Múltiples personas | ✅ | `identity.test.ts` (≥3 personas, stores y relays independientes) |
-| FR-007 | Identity linking | ✅ | `identity.test.ts` + `services/identity-service/test` (confirmación explícita, auditoría, visibilidad) |
+| FR-007 | Identity linking | ✅ | `identity.test.ts` + `services/identity-service/test` (confirmación explícita, auditoría, visibilidad); vínculo público opcional firmado por ambas personas (`public-link.test.ts`, `docs/public-link.md`) |
 | FR-008 | Persistir antes de transmitir | ✅ | `packages/delivery-engine/test/engine.test.ts` |
 | FR-009 | Relay ack ≠ recepción | ✅ | `engine.test.ts`, `relay-pool/test/pool.test.ts` (estados separados) |
 | FR-010 | Multi-relay + quorum | ✅ | `engine.test.ts` (2 de 3) |
-| FR-011 | Reintento desde outbox | ✅ | `engine.test.ts` (offline → online, mismo event id) |
+| FR-011 | Reintento desde outbox | ✅ | `engine.test.ts` (offline → online, mismo event id; estadísticas y clases de fallo por relay); métricas de outbox en `packages/metrics/test` |
 | FR-012 | Deduplicación | ✅ | `pool.test.ts`, `sync.test.ts` |
 | FR-013 | Sync tras reinstalar | ✅ | `packages/sync`: NIP-77 (Negentropy, solo se transfieren los faltantes) con fallback automático a REQ por ventanas si el relay no lo soporta o aborta la sesión (`sync.test.ts`); gift wraps con timestamps de hasta 2 días sin pérdidas (`gift-wrap-window.test.ts`); E2E reinstalar → restaurar backup → canales, DMs y outbox iguales (`tests/e2e/reinstall-history.test.ts`) |
 | FR-014 | SaaS mirror | ✅ | `services/indexer/test` + `tests/browser/web-saas.e2e.ts` |
 | FR-015 | SaaS send | ✅ | `tests/browser/web-saas.e2e.ts` (web → relay → otro cliente) |
 | FR-016 | NIP-42 | ✅ | `pool.test.ts` (challenge/response, auth-required recuperable) |
 | FR-017 | NIP-17 con gate | ✅ | Feature flag + `tests/interop` ejecutado contra Buzz `02c6309`: requiere adaptador de jitter acotado (`docs/interop/buzz-02c6309-report.json`) |
-| FR-018 | Blossom | ✅ | `packages/blossom-client/test`, `services/blob-store/test` (cifrados); Buzz `/media` rechaza blobs cifrados → blob-store |
+| FR-018 | Blossom | ✅ | `packages/blossom-client/test`, `services/blob-store/test` (cifrados); Buzz `/media` rechaza blobs cifrados → blob-store; lista de servidores del usuario (kind 10063, BUD-03) en `server-list.test.ts` |
 | FR-019 | Saneamiento EXIF | ✅ | `blossom.test.ts` (JPEG APP1/COM, PNG tEXt, WebP EXIF/XMP/ICCP con flags VP8X; HEIC/HEIF/AVIF rechazado con `requireSanitizable`) |
 | FR-020 | Tor-only fail closed | ✅ | `tor-network/test`, `delivery-engine/test`, `apps/sovereign-client/test` |
 | FR-021 | Relay .onion | ✅ | `tor.test.ts`, `sovereign.test.ts` (SOCKS5h, DNS remoto, sin lookups locales) |
@@ -40,7 +40,7 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | NFR-001 | Disponibilidad SaaS | 🟡 | IaC de staging (`deploy/k8s`, `deploy/terraform`, validados en CI job `deploy-config`); SLO 99,9 % con alertas multi-ventana (`deploy/monitoring`, `docs/slo.md`, `promtool test rules`). Despliegue en staging pendiente de credenciales AWS |
 | NFR-002 | 0 pérdidas LOCAL_PERSISTED | ✅ | `engine.test.ts` (reinicio con FileBackend atómico + fsync); `encrypted-store/test/crash.test.ts` (30 kill -9 a mitad de escritura: valor viejo o nuevo, nunca corrupto) |
 | NFR-003 | RPO/RTO | 🟡 | `docs/rpo-rto.md` (propuesta pendiente de aprobación); `scripts/backup.sh` / `scripts/restore.sh`; drill nocturno `restore-drill.yml` (host limpio + datos sembrados + `test:interop`) |
-| NFR-004 | Latencia P95 | 🟡 | Latencia por relay registrada en ledger y `RelayHealth`; métricas exportables pendientes |
+| NFR-004 | Latencia P95 | 🟡 | Exportador Prometheus por perfil (`packages/metrics/test`: histograma de ACK por relay/región, outbox, nada con perfil `none`); reglas P95/P99 y alertas de degradación (`deploy/monitoring`, `promtool test rules`, `docs/slo.md#latencia`); chip "degradado · P95" en la web (`tests/browser`). Medición real en staging pendiente |
 | NFR-005 | Escalabilidad | 🟡 | Indexer sin estado + Postgres; relay según Buzz |
 | NFR-006 | Sin secretos en logs | ✅ | `telemetry.test.ts`, `managed-signer.test.ts`; gitleaks en CI; logs del stack completo escaneados (`scripts/scan-logs.sh`: reglas de gitleaks + canario con los secretos de `.env`, job `stack`) |
 | NFR-007 | Telemetría por perfil | ✅ | `TelemetryPolicy` + tests de endpoints permitidos |

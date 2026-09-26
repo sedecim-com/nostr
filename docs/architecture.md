@@ -11,7 +11,7 @@ firmados; las bases de datos son índices derivados.
                                ▼                     │
                      SDK (packages/*) ───────────────┘
    nostr-core · signer · relay-pool · delivery-engine · encrypted-store · identity
-   messaging · blossom-client · tor-network · telemetry-policy · profiles · sync
+   messaging · blossom-client · tor-network · telemetry-policy · metrics · profiles · sync
                                │ WebSocket (NIP-01/29/42) — directo o vía Tor (socks5h)
              ┌─────────────────┼──────────────────┐
          Buzz relay       relay secundario     relay .onion
@@ -29,12 +29,13 @@ firmados; las bases de datos son índices derivados.
 | `signer` | `LocalSigner`, `Nip46Signer`/`Nip46Bunker`, `Nip07Signer`, `ManagedSignerClient` |
 | `delivery-engine` | Máquina de estados DRAFT→…→READ, outbox persistente, quorum, reintentos idempotentes, reconciliación |
 | `encrypted-store` | Store local cifrado (XChaCha20-Poly1305, nombres HMAC), backends memoria/archivo atómico/IndexedDB; `Vault` con contraseña o llave del dispositivo (ADR 0007) |
-| `identity` | Personas, compartimentos, vínculos con consentimiento, backup/restore NIP-49 |
+| `identity` | Personas, compartimentos, vínculos con consentimiento, backup/restore NIP-49; vínculo público opcional firmado por ambas personas ([`public-link.md`](public-link.md)) |
 | `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación |
 | `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad |
-| `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash |
+| `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash; lista de servidores del usuario (BUD-03, kind 10063) con subida al principal y descarga con alternativas |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
 | `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none |
+| `metrics` | Exportador Prometheus (latencia de ACK por relay y región, outbox) que respeta el nivel de telemetría del perfil ([`slo.md`](slo.md#latencia)) |
 | `profiles` | Configuración del panel, presets (Apéndice B), validación, disclosures y matriz de notificaciones push (ADR 0010) |
 | `policy-client` | Evaluador RBAC/ABAC + device trust |
 | `sync` | Reconstrucción de historial: NIP-77 (Negentropy) con detección NIP-11/sonda y fallback automático a REQ por ventanas; `rebuildHistory` (canales, DMs, evidencia para el outbox); export/import JSONL |

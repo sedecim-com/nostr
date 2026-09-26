@@ -29,6 +29,7 @@ export function normalizeRelayUrl(url: string): string {
 export class RelayPool {
   private readonly relays = new Map<string, RelayConnection>();
   private readonly reconnectListeners = new Set<(relay: string) => void>();
+  private readonly publishListeners = new Set<(result: PublishResult) => void>();
 
   constructor(private readonly opts: RelayConnectionOptions = {}) {}
 
@@ -39,6 +40,15 @@ export class RelayPool {
   onReconnect(fn: (relay: string) => void): () => void {
     this.reconnectListeners.add(fn);
     return () => this.reconnectListeners.delete(fn);
+  }
+
+  /**
+   * Observes every publish attempt (relay, ok, publish→OK latency), e.g. for the metrics exporter
+   * (NFR004-01). Returns an unsubscribe function.
+   */
+  onPublishResult(fn: (result: PublishResult) => void): () => void {
+    this.publishListeners.add(fn);
+    return () => this.publishListeners.delete(fn);
   }
 
   get signer(): Signer | undefined {
@@ -54,6 +64,16 @@ export class RelayPool {
         onReconnect: (url) => {
           this.opts.onReconnect?.(url);
           for (const l of this.reconnectListeners) l(url);
+        },
+        onPublishResult: (res) => {
+          this.opts.onPublishResult?.(res);
+          for (const l of this.publishListeners) {
+            try {
+              l(res);
+            } catch {
+              /* observers never break a publish */
+            }
+          }
         },
       });
       this.relays.set(key, r);

@@ -33,6 +33,14 @@ scrape_configs:
         labels:
           service: relay
 
+  # NFR004-01 / FR011-03: ACK latency per relay/region and outbox health from @sedecim/metrics
+  # (indexer: synthetic ACK probe). Labels carry relay host (onion hashed) and region only.
+  - job_name: nostr-metrics
+    static_configs:
+      - targets: ['indexer:9464']
+        labels:
+          service: indexer
+
   # Availability SLI: one probe per service every 30 s. `service` is the label every SLO rule groups by.
   - job_name: slo-probes
     metrics_path: /probe

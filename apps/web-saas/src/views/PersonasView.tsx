@@ -6,6 +6,7 @@ import { backupJson, createPersona, custodyFacts, custodyLabel, exportBackup, sh
 import { deviceKeyAllowed, setProtection } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
 import { LinkPersonas } from './LinkPersonas';
+import { BlossomServers } from './BlossomServers';
 import { RemoteSigner } from './RemoteSigner';
 import { ManagedOptIn, MigrationWizard } from './ManagedCustody';
 import { QrCode } from './QrCode';
@@ -197,6 +198,7 @@ export function PersonasView() {
       )}
 
       {session && <LinkPersonas />}
+      {session && <BlossomServers key={session.persona.id} />}
       {session?.persona.managedKeyId && managedAvailable && <MigrationWizard key={session.persona.id} />}
 
       <Card component="form" onSubmit={create}>

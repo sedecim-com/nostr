@@ -143,6 +143,12 @@ services:
       INDEXER_REQUIRE_AUTH: ${INDEXER_REQUIRE_AUTH:-true}
       PUBLIC_BASE_URL: ${INDEXER_PUBLIC_URL:-http://localhost:8081}
       PORT: "8081"
+      # NFR004-01: Prometheus exporter (internal port, not published). ACK probe off unless set (ms).
+      METRICS_PORT: "9464"
+      TELEMETRY_LEVEL: ${INDEXER_TELEMETRY_LEVEL:-standard}
+      RELAY_REGIONS: ${RELAY_REGIONS:-}
+      RELAY_DEFAULT_REGION: ${RELAY_DEFAULT_REGION:-local}
+      ACK_PROBE_INTERVAL_MS: ${ACK_PROBE_INTERVAL_MS:-0}
     ports: ["${INDEXER_PORT:-8081}:8081"]
     depends_on:
       relay: { condition: service_healthy }

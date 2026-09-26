@@ -1,6 +1,6 @@
 import { bytesToHex, randomBytes, type EventTemplate, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { normalizeRelayUrl } from '@sedecim/relay-pool';
-import { stateRank, type DeliveryState, type EventLookup, type OutboxRecord, type Publisher, type RecordStore, type RelayAttempt, type RetryPolicy } from './types';
+import { classifyFailure, stateRank, type AttemptEvent, type DeliveryState, type OutboxStats, type EventLookup, type OutboxRecord, type Publisher, type RecordStore, type RelayAttempt, type RetryPolicy } from './types';
 
 export interface DeliveryEngineOptions {
   store: RecordStore;
@@ -32,6 +32,7 @@ export class DeliveryEngine {
   private readonly running = new Map<string, Promise<OutboxRecord>>();
   private readonly rerun = new Set<string>();
   private readonly listeners = new Set<(r: OutboxRecord) => void>();
+  private readonly attemptListeners = new Set<(a: AttemptEvent) => void>();
   private stopped = false;
   private resuming?: Promise<OutboxRecord[]>;
   private readonly now: () => number;
@@ -47,6 +48,27 @@ export class DeliveryEngine {
   onChange(fn: (r: OutboxRecord) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  /** Observes every per-relay publish attempt (FR011-03 failure counters). Returns an unsubscribe function. */
+  onAttempt(fn: (a: AttemptEvent) => void): () => void {
+    this.attemptListeners.add(fn);
+    return () => this.attemptListeners.delete(fn);
+  }
+
+  /** Outbox depth, oldest pending age and failures (FR011-03), computed from the persisted ledger. */
+  async stats(): Promise<OutboxStats> {
+    const now = this.now();
+    const out: OutboxStats = { depth: 0, oldestPendingAgeMs: 0, failed: 0, byState: {} };
+    for (const r of await this.list()) {
+      out.byState[r.state] = (out.byState[r.state] ?? 0) + 1;
+      if (r.state === 'FAILED') out.failed++;
+      else if (stateRank(r.state) < stateRank('REPLICATED')) {
+        out.depth++;
+        out.oldestPendingAgeMs = Math.max(out.oldestPendingAgeMs, now - r.createdAt);
+      }
+    }
+    return out;
   }
 
   private async save(rec: OutboxRecord): Promise<OutboxRecord> {
@@ -174,6 +196,14 @@ export class DeliveryEngine {
         if (res.blocked) anyBlocked = true;
         else if (PERMANENT_PREFIXES.some((p) => res.message.startsWith(p))) s.permanent = true;
         if (this.retry.maxAttempts !== undefined && s.attemptCount >= this.retry.maxAttempts) s.permanent = true;
+      }
+      const attempt: AttemptEvent = { relay: s.relay, ok: res.ok, latencyMs: res.latencyMs, permanent: !!s.permanent, ...(res.ok ? {} : { failure: classifyFailure(res.message, res.blocked) }) };
+      for (const l of this.attemptListeners) {
+        try {
+          l(attempt);
+        } catch {
+          /* observers never break delivery */
+        }
       }
     }
     rec.blockedReason = anyBlocked ? results.find((r) => r.res.blocked)!.res.message.replace(/^error: /, '') : undefined;

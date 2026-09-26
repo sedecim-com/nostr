@@ -1,0 +1,83 @@
+# Relay ACK latency and outbox health (NFR004-01, NFR004-02, FR011-03). See docs/slo.md ("Latencia").
+# Source: @sedecim/metrics (job nostr-metrics). `relay` is the relay host (onion relays hashed), `region`
+# comes from RELAY_REGIONS. ACK = publish -> OK=true (NIP-01: "accepted by that relay", not "delivered").
+# Degradation is surfaced, never averaged away: quantiles are per relay and region, not across relays.
+groups:
+  - name: relay-latency-sli
+    interval: 30s
+    rules:
+      - record: relay:ack_latency_seconds:p95_rate5m
+        expr: histogram_quantile(0.95, sum by (relay, region, le) (rate(nostr_relay_ack_latency_seconds_bucket[5m])))
+      - record: relay:ack_latency_seconds:p99_rate5m
+        expr: histogram_quantile(0.99, sum by (relay, region, le) (rate(nostr_relay_ack_latency_seconds_bucket[5m])))
+      - record: relay:ack_latency_seconds:p95_rate30m
+        expr: histogram_quantile(0.95, sum by (relay, region, le) (rate(nostr_relay_ack_latency_seconds_bucket[30m])))
+      - record: relay:ack_latency_seconds:p99_rate30m
+        expr: histogram_quantile(0.99, sum by (relay, region, le) (rate(nostr_relay_ack_latency_seconds_bucket[30m])))
+      # Baseline: the previous day, leaving out the last hour so a fresh degradation does not hide itself.
+      - record: relay:ack_latency_seconds:p95_baseline1d
+        expr: histogram_quantile(0.95, sum by (relay, region, le) (rate(nostr_relay_ack_latency_seconds_bucket[1d] offset 1h)))
+      - record: relay:publish_failures:ratio_rate5m
+        expr: |
+          sum by (relay, region) (rate(nostr_relay_publish_total{result!~"ok|duplicate"}[5m]))
+          /
+          sum by (relay, region) (rate(nostr_relay_publish_total[5m]))
+      - record: outbox:relay_failures:rate5m
+        expr: sum by (relay, region, reason) (rate(nostr_outbox_relay_failures_total[5m]))
+
+  - name: relay-latency-alerts
+    rules:
+      - alert: RelayAckLatencyP95High
+        expr: relay:ack_latency_seconds:p95_rate5m > 2
+        for: 10m
+        labels:
+          severity: ticket
+          slo: ack-latency
+        annotations:
+          summary: "{{ $labels.relay }} ({{ $labels.region }}): P95 de ACK {{ $value | humanizeDuration }} (> 2s)"
+          description: "El P95 de publicación→OK del relay {{ $labels.relay }} en {{ $labels.region }} supera 2 s desde hace 10 min. Los clientes lo muestran como degradado. Runbook: docs/slo.md#latencia."
+          runbook: docs/slo.md
+      - alert: RelayAckLatencyDegraded
+        expr: |
+          relay:ack_latency_seconds:p95_rate30m > 2 * relay:ack_latency_seconds:p95_baseline1d
+          and
+          relay:ack_latency_seconds:p95_rate30m > 0.5
+        for: 30m
+        labels:
+          severity: ticket
+          slo: ack-latency
+        annotations:
+          summary: "{{ $labels.relay }} ({{ $labels.region }}): P95 de ACK más del doble que su línea base de 1 d"
+          description: "P95 (30 min) = {{ $value | humanizeDuration }}, más del doble del P95 del día anterior. Degradación relativa aunque no supere el umbral absoluto. Runbook: docs/slo.md#latencia."
+          runbook: docs/slo.md
+      - alert: RelayPublishFailureRateHigh
+        expr: relay:publish_failures:ratio_rate5m > 0.25
+        for: 15m
+        labels:
+          severity: ticket
+          slo: ack-latency
+        annotations:
+          summary: "{{ $labels.relay }} ({{ $labels.region }}): {{ $value | humanizePercentage }} de publicaciones fallidas"
+          description: "Más del 25 % de las publicaciones al relay no reciben OK=true desde hace 15 min (ver nostr_relay_publish_total por result). Runbook: docs/slo.md#latencia."
+          runbook: docs/slo.md
+      - alert: OutboxOldestPendingTooOld
+        expr: max by (service) (nostr_outbox_oldest_pending_age_seconds) > 900
+        for: 10m
+        labels:
+          severity: ticket
+          slo: ack-latency
+        annotations:
+          summary: "{{ $labels.service }}: la operación más antigua del outbox lleva {{ $value | humanizeDuration }} sin replicarse"
+          description: "Hay mensajes que no alcanzan el quorum de relays desde hace más de 15 min (ver nostr_outbox_relay_failures_total por reason). Runbook: docs/slo.md#latencia."
+          runbook: docs/slo.md
+      # A silent exporter must not look like "no degradation".
+      - alert: NostrMetricsMissing
+        expr: up{job="nostr-metrics"} == 0
+        for: 10m
+        labels:
+          severity: ticket
+          slo: ack-latency
+        annotations:
+          summary: "Exportador de métricas Nostr caído ({{ $labels.instance }})"
+          description: "La latencia de ACK y el outbox no se están midiendo; revisar el servicio y METRICS_PORT."
+          runbook: docs/slo.md

@@ -49,6 +49,9 @@ await media.start();
 const blobs = new TestBlossomServer(); // blob-store: client-encrypted attachments
 blobs.cors = true;
 await blobs.start();
+const userBlobs = new TestBlossomServer(); // a Blossom server of the user's own kind 10063 list (FR018-05)
+userBlobs.cors = true;
+await userBlobs.start();
 
 // Acceso (Cognito) simulated with a real RS256 key; identity-service verifies against its JWKS.
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -190,6 +193,19 @@ try {
   await tab(page, 'Entrega');
   await page.locator('#outbox-rows td', { hasText: 'REPLICATED' }).first().waitFor({ timeout: 10_000 });
   assert(true, 'outbox shows REPLICATED state');
+  await page.locator('#relay-health-rows tr', { hasText: 'OK' }).first().waitFor({ timeout: 10_000 });
+  assert((await page.locator('.relay-degraded').count()) === 0, 'relay health: a healthy relay is shown as OK with its P95 (NFR004-02)');
+  // A slow relay is surfaced as degraded with its P95, not hidden behind silent retries (NFR004-02).
+  relay.faults.okDelayMs = 2300;
+  await tab(page, 'Canales');
+  await page.locator('#channel-list').getByText('General').click();
+  await fill(page, 'channel-text', 'mensaje lento');
+  await page.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  await tab(page, 'Entrega');
+  await page.locator('.relay-degraded').first().waitFor({ timeout: 15_000 });
+  relay.faults.okDelayMs = 0;
+  assert(/degradado · P95 \d+ ms/.test((await page.locator('.relay-degraded').first().textContent()) ?? ''), 'a relay with P95 above 2 s shows a "degradado · P95" chip');
+  assert(await page.locator('#relay-degraded-alert').isVisible(), 'the degradation is announced above the outbox');
 
   // --- NIP-17 DM + encrypted attachment, enabled by the gate flags (FR-017, FR018-04)
   const bobKey = generateSecretKey();
@@ -223,6 +239,28 @@ try {
   assert(fileRumor && ![...blobs.blobs.values()].some((b) => Buffer.from(b.data).includes(secretDoc)), 'DM attachment stored encrypted in the blob-store');
   const plain = await new BlossomClient(blobs.url, bob).download(getTagValue(fileRumor!, 'x')!, { url: fileRumor!.content, decrypt: { keyHex: getTagValue(fileRumor!, 'decryption-key')!, nonceHex: getTagValue(fileRumor!, 'decryption-nonce')! } });
   assert(Buffer.from(plain).equals(secretDoc), 'recipient decrypts the attachment after hash verification (kind 15)');
+
+  // --- FR018-05: the user's Blossom server list (kind 10063) drives uploads; ciphertext skips image-only media
+  await tab(page, 'Personas');
+  await page.locator('#blossom-servers').waitFor();
+  await page.waitForFunction(() => !(document.querySelector('#blossom-servers') as HTMLTextAreaElement).disabled);
+  await fill(page, 'blossom-servers', `${media.url}\n${userBlobs.url}`);
+  assert((await page.textContent('#blossom-encrypted-route'))?.includes(new URL(userBlobs.url).host) && !(await page.textContent('#blossom-encrypted-route'))?.includes(new URL(media.url).host), 'encrypted attachments route skips the image-only relay media server');
+  await page.click('#blossom-publish');
+  let serverList: string[] = [];
+  for (let i = 0; i < 20 && serverList.length === 0; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    const evt = (await probe.query([relay.url], [{ kinds: [10063], authors: [webPub] }], 2000))[0];
+    serverList = evt ? evt.tags.filter((t) => t[0] === 'server').map((t) => t[1]!) : [];
+  }
+  assert(serverList.join(',') === `${media.url},${userBlobs.url}`, 'the web publishes the user Blossom server list (kind 10063, BUD-03)');
+  await tab(page, 'Mensajes directos');
+  await fill(page, 'dm-to', npubEncode(getPublicKey(bobKey)));
+  await page.locator('#dm-send input[type=file]').setInputFiles({ name: 'otro.txt', mimeType: 'text/plain', buffer: Buffer.from('segundo adjunto') });
+  const mediaBefore = media.blobs.size;
+  await page.locator('#dm-send').getByRole('button', { name: 'Enviar' }).click();
+  for (let i = 0; i < 40 && userBlobs.blobs.size === 0; i++) await new Promise((r) => setTimeout(r, 250));
+  assert(userBlobs.blobs.size === 1 && media.blobs.size === mediaBefore, 'with a kind 10063 list the encrypted attachment goes to the user server, never to the image-only media');
 
   // --- incoming receipt advances the web outbox (FR009-02)
   let webDmRumor: string | undefined;
@@ -569,6 +607,7 @@ try {
   await gateway.close();
   await media.stop();
   await blobs.stop();
+  await userBlobs.stop();
   await relay.stop();
   await bobRelay.stop();
 }

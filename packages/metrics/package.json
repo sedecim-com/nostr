@@ -1,0 +1,21 @@
+{
+  "name": "@sedecim/metrics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Exportador Prometheus (latencia de ACK por relay y región, outbox) que respeta el perfil de telemetría.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "1.8.0",
+    "@sedecim/delivery-engine": "0.1.0",
+    "@sedecim/nostr-core": "0.1.0",
+    "@sedecim/relay-pool": "0.1.0",
+    "@sedecim/telemetry-policy": "0.1.0"
+  }
+}

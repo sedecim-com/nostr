@@ -86,6 +86,25 @@ describe('monitoring probes every HTTP service (NFR001-02)', () => {
   });
 });
 
+describe('monitoring kustomization ships every rules file, test and dashboard (NFR004-02)', () => {
+  const k = read('deploy/monitoring/kustomization.yaml');
+  const rules = readdirSync(join(root, 'deploy/monitoring/prometheus/rules')).filter((f) => f.endsWith('.rules.yml'));
+  const dashboards = readdirSync(join(root, 'deploy/monitoring/grafana/dashboards')).filter((f) => f.endsWith('.json'));
+  it.each(rules)('%s', (f) => {
+    expect(k).toContain(`- ${f}=prometheus/rules/${f}`);
+    expect(readdirSync(join(root, 'deploy/monitoring/prometheus/tests'))).toContain(f.replace('.rules.yml', '.test.yml'));
+  });
+  it.each(dashboards)('%s', (f) => {
+    expect(k).toContain(`- ${f}=grafana/dashboards/${f}`);
+    const d = JSON.parse(read(`deploy/monitoring/grafana/dashboards/${f}`)) as { uid: string; panels: Array<{ id: number }> };
+    expect(new Set(d.panels.map((p) => p.id)).size).toBe(d.panels.length);
+  });
+  it('scrapes the Nostr metrics exporter', () => {
+    expect(read('deploy/monitoring/prometheus/prometheus.yml')).toMatch(/job_name: nostr-metrics\n[\s\S]*?targets: \['indexer:9464'\]/);
+    expect(read('deploy/k8s/base/indexer.yaml')).toMatch(/name: METRICS_PORT\n\s+value: "9464"/);
+  });
+});
+
 const kubectl = process.env.KUBECTL ?? 'kubectl';
 const hasKubectl = spawnSync(kubectl, ['version', '--client'], { encoding: 'utf8' }).status === 0;
 

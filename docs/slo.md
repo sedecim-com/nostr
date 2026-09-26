@@ -2,6 +2,7 @@
 
 - **Objetivo:** 99,9 % de disponibilidad mensual (ventana móvil de 30 días) **por servicio**.
 - **Presupuesto de error:** 0,1 % de 30 días = **43,2 minutos** de indisponibilidad al mes por servicio.
+- **Latencia:** P95/P99 de ACK por relay y región, ver [Latencia](#latencia) (NFR-004).
 - **Implementación:** [`deploy/monitoring`](../deploy/monitoring) (Prometheus, blackbox exporter,
   Alertmanager, Grafana), incluida en el overlay de stage. Reglas probadas con
   `promtool test rules deploy/monitoring/prometheus/tests/slo-availability.test.yml` (CI, job `deploy-config`).
@@ -35,9 +36,85 @@ Limitaciones conocidas:
 
 - Las sondas son internas al cluster: una caída del ALB, del DNS o del certificado no se ve. Pendiente: una
   sonda externa contra los hosts públicos.
-- Solo Buzz exporta métricas propias; los servicios TypeScript no exponen `/metrics`. Las sondas miden
-  disponibilidad, no latencia (la latencia P95/P99 es NFR004-02).
+- Las sondas miden disponibilidad, no latencia. La latencia de ACK por relay tiene su propia sección
+  ([Latencia](#latencia)).
 - Las ventanas de 30 días necesitan 30 días de historia: Prometheus retiene 35 días.
+
+## Latencia
+
+**SLI de latencia = P95 y P99 del tiempo publicación→`OK=true` por relay y región** (NFR-004). `OK=true`
+solo significa "aceptado por ese relay" (NIP-01), no "recibido por el destinatario".
+
+### Origen de las métricas
+
+`@sedecim/metrics` (`packages/metrics`) es un exportador Prometheus propio que respeta el perfil de
+telemetría (FR-022):
+
+| Nivel de telemetría del perfil | Perfiles | Exportador |
+|---|---|---|
+| `none` | Soberano, Soberano Tor | **No arranca** (`TelemetryBlockedError`); no registra ni sirve nada |
+| `minimal` | Conveniencia, Privado resiliente | Solo salud agregada; el host de cada relay se sustituye por un hash estable (qué relays usa alguien es una huella) |
+| `standard` | Institucional, servicios del operador | Host del relay como etiqueta |
+
+Las etiquetas nunca contienen pubkeys, ids de evento u operación, rutas o parámetros de la URL del relay ni
+texto de las respuestas: solo `relay` (host; los relays `.onion` y los hosts que parecen identificadores
+siempre como `onion-<hash>` / `relay-<hash>`), `region` (mapa configurable `RELAY_REGIONS=host=región,…`) y
+clases de resultado. Métricas:
+
+| Métrica | Tipo | Etiquetas |
+|---|---|---|
+| `nostr_relay_ack_latency_seconds` | histograma (buckets de 25 ms a 30 s) | `relay`, `region` |
+| `nostr_relay_publish_total` | contador | `relay`, `region`, `result` (`ok`, `duplicate`, `timeout`, `connection`, `auth`, `rate-limited`, `rejected`, `blocked-policy`, `other`) |
+| `nostr_outbox_depth` | gauge | — (operaciones sin quorum todavía) |
+| `nostr_outbox_oldest_pending_age_seconds` | gauge | — |
+| `nostr_outbox_failed_operations` | gauge | — |
+| `nostr_outbox_relay_failures_total` | contador | `relay`, `region`, `reason` (mismas clases de fallo) |
+
+En el despliegue, el **indexer** sirve `/metrics` en un puerto interno (`METRICS_PORT=9464`, nunca por la
+API pública ni por el edge) y, como el mirror solo se suscribe, publica una **sonda sintética de ACK**
+(`ACK_PROBE_INTERVAL_MS`, 30 s en stage; evento efímero vacío, kind 20001, firmado por la identidad de
+servicio, sin datos de usuarios). Prometheus lo recoge en el job `nostr-metrics`. El cliente soberano (CLI)
+no tiene modo de larga duración y su perfil es `none`: no exporta nada por diseño.
+
+### Reglas y alertas
+
+`deploy/monitoring/prometheus/rules/relay-latency.rules.yml`, probadas con
+`promtool test rules deploy/monitoring/prometheus/tests/relay-latency.test.yml`:
+
+- `relay:ack_latency_seconds:p95_rate5m`, `…:p99_rate5m`, `…:p95_rate30m`, `…:p99_rate30m`:
+  `histogram_quantile` **por relay y región** (nunca agregado entre relays: la degradación de uno no se diluye).
+- `relay:ack_latency_seconds:p95_baseline1d`: P95 del día anterior sin la última hora.
+- `relay:publish_failures:ratio_rate5m` y `outbox:relay_failures:rate5m`.
+
+| Alerta | Condición | `for` | Severidad |
+|---|---|---|---|
+| `RelayAckLatencyP95High` | P95 (5 min) > 2 s | 10 min | ticket |
+| `RelayAckLatencyDegraded` | P95 (30 min) > 2 × línea base de 1 d y > 0,5 s | 30 min | ticket |
+| `RelayPublishFailureRateHigh` | > 25 % de publicaciones sin `OK=true` | 15 min | ticket |
+| `OutboxOldestPendingTooOld` | pendiente más antiguo > 15 min | 10 min | ticket |
+| `NostrMetricsMissing` | exportador caído (`up == 0`) | 10 min | ticket |
+
+La alerta relativa detecta degradaciones que no cruzan el umbral absoluto; si la degradación dura más de
+unas 2 h la línea base la absorbe y queda la absoluta. Dashboard: **Acceso Nostr · Latencia de relays y
+outbox** (`grafana/dashboards/relay-latency.json`): tabla P95/P99/fallos por relay y región, series P95 y P99,
+P95 frente a 2× línea base, resultados de publicación, fallos del outbox por motivo, profundidad y antigüedad.
+
+### Sin ocultarla al usuario
+
+El cliente web mide lo mismo localmente (P95 de las últimas 50 confirmaciones por relay, `RelayHealth` de
+`@sedecim/relay-pool`) y la pestaña **Entrega** muestra la **Salud de relays**: un relay bloqueado,
+desconectado, con 3 o más fallos seguidos o con P95 > 2 s (el mismo umbral que la alerta) aparece con el chip
+**"degradado · P95 N ms"** y un aviso encima del outbox, en vez de reintentarse en silencio. Estas cifras
+se calculan en el navegador y no se envían a ningún sitio.
+
+### Qué hacer cuando salta
+
+1. Dashboard de latencia: ¿un relay o todos? ¿una región? Si es uno, revisar `nostr_relay_publish_total` por
+   `result` (timeouts frente a rechazos) y los logs del relay.
+2. Si todos los relays de una región se degradan a la vez, sospechar de la red del cluster o del propio
+   indexer (la sonda sale de él).
+3. `OutboxOldestPendingTooOld`: `nostr_outbox_relay_failures_total` por `reason` dice si es conectividad
+   (`connection`/`timeout`), autenticación (`auth`) o rechazo del relay (`rejected`).
 
 ## Alertas (multi-ventana, multi-tasa de consumo)
 

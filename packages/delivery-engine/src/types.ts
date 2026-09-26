@@ -67,3 +67,45 @@ export interface RetryPolicy {
   /** Per-relay attempts before giving up on that relay. Undefined = keep trying. */
   maxAttempts?: number;
 }
+
+/**
+ * Coarse failure class of a publish attempt (FR011-03): safe as a metrics label (no relay message text,
+ * no event ids). `rejected` = permanent NIP-01 prefixes; `blocked-policy` = local network policy.
+ */
+export type FailureClass = 'blocked-policy' | 'timeout' | 'connection' | 'auth' | 'rate-limited' | 'rejected' | 'other';
+
+export const FAILURE_CLASSES: readonly FailureClass[] = ['blocked-policy', 'timeout', 'connection', 'auth', 'rate-limited', 'rejected', 'other'];
+
+export function classifyFailure(message: string, blocked = false): FailureClass {
+  if (blocked) return 'blocked-policy';
+  const m = message.toLowerCase();
+  if (m.includes('timeout')) return 'timeout';
+  if (m.startsWith('auth-required:') || m.includes('auth failed')) return 'auth';
+  if (m.startsWith('rate-limited:')) return 'rate-limited';
+  if (['invalid:', 'blocked:', 'restricted:', 'pow:', 'unsupported:'].some((p) => m.startsWith(p))) return 'rejected';
+  if (m.startsWith('error:') && /(connect|connection|not connected|websocket|econnrefused|enotfound|closed)/.test(m)) return 'connection';
+  return 'other';
+}
+
+/** One publish attempt of an outbox operation to one relay, for observers (metrics). */
+export interface AttemptEvent {
+  relay: string;
+  ok: boolean;
+  latencyMs: number;
+  /** set when !ok */
+  failure?: FailureClass;
+  /** the relay was given up for this operation */
+  permanent: boolean;
+}
+
+/** Aggregate outbox figures (FR011-03). Never contains ids, content or pubkeys. */
+export interface OutboxStats {
+  /** operations not yet REPLICATED and not FAILED */
+  depth: number;
+  /** age of the oldest such operation (0 when empty) */
+  oldestPendingAgeMs: number;
+  /** operations in FAILED */
+  failed: number;
+  /** operations per delivery state */
+  byState: Partial<Record<DeliveryState, number>>;
+}
