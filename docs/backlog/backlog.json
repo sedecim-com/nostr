@@ -2036,8 +2036,8 @@
     "DEC-07"
    ],
    "sprint": "S6",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Grupo mixto marmot-ts ↔ MDK 0.8.0 (mdk-core, crates.io) con mensajes en ambos sentidos: `tests/interop/marmot-mdk.interop.test.ts` + harness Rust `interop/mdk-harness` (job CI `marmot-mdk`, informe `docs/interop/marmot-mdk-0.8.0-report.json`). Adaptador corregido: `not_before` estrictamente pasado y `d` aleatorio de 64 hex por dispositivo. Abierto upstream: MDK ≥0.7 exige `mls_proposals` (SelfRemove) en kind 30443, así que un cliente MDK solo invita a marmot-ts vía kind 443 legado; MDK main (0.10, no publicado) no cubierto (`docs/marmot.md`)",
    "issue": 152
   },
   {
@@ -2054,8 +2054,8 @@
     "FR018-02"
    ],
    "sprint": "S6",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "MIP-04 `mip04-v2`: clave del exporter MLS de la época (secreto por época cifrado, 128 retenidos), ChaCha20-Poly1305, tag `imeta`, EXIF eliminado, subida a la lista Blossom kind 10063 o blob-store con verificación de hash (`packages/marmot-adapter/src/media.ts`, `sovereign group send-file/fetch-file`). Tests: `marmot-adapter/test/multidevice.test.ts` (clave igual a la de marmot-ts, manipulación detectada, expulsado no descifra media nueva) y `sovereign-client/test/groups.test.ts`. Pendiente upstream: `encrypted-media-v2`",
    "issue": 153
   },
   {
@@ -2071,8 +2071,8 @@
     "FR025-01"
    ],
    "sprint": "S6",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Una hoja y un key package (`d` propio) por dispositivo; invitar a una persona añade todos sus dispositivos; roster de dispositivos cifrado (kind interno 9443); alta de un dispositivo nuevo por el admin o propuesta del miembro; expulsión de todas las hojas; restaurar un backup entra como hoja nueva (`group rejoin`) y elimina la clonada. `allowMultiDeviceCredentials` relaja la igualdad de credenciales de ts-mls (RFC 9420 solo exige claves únicas). Tests: `marmot-adapter/test/multidevice.test.ts`, `sovereign-client/test/groups.test.ts` (2 y 3 dispositivos de una persona)",
    "issue": 154
   },
   {
@@ -2089,8 +2089,8 @@
     "FR001-04"
    ],
    "sprint": "S6",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Pestaña \"Grupos seguros\" (`apps/web-saas/src/views/GroupsView.tsx`, `lib/groups.ts`): key package, crear, invitar por npub, aceptar, chatear (kind 445), expulsar y salir; estado MLS e historial solo en la bóveda cifrada por persona; bloqueado por perfil (Tor-only); relays `secureRelays`. E2E `tests/browser/web-groups.e2e.ts` (37 checks: dos navegadores, relay seguro solo ve 445, recarga, expulsión sin fuga, IndexedDB sin texto plano, axe, CSP)",
    "issue": 155
   },
   {
@@ -2106,8 +2106,8 @@
     "FR025-04"
    ],
    "sprint": "S6",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "No hay versiones estables: ts-mls sigue en 2.0.0-rc.16 y marmot-ts en 0.5.1. `scripts/marmot-upstream.sh` + `.github/workflows/marmot-upstream.yml` (mensual) abren el issue \"Marmot upstream: versiones estables disponibles\" con la checklist de migración cuando se publiquen ts-mls ≥2.0.0 o marmot-ts ≥1.0.0",
    "issue": 156
   },
   {
@@ -2123,8 +2123,8 @@
     "FR025-01"
    ],
    "sprint": "S6",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Miembros no admin proponen (`group propose`), el admin compromete (`group commit`); commits de no admins rechazados localmente y por los demás miembros (commit forjado: época sin cambios); propuestas no admisibles filtradas antes de comprometer; propuestas de una época anterior descartadas. Tests: `marmot-adapter/test/multidevice.test.ts`, `sovereign-client/test/groups.test.ts`",
    "issue": 157
   },
   {

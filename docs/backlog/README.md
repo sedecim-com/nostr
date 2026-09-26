@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **164 tareas** · 116 hechas · 14 parciales · 28 pendientes · 6 descartadas
-- **157 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **164 tareas** · 121 hechas · 15 parciales · 22 pendientes · 6 descartadas
+- **134 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -54,7 +54,7 @@
 | FR-022 | 2 | 2 | — |
 | FR-023 | 6 | 2 | FR023-03 (S7), FR023-04 (S7), FR023-05 (S7), FR023-06 (S7) |
 | FR-024 | 3 | 1 | FR024-02 (S7), FR024-03 (S7) |
-| FR-025 | 10 | 4 | FR025-04 (S6), FR025-05 (S6), FR025-06 (S6), FR025-07 (S6), FR025-08 (S6), FR025-09 (S6) |
+| FR-025 | 10 | 9 | FR025-08 (S6) |
 | FR-026 | 3 | 3 | — |
 | FR-027 | 3 | 3 | — |
 | FR-028 | 3 | 2 | FR028-02 (S3) |
@@ -182,13 +182,13 @@
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| [FR025-04](https://github.com/sedecim-com/nostr/issues/152) | P1 | Interoperabilidad verificada con MDK/whitenoise | FR-025 | QA | 5 | DEC-07 | Pendiente | Grupo mixto marmot-ts ↔ MDK con mensajes en ambos sentidos |
-| [FR025-05](https://github.com/sedecim-com/nostr/issues/153) | P2 | MIP-04: media cifrada en grupos | FR-025, §13 | Dev | 5 | FR025-01, FR018-02 | Pendiente | Subida y descarga de media con claves derivadas del exporter MLS |
-| [FR025-06](https://github.com/sedecim-com/nostr/issues/154) | P2 | Multi-dispositivo: varios key packages por persona y sincronización del estado | FR-025 | Dev | 5 | FR025-01 | Pendiente | Un usuario con 2 dispositivos participa en el mismo grupo |
-| [FR025-07](https://github.com/sedecim-com/nostr/issues/155) | P2 | UI de grupos high-security en la web | FR-025 | Dev | 5 | FR025-06, FR001-04 | Pendiente | Crear, invitar, chatear y expulsar desde la web con estado cifrado |
-| [FR025-08](https://github.com/sedecim-com/nostr/issues/156) | P2 | Migrar a marmot-ts v2 / ts-mls estable cuando se publiquen | FR-025 | Dev | 3 | FR025-04 | Pendiente | Dependencias fijadas a versiones estables; conformidad y autoprueba en verde |
+| [FR025-04](https://github.com/sedecim-com/nostr/issues/152) | P1 | Interoperabilidad verificada con MDK/whitenoise | FR-025 | QA | 5 | DEC-07 | Hecho | Grupo mixto marmot-ts ↔ MDK con mensajes en ambos sentidos |
+| [FR025-05](https://github.com/sedecim-com/nostr/issues/153) | P2 | MIP-04: media cifrada en grupos | FR-025, §13 | Dev | 5 | FR025-01, FR018-02 | Hecho | Subida y descarga de media con claves derivadas del exporter MLS |
+| [FR025-06](https://github.com/sedecim-com/nostr/issues/154) | P2 | Multi-dispositivo: varios key packages por persona y sincronización del estado | FR-025 | Dev | 5 | FR025-01 | Hecho | Un usuario con 2 dispositivos participa en el mismo grupo |
+| [FR025-07](https://github.com/sedecim-com/nostr/issues/155) | P2 | UI de grupos high-security en la web | FR-025 | Dev | 5 | FR025-06, FR001-04 | Hecho | Crear, invitar, chatear y expulsar desde la web con estado cifrado |
+| [FR025-08](https://github.com/sedecim-com/nostr/issues/156) | P2 | Migrar a marmot-ts v2 / ts-mls estable cuando se publiquen | FR-025 | Dev | 3 | FR025-04 | Parcial | Dependencias fijadas a versiones estables; conformidad y autoprueba en verde |
 | [BUZZ-06](https://github.com/sedecim-com/nostr/issues/51) | P3 | Integración progresiva del cliente móvil Flutter de Buzz | §6.1 | Dev | 8 | BUZZ-03, DEC-04 | Descartado | Mobile compila contra el relay del fork y pasa smoke test NIP-29 |
-| [FR025-09](https://github.com/sedecim-com/nostr/issues/157) | P3 | Flujo de propuestas de miembros no admin y commit por el admin | FR-025 | Dev | 3 | FR025-01 | Pendiente | Un miembro propone y el admin compromete; tests |
+| [FR025-09](https://github.com/sedecim-com/nostr/issues/157) | P3 | Flujo de propuestas de miembros no admin y commit por el admin | FR-025 | Dev | 3 | FR025-01 | Hecho | Un miembro propone y el admin compromete; tests |
 | [FR025-10](https://github.com/sedecim-com/nostr/issues/158) | P3 | Parche en el fork de Buzz para los kinds Marmot (solo si DEC-07 lo aprueba) | FR-025, DEC-07 | Dev | 5 | DEC-07, BUZZ-01 | Descartado | El relay acepta 30443/445/10051 sin romper el tratamiento de #h de NIP-29 |
 
 ## S7 · Modo institucional (F5, 2027-01-04 → 2027-01-15) — 51 SP
