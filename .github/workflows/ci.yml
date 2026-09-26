@@ -31,6 +31,8 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
+      - name: Backlog is valid and generated files are up to date
+        run: node scripts/backlog.mjs --check
       - run: npm test
       - name: Browser E2E (web SaaS)
         run: |
