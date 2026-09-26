@@ -1,10 +1,10 @@
-import { schnorr, secp256k1 } from '@noble/curves/secp256k1';
+import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes, utf8ToBytes } from './utils';
 
 /** Generate a secp256k1 secret key from the platform CSPRNG. */
 export function generateSecretKey(): Uint8Array {
-  return secp256k1.utils.randomPrivateKey();
+  return secp256k1.utils.randomSecretKey();
 }
 
 /** x-only public key (hex) as used by Nostr / BIP-340. */
@@ -13,7 +13,7 @@ export function getPublicKey(secretKey: Uint8Array): string {
 }
 
 export function isValidSecretKey(secretKey: Uint8Array): boolean {
-  return secretKey.length === 32 && secp256k1.utils.isValidPrivateKey(secretKey);
+  return secretKey.length === 32 && secp256k1.utils.isValidSecretKey(secretKey);
 }
 
 export function isValidPublicKey(pubkey: string): boolean {

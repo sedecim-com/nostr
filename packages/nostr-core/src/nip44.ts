@@ -5,9 +5,9 @@
  * security, deniability guarantees against a key compromise, or IP protection. High-risk group
  * conversations must use a GroupCryptoProvider (Marmot/MLS) instead.
  */
-import { secp256k1 } from '@noble/curves/secp256k1';
-import { chacha20 } from '@noble/ciphers/chacha';
-import { equalBytes as nobleEqualBytes } from '@noble/ciphers/utils';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { chacha20 } from '@noble/ciphers/chacha.js';
+import { equalBytes as nobleEqualBytes } from '@noble/ciphers/utils.js';
 import { extract as hkdfExtract, expand as hkdfExpand } from '@noble/hashes/hkdf';
 import { hmac } from '@noble/hashes/hmac';
 import { sha256 } from '@noble/hashes/sha256';
