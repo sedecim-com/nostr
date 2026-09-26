@@ -17,6 +17,11 @@ export interface RelayConnectionOptions {
   publishTimeoutMs?: number;
   /** Wait for the OK to a NIP-42 AUTH. Some relays (nostr-rs-relay 0.9) never send it on success. */
   authTimeoutMs?: number;
+  /**
+   * URL to put in the NIP-42 `relay` tag when it differs from the dialled one (e.g. a service reaching
+   * Buzz at ws://relay:3000 while the relay verifies against its public RELAY_URL).
+   */
+  authRelayUrl?: (connectUrl: string) => string;
   verifyEvents?: boolean;
   autoReconnect?: boolean;
   reconnectBaseMs?: number;
@@ -60,12 +65,13 @@ export class RelayConnection {
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private closedByUser = false;
   private challengeWaiters: Array<() => void> = [];
-  private readonly opts: Required<Omit<RelayConnectionOptions, 'signer'>> & { signer?: Signer };
+  private readonly opts: Required<Omit<RelayConnectionOptions, 'signer' | 'authRelayUrl'>> & Pick<RelayConnectionOptions, 'signer' | 'authRelayUrl'>;
 
   constructor(readonly url: string, opts: RelayConnectionOptions = {}) {
     this.opts = {
       webSocketFactory: opts.webSocketFactory ?? defaultFactory,
       signer: opts.signer,
+      authRelayUrl: opts.authRelayUrl,
       authMode: opts.authMode ?? 'on-demand',
       connectTimeoutMs: opts.connectTimeoutMs ?? 10_000,
       publishTimeoutMs: opts.publishTimeoutMs ?? 10_000,
@@ -264,6 +270,17 @@ export class RelayConnection {
         if (typeof a === 'string') {
           this.notices.push(a);
           if (this.notices.length > 20) this.notices.shift();
+          // Buzz answers an unauthenticated REQ with a NOTICE (not CLOSED): authenticate once and
+          // replay the subscriptions that have not reached EOSE yet.
+          if (a.startsWith('auth-required:') && this.canAuth() && this.authed.size === 0) {
+            void this.authenticate().then((ok) => {
+              if (!ok) return;
+              for (const [id, sub] of this.subs) if (!sub.eosed && !sub.authRetried) {
+                sub.authRetried = true;
+                this.sendRaw(['REQ', id, ...sub.filters]);
+              }
+            });
+          }
         }
         return;
       default:
@@ -304,7 +321,7 @@ export class RelayConnection {
         kind: 22242,
         content: '',
         tags: [
-          ['relay', this.url],
+          ['relay', this.opts.authRelayUrl?.(this.url) ?? this.url],
           ['challenge', this.challenge!],
         ],
       });

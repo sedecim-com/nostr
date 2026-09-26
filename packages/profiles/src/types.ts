@@ -23,6 +23,9 @@ export interface SovereigntyConfig {
   cloudBackup: CloudBackupOption;
   crashReports: CrashReportsOption;
   remotePreviews: boolean;
+  /** Gift-wrapped "delivered" receipts (ADR 0005). */
+  deliveryReceipts: boolean;
+  /** Gift-wrapped "read" receipts: always opt-in (ADR 0005). */
   readReceipts: boolean;
   /** relay acceptances required before a message counts as REPLICATED */
   quorum: number;

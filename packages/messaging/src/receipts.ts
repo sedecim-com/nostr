@@ -1,12 +1,12 @@
 /**
- * Application-level receipts (spec §11: RECIPIENT_ACKED / READ). PROVISIONAL: the receipt format is
- * an open decision (§25.1 #6). Receipts are gift-wrapped rumors so relays never see who read what.
- * Read receipts are opt-in and can be disabled by the privacy profile.
+ * Application-level receipts (spec §11: RECIPIENT_ACKED / READ), format per ADR 0005 (proposed):
+ * gift-wrapped rumors so relays cannot tell a receipt from a message. Sending is governed by
+ * profiles.receiptPolicy(): delivered receipts per profile, read receipts always opt-in.
  */
 import { createRumor, getTagValue, type Signer } from '@sedecim/nostr-core';
 import { wrapRumor, type Unwrapped, type WrapOptions } from './nip59';
 
-/** Provisional rumor kind for receipts; never published unwrapped. */
+/** Application rumor kind for receipts (ADR 0005); never published unwrapped. */
 export const APP_RECEIPT_KIND = 16_914;
 
 export type ReceiptType = 'delivered' | 'read';

@@ -12,7 +12,8 @@
 |---|---|---|
 | Eventos del relay | Postgres `buzz` | `pg_dump` diario + WAL si se requiere RPO bajo |
 | Mirror / identidad | Postgres `sedecim` | `pg_dump` (el mirror es reconstruible desde relays) |
-| Media Blossom | MinIO `buzz-media` | `mc mirror` a almacenamiento externo |
+| Media Blossom (Buzz) | SeaweedFS, bucket `buzz-media` (volumen `seaweedfs-data`) | `weed backup` / `s3 sync` con cualquier cliente S3 hacia almacenamiento externo |
+| Adjuntos cifrados | blob-store (volumen `blob-data`) | copia del volumen; son blobs cifrados, direccionados por hash |
 | Llave del relay | `.env` `BUZZ_RELAY_PRIVATE_KEY` | Copia offline cifrada |
 | Vault managed | volumen `managed-vault` + KEK | Volumen cifrado; la KEK se guarda separada (HSM/KMS) |
 | Onion service | volumen `tor-data` (`relay/hs_ed25519_secret_key`) | Copia offline: define la dirección .onion |

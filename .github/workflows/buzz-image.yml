@@ -1,0 +1,107 @@
+name: buzz-image
+
+# BUZZ-03: build the relay image from the controlled fork (or, until the fork exists, from upstream at the
+# commit pinned in infra/buzz/PIN), publish it to GHCR and record the digest for docker-compose.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      verify_reproducible:
+        description: Build twice without cache and compare digests
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: [infra/buzz/PIN, .github/workflows/buzz-image.yml]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve source
+        id: src
+        run: |
+          . infra/buzz/PIN
+          # repository variable BUZZ_FORK_REPO (e.g. sedecim-com/buzz-fork) + branch product/main once the fork exists
+          if [ -n "${{ vars.BUZZ_FORK_REPO }}" ]; then
+            echo "repo=${{ vars.BUZZ_FORK_REPO }}" >> "$GITHUB_OUTPUT"
+            echo "ref=${{ vars.BUZZ_FORK_REF || 'product/main' }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "repo=block/buzz" >> "$GITHUB_OUTPUT"
+            echo "ref=$BUZZ_COMMIT" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.src.outputs.repo }}
+          ref: ${{ steps.src.outputs.ref }}
+          path: buzz
+          lfs: false
+      - name: Source metadata
+        id: meta
+        working-directory: buzz
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+          # Reproducibility: every timestamp in the image derives from the source commit.
+          echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.meta.outputs.epoch }}
+        with:
+          context: buzz
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            BUZZ_SOURCE_SHA=${{ steps.meta.outputs.sha }}
+            BUZZ_BUILD_ID=reproducible
+            BUZZ_BUILD_URL=${{ github.server_url }}/${{ steps.src.outputs.repo }}/commit/${{ steps.meta.outputs.sha }}
+          tags: ghcr.io/${{ github.repository_owner }}/buzz-relay:sha-${{ steps.meta.outputs.short }}
+          outputs: type=image,rewrite-timestamp=true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Reproducibility check (optional)
+        if: inputs.verify_reproducible
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.meta.outputs.epoch }}
+        run: |
+          for n in 1 2; do
+            docker buildx build buzz --target runtime --platform linux/amd64 --no-cache \
+              --provenance=false --sbom=false \
+              --build-arg BUZZ_SOURCE_SHA=${{ steps.meta.outputs.sha }} --build-arg BUZZ_BUILD_ID=reproducible \
+              --build-arg BUZZ_BUILD_URL=${{ github.server_url }}/${{ steps.src.outputs.repo }}/commit/${{ steps.meta.outputs.sha }} \
+              --output type=oci,dest=/tmp/build-$n.tar,rewrite-timestamp=true
+            tar -xOf /tmp/build-$n.tar index.json | jq -r '.manifests[0].digest' > /tmp/digest-$n
+          done
+          echo "build 1: $(cat /tmp/digest-1)"; echo "build 2: $(cat /tmp/digest-2)"
+          cmp /tmp/digest-1 /tmp/digest-2 && echo "reproducible" >> "$GITHUB_STEP_SUMMARY"
+      - name: Summary
+        run: |
+          {
+            echo "### Buzz relay image"
+            echo "- source: \`${{ steps.src.outputs.repo }}@${{ steps.meta.outputs.sha }}\`"
+            echo "- image: \`ghcr.io/${{ github.repository_owner }}/buzz-relay@${{ steps.build.outputs.digest }}\`"
+            echo "- SOURCE_DATE_EPOCH: \`${{ steps.meta.outputs.epoch }}\`"
+            echo ""
+            echo "Update \`BUZZ_IMAGE\` in infra/buzz/PIN and docker-compose.yml only after \`test:interop\` passes against this digest."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "ghcr.io/${{ github.repository_owner }}/buzz-relay@${{ steps.build.outputs.digest }}" > buzz-image-digest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: buzz-image-digest
+          path: buzz-image-digest.txt

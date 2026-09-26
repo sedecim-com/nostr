@@ -75,6 +75,14 @@ export function disclose(config: SovereigntyConfig): Disclosure[] {
     trustAssumptions: [],
   });
   out.push({
+    control: 'deliveryReceipts',
+    option: String(config.deliveryReceipts),
+    statement: config.deliveryReceipts ? 'Confirmaciones de entrega activadas (cifradas con gift wrap): tus contactos saben cuándo recibe tu dispositivo sus mensajes.' : 'Confirmaciones de entrega desactivadas.',
+    improves: [],
+    sacrifices: config.deliveryReceipts ? ['privacidad-operador'] : [],
+    trustAssumptions: [],
+  });
+  out.push({
     control: 'readReceipts',
     option: String(config.readReceipts),
     statement: config.readReceipts ? 'Confirmaciones de lectura activadas (cifradas): tus contactos sabrán cuándo lees.' : 'Confirmaciones de lectura desactivadas.',

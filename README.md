@@ -46,7 +46,7 @@ npm run build:web && python3 -m http.server -d apps/web-saas/public 8080
 ```bash
 git clone <repo> && cd nostr
 sh scripts/init-env.sh        # genera .env con secretos aleatorios (cp .env.example .env)
-docker compose up -d          # relay Buzz, postgres, redis, minio, indexer, identity, policy, web
+docker compose up -d          # relay Buzz, postgres, redis, SeaweedFS (S3), indexer, identity, policy, blob-store, secure-relay, web
 docker compose --profile tor up -d       # + Tor SOCKS y relay .onion
 docker compose --profile managed up -d   # + managed signer (CUSTODIAL, opt-in)
 ```
@@ -88,7 +88,6 @@ docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, ru
 ```
 
 ## Pendiente (roadmap §22)
-- F0/F0.5: repetir `test:interop` con el stack Docker completo (MinIO) para validar la subida de imágenes en claro a Buzz `/media`.
 - F2: NIP-77 Negentropy; persistencia en Postgres del policy-engine; notification-gateway.
 - F3: auditoría independiente de fugas; cliente móvil/desktop dedicado para Tor.
 - F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); decidir parche de Buzz para kinds Marmot.

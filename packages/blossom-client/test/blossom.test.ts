@@ -69,6 +69,18 @@ describe('Blossom client (FR-018)', () => {
     server.corruptDownloads = false;
   });
 
+  it('retries downloads with a BUD-01 get authorization when the server requires it', async () => {
+    const client = new BlossomClient(server.url, signer);
+    const prepared = prepareBlob(new Uint8Array([7, 7, 7]), { sanitize: false });
+    await client.upload(prepared);
+    server.requireGetAuth = true;
+    try {
+      expect(Array.from(await client.download(prepared.sha256))).toEqual([7, 7, 7]);
+    } finally {
+      server.requireGetAuth = false;
+    }
+  });
+
   it('can refuse unsanitizable formats in sensitive profiles', () => {
     expect(() => prepareBlob(new Uint8Array([1, 2, 3]), { requireSanitizable: true })).toThrow(/cannot be sanitized/);
   });

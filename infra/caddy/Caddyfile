@@ -1,0 +1,52 @@
+# Production TLS front for the self-hosted stack (compose.tls.yml). Certificates via ACME.
+# Each service gets its own subdomain so Nostr relays keep a clean WebSocket origin (NIP-42 relay tag).
+{
+	email {$ACME_EMAIL}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
+
+{$DOMAIN} {
+	import security_headers
+	reverse_proxy web:8080
+}
+
+relay.{$DOMAIN} {
+	import security_headers
+	reverse_proxy relay:3000
+}
+
+secure.{$DOMAIN} {
+	import security_headers
+	reverse_proxy secure-relay:8080
+}
+
+blobs.{$DOMAIN} {
+	import security_headers
+	request_body {
+		max_size 50MB
+	}
+	reverse_proxy blob-store:8085
+}
+
+mirror.{$DOMAIN} {
+	import security_headers
+	reverse_proxy indexer:8081
+}
+
+id.{$DOMAIN} {
+	import security_headers
+	reverse_proxy identity-service:8082
+}
+
+policy.{$DOMAIN} {
+	import security_headers
+	reverse_proxy policy-engine:8083
+}

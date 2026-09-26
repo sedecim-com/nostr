@@ -111,7 +111,10 @@ export class BlossomClient {
 
   /** Downloads and verifies the hash BEFORE decrypting or opening (spec §13.1). */
   async download(sha256Hex: string, opts: { url?: string; decrypt?: { keyHex: string; nonceHex: string } } = {}): Promise<Uint8Array> {
-    const res = await this.http(opts.url ?? `${this.server.replace(/\/$/, '')}/${sha256Hex}`, { method: 'GET' });
+    const url = opts.url ?? `${this.server.replace(/\/$/, '')}/${sha256Hex}`;
+    let res = await this.http(url, { method: 'GET' });
+    // Servers may require BUD-01 authorization for reads (Buzz /media does): retry once with a `get` token.
+    if (res.status === 401) res = await this.http(url, { method: 'GET', headers: { authorization: await this.authHeader('get', sha256Hex) } });
     if (res.status !== 200) throw new Error(`blossom download failed: ${res.status}`);
     if (bytesToHex(sha256(res.body)) !== sha256Hex) throw new BlobIntegrityError('blob hash mismatch: refusing to open');
     if (!opts.decrypt) return res.body;

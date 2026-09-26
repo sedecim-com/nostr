@@ -9,6 +9,8 @@ COPY apps ./apps
 RUN npm ci --ignore-scripts --no-audit --no-fund
 
 FROM deps AS web-build
+COPY infra/web/flags.json infra/web/flags.json
+COPY infra/buzz/PIN infra/buzz/PIN
 RUN node apps/web-saas/build.mjs
 
 FROM nginx:1.27-alpine AS web

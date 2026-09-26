@@ -25,6 +25,7 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
     if (c.files === 'relay-plain') err('TOR_PLAIN_FILES', 'En Tor-only los adjuntos deben cifrarse en el cliente.', ['files']);
     if (c.identity !== 'pseudonymous') warn('TOR_LINKED_IDENTITY', 'Vincular la identidad reduce el beneficio de Tor frente a correlación.', ['identity']);
     if (c.readReceipts) warn('TOR_READ_RECEIPTS', 'Las confirmaciones de lectura revelan patrones de actividad.', ['readReceipts']);
+    if (c.deliveryReceipts) warn('TOR_DELIVERY_RECEIPTS', 'Las confirmaciones de entrega revelan cuándo está conectado tu dispositivo.', ['deliveryReceipts']);
   }
   if (!c.stripFileMetadata) warn('FILES_METADATA', 'Las imágenes pueden contener ubicación (EXIF) y datos del dispositivo.', ['stripFileMetadata']);
   if (c.custody === 'managed' || c.custody === 'managed-enclave') warn('CUSTODIAL', 'Modo custodial: la plataforma puede firmar como el usuario. Requiere opt-in explícito.', ['custody']);
@@ -36,4 +37,14 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
 
 export function isValid(c: SovereigntyConfig, platform?: Platform): boolean {
   return !validateConfig(c, platform).some((i) => i.severity === 'error');
+}
+
+export interface ReceiptPolicy {
+  delivered: boolean;
+  read: boolean;
+}
+
+/** Which receipts the client may send for a configuration (ADR 0005). Read receipts are never implicit. */
+export function receiptPolicy(c: SovereigntyConfig): ReceiptPolicy {
+  return { delivered: c.deliveryReceipts, read: c.readReceipts };
 }

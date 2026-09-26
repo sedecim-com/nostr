@@ -1,5 +1,5 @@
 import { normalizePubkey } from '@sedecim/nostr-core';
-import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, dmInboxFilter, DirectMessenger, FeatureDisabledError } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, dmInboxFilter, DirectMessenger, FeatureDisabledError, wrapOptionsFromFlags, type DeploymentFlags } from '@sedecim/messaging';
 import { PRESETS, disclose, preset, summarize, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
 import { custodyFacts, openSession, shortNpub, type CustodyChoice, type WebSession } from './session';
 
@@ -108,8 +108,30 @@ $('#channel-send').addEventListener('submit', async (e) => {
 });
 
 // --- DMs (NIP-17 behind a flag)
-// Explicit relay adapter from the interop gate (bounded gift-wrap jitter for the pinned Buzz build).
-const messenger = () => new DirectMessenger(session!.signer, { nip17: $<HTMLInputElement>('#nip17-flag').checked, readReceipts: config.readReceipts }, BUZZ_PINNED_ADAPTER.wrap);
+// Deployment flags come from the interop gate (FR-017): flags.json is generated from interop-report.json.
+let deployFlags: DeploymentFlags | undefined;
+async function loadDeploymentFlags() {
+  const box = $<HTMLInputElement>('#nip17-flag');
+  const note = $('#nip17-gate');
+  try {
+    const res = await fetch('./flags.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error(String(res.status));
+    deployFlags = (await res.json()) as DeploymentFlags;
+  } catch {
+    text(note, 'Sin flags de despliegue (flags.json): NIP-17 queda a criterio de esta sesión.');
+    return;
+  }
+  if (deployFlags.nip17.enabled) {
+    box.checked = true;
+    text(note, `Habilitado por el gate de interoperabilidad contra ${deployFlags.relay} (jitter de gift wrap: ${deployFlags.nip17.timestampJitterSeconds} s).`);
+  } else {
+    box.checked = false;
+    box.disabled = true;
+    text(note, `Deshabilitado: el gate de interoperabilidad contra ${deployFlags.relay} no lo aprobó.`);
+  }
+}
+void loadDeploymentFlags();
+const messenger = () => new DirectMessenger(session!.signer, { nip17: $<HTMLInputElement>('#nip17-flag').checked, readReceipts: config.readReceipts }, wrapOptionsFromFlags(deployFlags, BUZZ_PINNED_ADAPTER.wrap));
 $('#dm-send').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!session) return alert('Activa una identidad primero');
@@ -189,7 +211,7 @@ function renderPanel() {
     });
     form.append(label, sel);
   }
-  for (const key of ['remotePreviews', 'readReceipts', 'stripFileMetadata'] as const) {
+  for (const key of ['remotePreviews', 'deliveryReceipts', 'readReceipts', 'stripFileMetadata'] as const) {
     const label = document.createElement('label');
     const cb = document.createElement('input');
     cb.type = 'checkbox';

@@ -11,3 +11,6 @@ apps/web-saas/public/app.js.map
 .data/
 interop-report.json
 interop-marmot-report.json
+infra/secure-relay/config.tls.toml
+apps/web-saas/public/flags.json
+dump.rdb

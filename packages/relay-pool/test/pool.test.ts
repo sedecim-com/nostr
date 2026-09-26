@@ -81,6 +81,28 @@ describe('RelayPool', () => {
     expect(Date.now() - started).toBeLessThan(2500);
   });
 
+  it('authenticates and replays REQs when the relay answers with a NOTICE auth-required (Buzz behaviour)', async () => {
+    const r = await startRelay({ requireAuth: true, authNoticeOnReq: true });
+    const evt = await signer.signEvent({ kind: 1, content: 'needs auth to read' });
+    r.inject(evt);
+    pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'on-demand' });
+    const got = await pool.query([r.url], [{ kinds: [1] }], 3000);
+    expect(got.map((e) => e.id)).toEqual([evt.id]);
+  });
+
+  it('signs AUTH with the public relay URL when dialling an internal address (Buzz checks the tag against the tenant host)', async () => {
+    const r = await startRelay({ requireAuth: true, authNoticeOnReq: true, publicUrl: 'wss://relay.example.org' });
+    const internal = `ws://127.0.0.1:${r.port}`;
+    const evt = await signer.signEvent({ kind: 1, content: 'behind a proxy' });
+    r.inject(evt);
+    const naive = new RelayPool({ webSocketFactory: factory, signer, authMode: 'auto' });
+    expect(await naive.query([internal], [{ kinds: [1] }], 1500)).toEqual([]);
+    naive.close();
+    pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'auto', authRelayUrl: () => 'wss://relay.example.org' });
+    const got = await pool.query([internal], [{ kinds: [1] }], 3000);
+    expect(got.map((e) => e.id)).toEqual([evt.id]);
+  });
+
   it('deduplicates the same event id across relays (FR-012)', async () => {
     const a = await startRelay();
     const b = await startRelay();

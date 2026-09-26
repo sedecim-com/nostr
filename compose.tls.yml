@@ -1,0 +1,59 @@
+# Production override: TLS termination with Caddy and public wss:// URLs.
+#   DOMAIN=example.org ACME_EMAIL=ops@example.org sh scripts/render-tls-config.sh
+#   docker compose -f docker-compose.yml -f compose.tls.yml up -d
+# Requires Docker Compose >= 2.24.4 (`!reset`). Only Caddy publishes host ports.
+services:
+  caddy:
+    image: caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d # caddy:2.10.2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [web, relay, secure-relay, blob-store, indexer, identity-service, policy-engine]
+    restart: unless-stopped
+    networks: [nostr]
+
+  relay:
+    ports: !reset []
+    environment:
+      RELAY_URL: wss://relay.${DOMAIN}
+      BUZZ_MEDIA_BASE_URL: https://relay.${DOMAIN}/media
+      BUZZ_CORS_ORIGINS: https://${DOMAIN}
+
+  secure-relay:
+    ports: !reset []
+    volumes: !override
+      - ./infra/secure-relay/config.tls.toml:/usr/src/app/config.toml:ro
+      - secure-relay-data:/usr/src/app/db
+
+  indexer:
+    ports: !reset []
+    environment:
+      INDEXER_RELAY_PUBLIC_URL: wss://relay.${DOMAIN}
+      PUBLIC_BASE_URL: https://mirror.${DOMAIN}
+
+  identity-service:
+    ports: !reset []
+    environment:
+      PUBLIC_BASE_URL: https://id.${DOMAIN}
+
+  policy-engine:
+    ports: !reset []
+    environment:
+      PUBLIC_BASE_URL: https://policy.${DOMAIN}
+
+  blob-store:
+    ports: !reset []
+    environment:
+      PUBLIC_BASE_URL: https://blobs.${DOMAIN}
+
+  web:
+    ports: !reset []
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -32,6 +32,10 @@ export interface TestRelayOptions {
   supportsNegentropy?: boolean;
   /** Do not send OK after a successful AUTH (nostr-rs-relay 0.9 behaviour). */
   silentAuthOk?: boolean;
+  /** Answer unauthenticated REQs with a NOTICE instead of CLOSED (Buzz behaviour). */
+  authNoticeOnReq?: boolean;
+  /** Buzz fan-out: live events carrying an `h` tag only reach subscriptions that filter by `#h`. */
+  channelScopedFanout?: boolean;
 }
 
 export interface FaultInjection {
@@ -212,16 +216,18 @@ export class TestRelay {
       }
       this.events.set(evt.id, evt);
     }
+    const channelScoped = this.opts.channelScopedFanout && evt.tags.some((t) => t[0] === 'h' || (evt.kind >= 39000 && evt.kind <= 39002 && t[0] === 'd'));
     for (const c of this.clients) {
       for (const [subId, filters] of c.subs) {
-        if (matchFilters(filters, evt)) this.send(c, ['EVENT', subId, evt]);
+        const live = channelScoped ? filters.filter((f) => f['#h'] !== undefined) : filters;
+        if (matchFilters(live, evt)) this.send(c, ['EVENT', subId, evt]);
       }
     }
   }
 
   private onReq(state: ClientState, subId: string, filters: Filter[]) {
     if (typeof subId !== 'string' || filters.length === 0) return this.send(state, ['NOTICE', 'invalid: bad REQ']);
-    if (!this.isAuthorized(state)) return this.send(state, ['CLOSED', subId, 'auth-required: authenticate first']);
+    if (!this.isAuthorized(state)) return this.send(state, this.opts.authNoticeOnReq ? ['NOTICE', 'auth-required: authenticate before subscribing'] : ['CLOSED', subId, 'auth-required: authenticate first']);
     const gated = this.opts.pGatedKinds ?? [];
     for (const f of filters) {
       const touchesGated = !f.kinds || f.kinds.some((k) => gated.includes(k));

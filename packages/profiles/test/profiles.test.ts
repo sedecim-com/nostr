@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRESETS, preset, disclose, summarize, validateConfig, isValid, assertNoAbsoluteClaims, type PresetName } from '../src/index';
+import { PRESETS, preset, disclose, summarize, validateConfig, isValid, assertNoAbsoluteClaims, receiptPolicy, type PresetName } from '../src/index';
 
 describe('sovereignty profiles', () => {
   it('reference presets are valid on their intended platforms', () => {
@@ -38,5 +38,14 @@ describe('sovereignty profiles', () => {
 
   it('refuses absolute anonymity claims', () => {
     expect(() => assertNoAbsoluteClaims('Modo 100% anónimo')).toThrow();
+  });
+
+  it('applies the ADR 0005 receipt policy per preset', () => {
+    expect(receiptPolicy(preset('convenience'))).toEqual({ delivered: true, read: false });
+    expect(receiptPolicy(preset('institutional'))).toEqual({ delivered: true, read: false });
+    expect(receiptPolicy(preset('sovereign'))).toEqual({ delivered: false, read: false });
+    expect(receiptPolicy(preset('sovereign-tor'))).toEqual({ delivered: false, read: false });
+    const codes = validateConfig({ ...preset('sovereign-tor'), deliveryReceipts: true }, 'cli').map((i) => i.code);
+    expect(codes).toContain('TOR_DELIVERY_RECEIPTS');
   });
 });
