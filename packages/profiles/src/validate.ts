@@ -27,6 +27,11 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
     if (c.readReceipts) warn('TOR_READ_RECEIPTS', 'Las confirmaciones de lectura revelan patrones de actividad.', ['readReceipts']);
     if (c.deliveryReceipts) warn('TOR_DELIVERY_RECEIPTS', 'Las confirmaciones de entrega revelan cuándo está conectado tu dispositivo.', ['deliveryReceipts']);
   }
+  if (c.localProtection === 'device') {
+    if (c.custody !== 'local' || c.network !== 'direct' || c.identity !== 'linked')
+      err('DEVICE_KEY_PROFILE', 'El desbloqueo sin contraseña solo se permite en el perfil convenience (llave local, red directa, identidad vinculada).', ['localProtection']);
+    else warn('DEVICE_KEY', 'Sin contraseña: cualquiera con acceso a este perfil del navegador puede abrir tus llaves.', ['localProtection']);
+  }
   if (!c.stripFileMetadata) warn('FILES_METADATA', 'Las imágenes pueden contener ubicación (EXIF) y datos del dispositivo.', ['stripFileMetadata']);
   if (c.custody === 'managed' || c.custody === 'managed-enclave') warn('CUSTODIAL', 'Modo custodial: la plataforma puede firmar como el usuario. Requiere opt-in explícito.', ['custody']);
   if (c.quorum < 1) err('QUORUM', 'El quorum debe ser al menos 1.', ['quorum']);

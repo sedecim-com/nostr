@@ -182,4 +182,46 @@ describe('DeliveryEngine', () => {
     await engine.reconcile();
     expect((await engine.get(rec.opId))!.state).toBe('REPLICATED');
   });
+
+  it('resumes pending work when the pool reconnects (FR-011)', async () => {
+    const r = await relay();
+    const port = r.port;
+    const url = r.url;
+    const p = new RelayPool({ webSocketFactory: factory, signer, reconnectBaseMs: 20, reconnectMaxMs: 50, connectTimeoutMs: 500, publishTimeoutMs: 500 });
+    cleanups.push(() => p.close());
+    // an open subscription (e.g. the inbox) keeps the pool reconnecting in the background
+    await new Promise<void>((resolve) => p.subscribe([url], [{ kinds: [1] }], { onevent: () => undefined, oneose: resolve }));
+    const engine = new DeliveryEngine({ store: memStore(), publisher: p, signer, retry: { baseMs: 30_000, maxMs: 30_000 } });
+    cleanups.push(() => engine.stop());
+    const off = p.onReconnect(() => void engine.resume());
+    cleanups.push(off);
+    await r.stop();
+    const rec = await engine.submit({ template: { kind: 1, content: 'vuelve la red' } }, { relays: [url], wait: true });
+    expect(rec.state).toBe('QUEUED');
+    const back = new TestRelay({ port });
+    await back.start();
+    relays.push(back);
+    // well before the 15-30 s backoff: the reconnect event drove the retry
+    await until(async () => (await engine.get(rec.opId))!.state === 'REPLICATED', 3000);
+    expect(back.events.has(rec.event!.id)).toBe(true);
+  });
+
+  it('resume() is idempotent while in flight', async () => {
+    const r = await relay();
+    r.faults.okDelayMs = 100;
+    let publishes = 0;
+    const p = pool();
+    const publisher: Publisher = { publishTo: (evt, url) => (publishes++, p.publishTo(evt, url)) };
+    const engine = new DeliveryEngine({ store: memStore(), publisher, signer, retry: { baseMs: 10_000, maxMs: 10_000 } });
+    cleanups.push(() => engine.stop());
+    r.faults.offline = true;
+    await engine.submit({ template: { kind: 1, content: 'una vez' } }, { relays: [r.url], wait: true });
+    r.faults.offline = false;
+    publishes = 0;
+    const [a, b] = [engine.resume(), engine.resume()];
+    expect(a).toBe(b);
+    const [rec] = await a;
+    expect(rec!.state).toBe('REPLICATED');
+    expect(publishes).toBe(1);
+  });
 });

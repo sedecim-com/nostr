@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as nt from 'nostr-tools';
 import { generateKey, backupFile, verifyBackup } from '../src/generate';
 
 const cli = new URL('../src/cli.ts', import.meta.url).pathname;
@@ -37,6 +38,15 @@ describe('offline key generator (FR-003)', () => {
     const res = spawnSync(tsx, [cli, '--show-nsec'], { encoding: 'utf8' });
     expect(res.status).toBe(2);
     expect(res.stderr).toContain('ADVERTENCIA');
+  });
+
+  it('service-key prints a self-tested hex key for a service .env only when acknowledged (OPS-03)', () => {
+    expect(spawnSync(tsx, [cli, 'service-key'], { encoding: 'utf8' }).status).toBe(2);
+    const out = execFileSync(tsx, [cli, 'service-key', '--i-understand'], { encoding: 'utf8' });
+    const secret = /^secret_hex=([0-9a-f]{64})$/m.exec(out)![1]!;
+    const pubkey = /^pubkey_hex=([0-9a-f]{64})$/m.exec(out)![1]!;
+    expect(nt.getPublicKey(Uint8Array.from(Buffer.from(secret, 'hex')))).toBe(pubkey);
+    expect(out).toContain(`npub=${nt.nip19.npubEncode(pubkey)}`);
   });
 
   it('offline guard blocks sockets, DNS and fetch inside the process', () => {

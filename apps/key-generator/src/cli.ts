@@ -4,11 +4,12 @@
  *
  *   keygen [--out backup.json] [--password-file f] [--logn 18] [--show-nsec --i-understand]
  *   keygen verify backup.json [--password-file f]
+ *   keygen service-key --i-understand   (hex secret for a service .env: relay key, mirror identity)
  */
 import { enforceOffline } from './offline-guard';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { backupFile, generateKey, verifyBackup, type BackupFile } from './generate';
+import { backupFile, generateKey, generateServiceKey, verifyBackup, type BackupFile } from './generate';
 
 enforceOffline();
 
@@ -53,6 +54,16 @@ async function main() {
     const res = verifyBackup(file, await password(false));
     console.log(res.ok ? `OK: backup válido para ${res.npub}` : 'ERROR: el backup no corresponde al npub declarado');
     process.exit(res.ok ? 0 : 1);
+  }
+  if (args[0] === 'service-key') {
+    // Machine-readable, meant to be piped into .env by scripts/init-env.sh; never for personal identities.
+    if (!flag('--i-understand')) {
+      console.error('ADVERTENCIA: imprime la llave secreta en claro (para el .env de un servicio). Añade --i-understand.');
+      process.exit(2);
+    }
+    const k = generateServiceKey();
+    console.log(`secret_hex=${k.secretHex}\npubkey_hex=${k.pubkeyHex}\nnpub=${k.npub}`);
+    return;
   }
   const logN = Number(opt('--logn') ?? 18);
   const out = opt('--out');

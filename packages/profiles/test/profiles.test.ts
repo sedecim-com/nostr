@@ -49,3 +49,19 @@ describe('sovereignty profiles', () => {
     expect(codes).toContain('TOR_DELIVERY_RECEIPTS');
   });
 });
+
+describe('localProtection (ADR 0007)', () => {
+  it('allows the device key only for the convenience profile', () => {
+    const ok = validateConfig({ ...preset('convenience'), localProtection: 'device' }, 'web');
+    expect(ok.some((i) => i.severity === 'error')).toBe(false);
+    expect(ok.map((i) => i.code)).toContain('DEVICE_KEY');
+    for (const name of ['private-resilient', 'institutional', 'sovereign', 'sovereign-tor'] as const) {
+      expect(validateConfig({ ...preset(name), localProtection: 'device' }, 'cli').map((i) => i.code)).toContain('DEVICE_KEY_PROFILE');
+    }
+  });
+
+  it('every preset defaults to a passphrase and discloses it', () => {
+    for (const name of Object.keys(PRESETS) as Array<keyof typeof PRESETS>) expect(preset(name).localProtection).toBe('passphrase');
+    expect(disclose({ ...preset('convenience'), localProtection: 'device' }).find((d) => d.control === 'localProtection')?.statement).toMatch(/cualquiera con acceso/);
+  });
+});

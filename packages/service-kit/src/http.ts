@@ -50,6 +50,8 @@ export interface ServiceOptions {
   bearerTokens?: Record<string, string>;
   logger?: Logger;
   maxBodyBytes?: number;
+  /** Browser origins allowed to call this service (exact match), e.g. the web app. Empty: no CORS. */
+  corsOrigins?: string[];
 }
 
 export class Service {
@@ -106,10 +108,23 @@ export class Service {
     }
   }
 
+  private corsHeaders(req: IncomingMessage): Record<string, string> {
+    const origin = req.headers.origin;
+    if (!origin || !this.opts.corsOrigins?.includes(origin)) return {};
+    return { 'access-control-allow-origin': origin, vary: 'Origin' };
+  }
+
   async handle(req: IncomingMessage, res: ServerResponse) {
     const started = Date.now();
     const url = new URL(req.url ?? '/', 'http://local');
     let status = 500;
+    const cors = this.corsHeaders(req);
+    if (req.method === 'OPTIONS') {
+      status = cors['access-control-allow-origin'] ? 204 : 403;
+      res.writeHead(status, { ...cors, 'access-control-allow-methods': 'GET, POST, PUT, DELETE', 'access-control-allow-headers': 'authorization, content-type', 'access-control-max-age': '600' });
+      res.end();
+      return;
+    }
     try {
       const route = this.routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
       if (!route) throw new HttpError(404, 'not found');
@@ -134,12 +149,12 @@ export class Service {
       const out = await route.handler(r);
       const resObj: Res = out && typeof out === 'object' && ('body' in out || 'status' in out) ? (out as Res) : { body: out };
       status = resObj.status ?? 200;
-      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...resObj.headers });
+      res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...cors, ...resObj.headers });
       res.end(resObj.body === undefined ? '' : JSON.stringify(resObj.body));
     } catch (err) {
       status = err instanceof HttpError ? err.status : 500;
       if (status === 500) this.logger.error('unhandled error', { error: (err as Error).message });
-      res.writeHead(status, { 'content-type': 'application/json' });
+      res.writeHead(status, { 'content-type': 'application/json', ...cors });
       res.end(JSON.stringify({ error: err instanceof HttpError ? err.message : 'internal error' }));
     } finally {
       this.logger.debug('request', { method: req.method, path: url.pathname, status, ms: Date.now() - started });
