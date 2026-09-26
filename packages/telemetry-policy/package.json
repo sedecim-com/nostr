@@ -1,0 +1,14 @@
+{
+  "name": "@sedecim/telemetry-policy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telemetría según perfil y logger con redacción de secretos.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {}
+}

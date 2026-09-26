@@ -1,0 +1,16 @@
+{
+  "name": "@sedecim/messaging",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canales NIP-29, DMs NIP-17 (NIP-44/NIP-59), receipts y feature flags.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sedecim/nostr-core": "0.1.0"
+  }
+}

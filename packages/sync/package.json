@@ -1,0 +1,17 @@
+{
+  "name": "@sedecim/sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sincronización/backfill por ventanas con detección NIP-77.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sedecim/nostr-core": "0.1.0",
+    "@sedecim/relay-pool": "0.1.0"
+  }
+}

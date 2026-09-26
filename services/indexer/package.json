@@ -1,0 +1,18 @@
+{
+  "name": "@sedecim/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Indexer/mirror ciphertext-first de eventos Nostr.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sedecim/nostr-core": "0.1.0",
+    "@sedecim/relay-pool": "0.1.0",
+    "pg": "8.23.0"
+  }
+}

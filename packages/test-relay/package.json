@@ -1,0 +1,18 @@
+{
+  "name": "@sedecim/test-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Relay Nostr en memoria para pruebas E2E (NIP-01/NIP-42) con inyección de fallos.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "1.8.0",
+    "@sedecim/nostr-core": "0.1.0",
+    "ws": "8.21.3"
+  }
+}
