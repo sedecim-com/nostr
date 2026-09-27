@@ -2432,8 +2432,8 @@
     "DEC-09"
    ],
    "sprint": "S4",
-   "status": "Parcial",
-   "evidence": "docs/rpo-rto.md (tabla por tier y componente). Propuesta pendiente de aprobación",
+   "status": "Hecho",
+   "evidence": "docs/rpo-rto.md: tabla por tier y componente aprobada el 2026-09-27 (producto, operaciones/SRE y seguridad). SaaS: bases de datos a 24 h / 4 h hasta PITR (NFR001-03), luego 1 h / 1 h; institucional: copia de datos y WAL en otra región, llaves managed solo en us-east-1 (ADR 0009); self-hosted: cron diario de ejemplo en docs/runbooks/restore.md",
    "issue": 175
   },
   {
@@ -2450,8 +2450,8 @@
     "OPS-01"
    ],
    "sprint": "S4",
-   "status": "Parcial",
-   "evidence": ".github/workflows/restore-drill.yml (nightly), scripts/backup.sh, scripts/restore.sh, scripts/drill-data.ts; runbook actualizado. Falta la primera ejecución en verde",
+   "status": "Hecho",
+   "evidence": ".github/workflows/restore-drill.yml (nightly, y en las PR que lo tocan), scripts/backup.sh, scripts/restore.sh, scripts/drill-data.ts; runbook docs/runbooks/restore.md. Primera ejecución en verde: https://github.com/sedecim-com/nostr/actions/runs/36287681879 (stack → datos sembrados → backup → host limpio → restore en 40 s → datos verificados → test:interop), tras corregir SHA256SUMS y los volúmenes sembrados por las imágenes (#212)",
    "issue": 176
   },
   {

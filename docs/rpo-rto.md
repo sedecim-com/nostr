@@ -1,6 +1,6 @@
 # RPO y RTO por tier (NFR-003)
 
-- **Estado:** Propuesta pendiente de aprobación · **Tarea:** NFR003-01 · **Fecha de la propuesta:** 2026-09-26
+- **Estado:** Aprobada el 2026-09-27 · **Tarea:** NFR003-01 · **Fecha de la propuesta:** 2026-09-26
 - **Depende de:** DEC-09 / [ADR 0009](adr/0009-custodia-managed-region-y-marco-legal.md) (custodia managed en
   `us-east-1`), [runbook de backup y restore](runbooks/restore.md), drill nocturno
   (`.github/workflows/restore-drill.yml`, NFR003-02).
@@ -14,16 +14,18 @@
 |---|---|---|---|
 | **Self-hosted** | El cliente (docker compose) | El cliente, con `scripts/backup.sh` / `scripts/restore.sh` | [Runbook](runbooks/restore.md), drill nocturno en CI |
 | **SaaS** | Sedecim (Kubernetes en AWS `us-east-1`, [`deploy/`](../deploy/README.md)) | Sedecim | Volúmenes EBS + `pg_dump` al bucket `acceso-nostr-<env>-backups-*`; Postgres gestionado con PITR en NFR001-03 |
-| **Institucional** | Sedecim o la institución, en infraestructura dedicada | Según contrato; mismas herramientas | Como SaaS + archivado continuo de WAL y copia fuera de la región |
+| **Institucional** | Sedecim o la institución, en infraestructura dedicada | Según contrato; mismas herramientas | Como SaaS + archivado continuo de WAL y copia de datos y WAL en una segunda región. Las llaves managed se quedan en `us-east-1` (ADR 0009) |
 
-## Tabla propuesta
+## Tabla aprobada
 
-Valores **objetivo**. La columna "Hoy" dice qué se puede garantizar con lo que ya existe.
+Valores **objetivo**. La columna "Hoy" dice qué se puede garantizar con lo que ya existe. En SaaS, las
+bases de datos se comprometen a 24 h / 4 h mientras no haya PITR; el objetivo de 1 h / 1 h entra en vigor
+cuando se complete NFR001-03 (Postgres gestionado con PITR).
 
 | Componente | Dónde vive | Self-hosted RPO / RTO | SaaS RPO / RTO | Institucional RPO / RTO | Hoy |
 |---|---|---|---|---|---|
-| Eventos del relay (Buzz) | Postgres `buzz` | 24 h / 4 h | 1 h / 1 h (15 min con PITR, NFR001-03) | 15 min / 1 h | `pg_dump` con `backup.sh` (RPO = frecuencia del cron del operador). En SaaS sin PITR todavía: 24 h |
-| Mirror e identidad | Postgres `sedecim` | 24 h / 4 h | 1 h / 1 h | 15 min / 1 h | `pg_dump` con `backup.sh`. El mirror además se reconstruye desde los relays |
+| Eventos del relay (Buzz) | Postgres `buzz` | 24 h / 4 h | 24 h / 4 h; 1 h / 1 h con PITR (NFR001-03) | 15 min / 1 h | `pg_dump` con `backup.sh` (RPO = frecuencia del cron del operador). En SaaS sin PITR todavía: 24 h |
+| Mirror e identidad | Postgres `sedecim` | 24 h / 4 h | 24 h / 4 h; 1 h / 1 h con PITR (NFR001-03) | 15 min / 1 h | `pg_dump` con `backup.sh`. El mirror además se reconstruye desde los relays |
 | Media de canales (Buzz Blossom) | SeaweedFS (`seaweedfs-data`) | 24 h / 4 h | 24 h / 4 h | 1 h / 4 h | Archivo del volumen con `backup.sh` |
 | Adjuntos cifrados | blob-store (`blob-data`) | 24 h / 4 h | 24 h / 4 h | 1 h / 4 h | Archivo del volumen con `backup.sh`. Son blobs cifrados en el cliente: el backup no expone contenido |
 | Grupos Marmot (relay secundario) | SQLite (`secure-relay-data`) | 24 h / 4 h | 24 h / 4 h | 1 h / 4 h | Archivo del volumen con `backup.sh`. El estado MLS de cada miembro está además en su backup de cliente |
@@ -37,13 +39,18 @@ Notas:
 - **RPO 0 en llaves** significa que ninguna llave confirmada al usuario puede perderse: se escriben de
   forma síncrona antes de responder. Perder una llave es perder una identidad, a diferencia de los datos,
   que en Nostr suelen estar replicados en otros relays del usuario.
+- **RPO del self-hosted (24 h)** es una recomendación al operador: se cumple programando `backup.sh` a
+  diario y sacando la copia del host ([runbook, "Programar el backup"](runbooks/restore.md#programar-el-backup)).
 - **RTO del self-hosted (4 h)** incluye conseguir un host limpio. La parte automatizable (restaurar y
-  arrancar) la mide cada noche el drill (paso "Drill summary"); debe quedar muy por debajo.
+  arrancar) la mide cada noche el drill (paso "Drill summary"): 40 s en la primera ejecución en verde
+  (2026-09-27, [run](https://github.com/sedecim-com/nostr/actions/runs/36287681879)).
 - **Vault del cliente:** la plataforma no puede recuperar lo que el usuario no exportó. El RPO real es el
   tiempo desde su último backup; el cliente debe recordarlo (FR-027) y el restore en un dispositivo limpio
   está probado (`identity.test.ts`, `groups.test.ts`).
-- El tier institucional necesita, además, copia de backups fuera de `us-east-1`, lo que implica revisar
-  ADR 0009 si incluye llaves managed.
+- **Tier institucional y pérdida de región:** los datos y el WAL se copian a una segunda región, pero las
+  llaves managed no salen de `us-east-1` (ADR 0009, sin cambios). Si se pierde la región, los datos se
+  recuperan en la otra dentro del RTO; las cuentas con custodia managed no pueden firmar hasta que
+  `us-east-1` vuelva. Las personas con llave propia (no managed) no dependen de la región.
 
 ## Cómo se verifica
 
@@ -56,10 +63,8 @@ Notas:
 
 ## Aprobación
 
-Pendiente. Esta tabla no compromete nada hasta que la firmen:
-
 | Rol | Nombre | Fecha | Decisión / comentarios |
 |---|---|---|---|
-| Responsable de producto | | | |
-| Operaciones / SRE | | | |
-| Seguridad y cumplimiento (tier institucional, llaves managed) | | | |
+| Responsable de producto | Victor (@vic2099) | 2026-09-27 | Aprobada. SaaS: 24 h / 4 h en bases de datos hasta PITR (NFR001-03), luego 1 h / 1 h |
+| Operaciones / SRE | Victor (@vic2099) | 2026-09-27 | Aprobada. Self-hosted: cron diario de ejemplo en el runbook |
+| Seguridad y cumplimiento (tier institucional, llaves managed) | Victor (@vic2099) | 2026-09-27 | Aprobada. Institucional: copia de datos y WAL en otra región; llaves managed solo en `us-east-1` (ADR 0009) |

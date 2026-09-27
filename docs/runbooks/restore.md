@@ -32,7 +32,7 @@
    `DELETE /v1/backups[/:id]`; también con `Authorization: Bearer <token de Acceso>` en SaaS.
 
 ## Stack self-hosted (operador)
-Objetivos de RPO/RTO por tier: [`docs/rpo-rto.md`](../rpo-rto.md) (propuesta pendiente de aprobación).
+Objetivos de RPO/RTO por tier: [`docs/rpo-rto.md`](../rpo-rto.md) (aprobados el 2026-09-27).
 
 | Dato | Dónde | Cómo respaldar (`scripts/backup.sh`) |
 |---|---|---|
@@ -55,6 +55,21 @@ Con el stack en marcha. Hace `pg_dump` de las dos bases, archiva cada volumen pa
 segundos (`docker compose pause`, copia consistente), copia `.env` y escribe `SHA256SUMS`. El directorio
 contiene todos los secretos del stack: cifrarlo y sacarlo del host (p. ej. al bucket de backups de
 `deploy/terraform`). Programarlo con cron según el RPO del tier.
+
+### Programar el backup
+El RPO recomendado para self-hosted es 24 h: un backup diario, guardado fuera del host. Ejemplo con cron
+(usuario con acceso a Docker, repo en `/opt/nostr`; conserva 7 días en el host):
+
+```cron
+# /etc/cron.d/sedecim-nostr-backup
+15 3 * * * operador cd /opt/nostr && sh scripts/backup.sh >> /var/log/sedecim-nostr-backup.log 2>&1 && find .data/backups -mindepth 1 -maxdepth 1 -mtime +7 -exec rm -rf {} +
+```
+
+Después de cada backup, cifra el directorio y súbelo fuera del host. Por ejemplo, con
+[age](https://age-encryption.org) y una llave pública cuya privada no esté en el servidor:
+`tar -C .data/backups -cf - <dir> | age -r <age1…> > <dir>.tar.age`. El directorio contiene `.env` con
+todos los secretos: nunca lo copies sin cifrar. Revisa el log y el `SHA256SUMS` de vez en cuando, y ensaya
+el restore en otro host (como hace el drill).
 
 ### Restore en un host limpio
 ```bash

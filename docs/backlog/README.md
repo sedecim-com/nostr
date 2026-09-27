@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **164 tareas** · 121 hechas · 15 parciales · 22 pendientes · 6 descartadas
-- **134 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **164 tareas** · 123 hechas · 13 parciales · 22 pendientes · 6 descartadas
+- **128 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -60,7 +60,7 @@
 | FR-028 | 3 | 2 | FR028-02 (S3) |
 | NFR-001 | 3 | 0 | NFR001-01 (S4), NFR001-02 (S4), NFR001-03 (S7) |
 | NFR-002 | 2 | 2 | — |
-| NFR-003 | 2 | 0 | NFR003-01 (S4), NFR003-02 (S4) |
+| NFR-003 | 2 | 2 | — |
 | NFR-004 | 3 | 2 | NFR004-02 (S5) |
 | NFR-005 | 2 | 0 | NFR005-01 (S8), NFR005-02 (S8) |
 | NFR-006 | 3 | 3 | — |
@@ -146,8 +146,8 @@
 | [FR013-03](https://github.com/sedecim-com/nostr/issues/120) | P1 | E2E: reinstalar y reconstruir historial (canales, DMs, outbox) en un dispositivo limpio | FR-013 | QA | 3 | FR013-01, FR027-01 | Hecho | Tras restaurar el backup, el cliente recupera historia y estados |
 | [NFR001-01](https://github.com/sedecim-com/nostr/issues/170) | P1 | Infraestructura como código del SaaS (Helm/Terraform) | NFR-001 | Infra | 8 | OPS-02 | Parcial | Despliegue reproducible en un entorno de staging |
 | [NFR001-02](https://github.com/sedecim-com/nostr/issues/171) | P1 | Monitorización de SLO (99,9 % mensual) y alertas | NFR-001 | Infra | 3 | NFR001-01 | Parcial | Dashboard de disponibilidad y alertas por servicio |
-| [NFR003-01](https://github.com/sedecim-com/nostr/issues/175) | P1 | Definir RPO/RTO por tier | NFR-003 | Doc | 1 | DEC-09 | Parcial | Tabla aprobada por tier (self-hosted, SaaS, institucional) |
-| [NFR003-02](https://github.com/sedecim-com/nostr/issues/176) | P1 | Restore drill automatizado (nightly) | NFR-003 | Infra | 5 | NFR003-01, OPS-01 | Parcial | Job que restaura en un host limpio y ejecuta test:interop |
+| [NFR003-01](https://github.com/sedecim-com/nostr/issues/175) | P1 | Definir RPO/RTO por tier | NFR-003 | Doc | 1 | DEC-09 | Hecho | Tabla aprobada por tier (self-hosted, SaaS, institucional) |
+| [NFR003-02](https://github.com/sedecim-com/nostr/issues/176) | P1 | Restore drill automatizado (nightly) | NFR-003 | Infra | 5 | NFR003-01, OPS-01 | Hecho | Job que restaura en un host limpio y ejecuta test:interop |
 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) | P1 | Firma de releases y provenance (SLSA/cosign) | NFR-010, §21.2 | Seguridad | 3 | OPS-08 | Parcial | Imágenes y artefactos firmados; verificación documentada |
 | [SEC-03](https://github.com/sedecim-com/nostr/issues/194) | P1 | Fuzz/property tests de serialización y criptografía | §20.3 | Seguridad | 3 | — | Hecho | fast-check sobre eventos, NIP-44, NIP-49, codec MLS y parsers de TLV |
 | [FR003-07](https://github.com/sedecim-com/nostr/issues/80) | P2 | Guía de uso air-gapped verificable | FR-003 | Doc | 1 | FR003-06 | Parcial | Procedimiento paso a paso: verificar checksum y firma, generar, verificar backup |

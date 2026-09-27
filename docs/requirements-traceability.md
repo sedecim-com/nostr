@@ -39,7 +39,7 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 |----|-----------|--------|------------------|
 | NFR-001 | Disponibilidad SaaS | 🟡 | IaC de staging (`deploy/k8s`, `deploy/terraform`, validados en CI job `deploy-config`); SLO 99,9 % con alertas multi-ventana (`deploy/monitoring`, `docs/slo.md`, `promtool test rules`). Despliegue en staging pendiente de credenciales AWS |
 | NFR-002 | 0 pérdidas LOCAL_PERSISTED | ✅ | `engine.test.ts` (reinicio con FileBackend atómico + fsync); `encrypted-store/test/crash.test.ts` (30 kill -9 a mitad de escritura: valor viejo o nuevo, nunca corrupto) |
-| NFR-003 | RPO/RTO | 🟡 | `docs/rpo-rto.md` (propuesta pendiente de aprobación); `scripts/backup.sh` / `scripts/restore.sh`; drill nocturno `restore-drill.yml` (host limpio + datos sembrados + `test:interop`) |
+| NFR-003 | RPO/RTO | ✅ | `docs/rpo-rto.md` (aprobada el 2026-09-27); `scripts/backup.sh` / `scripts/restore.sh`; drill nocturno `restore-drill.yml` (host limpio + datos sembrados + `test:interop`, en verde desde el 2026-09-27) |
 | NFR-004 | Latencia P95 | 🟡 | Exportador Prometheus por perfil (`packages/metrics/test`: histograma de ACK por relay/región, outbox, nada con perfil `none`); reglas P95/P99 y alertas de degradación (`deploy/monitoring`, `promtool test rules`, `docs/slo.md#latencia`); chip "degradado · P95" en la web (`tests/browser`). Medición real en staging pendiente |
 | NFR-005 | Escalabilidad | 🟡 | Indexer sin estado + Postgres; relay según Buzz |
 | NFR-006 | Sin secretos en logs | ✅ | `telemetry.test.ts`, `managed-signer.test.ts`; gitleaks en CI; logs del stack completo escaneados (`scripts/scan-logs.sh`: reglas de gitleaks + canario con los secretos de `.env`, job `stack`) |
