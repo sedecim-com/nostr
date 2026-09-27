@@ -8,7 +8,7 @@ import { TestRelay } from '@sedecim/test-relay';
 import { LocalSigner } from '@sedecim/signer';
 import { createDirectMessage } from '@sedecim/messaging';
 import { createPgPool, migrate, nip98Fetch, resetScope } from '@sedecim/service-kit';
-import { createIndexerApi, Indexer, MemoryEventRepository, PgEventRepository, sealedCodec, type EventRepository } from '../src/index';
+import { createIndexerApi, enforceRetention, Indexer, MemoryEventRepository, PgEventRepository, sealedCodec, type EventRepository } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
 
@@ -239,3 +239,65 @@ describe('Indexer against a Buzz-like relay (auth required, channel-scoped fan-o
     await relay.stop();
   });
 });
+
+/** FR023-08: retention and legal hold over the mirror, identical on every repository. */
+function retentionSuite(name: string, makeRepo: () => Promise<EventRepository>) {
+  describe(name, () => {
+    const now = Date.UTC(2027, 0, 15);
+    const day = 86_400;
+    const sk = generateSecretKey();
+    const at = (daysAgo: number, tags: string[][], kind = 9) =>
+      nt.finalizeEvent({ kind, content: `hace ${daysAgo} días`, tags, created_at: Math.floor(now / 1000) - daysAgo * day }, sk) as NostrEvent;
+
+    it('deletes expired mirror data per channel/workspace unless on legal hold', async () => {
+      const repo = await makeRepo();
+      const ev = {
+        oldGeneral: at(40, [['h', 'general']]),
+        newGeneral: at(5, [['h', 'general']]),
+        oldLegal: at(400, [['h', 'legal']]),
+        oldOtherWs: at(400, [['h', 'ops']]),
+        oldWsNote: at(100, [], 1),
+        oldArchive: at(100, [['h', 'archive']]),
+        oldHeldWs: at(100, [['h', 'kept']]),
+      };
+      for (const [k, e] of Object.entries(ev)) await repo.upsert(e, 'ws://r', k === 'oldHeldWs' ? 'held-ws' : 'acme');
+      const res = await enforceRetention(
+        repo,
+        [
+          { resourceId: 'general', days: 30, legalHold: false },
+          { resourceId: 'legal', days: 30, legalHold: true },
+          { resourceId: 'archive', days: null, legalHold: false },
+          { resourceId: 'acme', days: 60, legalHold: false },
+          { resourceId: 'held-ws', days: 1, legalHold: true },
+        ],
+        now,
+      );
+      // general: its own 30-day policy; acme workspace (60 days) covers ops and non-channel events but
+      // not channels with their own policy (legal on hold, archive kept forever).
+      expect(res).toEqual([
+        { resourceId: 'general', deleted: 1 },
+        { resourceId: 'acme', deleted: 2 },
+      ]);
+      const left = async (e: NostrEvent) => !!(await repo.get(e.id));
+      expect(await left(ev.oldGeneral)).toBe(false);
+      expect(await left(ev.newGeneral)).toBe(true);
+      expect(await left(ev.oldLegal)).toBe(true);
+      expect(await left(ev.oldOtherWs)).toBe(false);
+      expect(await left(ev.oldWsNote)).toBe(false);
+      expect(await left(ev.oldArchive)).toBe(true);
+      expect(await left(ev.oldHeldWs)).toBe(true);
+      // A channel under a held workspace is kept even past its own retention.
+      expect(await enforceRetention(repo, [{ resourceId: 'kept', days: 1, legalHold: false }, { resourceId: 'held-ws', days: null, legalHold: true }], now)).toEqual([{ resourceId: 'kept', deleted: 0 }]);
+    });
+  });
+}
+
+retentionSuite('Retention (memory repository)', async () => new MemoryEventRepository());
+if (PG) {
+  retentionSuite('Retention (postgres repository)', async () => {
+    const pool = createPgPool(PG);
+    await resetScope(pool, 'indexer', ['read_cursors', 'event_sources', 'events']);
+    await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
+    return new PgEventRepository(pool, sealedCodec(new Uint8Array(32).fill(4)));
+  });
+}

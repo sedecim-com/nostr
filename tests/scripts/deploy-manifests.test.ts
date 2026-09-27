@@ -47,6 +47,22 @@ describe('deploy/k8s copies of the compose config files', () => {
     expect(read('deploy/k8s/base/files/01-platform-db.sh')).toBe(read('infra/postgres/01-platform-db.sh'));
     expect(read('deploy/k8s/base/files/secure-relay.config.toml')).toBe(read('infra/secure-relay/config.toml'));
     expect(JSON.parse(read('deploy/k8s/base/files/web-config.json'))).toEqual(JSON.parse(read('infra/web/config.json')));
+    expect(JSON.parse(read('deploy/k8s/base/files/admin-config.json'))).toEqual(JSON.parse(read('infra/web/admin-config.json')));
+    expect(read('deploy/k8s/components/institutional/files/secure-relay.config.toml')).toBe(read('infra/secure-relay/config.institutional.toml'));
+  });
+
+  it('the institutional secure relay config only adds the gRPC event admission (FR023-04)', () => {
+    const inst = read('infra/secure-relay/config.institutional.toml');
+    expect(inst.startsWith(read('infra/secure-relay/config.toml'))).toBe(true);
+    expect(inst).toMatch(/^\[grpc\]\nevent_admission_server = "http:\/\/relay-allowlist:50051"$/m);
+  });
+
+  it('the stage admin console never allows the development key and points at the stage APIs', () => {
+    const stage = JSON.parse(read('deploy/k8s/overlays/stage/files/admin-config.json')) as Record<string, unknown>;
+    expect(stage.devLocalKey).not.toBe(true);
+    expect(JSON.parse(read('infra/web/admin-config.json')).devLocalKey).not.toBe(true);
+    expect(stage.policyEngineUrl).toBe('https://nostr-stage-policy.ai.acce.so');
+    expect(stage.identityServiceUrl).toBe('https://nostr-stage-id.ai.acce.so');
   });
 
   it('the stage secure relay config only changes relay_url', () => {
@@ -61,6 +77,7 @@ describe('every compose service has a Kubernetes workload', () => {
     ...readdirSync(join(root, 'deploy/k8s/base')).filter((f) => f.endsWith('.yaml')).map((f) => read(`deploy/k8s/base/${f}`)),
     read('deploy/k8s/components/managed-signer/managed-signer.yaml'),
     read('deploy/k8s/components/notification-gateway/notification-gateway.yaml'),
+    read('deploy/k8s/components/institutional/relay-allowlist.yaml'),
   ].join('\n---\n');
   const servicesBlock = compose.slice(compose.indexOf('\nservices:\n'), compose.indexOf('\nvolumes:\n'));
   const services = [...servicesBlock.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((m) => m[1]!);
@@ -126,6 +143,18 @@ describe.skipIf(!hasKubectl)('kubectl kustomize deploy/k8s/overlays/stage', () =
     expect([...out.stdout.matchAll(/type: NodePort/g)]).toHaveLength(1);
     expect(out.stdout).toMatch(/nodePort: 31810/);
     expect(read('deploy/terraform/modules/acceso-nostr/variables.tf')).toMatch(/default\s+= 31810/);
+  });
+
+  it('uses RDS with verified TLS instead of the in-cluster Postgres (NFR001-03)', () => {
+    const docs = out.stdout.split('\n---\n');
+    expect(docs.some((d) => /^kind: StatefulSet$/m.test(d) && /^  name: postgres$/m.test(d))).toBe(false);
+    expect(out.stdout).toMatch(/POSTGRES_URL_QUERY: \?sslmode=verify-full&sslrootcert=\/etc\/rds-ca\/rds-ca-us-east-1\.pem/);
+    const withDb = docs.filter((d) => /name: DATABASE_URL/.test(d));
+    expect(withDb.length).toBe(5);
+    for (const d of withDb) {
+      expect(d).toMatch(/@\$\(POSTGRES_HOST\):5432\/\$\((PLATFORM_DB|POSTGRES_DB)\)\$\(POSTGRES_URL_QUERY\)/);
+      expect(d).toMatch(/mountPath: \/etc\/rds-ca/);
+    }
   });
 
   it('runs every pod as non-root without privilege escalation', () => {

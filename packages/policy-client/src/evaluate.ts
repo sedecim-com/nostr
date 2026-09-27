@@ -19,6 +19,10 @@ export interface Device {
   trust: 'unverified' | 'registered' | 'attested';
   registeredAt: number;
   revokedAt?: number;
+  /** WebAuthn credential id (base64url) bound to the device when it was registered with a passkey. */
+  credentialId?: string;
+  /** WebAuthn attestation format verified at registration ('packed' | 'none'). */
+  attestationFormat?: string;
 }
 
 export interface Rule {

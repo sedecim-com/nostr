@@ -29,6 +29,10 @@ configMapGenerator:
       - POSTGRES_USER=buzz
       - POSTGRES_DB=buzz
       - PLATFORM_DB=sedecim
+      # DATABASE_URL = postgres://...@$(POSTGRES_HOST):5432/<db>$(POSTGRES_URL_QUERY). In-cluster Postgres
+      # here; components/rds-postgres points them at RDS with TLS verified (NFR001-03).
+      - POSTGRES_HOST=postgres
+      - POSTGRES_URL_QUERY=
       - S3_BUCKET=buzz-media
       - RELAY_URL=ws://relay:3000
       - BUZZ_MEDIA_BASE_URL=http://relay:3000/media
@@ -40,6 +44,7 @@ configMapGenerator:
       - INDEXER_PUBLIC_URL=http://indexer:8081
       - INDEXER_REQUIRE_AUTH=true
       - INDEXER_CHANNEL_REFRESH_MS=30000
+      - INDEXER_POLICY_ENGINE_URL=
       - IDENTITY_PUBLIC_URL=http://identity-service:8082
       - POLICY_PUBLIC_URL=http://policy-engine:8083
       - POLICY_ADMIN_PUBKEYS=
@@ -59,6 +64,9 @@ configMapGenerator:
   - name: web-config
     files:
       - config.json=files/web-config.json
+  - name: web-admin-config
+    files:
+      - config.json=files/admin-config.json
   - name: edge-conf
     files:
       - nginx.conf=files/edge-nginx.conf

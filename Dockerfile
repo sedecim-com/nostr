@@ -11,11 +11,13 @@ RUN npm ci --ignore-scripts --no-audit --no-fund
 FROM deps AS web-build
 COPY infra/web/flags.json infra/web/flags.json
 COPY infra/buzz/PIN infra/buzz/PIN
-RUN npm run build:web
+RUN npm run build:web && npm run build:admin
 
 FROM nginx:1.31-alpine AS web
 COPY infra/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-build /app/apps/web-saas/dist /usr/share/nginx/html
+# Admin console (OPS-07) under /admin/, same CSP and nonce handling.
+COPY --from=web-build /app/apps/admin-console/dist /usr/share/nginx/html/admin
 
 FROM node:26-alpine AS service
 ARG SERVICE

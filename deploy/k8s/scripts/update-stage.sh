@@ -110,6 +110,8 @@ for d in relay indexer identity-service policy-engine blob-store managed-signer 
   kubectl -n "${NAMESPACE}" rollout status "deployment/${d}" --timeout=300s
 done
 for s in postgres redis seaweedfs secure-relay; do
+  # postgres is absent with components/rds-postgres (RDS, NFR001-03).
+  has_workload "${RENDER}/all.yaml" StatefulSet "${s}" || continue
   kubectl -n "${NAMESPACE}" rollout status "statefulset/${s}" --timeout=300s
 done
 

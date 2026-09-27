@@ -37,11 +37,11 @@ export class ManagedSignerHttpError extends Error {
   }
 }
 
-async function request<T>(conn: ManagedSignerConnection, method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(conn: ManagedSignerConnection, method: string, path: string, body?: unknown, prefix = '/v1/keys'): Promise<T> {
   const token = await conn.token();
   if (!token) throw new ManagedSignerHttpError(401, 'managed signer: no Acceso session');
   const f = conn.fetch ?? fetch;
-  const res = await f(`${conn.baseUrl.replace(/\/$/, '')}/v1/keys${path}`, {
+  const res = await f(`${conn.baseUrl.replace(/\/$/, '')}${prefix}${path}`, {
     method,
     headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -78,6 +78,15 @@ export class ManagedSignerClient implements Signer {
   /** Creates a managed key for the caller. Only after an explicit, informed opt-in (FR005-07). */
   static async createKey(conn: ManagedSignerConnection, opts: { allowedKinds?: number[] } = {}): Promise<ManagedKeyInfo> {
     return request<ManagedKeyInfo>(conn, 'POST', '', opts.allowedKinds ? { allowed_kinds: opts.allowedKinds } : {});
+  }
+
+  /**
+   * FR024-03: opens a signer session bound to this device. Use the returned token as `token` from then on:
+   * it stops working as soon as the organisation revokes the device.
+   */
+  static async openDeviceSession(conn: ManagedSignerConnection, deviceId: string, opts: { ttlSeconds?: number } = {}): Promise<{ token: string; deviceId: string; expiresAt: string }> {
+    const r = await request<{ token: string; device_id: string; expires_at: string }>(conn, 'POST', '', { device_id: deviceId, ...(opts.ttlSeconds ? { ttl_seconds: opts.ttlSeconds } : {}) }, '/v1/device-sessions');
+    return { token: r.token, deviceId: r.device_id, expiresAt: r.expires_at };
   }
 
   private call<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {

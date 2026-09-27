@@ -11,6 +11,8 @@ resources:
 components:
   # SaaS only: the custodial signer (vault aws = KMS + Secrets Manager, ADR 0009).
   - ../../components/managed-signer
+  # NFR001-03: RDS PostgreSQL Multi-AZ (deploy/terraform, enable_rds) instead of the in-cluster StatefulSet.
+  - ../../components/rds-postgres
 
 configMapGenerator:
   - name: acceso-nostr-config
@@ -26,6 +28,9 @@ configMapGenerator:
       # Outputs of deploy/terraform (module acceso-nostr, env = stage).
       - MANAGED_SIGNER_KMS_KEY_ID=alias/acceso-nostr-stage-managed-signer
       - MANAGED_SIGNER_SECRET_PREFIX=acceso-nostr/stage/managed-keys/
+      # Terraform output rds_endpoint (acceso-nostr-stage-postgres.<id>.us-east-1.rds.amazonaws.com): fill in
+      # after `terraform apply` (deploy.sh refuses an empty value). docs/runbooks/rds-postgres.md.
+      - POSTGRES_HOST=
       # Acceso (Cognito) pool for stage: fill in before the first deploy (deploy.sh refuses empty values
       # while the managed signer is enabled). Region us-east-1 as the rest of Sedecim.
       - COGNITO_USER_POOL_ID=
@@ -34,6 +39,10 @@ configMapGenerator:
     behavior: replace
     files:
       - config.json=files/web-config.json
+  - name: web-admin-config
+    behavior: replace
+    files:
+      - config.json=files/admin-config.json
   - name: secure-relay-config
     behavior: replace
     files:

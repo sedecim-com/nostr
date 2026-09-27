@@ -55,7 +55,7 @@ spec:
                   key: MIRROR_AT_REST_KEY
                   optional: true
             - name: DATABASE_URL
-              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(PLATFORM_DB)
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(PLATFORM_DB)$(POSTGRES_URL_QUERY)
             - name: INDEXER_RELAYS
               value: ws://relay:3000
             # Buzz maps Host to a community and checks the NIP-42 relay tag: present the public URL.
@@ -63,6 +63,15 @@ spec:
               value: $(RELAY_URL)
             - name: PUBLIC_BASE_URL
               value: $(INDEXER_PUBLIC_URL)
+            # Institutional mode (FR023-05/08): empty URL keeps it off (components/institutional sets it).
+            - name: POLICY_ENGINE_URL
+              value: $(INDEXER_POLICY_ENGINE_URL)
+            - name: POLICY_ENGINE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: INDEXER_POLICY_ENGINE_TOKEN
+                  optional: true
             # NFR004-01: Prometheus exporter (cluster-internal) + synthetic ACK probe every 30 s.
             - name: METRICS_PORT
               value: "9464"

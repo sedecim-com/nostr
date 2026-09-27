@@ -130,7 +130,10 @@ run_apply() {
   kubectl apply -f "${SECRET_FILE}"
   kubectl apply -f "${RENDER}/all.yaml"
   log "esperando rollouts"
-  kubectl -n "${NAMESPACE}" rollout status statefulset/postgres --timeout=300s
+  # Absent with components/rds-postgres (RDS, NFR001-03).
+  if has_workload "${RENDER}/all.yaml" StatefulSet postgres; then
+    kubectl -n "${NAMESPACE}" rollout status statefulset/postgres --timeout=300s
+  fi
   kubectl -n "${NAMESPACE}" rollout status statefulset/redis --timeout=180s
   kubectl -n "${NAMESPACE}" rollout status statefulset/seaweedfs --timeout=300s
   kubectl -n "${NAMESPACE}" wait --for=condition=complete job/seaweedfs-init --timeout=300s

@@ -1,0 +1,104 @@
+# promtool test rules deploy/monitoring/prometheus/tests/managed-signer.test.yml
+rule_files:
+  - ../rules/managed-signer.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # A day at 0.5 signatures/s (30/min), then an hour at 5/s (300/min): ten times the baseline.
+  - interval: 1m
+    input_series:
+      - series: 'managed_signer_operations_total{job="managed-signer",service="managed-signer",instance="managed-signer:9464",op="sign",result="ok"}'
+        values: '0+30x1440 43500+300x59'
+      - series: 'up{job="managed-signer",instance="managed-signer:9464"}'
+        values: '1x1500'
+    promql_expr_test:
+      - expr: managed_signer:signatures:rate5m
+        eval_time: 1500m
+        exp_samples:
+          - labels: 'managed_signer:signatures:rate5m{service="managed-signer"}'
+            value: 5
+    alert_rule_test:
+      - eval_time: 1500m
+        alertname: ManagedSignerSigningRateAnomalous
+        exp_alerts:
+          - exp_labels:
+              service: managed-signer
+              severity: ticket
+            exp_annotations:
+              summary: "managed-signer: 5.00 firmas/s, más del triple que su línea base de 1 d"
+              description: "El ritmo de firmas custodiales supera tres veces el del día anterior desde hace 15 min. Posible uso anómalo de llaves managed: revisar el log de uso (acciones sign y rate-limited) y, si procede, revocar el dispositivo o la sesión."
+              runbook: docs/threat-models/institutional.md
+      # Steady day: no alert.
+      - eval_time: 1430m
+        alertname: ManagedSignerSigningRateAnomalous
+        exp_alerts: []
+      # Burst for less than 15 min: not yet.
+      - eval_time: 1450m
+        alertname: ManagedSignerSigningRateAnomalous
+        exp_alerts: []
+      - eval_time: 1500m
+        alertname: ManagedSignerMetricsMissing
+        exp_alerts: []
+
+  # A quiet signer (below 1/s) that triples its rate is not an anomaly worth a ticket.
+  - interval: 1m
+    input_series:
+      - series: 'managed_signer_operations_total{service="managed-signer",op="sign",result="ok"}'
+        values: '0+6x1440 8664+24x59'
+    alert_rule_test:
+      - eval_time: 1500m
+        alertname: ManagedSignerSigningRateAnomalous
+        exp_alerts: []
+
+  # Sustained 429s, a revoked device still trying, and a dead exporter.
+  - interval: 1m
+    input_series:
+      - series: 'managed_signer_rate_limited_total{job="managed-signer",service="managed-signer",instance="managed-signer:9464",op="sign",scope="kind"}'
+        values: '0+30x40'
+      - series: 'managed_signer_revoked_device_rejections_total{job="managed-signer",service="managed-signer",instance="managed-signer:9464"}'
+        values: '0x10 3x30'
+      - series: 'up{job="managed-signer",instance="managed-signer:9464"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ManagedSignerRateLimitedSustained
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: ManagedSignerRateLimitedSustained
+        exp_alerts:
+          - exp_labels:
+              service: managed-signer
+              severity: ticket
+            exp_annotations:
+              summary: "managed-signer: 0.50 operaciones/s rechazadas con 429"
+              description: "Hay clientes chocando con el límite por llave o por kind de forma sostenida (10 min). Revisar las filas rate-limited del log de uso para identificar la llave y el dispositivo."
+              runbook: docs/threat-models/institutional.md
+      - eval_time: 9m
+        alertname: ManagedSignerRevokedDeviceActivity
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: ManagedSignerRevokedDeviceActivity
+        exp_alerts:
+          - exp_labels:
+              service: managed-signer
+              severity: ticket
+            exp_annotations:
+              summary: "managed-signer: un dispositivo revocado sigue intentando usar el managed-signer"
+              description: "Hay peticiones rechazadas por dispositivo revocado en los últimos 15 min. Confirmar que la cuenta de Acceso del usuario también se cerró (cierre global de sesión)."
+              runbook: docs/marmot.md
+      # Nothing new for more than 15 min: the alert clears.
+      - eval_time: 40m
+        alertname: ManagedSignerRevokedDeviceActivity
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: ManagedSignerMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              job: managed-signer
+              instance: managed-signer:9464
+              severity: ticket
+            exp_annotations:
+              summary: "Métricas del managed-signer caídas (managed-signer:9464)"
+              description: "Los límites de firma y las revocaciones no se están midiendo; revisar el servicio y METRICS_PORT."
+              runbook: docs/threat-models/institutional.md

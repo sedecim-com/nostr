@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- nginx replaces __NONCE__ per request (infra/web/nginx.conf); MUI/Emotion styles carry the nonce. -->
+  <meta name="csp-nonce" content="__NONCE__" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:* https:; img-src 'self' data:; style-src 'self' 'nonce-__NONCE__'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="robots" content="noindex" />
+  <title>Acceso Nostr · Consola de administración</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="./src/main.tsx"></script>
+</body>
+</html>

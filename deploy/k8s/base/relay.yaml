@@ -91,7 +91,7 @@ spec:
             - name: BUZZ_METRICS_PORT
               value: "9102"
             - name: DATABASE_URL
-              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(POSTGRES_DB)$(POSTGRES_URL_QUERY)
             - name: REDIS_URL
               value: redis://:$(REDIS_PASSWORD)@redis:6379
             - name: BUZZ_S3_ENDPOINT

@@ -16,6 +16,8 @@ Secrets Manager `k8s/<env>/...`, y entrada por un NodePort registrado en un targ
 |---|---|
 | `k8s/base/` | Todos los servicios de `docker-compose.yml`: relay Buzz, Postgres, Redis, SeaweedFS (+ Job de bucket), secure-relay, indexer, identity-service, policy-engine, blob-store, web y el proxy `edge` (NodePort). |
 | `k8s/components/managed-signer/` | Firma custodial (solo SaaS, opt-in): vault `aws` = KMS + Secrets Manager (ADR 0009). |
+| `k8s/components/institutional/` | Modo institucional (opt-in): `relay-allowlist`, allowlist de Buzz activado, secure-relay con admisión gRPC e indexer con políticas ([`docs/institutional.md`](../docs/institutional.md)). |
+| `k8s/components/rds-postgres/` | Postgres gestionado (NFR001-03): quita el StatefulSet y apunta `DATABASE_URL` a RDS con TLS verificado ([runbook](../docs/runbooks/rds-postgres.md)). |
 | `k8s/overlays/stage/` | Stage: imágenes de ECR, hosts `*.ai.acce.so`, NodePort `31810`, monitorización y managed-signer. |
 | `k8s/scripts/` | `deploy.sh`, `update-stage.sh`, `teardown-stage.sh` y auxiliares (`generate-secret.sh`, `mirror-ecr-deps.sh`, `build-push.sh`). |
 | `k8s/values.env` | Valores de stage (ECR, contexto esperado, NodePort, host, IDs de Secrets Manager). |
@@ -32,10 +34,13 @@ Secrets Manager `k8s/<env>/...`, y entrada por un NodePort registrado en un targ
   `scripts/buzz-upstream.sh apply` reescribe también ese digest y `tests/scripts/deploy-manifests.test.ts`
   comprueba que PIN, compose y kustomize coinciden. El espejo a ECR copia el manifiesto tal cual
   (`docker buildx imagetools create`), así que el digest sigue siendo válido en ECR.
-- **Postgres, Redis y SeaweedFS dentro del cluster en stage** (StatefulSets con volúmenes EBS). Es lo mismo
-  que prueba CI con compose y evita decidir ahora RDS/ElastiCache/S3 para Buzz; Postgres gestionado con alta
-  disponibilidad y backups automáticos llega con NFR001-03. Redis no es sistema de registro (cachés y
-  pub/sub), ver [`docs/rpo-rto.md`](../docs/rpo-rto.md).
+- **Postgres gestionado en stage (NFR001-03):** RDS PostgreSQL 17 Multi-AZ con backups automáticos
+  (14 días), PITR, protección contra borrado, cifrado KMS, TLS obligatorio y acceso solo desde los nodos
+  (`enable_rds`). El overlay incluye `components/rds-postgres`. `POSTGRES_HOST` se rellena con la salida
+  `rds_endpoint` tras el apply; `deploy.sh` se niega si está vacío. La base sigue trayendo el StatefulSet
+  para quien despliegue sin RDS. Alta, migración, failover y PITR: [`docs/runbooks/rds-postgres.md`](../docs/runbooks/rds-postgres.md).
+- **Redis y SeaweedFS dentro del cluster en stage** (StatefulSets con volúmenes EBS), igual que prueba CI con
+  compose. Redis no es sistema de registro (cachés y pub/sub), ver [`docs/rpo-rto.md`](../docs/rpo-rto.md).
 - **Una sola imagen de servicios** (`acceso-nostr-service`, target `service` del `Dockerfile`): cada
   Deployment fija `SERVICE`, que el `CMD` lee en tiempo de ejecución. El web es `acceso-nostr-web`
   (`flags.json` ya va dentro de la imagen; `config.json` sale de un ConfigMap).
@@ -89,6 +94,8 @@ Crea:
 | Secreto | `k8s/stage/acceso-nostr` | Secretos del stack (vacío; lo llena `generate-secret.sh --bootstrap`) |
 | Llave KMS + alias | `alias/acceso-nostr-stage-managed-signer` | Envelope del managed-signer, rotación anual (ADR 0009) |
 | Política + usuario IAM | `acceso-nostr-stage-managed-signer`, `acceso_nostr_stage_managed_signer` | Permisos mínimos del signer; llaves en `acceso_nostr_stage_managed_signer_credentials` |
+| RDS PostgreSQL 17 Multi-AZ + KMS + SG + parameter group | `acceso-nostr-stage-postgres`, `alias/acceso-nostr-stage-rds` | NFR001-03: backups automáticos 14 días + PITR, TLS obligatorio, solo desde los nodos; contraseña maestra en Secrets Manager gestionada por RDS (`enable_rds`) |
+| Llave KMS del enclave (opcional) | `alias/acceso-nostr-stage-enclave-signer` | FR005-05: data keys solo para un enclave Nitro con los PCR esperados ([`docs/managed-enclave.md`](../docs/managed-enclave.md)); `enable_enclave_signer = false` por defecto |
 | Bucket S3 | `acceso-nostr-stage-backups-<cuenta>` | Backups: versionado, SSE-KMS, privado, expiración 35 días; usuario `acceso_nostr_stage_backups` sin permiso de borrado |
 | ECR | `acceso-nostr-*` | Imágenes propias y espejos (scan on push, últimas 30) |
 | Target group + regla + SG | `acceso-nostr-stage-edge` | ALB → NodePort 31810 (solo si se pasan `vpc_id`, `alb_listener_arn`, SGs) |
@@ -132,4 +139,5 @@ Grafana no se publica: `kubectl -n acceso-nostr port-forward svc/grafana 3000` (
 - Primer despliegue real en stage y registro del resultado (credenciales AWS + aprobación).
 - IDs del pool de Cognito de stage y política de enrutado de alertas (`monitoring/alertmanager/alertmanager.yml`).
 - Sonda externa (fuera del cluster) contra los hosts públicos, además de las sondas internas.
-- NFR001-03: Postgres gestionado con HA y backups automáticos a `acceso-nostr-<env>-backups-*`.
+- NFR001-03: `terraform apply` de RDS, migración de datos y primera prueba de failover en stage
+  (`scripts/rds-failover-test.sh`, registro en el runbook).

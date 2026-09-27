@@ -40,11 +40,16 @@
  *   sovereign group rejoin --persona ID [--group GID]            (after backup restore: new leaf, old removed)
  *   sovereign group send-file --persona ID --group GID --file PATH [--mime TYPE] [--server URL] ["caption"]
  *   sovereign group fetch-file --persona ID --group GID --sha HEX --out FILE (MIP-04 download + decrypt)
+ *   sovereign group rotation-worker --persona ID --policy URL [--managed-signer URL] [--interval S] [--once]
+ *                                        (FR-024: MLS Remove for the rotations the policy-engine flags on
+ *                                        revocation; with --managed-signer, propagates device revocations)
  *
  * Env: SOVEREIGN_DATA_DIR (default ./.data/sovereign), SOVEREIGN_PASSPHRASE, TOR_SOCKS (127.0.0.1:9050),
  *      SOVEREIGN_BACKUP_PASSWORD (backup files, when --password-file is not given),
  *      SOVEREIGN_BLOB_STORE (fallback Blossom/blob-store URL for encrypted group media),
- *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present)
+ *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present),
+ *      SOVEREIGN_POLICY_BEARER (optional bearer for POST /v1/rotations/:id/done; NIP-98 otherwise),
+ *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer)
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
@@ -62,7 +67,7 @@ function relayAdapter() {
 const argv = process.argv.slice(2);
 const opt = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
 const opts = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1]!] : []));
-const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--dry-run', '--no-mls'].includes(argv[i - 1]!))).slice(2);
+const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--dry-run', '--no-mls', '--once'].includes(argv[i - 1]!))).slice(2);
 const MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.pdf': 'application/pdf', '.txt': 'text/plain' };
 const since = () => (opt('--since') !== undefined ? Number(opt('--since')) : undefined);
 
@@ -202,6 +207,35 @@ async function main() {
         const r = await client.groupFetchFile(id, gid!, opt('--sha')!);
         writeFileSync(out, r.data, { mode: 0o600, flag: 'wx' });
         console.log(`${r.attachment.filename} descifrado en ${out}`);
+      }
+      else if (b === 'rotation-worker') {
+        const policyUrl = opt('--policy');
+        if (!policyUrl) throw new Error('--policy URL required (policy-engine)');
+        const signerUrl = opt('--managed-signer');
+        const token = process.env.SOVEREIGN_REVOCATION_TOKEN;
+        if (signerUrl && !token) throw new Error('SOVEREIGN_REVOCATION_TOKEN required with --managed-signer');
+        const { worker, propagator } = await client.revocationWorker(id, {
+          policyUrl,
+          ...(process.env.SOVEREIGN_POLICY_BEARER ? { policyBearer: process.env.SOVEREIGN_POLICY_BEARER } : {}),
+          ...(signerUrl && token ? { managedSigner: { url: signerUrl, token } } : {}),
+        });
+        const tick = async () => {
+          for (const d of (await propagator?.runOnce()) ?? []) console.log(`dispositivo ${d}: revocación propagada al managed-signer`);
+          for (const r of await worker.runOnce()) console.log(`${r.id}  ${r.result}${r.epoch !== undefined ? `  epoch=${r.epoch}` : ''}${r.error ? `  (${r.error})` : ''}`);
+        };
+        if (argv.includes('--once')) await tick();
+        else {
+          const stop = new AbortController();
+          for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => stop.abort());
+          const interval = Number(opt('--interval') ?? 15) * 1000;
+          while (!stop.signal.aborted) {
+            await tick().catch((err: Error) => console.error(`error: ${err.message}`));
+            await new Promise<void>((r) => {
+              const t = setTimeout(r, interval);
+              stop.signal.addEventListener('abort', () => (clearTimeout(t), r()), { once: true });
+            });
+          }
+        }
       }
       else throw new Error(`unknown group command: ${b}`);
     } else if (a === 'disclose') {

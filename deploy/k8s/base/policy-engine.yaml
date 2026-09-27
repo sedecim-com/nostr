@@ -41,8 +41,21 @@ spec:
                   name: acceso-nostr-secrets
                   key: POLICY_SERVICE_TOKENS
                   optional: true
+            # FR023-03: policy state persists in policy_* tables of the platform DB.
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(PLATFORM_DB)$(POSTGRES_URL_QUERY)
             - name: PUBLIC_BASE_URL
               value: $(POLICY_PUBLIC_URL)
+            # Admin console and device passkeys (WebAuthn RP) run in the web app.
+            - name: CORS_ORIGINS
+              value: $(WEB_ORIGIN)
+            - name: WEBAUTHN_ORIGINS
+              value: $(WEB_ORIGIN)
           volumeMounts:
             - name: tmp
               mountPath: /tmp

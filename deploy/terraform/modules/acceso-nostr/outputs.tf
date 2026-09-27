@@ -47,3 +47,43 @@ output "alb_target_group_arn" {
   description = "Target group del NodePort (añadir a externalLoadBalancers del InstanceGroup de kops)."
   value       = try(aws_lb_target_group.edge[0].arn, null)
 }
+
+output "enclave_signer_kms_alias" {
+  description = "Llave KMS del enclave (ENCLAVE_KMS_KEY_ID dentro de la EIF)."
+  value       = try(aws_kms_alias.enclave_signer[0].name, null)
+}
+
+output "enclave_signer_kms_key_arn" {
+  description = "ARN de la llave KMS condicionada a la attestation."
+  value       = try(aws_kms_key.enclave_signer[0].arn, null)
+}
+
+output "enclave_host_launch_template_id" {
+  description = "Launch template del host padre con Nitro Enclaves activado."
+  value       = try(aws_launch_template.enclave_host[0].id, null)
+}
+
+output "rds_instance_id" {
+  description = "Identificador de la instancia RDS (scripts/rds-failover-test.sh --db-instance-id)."
+  value       = try(aws_db_instance.postgres[0].identifier, null)
+}
+
+output "rds_endpoint" {
+  description = "Host de Postgres (POSTGRES_HOST en el overlay; el DNS sigue a la primaria tras un failover)."
+  value       = try(aws_db_instance.postgres[0].address, null)
+}
+
+output "rds_port" {
+  description = "Puerto de Postgres."
+  value       = try(aws_db_instance.postgres[0].port, null)
+}
+
+output "rds_master_user_secret_arn" {
+  description = "Secreto de Secrets Manager con el usuario maestro (gestionado y rotado por RDS)."
+  value       = try(aws_db_instance.postgres[0].master_user_secret[0].secret_arn, null)
+}
+
+output "rds_security_group_id" {
+  description = "SG de la instancia RDS."
+  value       = try(aws_security_group.postgres[0].id, null)
+}

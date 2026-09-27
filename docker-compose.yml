@@ -1,7 +1,8 @@
 # Sovereign / self-hosted stack (spec §4.1):
 #   cp .env.example .env && $EDITOR .env && docker compose up -d
 # Optional profiles: --profile tor (Tor SOCKS + onion relay), --profile managed (custodial managed signer),
-#   --profile push (opaque Web Push notification gateway, ADR 0010).
+#   --profile push (opaque Web Push notification gateway, ADR 0010),
+#   --profile institutional (relay allowlist sync from the policy-engine, docs/institutional.md).
 name: sedecim-nostr
 
 x-service: &service
@@ -146,6 +147,12 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_DB:-sedecim}
       MIRROR_AT_REST_KEY: ${MIRROR_AT_REST_KEY:-}
       INDEXER_REQUIRE_AUTH: ${INDEXER_REQUIRE_AUTH:-true}
+      # Institutional mode (FR023-05/08): reads evaluated by the policy-engine and retention enforced on the
+      # mirror. Set both (the token must be in POLICY_SERVICE_TOKENS); empty URL keeps it off.
+      POLICY_ENGINE_URL: ${INDEXER_POLICY_ENGINE_URL:-}
+      POLICY_ENGINE_TOKEN: ${INDEXER_POLICY_ENGINE_TOKEN:-}
+      INDEXER_POLICY_WORKSPACE: ${INDEXER_POLICY_WORKSPACE:-}
+      RETENTION_INTERVAL_MS: ${RETENTION_INTERVAL_MS:-3600000}
       PUBLIC_BASE_URL: ${INDEXER_PUBLIC_URL:-http://localhost:8081}
       PORT: "8081"
       # NFR004-01: Prometheus exporter (internal port, not published). ACK probe off unless set (ms).
@@ -180,16 +187,26 @@ services:
     environment:
       POLICY_ADMIN_PUBKEYS: ${POLICY_ADMIN_PUBKEYS:-}
       POLICY_SERVICE_TOKENS: ${POLICY_SERVICE_TOKENS:-}
+      # FR023-03: subjects, devices, sessions, rotations and audit persist in policy_* tables.
+      DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_DB:-sedecim}
       PUBLIC_BASE_URL: ${POLICY_PUBLIC_URL:-http://localhost:8083}
+      # The admin console and device passkey registration (WebAuthn RP = the web origin) run in the browser.
+      CORS_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
+      WEBAUTHN_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_REQUIRE_ATTESTATION: ${WEBAUTHN_REQUIRE_ATTESTATION:-false}
       PORT: "8083"
     ports: ["${POLICY_PORT:-8083}:8083"]
+    depends_on:
+      postgres: { condition: service_healthy }
 
   # Secondary relay for Marmot/MLS groups (kinds 30443/445/10051 are rejected by the pinned Buzz build)
   # and for Sovereign Tor personas via its onion service. NIP-42 required; gift wraps only to recipients.
   secure-relay:
     image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5}
     volumes:
-      - ./infra/secure-relay/config.toml:/usr/src/app/config.toml:ro
+      # Institutional mode: ./infra/secure-relay/config.institutional.toml (event admission by relay-allowlist).
+      - ${SECURE_RELAY_CONFIG:-./infra/secure-relay/config.toml}:/usr/src/app/config.toml:ro
       - secure-relay-data:/usr/src/app/db
     ports: ["${SECURE_RELAY_PORT:-7000}:8080"]
     restart: unless-stopped
@@ -217,6 +234,8 @@ services:
       - ./infra/web/flags.json:/usr/share/nginx/html/flags.json:ro
       # deployment settings (mode self-hosted | saas, relays, Cognito): infra/web/config.saas.example.json
       - ${WEB_CONFIG:-./infra/web/config.json}:/usr/share/nginx/html/config.json:ro
+      # admin console at /admin/ (policyEngineUrl, identityServiceUrl): infra/web/admin-config.json
+      - ${WEB_ADMIN_CONFIG:-./infra/web/admin-config.json}:/usr/share/nginx/html/admin/config.json:ro
     restart: unless-stopped
     read_only: true
     tmpfs: [/var/cache/nginx, /var/run, /tmp]
@@ -250,8 +269,18 @@ services:
       COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:-}
       # Legacy service-to-service mode (token:principal + x-account-id). Empty = disabled.
       MANAGED_SIGNER_SERVICE_TOKENS: ${MANAGED_SIGNER_SERVICE_TOKENS:-}
+      # FR024-03: token:principal allowed to call POST /v1/devices/:id/revoke (rotation worker / policy side).
+      MANAGED_SIGNER_REVOCATION_TOKENS: ${MANAGED_SIGNER_REVOCATION_TOKENS:-}
+      # true: key operations only through device-bound sessions (POST /v1/device-sessions).
+      MANAGED_SIGNER_REQUIRE_DEVICE_SESSION: ${MANAGED_SIGNER_REQUIRE_DEVICE_SESSION:-false}
+      # FR005-06: per-key / per-kind limits per minute (and per-kind overrides kind:perMin[:burst]).
+      MANAGED_SIGNER_RATE_PER_KEY: ${MANAGED_SIGNER_RATE_PER_KEY:-120}
+      MANAGED_SIGNER_RATE_PER_KIND: ${MANAGED_SIGNER_RATE_PER_KIND:-60}
+      MANAGED_SIGNER_RATE_KINDS: ${MANAGED_SIGNER_RATE_KINDS:-}
       CORS_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
       PORT: "8084"
+      # Prometheus metrics (internal port, not published): operations, 429s, device revocations.
+      METRICS_PORT: "9464"
     read_only: false
     volumes: [managed-vault:/data]
     # The web calls it directly with the user's Acceso token.
@@ -279,6 +308,29 @@ services:
     ports: ["${NOTIFY_PORT:-8086}:8086"]
     depends_on:
       relay: { condition: service_healthy }
+
+  # --- optional: institutional relay allowlist (FR023-04). Polls GET /v1/relay/allowlist and applies it to
+  # Buzz (pubkey_allowlist table; needs BUZZ_PUBKEY_ALLOWLIST=true) and to the secure-relay (gRPC admission).
+  relay-allowlist:
+    <<: *service
+    profiles: [institutional]
+    build: { context: ., target: service, args: { SERVICE: policy-engine } }
+    command: ["sh", "-c", "exec node_modules/.bin/tsx services/policy-engine/src/allowlist-sync-main.ts"]
+    environment:
+      POLICY_ENGINE_URL: http://policy-engine:8083
+      # One of the tokens in POLICY_SERVICE_TOKENS.
+      POLICY_ENGINE_TOKEN: ${RELAY_ALLOWLIST_POLICY_TOKEN:-}
+      BUZZ_DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-buzz}
+      # Buzz community hosts to manage (comma separated); empty = every active community.
+      BUZZ_ALLOWLIST_HOSTS: ${BUZZ_ALLOWLIST_HOSTS:-}
+      # Service identities that must keep relay access (indexer, notification gateway), hex.
+      ALLOWLIST_EXTRA_PUBKEYS: ${ALLOWLIST_EXTRA_PUBKEYS:-}
+      ALLOWLIST_SYNC_INTERVAL_MS: ${ALLOWLIST_SYNC_INTERVAL_MS:-30000}
+      ALLOWLIST_GRPC_PORT: "50051"
+      PORT: "8087"
+    depends_on:
+      postgres: { condition: service_healthy }
+      policy-engine: { condition: service_started }
 
   # --- optional: Sovereign Tor Mode (SOCKS for clients + onion service for the relay)
   tor:

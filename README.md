@@ -23,8 +23,9 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
-| Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma autorizada con el token de Acceso) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; enclave Nitro pendiente) |
+| Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma autorizada con el token de Acceso) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
 | Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (persistencia en memoria) |
+| Consola de administración web (NIP-98; personas, recursos, dispositivos y passkeys, rotaciones, directorio, retención, auditoría) | `apps/admin-console`, [docs/admin-console.md](docs/admin-console.md) | ✅ servida por la imagen web en `/admin/` |
 | Notificaciones push opacas por perfil (Web Push VAPID + RFC 8291; sin contenido, remitente ni recuento; deshabilitadas en sovereign/Tor) | `services/notification-gateway`, [ADR 0010](docs/adr/0010-notificaciones-push-por-perfil.md) | ✅ opt-in (perfil compose `push`; registros en memoria) |
 | Stack self-hosted Docker Compose (Buzz fijado por digest, Tor opcional) | `docker-compose.yml`, `infra/` | ✅ |
 | Buzz upstream sin fork, fijado por digest | `infra/buzz/PIN`, `docs/adr/0002-subset-y-pin-de-buzz.md`, `docs/buzz-integration.md` | ✅ (política de actualización: ADR 0003) |
@@ -42,6 +43,7 @@ npm install
 npm run check                 # typecheck + 100+ tests (unitarios y E2E en proceso)
 npm run dev:relay             # relay de desarrollo en memoria: ws://localhost:7777
 npm run dev:web                # web en http://localhost:5173 (Vite); npm run build:web → apps/web-saas/dist
+npm run dev:admin              # consola de administración en http://localhost:5174; npm run build:admin
 ```
 
 ### Self-hosted soberano (spec §4.1)
@@ -52,7 +54,7 @@ docker compose up -d          # relay Buzz, postgres, redis, SeaweedFS (S3), ind
 docker compose --profile tor up -d       # + Tor SOCKS y relay .onion
 docker compose --profile managed up -d   # + managed signer (CUSTODIAL, opt-in)
 ```
-Web: http://localhost:8080 · Relay: ws://localhost:3000 · Indexer: http://localhost:8081
+Web: http://localhost:8080 · Consola de administración: http://localhost:8080/admin/ · Relay: ws://localhost:3000 · Indexer: http://localhost:8081
 
 `scripts/init-env.sh` rellena solo las claves vacías o `CHANGE_ME` y nunca sobrescribe un valor, así que se puede
 volver a ejecutar. Las llaves Nostr las genera el generador offline: la llave del relay y la identidad del mirror
@@ -125,7 +127,7 @@ docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, ru
 - F3: auditoría independiente de fugas; cliente móvil/desktop dedicado para Tor.
 - F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); unificar Marmot en Buzz si upstream acepta sus kinds.
 - F5: admin-console, directorio con passkeys/attestation, legal hold.
-- Primer release firmado con `release.yml` (falta configurar el entorno `release`), QR en el generador offline, enclave Nitro para managed.
+- Primer release firmado con `release.yml` (falta configurar el entorno `release`), QR en el generador offline, enclave Nitro para managed en AWS real (EIF medida, attestation real).
 
 ## Licencia
 Apache-2.0 (ver `LICENSE` y `NOTICE`). El relay Buzz (Apache-2.0) se usa sin modificar como imagen upstream fijada por digest.

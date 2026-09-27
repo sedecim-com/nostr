@@ -1,0 +1,105 @@
+# FR023-04: polls the policy-engine allowlist and applies it to Buzz (pubkey_allowlist table) and to the
+# secure-relay (nauthz gRPC event admission on :50051). Stateless: one replica.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: relay-allowlist
+  labels:
+    app: relay-allowlist
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: relay-allowlist
+  template:
+    metadata:
+      labels:
+        app: relay-allowlist
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: relay-allowlist
+          image: acceso-nostr-service
+          command: ["sh", "-c", "exec node_modules/.bin/tsx services/policy-engine/src/allowlist-sync-main.ts"]
+          ports:
+            - name: http
+              containerPort: 8087
+            - name: grpc
+              containerPort: 50051
+          envFrom:
+            - configMapRef:
+                name: acceso-nostr-config
+          env:
+            - name: SERVICE
+              value: policy-engine
+            - name: PORT
+              value: "8087"
+            - name: ALLOWLIST_GRPC_PORT
+              value: "50051"
+            - name: POLICY_ENGINE_URL
+              value: http://policy-engine:8083
+            - name: POLICY_ENGINE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: RELAY_ALLOWLIST_POLICY_TOKEN
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: POSTGRES_PASSWORD
+            - name: BUZZ_DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(POSTGRES_DB)$(POSTGRES_URL_QUERY)
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: relay-allowlist
+  labels:
+    app: relay-allowlist
+spec:
+  selector:
+    app: relay-allowlist
+  ports:
+    - name: http
+      port: 8087
+      targetPort: 8087
+    - name: grpc
+      port: 50051
+      targetPort: 50051

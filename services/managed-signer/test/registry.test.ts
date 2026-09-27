@@ -7,7 +7,7 @@ import { finalizeEvent, generateSecretKey, nip49, toUnsigned, verifyEvent } from
 import { createPgPool, createTestCognito, migrate, resetScope, type Pool } from '@sedecim/service-kit';
 import { ManagedSignerClient } from '@sedecim/signer';
 import { createLogger } from '@sedecim/telemetry-policy';
-import { createManagedSignerApi, LocalEnvelopeVault, ManagedSigner, MemoryKeyRegistry, PgKeyRegistry, type KeyRegistry } from '../src/index';
+import { createManagedSignerApi, LocalEnvelopeVault, ManagedSigner, MemoryDeviceStore, MemoryKeyRegistry, PgDeviceStore, PgKeyRegistry, type DeviceStore, type KeyRegistry } from '../src/index';
 
 const MIGRATIONS = fileURLToPath(new URL('../migrations', import.meta.url));
 const acceso = createTestCognito();
@@ -79,8 +79,30 @@ function suite(name: string, open: () => Promise<KeyRegistry>) {
   });
 }
 
+function deviceStoreSuite(name: string, open: () => Promise<DeviceStore>) {
+  describe(name, () => {
+    it('keeps revocations, drops the sessions of the device and purges expired ones', async () => {
+      const store = await open();
+      const at = Date.UTC(2026, 5, 1);
+      const sess = (h: string, deviceId: string, expiresAt = at + 1000) => ({ tokenHash: h.repeat(64), deviceId, owner: 'o', principal: 'o', createdAt: at, expiresAt });
+      await store.insertSession(sess('a', 'd1'));
+      await store.insertSession(sess('b', 'd1'));
+      await store.insertSession(sess('c', 'd2', at));
+      expect(await store.session('a'.repeat(64))).toMatchObject({ deviceId: 'd1', expiresAt: at + 1000 });
+      expect(await store.revoke({ deviceId: 'd1', revokedAt: at, revokedBy: 'policy', reason: 'lost' })).toEqual({ alreadyRevoked: false, sessionsDropped: 2 });
+      expect(await store.revoke({ deviceId: 'd1', revokedAt: at + 5, revokedBy: 'other' })).toEqual({ alreadyRevoked: true, sessionsDropped: 0 });
+      expect(await store.revocation('d1')).toEqual({ deviceId: 'd1', revokedAt: at, revokedBy: 'policy', reason: 'lost' });
+      expect(await store.revocation('d2')).toBeUndefined();
+      expect(await store.session('a'.repeat(64))).toBeUndefined();
+      expect(await store.purgeExpiredSessions(at)).toBe(1);
+      expect(await store.session('c'.repeat(64))).toBeUndefined();
+    });
+  });
+}
+
 const memory = new MemoryKeyRegistry();
 suite('managed-signer registry (memory)', async () => memory);
+deviceStoreSuite('managed-signer device store (memory)', async () => new MemoryDeviceStore());
 
 const PG = process.env.TEST_DATABASE_URL;
 if (PG) {
@@ -89,14 +111,16 @@ if (PG) {
   afterAll(async () => {
     await Promise.all(pools.map((p) => p.end()));
   });
-  suite('managed-signer registry (postgres)', async () => {
+  const openPool = async () => {
     const pool = createPgPool(PG);
     pools.push(pool);
     if (!reset) {
-      await resetScope(pool, 'managed-signer', ['managed_key_usage', 'managed_keys']);
+      await resetScope(pool, 'managed-signer', ['managed_key_usage', 'managed_keys', 'managed_signer_device_sessions', 'managed_signer_revoked_devices']);
       reset = true;
     }
     await migrate(pool, MIGRATIONS, 'managed-signer');
-    return new PgKeyRegistry(pool);
-  });
+    return pool;
+  };
+  suite('managed-signer registry (postgres)', async () => new PgKeyRegistry(await openPool()));
+  deviceStoreSuite('managed-signer device store (postgres)', async () => new PgDeviceStore(await openPool()));
 }
