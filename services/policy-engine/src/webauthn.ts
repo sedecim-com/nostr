@@ -6,6 +6,13 @@ import { createHash, createPublicKey, randomBytes, timingSafeEqual, verify, X509
  * vendor roots (no FIDO MDS): the signature proves the authenticator produced this credential.
  */
 
+/** Strips base64 '=' padding in linear time (a /=+$/ regex backtracks on long runs of '='). */
+function unpad(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 61) end--;
+  return s.slice(0, end);
+}
+
 export const b64u = {
   encode: (b: Uint8Array) => Buffer.from(b).toString('base64url'),
   decode: (s: string) => {
@@ -181,7 +188,7 @@ export function verifyRegistration(
   const credentialId = authData.slice(55, 55 + credLen);
   if (credentialId.length !== credLen || credLen === 0) throw new WebAuthnError('truncated credential id');
   const credentialIdB64 = b64u.encode(credentialId);
-  if (credentialIdB64 !== cred.id.replace(/=+$/, '') || (cred.rawId !== undefined && cred.rawId.replace(/=+$/, '') !== credentialIdB64)) throw new WebAuthnError('credential id mismatch');
+  if (credentialIdB64 !== unpad(cred.id) || (cred.rawId !== undefined && unpad(cred.rawId) !== credentialIdB64)) throw new WebAuthnError('credential id mismatch');
   const cose = cborDecode(authData, 55 + credLen);
   if (cose.offset !== authData.length && !(flags & 0x80)) throw new WebAuthnError('trailing authenticator data');
   const publicKey = coseToJwk(cose.value);

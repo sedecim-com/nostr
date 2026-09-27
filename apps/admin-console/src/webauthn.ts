@@ -12,7 +12,10 @@ export function bytesToB64url(b: ArrayBuffer | Uint8Array): string {
   const bytes = b instanceof Uint8Array ? b : new Uint8Array(b);
   let bin = '';
   for (const x of bytes) bin += String.fromCharCode(x);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const b64 = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_');
+  let end = b64.length;
+  while (end > 0 && b64[end - 1] === '=') end--; // no /=+$/: linear time
+  return b64.slice(0, end);
 }
 
 /** JSON options from the server → the binary form navigator.credentials.create expects. */

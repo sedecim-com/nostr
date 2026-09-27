@@ -153,7 +153,21 @@ export function checkAudits({ tag, root = process.cwd(), actors = [] }) {
 }
 
 /** Text of a Markdown section without HTML comments and blank lines. */
-const content = (text) => text.replace(/<!--[\s\S]*?-->/g, '').split('\n').filter((l) => l.trim()).join('\n');
+const content = (text) => stripComments(text).split('\n').filter((l) => l.trim()).join('\n');
+
+/** Removes every <!-- … --> (an unterminated one runs to the end), scanning once so nothing can reassemble. */
+function stripComments(text) {
+  let out = '';
+  let i = 0;
+  for (;;) {
+    const start = text.indexOf('<!--', i);
+    if (start < 0) return out + text.slice(i);
+    out += text.slice(i, start);
+    const end = text.indexOf('-->', start + 4);
+    if (end < 0) return out;
+    i = end + 3;
+  }
+}
 
 /**
  * docs/releases/<tag>.md is the GitHub Release body: title with the tag, the trust-model section with

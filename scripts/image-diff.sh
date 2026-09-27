@@ -8,7 +8,7 @@ set -eu
 
 a=${1:-}
 b=${2:-}
-[ -f "$a" ] && [ -f "$b" ] || { echo "uso: sh scripts/image-diff.sh a.tar b.tar" >&2; exit 2; }
+if [ ! -f "$a" ] || [ ! -f "$b" ]; then echo "uso: sh scripts/image-diff.sh a.tar b.tar" >&2; exit 2; fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

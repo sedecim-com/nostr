@@ -5,7 +5,8 @@
 # must be bumped (docs/building.md, "Imagen tor").
 FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 # The tor package's pre-install adduser writes the current day into /etc/shadow; the account is locked,
-# so clear that field to keep the layer identical across build days.
+# so clear that field to keep the layer identical across build days. apk also logs install times to
+# /var/log/apk.log: drop it (nothing reads it at runtime).
 RUN apk add --no-cache \
       tor=0.4.9.13-r0 \
       su-exec=0.3-r0 \
@@ -15,6 +16,7 @@ RUN apk add --no-cache \
       xz-libs=5.8.4-r0 \
       zstd-libs=1.5.7-r2 \
   && sed -i -E 's/^(tor:[^:]*):[0-9]*:/\1::/' /etc/shadow \
+  && rm -f /var/log/apk.log \
   && mkdir -p /var/lib/tor && chown -R tor /var/lib/tor
 COPY --chmod=644 torrc /etc/tor/torrc
 COPY --chmod=755 entrypoint.sh /entrypoint.sh
