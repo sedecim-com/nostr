@@ -1,3 +1,5 @@
+import { TokenBucketLimiter } from '@sedecim/service-kit';
+
 /** Token bucket: `burst` tokens at most, refilled at `perMinute` tokens per minute. */
 export interface RateLimitRule {
   perMinute: number;
@@ -71,5 +73,54 @@ export class SigningRateLimiter {
     this.buckets.set(keyId_, { tokens: key.tokens - 1, at: now });
     this.buckets.set(kindId, { tokens: kb.tokens - 1, at: now });
     return { ok: true };
+  }
+}
+
+/**
+ * IR-2026-09-20: import and export run scrypt (up to 2^18, 256 MiB each). Per owner: a token bucket and one
+ * operation at a time; per process: at most `maxConcurrent` running and `maxQueue` waiting.
+ */
+export interface ScryptLimitConfig {
+  perOwner: RateLimitRule;
+  maxConcurrent: number;
+  maxQueue: number;
+}
+
+export const DEFAULT_SCRYPT_LIMITS: ScryptLimitConfig = { perOwner: { perMinute: 10, burst: 5 }, maxConcurrent: 2, maxQueue: 16 };
+
+export type ScryptRejection = { ok: false; scope: 'owner' | 'busy'; retryAfterMs: number };
+
+/** Admission for scrypt operations (per replica, like the signing buckets). */
+export class ScryptGate {
+  private readonly buckets: TokenBucketLimiter;
+  private readonly inFlight = new Set<string>();
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  constructor(private readonly config: ScryptLimitConfig = DEFAULT_SCRYPT_LIMITS, now?: () => number) {
+    this.buckets = new TokenBucketLimiter({ maxKeys: MAX_BUCKETS, ...(now ? { now } : {}) });
+  }
+
+  /** Runs `fn` if admitted; otherwise returns the rejection without running it. */
+  async run<T>(owner: string, fn: () => Promise<T>): Promise<{ ok: true; value: T } | ScryptRejection> {
+    if (this.inFlight.has(owner)) return { ok: false, scope: 'owner', retryAfterMs: 1000 };
+    if (this.active >= this.config.maxConcurrent && this.waiting.length >= this.config.maxQueue) return { ok: false, scope: 'busy', retryAfterMs: 1000 };
+    const d = this.buckets.take(owner, this.config.perOwner);
+    if (!d.ok) return { ok: false, scope: 'owner', retryAfterMs: d.retryAfterMs };
+    this.inFlight.add(owner);
+    try {
+      // A finishing operation hands its slot straight to the next waiter.
+      if (this.active >= this.config.maxConcurrent) await new Promise<void>((r) => this.waiting.push(r));
+      else this.active++;
+      try {
+        return { ok: true, value: await fn() };
+      } finally {
+        const next = this.waiting.shift();
+        if (next) next();
+        else this.active--;
+      }
+    } finally {
+      this.inFlight.delete(owner);
+    }
   }
 }

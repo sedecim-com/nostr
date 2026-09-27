@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { createPgPool, migrate } from '@sedecim/service-kit';
+import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, type ReplayStore } from '@sedecim/service-kit';
 import { createPolicyApi, MemoryPolicyRepository, PgPolicyRepository, PolicyEngine, type PolicyRepository } from './index';
 
 const env = process.env;
@@ -8,10 +8,14 @@ const tokens = Object.fromEntries((env.POLICY_SERVICE_TOKENS ?? '').split(',').f
 if (admins.length === 0) console.warn('POLICY_ADMIN_PUBKEYS empty: admin routes will reject every request');
 
 let repo: PolicyRepository;
+// IR-2026-09-04: used NIP-98 ids shared by every replica through Postgres; per process without it.
+let replayStore: ReplayStore | undefined;
 if (env.DATABASE_URL) {
   const pool = createPgPool(env.DATABASE_URL);
   await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'policy-engine');
+  await migrateReplayStore(pool);
   repo = new PgPolicyRepository(pool);
+  replayStore = new PgReplayStore(pool);
 } else {
   console.warn('DATABASE_URL not set: using in-memory repository (policy state is lost on restart)');
   repo = new MemoryPolicyRepository();
@@ -26,5 +30,14 @@ const webauthn = {
   allowNone: env.WEBAUTHN_REQUIRE_ATTESTATION !== 'true',
 };
 const corsOrigins = (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-const api = createPolicyApi(new PolicyEngine(repo, Date.now, webauthn), { name: 'policy-engine', publicBaseUrl: env.PUBLIC_BASE_URL, bearerTokens: tokens, adminPubkeys: admins, corsOrigins });
+const api = createPolicyApi(new PolicyEngine(repo, Date.now, webauthn), {
+  name: 'policy-engine',
+  publicBaseUrl: env.PUBLIC_BASE_URL,
+  bearerTokens: tokens,
+  adminPubkeys: admins,
+  corsOrigins,
+  rateLimit: rateLimitFromEnv(env),
+  ...(replayStore ? { replayStore } : {}),
+});
+if (env.METRICS_PORT && api.rateLimiter) await serveMetrics(() => api.rateLimiter!.render(), { port: Number(env.METRICS_PORT), host: env.METRICS_HOST ?? '0.0.0.0' });
 await api.listen(Number(env.PORT ?? 8083), env.HOST ?? '0.0.0.0');

@@ -50,6 +50,7 @@ jobs:
         run: |
           sh scripts/init-env.sh
           echo "INDEXER_CHANNEL_REFRESH_MS=2000" >> .env
+          echo "INDEXER_RATE_LIMIT_READ=60000:10000" >> .env
       - name: Build images
         run: docker compose --profile scale build
       - name: Start stack (1 indexer replica)

@@ -3,6 +3,8 @@ import type { AddressInfo } from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
 import { nip98 } from '@sedecim/nostr-core';
 import { createLogger, type Logger } from '@sedecim/telemetry-policy';
+import { MemoryReplayStore, ReplayStoreFullError, type ReplayStore } from './replay';
+import { HttpRateLimiter, logRateLimited, retryAfterSeconds, type HttpRateLimitOptions, type RateClass, type RateScope } from './ratelimit';
 
 /** 'nip98-or-token': NIP-98, or an `Authorization: Bearer` token handed to the route as `req.token` to verify (e.g. Cognito). */
 export type AuthMode = 'none' | 'nip98' | 'bearer' | 'nip98-optional' | 'nip98-or-token';
@@ -21,6 +23,8 @@ export interface Req {
   /** Unverified bearer token ('nip98-or-token' routes): the handler must verify it. */
   token?: string;
   json<T = unknown>(): T;
+  /** Charges the route's principal bucket for an identity verified by the handler (e.g. a Cognito subject); throws 429. */
+  limitPrincipal(id: string): void;
 }
 
 export interface Res {
@@ -42,9 +46,14 @@ export function lookupToken(tokens: Record<string, string> | undefined, token: s
 }
 
 export class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(readonly status: number, message: string, readonly headers?: Record<string, string>) {
     super(message);
   }
+}
+
+/** 'none': never rate limited (health checks). */
+export interface RouteOptions {
+  rateClass?: RateClass | 'none';
 }
 
 type Handler = (req: Req) => Promise<Res | unknown> | Res | unknown;
@@ -55,6 +64,7 @@ interface Route {
   keys: string[];
   handler: Handler;
   auth: AuthMode;
+  rateClass: RateClass | 'none';
 }
 
 export interface ServiceOptions {
@@ -67,29 +77,48 @@ export interface ServiceOptions {
   maxBodyBytes?: number;
   /** Browser origins allowed to call this service (exact match), e.g. the web app. Empty: no CORS. */
   corsOrigins?: string[];
+  /** Used NIP-98 event ids (default: in-memory, per process). Use PgReplayStore to share across replicas. */
+  replayStore?: ReplayStore;
+  /** Token buckets by client IP and principal (IR-2026-09-05). Off unless given (mains use rateLimitFromEnv). */
+  rateLimit?: HttpRateLimitOptions | HttpRateLimiter | false;
 }
 
 export class Service {
   private readonly routes: Route[] = [];
   private server?: Server;
   readonly logger: Logger;
+  readonly replayStore: ReplayStore;
+  readonly rateLimiter?: HttpRateLimiter;
   baseUrl = '';
 
   constructor(readonly opts: ServiceOptions) {
     this.logger = opts.logger ?? createLogger({ base: { service: opts.name }, minimizeIp: true });
+    this.replayStore = opts.replayStore ?? new MemoryReplayStore();
+    if (opts.rateLimit) this.rateLimiter = opts.rateLimit instanceof HttpRateLimiter ? opts.rateLimit : new HttpRateLimiter(opts.rateLimit);
   }
 
-  route(method: string, path: string, handler: Handler, auth: AuthMode = 'none'): this {
+  route(method: string, path: string, handler: Handler, auth: AuthMode = 'none', ropts: RouteOptions = {}): this {
     const keys: string[] = [];
     const pattern = new RegExp('^' + path.replace(/:([a-zA-Z_]+)/g, (_m, k: string) => (keys.push(k), '([^/]+)')) + '/?$');
-    this.routes.push({ method: method.toUpperCase(), pattern, keys, handler, auth });
+    const m = method.toUpperCase();
+    const rateClass = ropts.rateClass ?? (auth === 'bearer' ? 'service' : m === 'GET' || m === 'HEAD' ? 'read' : 'mutating');
+    this.routes.push({ method: m, pattern, keys, handler, auth, rateClass });
     return this;
   }
 
-  get = (p: string, h: Handler, a?: AuthMode) => this.route('GET', p, h, a);
-  post = (p: string, h: Handler, a?: AuthMode) => this.route('POST', p, h, a);
-  put = (p: string, h: Handler, a?: AuthMode) => this.route('PUT', p, h, a);
-  delete = (p: string, h: Handler, a?: AuthMode) => this.route('DELETE', p, h, a);
+  get = (p: string, h: Handler, a?: AuthMode, o?: RouteOptions) => this.route('GET', p, h, a, o);
+  post = (p: string, h: Handler, a?: AuthMode, o?: RouteOptions) => this.route('POST', p, h, a, o);
+  put = (p: string, h: Handler, a?: AuthMode, o?: RouteOptions) => this.route('PUT', p, h, a, o);
+  delete = (p: string, h: Handler, a?: AuthMode, o?: RouteOptions) => this.route('DELETE', p, h, a, o);
+
+  /** Throws 429 (with Retry-After) when the bucket of `id` for this class is empty. */
+  private limit(cls: RateClass, scope: RateScope, id: string) {
+    const d = this.rateLimiter?.check(cls, scope, id);
+    if (d && !d.ok) {
+      logRateLimited(this.logger, cls, scope, d.retryAfterMs);
+      throw new HttpError(429, 'too many requests', { 'retry-after': retryAfterSeconds(d.retryAfterMs) });
+    }
+  }
 
   private async readBody(req: IncomingMessage): Promise<string> {
     const max = this.opts.maxBodyBytes ?? 1_000_000;
@@ -103,7 +132,7 @@ export class Service {
     return Buffer.concat(chunks).toString('utf8');
   }
 
-  private authenticate(route: Route, req: Req, rawUrl: string) {
+  private async authenticate(route: Route, req: Req, rawUrl: string) {
     if (route.auth === 'none') return;
     const header = req.headers.authorization;
     if (route.auth === 'bearer') {
@@ -119,13 +148,24 @@ export class Service {
       if (!req.token) throw new HttpError(401, 'empty bearer token');
       return;
     }
-    const base = this.opts.publicBaseUrl ?? this.baseUrl;
+    // `u` must be exactly the public URL of this request: base URL + path + query as received.
+    const base = (this.opts.publicBaseUrl ?? this.baseUrl).replace(/\/+$/, '');
+    let evt;
     try {
-      const evt = nip98.verifyAuthHeader(header, { url: base + rawUrl, method: req.method, body: req.rawBody });
-      req.pubkey = evt.pubkey;
+      evt = nip98.verifyAuthHeader(header, { url: base + rawUrl, method: req.method, body: req.rawBody, maxSkewSeconds: nip98.MAX_SKEW_SECONDS });
     } catch (err) {
       throw new HttpError(401, `NIP-98: ${(err as Error).message}`);
     }
+    // IR-2026-09-04: each event id is accepted once while it is inside the time window.
+    let fresh: boolean;
+    try {
+      fresh = await this.replayStore.use(evt.id, evt.created_at + nip98.MAX_SKEW_SECONDS);
+    } catch (err) {
+      if (err instanceof ReplayStoreFullError) throw new HttpError(503, 'try again later');
+      throw err;
+    }
+    if (!fresh) throw new HttpError(401, 'NIP-98: authorization already used');
+    req.pubkey = evt.pubkey;
   }
 
   private corsHeaders(req: IncomingMessage): Record<string, string> {
@@ -149,6 +189,10 @@ export class Service {
       const route = this.routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
       if (!route) throw new HttpError(404, 'not found');
       const m = route.pattern.exec(url.pathname)!;
+      const cls = route.rateClass;
+      const ip = this.rateLimiter && cls !== 'none' ? this.rateLimiter.ip(req) : '';
+      // Before reading the body or verifying signatures. Service routes are limited per principal only.
+      if (ip && cls !== 'none' && cls !== 'service') this.limit(cls, 'ip', ip);
       const rawBody = req.method === 'GET' || req.method === 'HEAD' ? '' : await this.readBody(req);
       const r: Req = {
         method: req.method!,
@@ -164,8 +208,19 @@ export class Service {
             throw new HttpError(400, 'invalid JSON body');
           }
         },
+        limitPrincipal: (id: string) => {
+          if (cls !== 'none') this.limit(cls, 'principal', id);
+        },
       };
-      this.authenticate(route, r, req.url ?? '/');
+      try {
+        await this.authenticate(route, r, req.url ?? '/');
+      } catch (err) {
+        // Failed authentications from one address share the strict `auth` bucket: floods get 429.
+        if (ip && err instanceof HttpError && err.status === 401) this.limit('auth', 'ip', ip);
+        throw err;
+      }
+      const who = r.pubkey ?? r.principal;
+      if (who) r.limitPrincipal(who);
       const out = await route.handler(r);
       const resObj: Res = out && typeof out === 'object' && ('body' in out || 'status' in out) ? (out as Res) : { body: out };
       status = resObj.status ?? 200;
@@ -174,7 +229,7 @@ export class Service {
     } catch (err) {
       status = err instanceof HttpError ? err.status : 500;
       if (status === 500) this.logger.error('unhandled error', { error: (err as Error).message });
-      res.writeHead(status, { 'content-type': 'application/json', ...cors });
+      res.writeHead(status, { 'content-type': 'application/json', ...cors, ...(err instanceof HttpError ? err.headers : {}) });
       res.end(JSON.stringify({ error: err instanceof HttpError ? err.message : 'internal error' }));
     } finally {
       this.logger.debug('request', { method: req.method, path: url.pathname, status, ms: Date.now() - started });
@@ -192,6 +247,7 @@ export class Service {
 
   async close(): Promise<void> {
     await new Promise<void>((r) => (this.server ? this.server.close(() => r()) : r()));
+    await this.replayStore.close?.();
   }
 }
 

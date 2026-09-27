@@ -35,22 +35,27 @@ services:
     environment:
       INDEXER_RELAY_PUBLIC_URL: wss://relay.${DOMAIN}
       PUBLIC_BASE_URL: https://mirror.${DOMAIN}
+      # Behind Caddy, which sets X-Forwarded-For to the client: the rate limiter trusts that one hop.
+      RATE_LIMIT_TRUST_PROXY_HOPS: "1"
 
   identity-service:
     ports: !reset []
     environment:
       PUBLIC_BASE_URL: https://id.${DOMAIN}
       CORS_ORIGINS: https://${DOMAIN}
+      RATE_LIMIT_TRUST_PROXY_HOPS: "1"
 
   policy-engine:
     ports: !reset []
     environment:
       PUBLIC_BASE_URL: https://policy.${DOMAIN}
+      RATE_LIMIT_TRUST_PROXY_HOPS: "1"
 
   blob-store:
     ports: !reset []
     environment:
       PUBLIC_BASE_URL: https://blobs.${DOMAIN}
+      RATE_LIMIT_TRUST_PROXY_HOPS: "1"
 
   web:
     ports: !reset []

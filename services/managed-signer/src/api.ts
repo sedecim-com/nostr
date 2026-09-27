@@ -100,7 +100,7 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
       return fn(req, caller);
     });
 
-  svc.get('/health', () => ({ ok: true, custodial: true }));
+  svc.get('/health', () => ({ ok: true, custodial: true }), 'none', { rateClass: 'none' });
 
   // FR024-03: device-bound sessions. Opened with an Acceso (or service) token, never from another session.
   svc.post('/v1/device-sessions', route(async (req, c) => {
@@ -111,7 +111,7 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
     const s = await core.openDeviceSession(c.owner, c.principal, body.device_id, body.ttl_seconds === undefined ? undefined : body.ttl_seconds * 1000);
     log.info('device session opened', { device_id: body.device_id });
     return { status: 201, body: { token: s.token, device_id: body.device_id, expires_at: new Date(s.expiresAt).toISOString() } };
-  }, false));
+  }, false), 'none', { rateClass: 'auth' });
   // Called by the policy side when a device is revoked (idempotent). Revocation tokens only.
   svc.post('/v1/devices/:id/revoke', (req) =>
     mapErrors(async () => {

@@ -2714,7 +2714,7 @@
    ],
    "sprint": "S8",
    "status": "Parcial",
-   "evidence": "Preparación para la revisión externa: docs/security/audit-scope.md, docs/security/crypto-inventory.md y revisión interna docs/security/internal-review-2026-09.md (22 hallazgos, ninguno crítico; IR-01 mitigado con la exportación del enclave desactivada por defecto), fuzzing de los parsers propios (tests/fuzz), CodeQL y dependency review en CI. Falta el informe externo sin críticos abiertos",
+   "evidence": "Preparación para la revisión externa: docs/security/audit-scope.md, docs/security/crypto-inventory.md y revisión interna docs/security/internal-review-2026-09.md (22 hallazgos, ninguno crítico; IR-01 mitigado con la exportación del enclave desactivada por defecto; IR-04 anti-replay de NIP-98 y IR-05 límites de tasa corregidos), fuzzing de los parsers propios (tests/fuzz), CodeQL y dependency review en CI. Falta el informe externo sin críticos abiertos",
    "issue": 192
   },
   {
@@ -2733,7 +2733,7 @@
    ],
    "sprint": "S8",
    "status": "Parcial",
-   "evidence": "Alcance y reglas de enfrentamiento del pentest en docs/security/audit-scope.md; revisión interna con 11 hallazgos corregidos (scrypt acotado en import, propiedad de blobs, nosniff/CSP en blob-store, comparaciones en tiempo constante, JWKS limitado); abiertos IR-04 (replay NIP-98) e IR-05 (límites de tasa). Falta el pentest externo y el retest de críticos/altos",
+   "evidence": "Alcance y reglas de enfrentamiento del pentest en docs/security/audit-scope.md; revisión interna con los hallazgos medios corregidos: anti-replay de NIP-98 (un uso por id, almacén Postgres compartido entre réplicas, nonce en los clientes) y límites de tasa (service-kit por IP y por principal con 429/Retry-After, clases auth/mutating/read/service, límites en el edge nginx, cola scrypt por dueño en managed-signer), además de scrypt acotado en import, propiedad de blobs, nosniff/CSP/HSTS, comparaciones en tiempo constante y JWKS limitado. Falta el pentest externo y el retest de críticos/altos",
    "issue": 193
   },
   {

@@ -8,6 +8,13 @@ const CUSTODY = ['local', 'offline', 'external', 'encrypted-backup', 'managed', 
 const VIS: Visibility[] = ['private', 'selective', 'public'];
 const FORBIDDEN_KEY_FIELDS = /(nsec|secret|seed|private|mnemonic|password)/i;
 const id = () => randomBytes(12).toString('hex');
+/** IR-2026-09-19: free-text fields have their own limit, not just the body limit. */
+const TEXT_MAX = 200;
+function text(v: unknown, field: string): string | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  if (typeof v !== 'string' || v.length > TEXT_MAX) throw new HttpError(400, `${field} must be a string of up to ${TEXT_MAX} chars`);
+  return v;
+}
 
 export interface BackupVaultOptions {
   /** Max size of one stored envelope (default 512 KiB). */
@@ -42,7 +49,7 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
     return p;
   };
 
-  svc.get('/health', () => ({ ok: true }));
+  svc.get('/health', () => ({ ok: true }), 'none', { rateClass: 'none' });
 
   svc.post(
     '/v1/accounts',
@@ -52,12 +59,14 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
       if (!CUSTODY.includes(custody)) throw new HttpError(400, 'invalid custody_mode');
       if (await repo.personaByPubkey(req.pubkey!)) throw new HttpError(409, 'pubkey already registered');
       const accountId = id();
-      const persona: PersonaRow = { personaId: id(), accountId, pubkey: req.pubkey!, custodyMode: custody, linkageVisibility: 'private', ...(body.label ? { label: body.label } : {}) };
+      const label = text(body.label, 'label');
+      const persona: PersonaRow = { personaId: id(), accountId, pubkey: req.pubkey!, custodyMode: custody, linkageVisibility: 'private', ...(label ? { label } : {}) };
       await repo.createAccount(accountId, persona);
       await repo.audit(accountId, req.pubkey!, 'account.created', { persona: persona.personaId, custody });
       return { status: 201, body: { account_id: accountId, persona } };
     },
     'nip98',
+    { rateClass: 'auth' },
   );
 
   svc.get(
@@ -94,7 +103,8 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
         throw new HttpError(400, 'invalid proof of key control');
       }
       if (await repo.personaByPubkey(body.pubkey)) throw new HttpError(409, 'pubkey already registered');
-      const persona: PersonaRow = { personaId: id(), accountId: current.accountId, pubkey: body.pubkey, custodyMode: custody, linkageVisibility: 'private', ...(body.label ? { label: body.label } : {}) };
+      const label = text(body.label, 'label');
+      const persona: PersonaRow = { personaId: id(), accountId: current.accountId, pubkey: body.pubkey, custodyMode: custody, linkageVisibility: 'private', ...(label ? { label } : {}) };
       await repo.addPersona(persona);
       await repo.audit(current.accountId, req.pubkey!, 'persona.registered', { persona: persona.personaId, custody });
       return { status: 201, body: { persona } };
@@ -155,15 +165,18 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
       const body = req.json<Record<string, unknown>>();
       for (const k of Object.keys(body)) if (FORBIDDEN_KEY_FIELDS.test(k)) throw new HttpError(400, `field "${k}" not allowed: key metadata must never contain secrets`);
       requireFields(body, ['key_id', 'provider']);
+      const version = Number(body.version ?? 1);
+      if (!Number.isInteger(version) || version < 0 || version > 2_147_483_647) throw new HttpError(400, 'version must be a non-negative 32-bit integer');
+      const lastUsed = text(typeof body.last_used === 'number' ? String(body.last_used) : body.last_used, 'last_used');
       const persona = (await repo.personasOf(current.accountId)).find((p) => p.pubkey === req.params.pubkey);
       if (!persona) throw new HttpError(404, 'persona not found');
       await repo.upsertKeyMetadata({
-        keyId: String(body.key_id),
+        keyId: text(String(body.key_id), 'key_id')!,
         personaId: persona.personaId,
-        provider: String(body.provider),
-        version: Number(body.version ?? 1),
-        ...(body.last_used ? { lastUsed: String(body.last_used) } : {}),
-        recoveryState: String(body.recovery_state ?? 'none'),
+        provider: text(String(body.provider), 'provider')!,
+        version,
+        ...(lastUsed ? { lastUsed } : {}),
+        recoveryState: text(String(body.recovery_state ?? 'none'), 'recovery_state')!,
       });
       await repo.audit(current.accountId, req.pubkey!, 'key_metadata.updated', { persona: persona.personaId, key_id: body.key_id });
       return { ok: true, key_metadata: await repo.keyMetadataOf(persona.personaId) };
@@ -197,6 +210,7 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
       return { status: 201, body: { external_logins: await repo.externalLoginsOf(current.accountId) } };
     },
     'nip98',
+    { rateClass: 'auth' },
   );
   svc.get('/v1/accounts/me/external-logins', async (req) => ({ external_logins: await repo.externalLoginsOf((await me(req)).accountId) }), 'nip98');
   svc.delete(
@@ -223,6 +237,7 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
       if (e instanceof CognitoTokenError) throw new HttpError(401, `invalid cognito token: ${e.message}`);
       throw e;
     }
+    req.limitPrincipal(`cognito:${who.issuer}#${who.subject}`);
     const accountId = await repo.accountByExternalLogin('cognito', who.issuer, who.subject);
     if (!accountId) throw new HttpError(404, 'no account linked to this Acceso login');
     return { accountId, actor: `cognito:${who.subject}` };
@@ -259,6 +274,8 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
       return { backup: backupMeta(meta), envelope };
     },
     'nip98-or-token',
+    // A stolen token must not allow bulk downloads of envelopes to attack offline.
+    { rateClass: 'auth' },
   );
   const deleteBackups = async (req: Req) => {
     const owner = await backupOwner(req);

@@ -101,7 +101,7 @@ Fronteras que más interesan:
 | Frontera | De → a | Autenticación | Qué no debe cruzar |
 |---|---|---|---|
 | F1 | Navegador/CLI → relays | NIP-42 (kind 22242), firmas BIP-340 | nsec; contenido de DMs/grupos en claro |
-| F2 | Navegador → APIs (identity, policy, indexer, blob, gateway) | NIP-98 (kind 27235, ±60 s, `u`/`method`/`payload`); Blossom kind 24242 | nsec; backups sin cifrar |
+| F2 | Navegador → APIs (identity, policy, indexer, blob, gateway) | NIP-98 (kind 27235, ±60 s, `u`/`method`/`payload`, cada id una sola vez); Blossom kind 24242 | nsec; backups sin cifrar |
 | F3 | Navegador → managed-signer | Token Acceso (Cognito RS256) o sesión de dispositivo `sds_…` | Operaciones sobre llaves de otro dueño |
 | F4 | Servicios → servicios | Bearer por servicio (comparación en tiempo constante) | Privilegios de administrador |
 | F5 | managed-signer (padre) ⇄ enclave | vsock, sin autenticación de usuario dentro del enclave | nsec en claro hacia el padre |
