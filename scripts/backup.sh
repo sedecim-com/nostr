@@ -77,6 +77,9 @@ fi
 } > "$DIR/INFO"
 
 # Every name here is ours (dumps, archives, INFO, .env): no spaces.
-(cd "$DIR" && for f in * .env; do if [ -f "$f" ]; then sha256 "$f"; fi; done > SHA256SUMS.tmp && mv SHA256SUMS.tmp SHA256SUMS)
+# The list is built outside DIR: a temporary file inside it would be listed by the glob (and then renamed away).
+sums=$(mktemp)
+(cd "$DIR" && for f in * .env; do if [ -f "$f" ]; then sha256 "$f"; fi; done) > "$sums"
+mv "$sums" "$DIR/SHA256SUMS"
 log "backup written to $DIR ($(du -sh "$DIR" | cut -f1))"
 [ "$WITH_ENV" -eq 0 ] || echo "   it contains .env (every secret of the stack): store it encrypted and offline"

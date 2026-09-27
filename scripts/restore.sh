@@ -4,7 +4,8 @@
 #   sh scripts/restore.sh DIR
 #
 # 1. Verifies SHA256SUMS.   2. Puts DIR/.env in place if there is no .env (an existing one must match).
-# 3. `docker compose up --no-start` creates empty volumes; the volume archives are unpacked into them.
+# 3. `docker compose up --no-start` creates the volumes (none may exist before); the volume archives replace
+#    whatever the images seeded into them.
 # 4. Starts Postgres alone (its init script creates the platform database) and pg_restores both dumps.
 # 5. Starts the whole stack. Wait for it with scripts/wait-stack.sh and run the drill checks.
 # Optional services (managed-signer, tor) are restored when their profile is enabled (COMPOSE_PROFILES).
@@ -40,6 +41,9 @@ fi
 [ -f "$ENV_FILE" ] || die "no $ENV_FILE: restore it from its offline copy first"
 
 [ -z "$(docker compose ps -a -q 2>/dev/null)" ] || die "the stack already has containers: restore needs a clean host (docker compose down -v)"
+PROJECT=${COMPOSE_PROJECT_NAME:-sedecim-nostr}
+[ -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT")" ] ||
+  die "the stack already has volumes: restore needs a clean host (docker compose down -v)"
 
 log "creating containers and empty volumes (docker compose up --no-start)"
 docker compose up --no-start
@@ -58,10 +62,11 @@ for entry in relay:/data/git:relay-git seaweedfs:/data:seaweedfs-data blob-store
   fi
   vol=$(volume_at "$cid" "$path")
   [ -n "$vol" ] || die "no volume mounted at $path in $svc"
-  [ -z "$(docker run --rm -v "$vol:/dst" --entrypoint ls "$TOOL_IMAGE" -A /dst)" ] || die "volume $vol is not empty"
+  # The volume was created just now (no volumes existed above); anything in it was copied from the image
+  # (e.g. seaweedfs ships /data), so it is replaced by the backed-up content.
   log "$name → volume $vol"
-  docker run --rm -v "$vol:/dst" -v "$DIR:/backup:ro" --entrypoint tar "$TOOL_IMAGE" \
-    --numeric-owner -C /dst -xzpf "/backup/$name.tgz"
+  docker run --rm -v "$vol:/dst" -v "$DIR:/backup:ro" --entrypoint sh "$TOOL_IMAGE" -c \
+    'find /dst -mindepth 1 -delete && tar --numeric-owner -C /dst -xzpf "/backup/$1.tgz"' sh "$name"
 done
 
 log "starting Postgres"

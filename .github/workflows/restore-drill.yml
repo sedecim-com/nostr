@@ -15,12 +15,19 @@ on:
       - scripts/backup.sh
       - scripts/restore.sh
       - scripts/drill-data.ts
+  # Changes to the drill or its scripts are proven on the PR, before they reach main.
+  pull_request:
+    paths:
+      - .github/workflows/restore-drill.yml
+      - scripts/backup.sh
+      - scripts/restore.sh
+      - scripts/drill-data.ts
 
 permissions:
   contents: read
 
 concurrency:
-  group: restore-drill
+  group: restore-drill-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
   cancel-in-progress: false
 
 env:
@@ -110,11 +117,14 @@ jobs:
             ${{ runner.temp }}/backup/INFO
       - name: Stop stack
         if: always()
-        run: docker compose down -v
+        run: |
+          # compose needs .env to interpolate; after a failed restore it may only exist in the backup.
+          [ -f .env ] || cp "$RUNNER_TEMP/backup/.env" .env 2>/dev/null || true
+          docker compose down -v
 
   drill-failed:
     needs: drill
-    if: always() && needs.drill.result == 'failure'
+    if: always() && needs.drill.result == 'failure' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       issues: write

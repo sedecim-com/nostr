@@ -63,7 +63,7 @@ sh scripts/restore.sh /ruta/al/backup   # verifica SHA256SUMS, repone .env, vol�
 sh scripts/wait-stack.sh
 npm run test:interop                    # con BUZZ_RELAY_URL etc., como en CI
 ```
-`restore.sh` se niega si ya hay contenedores del stack (`docker compose down -v` antes) o si hay un `.env`
+`restore.sh` se niega si ya hay contenedores o volúmenes del stack (`docker compose down -v` antes) o si hay un `.env`
 distinto del respaldado (la llave del relay debe ser la misma). Los perfiles opcionales se restauran si
 están activos (`COMPOSE_PROFILES=managed sh scripts/restore.sh …`).
 
