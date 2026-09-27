@@ -7,7 +7,7 @@
 
 - El plan original S1–S8 (28/09/2026 → 29/01/2027) ya está casi entero en el repositorio: 136 de 158 tareas activas hechas y 80 SP abiertos en 20 parciales y 2 pendientes.
 - La revisión confirma 125 de las 136 tareas hechas. Encuentra 9 sobredeclaradas, 2 en riesgo por un defecto de integración (G1), 6 defectos nuevos y 13 brechas del scope que no tenían tarea.
-- El replanteo abre **S9–S16 en el mismo calendario** (hasta la GA el 29/01/2027) con 99 tareas: 22 abiertas, 2 reabiertas y 75 nuevas (342 SP). Otras 4 tareas opcionales quedan para después de v1.0 (15 SP).
+- El replanteo abre **S9–S16 en el mismo calendario** (hasta la GA el 29/01/2027) con 99 tareas: 22 abiertas, 2 reabiertas y 75 nuevas (341 SP). Otras 4 tareas opcionales quedan para después de v1.0 (15 SP).
 - El camino crítico es externo: auditor y pentester, asesoría legal, credenciales de AWS y un segundo aprobador de releases. Todo se arranca en S9.
 
 ## Resultado de la revisión
@@ -85,16 +85,15 @@ Evidencia objetiva del corte: `npm run typecheck` en verde; `vitest run` con 79 
 
 ### Gobierno del repositorio (OPS-12, OPS-13, SEC-06)
 
-- main no está protegida: una actualización mayor de vite se fusionó sin revisión.
-- dependency-review falla en todas las PR porque el Dependency graph está apagado; CodeQL no bloquea.
+- main no está protegida: una actualización mayor de vite se fusionó sin revisión, y CodeQL y dependency-review no bloquean el merge.
 - Todas las aprobaciones (ADR, RPO/RTO, waiver) las firma la misma persona.
-- La PR #216 (anti-replay NIP-98 y límites de tasa) está abierta con CodeQL y dependency-review en rojo.
+- Después del corte se fusionó la PR #216: corrige IR-04 (replay de NIP-98), IR-05 (límites de tasa), IR-16, IR-19 e IR-20. Queda abierto IR-15.
 
 ## Plan de sprints
 
 | Sprint | Fechas | Objetivo | Release | Tareas | SP equipo | SP con dependencia externa |
 |---|---|---|---|---:|---:|---:|
-| S9 | 2026-09-28 → 2026-10-09 | v0.1.0 firmada y frentes externos abiertos | v0.1.0 | 25 | 42 | 8 |
+| S9 | 2026-09-28 → 2026-10-09 | v0.1.0 firmada y frentes externos abiertos | v0.1.0 | 25 | 41 | 8 |
 | S10 | 2026-10-12 → 2026-10-23 | SaaS beta en staging y web completa | v0.2.0 | 20 | 42 | 19 |
 | S11 | 2026-10-26 → 2026-11-06 | Auditorías en campo, custodia e institucional a fondo | — | 15 | 50 | 8 |
 | S12 | 2026-11-09 → 2026-11-20 | Informes externos, remediación, legal y producción | v0.3.0 | 18 | 46 | 20 |
@@ -121,10 +120,10 @@ Capacidad nominal del backlog: 50 SP por sprint. S14–S16 dejan holgura para la
 
 | ID | Cambio | Prio | Tarea | Tipo | SP | Depende de | Criterio de hecho | Quién desbloquea |
 |---|---|---|---|---|---:|---|---|---|
-| OPS-12 | Nueva | P0 | Gobierno del repositorio: proteger main, activar Dependency graph y private vulnerability reporting, nombrar un segundo mantenedor | Infra | 1 | — | main exige 1 aprobación y los checks de CI; dependency-review en verde en una PR; una segunda persona puede aprobar PRs y entornos | Admin del repo y owner de la organización |
+| OPS-12 | Nueva | P0 | Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | Infra | 1 | — | main exige 1 aprobación y los checks de CI, CodeQL y dependency-review; private vulnerability reporting activo; una segunda persona puede aprobar PRs y entornos | Admin del repo y owner de la organización |
 | OPS-08 | Existente | P2 | Separación de funciones en releases (quién construye vs quién publica) | Infra | 1 | OPS-12 | Entorno release con aprobadores distintos al autor, «Prevent self-review», sin bypass de admin y regla de tags v* | Admin del repo |
 | OPS-10 | Existente | P2 | Backlog vivo en GitHub Issues con sincronización automática a docs/backlog | Infra | 3 | — | Activar «Allow GitHub Actions to create and approve pull requests»: la sync y el pin de Buzz abren su PR solos | Owner de la organización |
-| SEC-06 | En curso (PR #216) | P0 | Cerrar los hallazgos abiertos de la revisión interna antes de congelar el commit de auditoría | Seguridad | 3 | — | PR #216 fusionada con su alerta de CodeQL triada (IR-04, IR-05, IR-16, IR-19, IR-20); IR-15 corregido con migración; internal-review actualizado | Equipo |
+| SEC-06 | Nueva | P0 | Cerrar el último hallazgo abierto de la revisión interna antes de congelar el commit de auditoría | Seguridad | 2 | — | IR-15 corregido (event_id como AAD del espejo sellado, con migración) e internal-review actualizado; IR-04, IR-05, IR-16, IR-19 e IR-20 ya quedaron corregidos en la PR #216 | Equipo |
 | SEC-07 | Nueva | P1 | Vectores oficiales de NIP-44 y vectores JSON exportables; tag de auditoría congelado | Seguridad | 2 | SEC-03 | nip44.vectors.json corre en CI; vectores exportables que Rust y Dart pueden consumir (ADR 0004); tag audit-2026-10 creado | Equipo |
 | FR025-11 | Nueva | P0 | G1: las invitaciones a grupos seguros llegan con el secure relay real | Dev | 5 | FR025-07, FR016-01 | AUTH NIP-42 temprano en relays con nip42_dms (hoy nostr-rs-relay descarta en silencio los kind 1059 sin AUTH y los clientes solo se autentican bajo demanda); E2E de grupos en web y CLI contra nostr-rs-relay real en CI; relay_url correcto para el .onion | Equipo |
 | FR005-12 | Nueva | P1 | Retirar el modo legado del managed-signer (token de servicio + x-account-id) | Seguridad | 1 | FR005-04 | Solo se firma con el token de Acceso o una sesión de dispositivo; test que rechaza el modo legado | Equipo |
@@ -270,7 +269,7 @@ Capacidad nominal del backlog: 50 SP por sprint. S14–S16 dejan holgura para la
 | Epic | Nuevas | SP |
 |---|---:|---:|
 | OPS · Despliegue y DevSecOps | 6 | 22 |
-| SEC/REL · Gates de seguridad y release | 7 | 25 |
+| SEC/REL · Gates de seguridad y release | 7 | 24 |
 | FR · Grupos high-security (Marmot/MLS) | 3 | 13 |
 | FR · Identidad, llaves y custodia | 11 | 35 |
 | FR · Modo institucional | 7 | 26 |
@@ -289,7 +288,7 @@ La epic **APP · Clientes nativos y web instalable** es nueva: agrupa la PWA y l
 | Qué hace falta | Por qué | Quién | Para cuándo |
 |---|---|---|---|
 | Segunda persona con rol de aprobador | Aprueba el waiver, las tres aprobaciones de entorno de cada release y las reviews de PR; sin ella la separación de funciones es nominal | Dirección (hay otros dos admins en la organización) | S9 |
-| Ajustes de GitHub | Protección de main, entorno release, Actions que abren PRs, Dependency graph y private vulnerability reporting | Admin del repo / owner de la organización | S9 |
+| Ajustes de GitHub | Protección de main, entorno release, Actions que abren PRs y private vulnerability reporting | Admin del repo / owner de la organización | S9 |
 | Credenciales de AWS y terraform apply en infrastructure | Bloquean stage, monitoreo, RDS, el pentest sobre stage, el enclave real y producción | Ops de Sedecim | S9–S10 |
 | Auditor criptográfico y pentester | SEC-01 y SEC-02 exigen informes externos; contratar lleva semanas | Dirección (presupuesto) | Contrato en S9, campo en S11 |
 | Asesoría legal (LFPDPPP) y UX | Términos de custodia gestionada, aviso de privacidad y los 42 textos de disclosure | Legal | Envío en S9, aprobación en S12 |
