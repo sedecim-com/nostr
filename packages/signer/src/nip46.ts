@@ -2,7 +2,7 @@
  * NIP-46 remote signing ("Nostr Connect"). The client never holds the user's nsec: it holds an
  * ephemeral client keypair and sends NIP-44 encrypted JSON-RPC requests (kind 24133) through relays.
  */
-import { bytesToHex, generateSecretKey, getPublicKey, randomBytes, verifyEvent, type EventTemplate, type NostrEvent, type Signer, type CustodyMode } from '@sedecim/nostr-core';
+import { bytesToHex, equalBytes, generateSecretKey, getPublicKey, randomBytes, utf8ToBytes, verifyEvent, type EventTemplate, type NostrEvent, type Signer, type CustodyMode } from '@sedecim/nostr-core';
 import { RelayPool } from '@sedecim/relay-pool';
 import { LocalSigner } from './local';
 
@@ -393,7 +393,7 @@ export class Nip46Bunker {
     try {
       if (req.method === 'connect') {
         const revoked = this.revokedClients.has(evt.pubkey);
-        const ok = !revoked && params[1] === this.currentSecret;
+        const ok = !revoked && equalBytes(utf8ToBytes(params[1] ?? ''), utf8ToBytes(this.currentSecret)); // constant time
         this.policy.onRequest?.({ clientPubkey: evt.pubkey, method: req.method, allowed: ok });
         if (!ok) return reply({ error: revoked ? 'client revoked' : 'invalid secret' });
         if (!this.connected.has(evt.pubkey)) this.connected.set(evt.pubkey, undefined);

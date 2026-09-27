@@ -65,10 +65,15 @@ export function decodeOid(value: Uint8Array): string {
   if (!value.length) throw new Error('der: empty OID');
   const parts: number[] = [];
   let acc = 0;
+  let start = true;
   for (const b of value) {
+    if (start && b === 0x80) throw new Error('der: non-minimal OID arc');
     acc = acc * 128 + (b & 0x7f);
-    if (!(b & 0x80)) (parts.push(acc), (acc = 0));
+    if (acc > Number.MAX_SAFE_INTEGER) throw new Error('der: OID arc too large');
+    start = !(b & 0x80);
+    if (start) (parts.push(acc), (acc = 0));
   }
+  if (!start) throw new Error('der: truncated OID');
   const first = parts.shift()!;
   const a = first < 80 ? Math.floor(first / 40) : 2;
   return [a, first - a * 40, ...parts].join('.');

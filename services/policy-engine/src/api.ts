@@ -1,5 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
-import { Service, HttpError, isHex64, requireFields, type Req, type ServiceOptions } from '@sedecim/service-kit';
+import { Service, HttpError, isHex64, lookupToken, requireFields, type Req, type ServiceOptions } from '@sedecim/service-kit';
 import type { Action, Resource, Subject, Device, Rotation } from '@sedecim/policy-client';
 import { ConflictError, NotFoundError, PolicyEngine, RETENTION_NOTICE } from './engine';
 import { WebAuthnError, type RegistrationCredentialJSON } from './webauthn';
@@ -38,10 +37,9 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
   /** 'nip98-or-token' routes: an admin (NIP-98) or a configured service bearer token. Returns the actor. */
   const adminOrService = (req: Req): string => {
     if (req.token !== undefined) {
-      const t = Buffer.from(req.token);
-      const match = Object.entries(opts.bearerTokens ?? {}).find(([k]) => k.length === req.token!.length && timingSafeEqual(Buffer.from(k), t));
-      if (!match) throw new HttpError(401, 'invalid bearer token');
-      return `service:${match[1]}`;
+      const principal = lookupToken(opts.bearerTokens, req.token);
+      if (!principal) throw new HttpError(401, 'invalid bearer token');
+      return `service:${principal}`;
     }
     return admin(req.pubkey);
   };

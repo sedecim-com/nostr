@@ -46,10 +46,15 @@ export interface EnclaveSignerOptions {
   kms: EnclaveKms;
   /** KMS key whose policy is conditioned on this enclave's measurements. */
   kmsKeyId: string;
-  /** FR-026 export (password-encrypted ncryptsec). Default true. */
+  /**
+   * FR-026 export (password-encrypted ncryptsec). Off unless explicitly enabled: the password comes from the
+   * parent, so with export on a compromised backend can exfiltrate every sealed key (IR-2026-09-01).
+   */
   allowExport?: boolean;
 }
 
+/** Same cap as the parent (service.ts): scrypt memory must fit in the enclave. */
+const MAX_IMPORT_LOG_N = 18;
 const b64 = (b: Uint8Array) => Buffer.from(b).toString('base64');
 const unb64 = (s: string) => new Uint8Array(Buffer.from(s, 'base64'));
 const context = (pubkey: string) => ({ app: 'acceso-nostr', purpose: 'enclave-key', pubkey });
@@ -105,7 +110,7 @@ export class EnclaveSigner implements RequestHandler {
     const key = decryptEnvelopedData(out.ciphertextForRecipient, this.rsa.privateKey);
     let sk: Uint8Array | undefined;
     try {
-      const d = createDecipheriv('aes-256-gcm', key, unb64(s.iv));
+      const d = createDecipheriv('aes-256-gcm', key, unb64(s.iv), { authTagLength: 16 });
       d.setAAD(aad(pubkey));
       d.setAuthTag(unb64(s.tag));
       sk = new Uint8Array(Buffer.concat([d.update(unb64(s.ct)), d.final()]));
@@ -153,7 +158,7 @@ export class EnclaveSigner implements RequestHandler {
         case 'generate':
           return { ok: true, ...(await this.store(generateSecretKey(), creds)) };
         case 'import': {
-          const { secretKey } = await nip49.decryptKeyAsync(req.ncryptsec, req.password);
+          const { secretKey } = await nip49.decryptKeyAsync(req.ncryptsec, req.password, { maxLogN: MAX_IMPORT_LOG_N });
           return { ok: true, ...(await this.store(secretKey, creds)) };
         }
         case 'sign': {
@@ -168,7 +173,7 @@ export class EnclaveSigner implements RequestHandler {
           return { ok: true, result };
         }
         case 'export': {
-          if (this.opts.allowExport === false) throw new Error('export disabled');
+          if (this.opts.allowExport !== true) throw new Error('export disabled');
           if (typeof req.password !== 'string' || req.password.length < 12) throw new Error('export password must be at least 12 characters');
           if (!Number.isInteger(req.logN) || req.logN < 1 || req.logN > 22) throw new Error('invalid logN');
           const sk = await this.unseal(req.sealed, req.pubkey, creds);

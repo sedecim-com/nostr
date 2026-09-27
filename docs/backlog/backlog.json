@@ -2500,8 +2500,8 @@
     "FR014-01"
    ],
    "sprint": "S8",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Indexer con shards por relay y por canal (#h) repartidos por rendezvous hashing entre réplicas vivas (heartbeat en indexer_replicas), checkpoints por shard que solo avanzan y takeover con solapamiento (INDEXER_OVERLAP_SECONDS), inserciones idempotentes (ON CONFLICT) y cabeza NIP-01 serializada con pg_advisory_xact_lock (migración 003_sharding.sql), retención reclamada una sola vez (indexer_jobs). Tests: services/indexer/test/sharding.test.ts (3–4 réplicas contra dos relays con caída, alta y baja: exactamente el conjunto publicado, cada id una vez, reemplazables en la última versión; memoria y Postgres). k8s: replicas 2 en stage; compose perfil scale (indexer-2); docs/architecture.md",
    "issue": 179
   },
   {
@@ -2517,8 +2517,8 @@
     "NFR005-01"
    ],
    "sprint": "S8",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Herramienta de carga scripts/load (clientes NIP-42, ack p50/p95/p99, throughput, entrega, lag del indexer, veredicto por escalón), workflow load-test.yml (stack compose con 1 y 2 réplicas del indexer) y docs/load-testing.md con la línea base local (test relay: ack p95 23–47 ms hasta 200 ev/s, saturación ~165–200 ev/s en 4 vCPU). Falta ejecutar load-test.yml contra Buzz y anotar sus cifras",
    "issue": 180
   },
   {
@@ -2694,8 +2694,8 @@
     "OPS-01"
    ],
    "sprint": "S8",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Bases fijadas por digest, paquetes apk con versión exacta en tor (Alpine 3.24, sin /var/log/apk.log), scripts/build-image.sh único (BuildKit fijado, sin caché, SOURCE_DATE_EPOCH, rewrite-timestamp), scripts/image-diff.sh y rebuild-image.sh; reproducible-images.yml construye las 8 imágenes dos veces y compara digests: las 8 idénticas en la PR #215 (run 36338419319); release.yml usa el mismo camino; docs/building.md",
    "issue": 191
   },
   {
@@ -2713,8 +2713,8 @@
     "FR005-03"
    ],
    "sprint": "S8",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Preparación para la revisión externa: docs/security/audit-scope.md, docs/security/crypto-inventory.md y revisión interna docs/security/internal-review-2026-09.md (22 hallazgos, ninguno crítico; IR-01 mitigado con la exportación del enclave desactivada por defecto), fuzzing de los parsers propios (tests/fuzz), CodeQL y dependency review en CI. Falta el informe externo sin críticos abiertos",
    "issue": 192
   },
   {
@@ -2732,8 +2732,8 @@
     "FR023-03"
    ],
    "sprint": "S8",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Alcance y reglas de enfrentamiento del pentest en docs/security/audit-scope.md; revisión interna con 11 hallazgos corregidos (scrypt acotado en import, propiedad de blobs, nosniff/CSP en blob-store, comparaciones en tiempo constante, JWKS limitado); abiertos IR-04 (replay NIP-98) e IR-05 (límites de tasa). Falta el pentest externo y el retest de críticos/altos",
    "issue": 193
   },
   {
@@ -2785,8 +2785,8 @@
     "FR020-03"
    ],
    "sprint": "S8",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Job dod en release.yml (scripts/release-gate.mjs): exige ci.yml completo en el commit del tag, restore-drill exitoso en 72 h, SBOM válido, notas de release y registro de auditoría o waiver aprobado por otra persona (docs/security/audits); publish crea el release como borrador y verify lo publica solo si scripts/verify-release.sh pasa; docs/release-checklist.md. Queda Parcial: SEC-01/SEC-02 y NFR010-02 no están hechos y el gate aún no ha corrido en un release real",
    "issue": 196
   },
   {
@@ -2802,8 +2802,8 @@
     "REL-01"
    ],
    "sprint": "S8",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Plantilla docs/releases/TEMPLATE.md con sección obligatoria \"Cambios en el modelo de confianza\" (verificada por el gate) y notas de v0.1.0 en docs/releases/v0.1.0.md (lint:claims las revisa). Falta publicarlas con el primer release",
    "issue": 197
   },
   {

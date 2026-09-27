@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
-import { createTestCognito } from '../src/index';
+import { CognitoVerifier, createTestCognito, JWKS_MIN_REFETCH_MS } from '../src/index';
 
 const { cfg, issuer: iss, token, verifier } = createTestCognito();
 
@@ -22,5 +22,20 @@ describe('CognitoVerifier (Acceso login, ADR 0008)', () => {
     await expect(v.verify(token({}, { alg: 'HS256', kid: 'k1' }))).rejects.toThrow(/algorithm/);
     await expect(v.verify(token({}, { alg: 'RS256', kid: 'nope' }))).rejects.toThrow(/unknown signing key/);
     await expect(v.verify('not-a-jwt')).rejects.toThrow(/malformed/);
+  });
+
+  it('unknown kids trigger at most one JWKS refetch per window (no request amplification)', async () => {
+    const { cfg: c, jwksFetch, token: t } = createTestCognito();
+    let fetches = 0;
+    let now = 1_000_000;
+    const counting = (async (...a: Parameters<typeof fetch>) => (fetches++, jwksFetch(...a))) as typeof fetch;
+    const v2 = new CognitoVerifier({ ...c, fetch: counting, now: () => now });
+    await v2.verify(t({ exp: Math.floor(now / 1000) + 600 }));
+    expect(fetches).toBe(1);
+    for (let i = 0; i < 20; i++) await expect(v2.verify(t({}, { alg: 'RS256', kid: `forged-${i}` }))).rejects.toThrow(/unknown signing key/);
+    expect(fetches).toBe(1);
+    now += JWKS_MIN_REFETCH_MS;
+    for (let i = 0; i < 5; i++) await expect(v2.verify(t({}, { alg: 'RS256', kid: 'forged-x' }))).rejects.toThrow(/unknown signing key/);
+    expect(fetches).toBe(2);
   });
 });

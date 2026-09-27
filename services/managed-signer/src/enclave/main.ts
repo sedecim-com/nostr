@@ -7,7 +7,7 @@
  *   ENCLAVE_KMS_REGION    default us-east-1 (ADR 0009)
  *   ENCLAVE_KMS_ENDPOINT  KMS endpoint through the vsock-proxy bridge
  *   ENCLAVE_NSM_HELPER    NSM attestation helper (see ExecNsm)
- *   ENCLAVE_ALLOW_EXPORT  0 disables FR-026 export
+ *   ENCLAVE_ALLOW_EXPORT  1 enables FR-026 export (off by default: IR-2026-09-01)
  */
 import { EnclaveSigner, ExecNsm } from './enclave';
 import { awsEnclaveKms } from './kms';
@@ -21,7 +21,7 @@ const signer = new EnclaveSigner({
   nsm: new ExecNsm(env.ENCLAVE_NSM_HELPER),
   kms: awsEnclaveKms({ region: env.ENCLAVE_KMS_REGION || 'us-east-1', ...(env.ENCLAVE_KMS_ENDPOINT ? { endpoint: env.ENCLAVE_KMS_ENDPOINT } : {}) }),
   kmsKeyId: env.ENCLAVE_KMS_KEY_ID,
-  allowExport: env.ENCLAVE_ALLOW_EXPORT !== '0',
+  allowExport: env.ENCLAVE_ALLOW_EXPORT === '1',
 });
 const listen = env.ENCLAVE_LISTEN || '/run/enclave-signer.sock';
 await serveEnclave(signer, /^\d+$/.test(listen) ? { port: Number(listen), host: '127.0.0.1' } : { path: listen });

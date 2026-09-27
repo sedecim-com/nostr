@@ -11,6 +11,7 @@ import { createPgPool, migrate, nip98Fetch, resetScope } from '@sedecim/service-
 import { createIndexerApi, enforceRetention, Indexer, MemoryEventRepository, PgEventRepository, sealedCodec, type EventRepository } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
+const INDEXER_TABLES = ['read_cursors', 'event_sources', 'events', 'indexer_checkpoints', 'indexer_jobs', 'indexer_replicas'];
 
 async function rawPublish(url: string, evt: NostrEvent) {
   const ws = new WebSocket(url);
@@ -109,6 +110,9 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
         expect(other.status).toBe(403);
         const summary = await (await fetch(`${base}/v1/channels/general/summary`)).json();
         expect(summary.messages).toBeGreaterThanOrEqual(1);
+        // Malformed numeric parameters are a 400, never a database error (500).
+        for (const q of ['kinds=abc', 'kinds=9&limit=-1', 'kinds=9&since=x', 'kinds=9&until=1.5', 'kinds=-3', 'kinds=9&limit='])
+          expect((await fetch(`${base}/v1/events?${q}`)).status, q).toBe(400);
       } finally {
         await api.close();
       }
@@ -175,14 +179,14 @@ const PG = process.env.TEST_DATABASE_URL;
 if (PG) {
   suite('Indexer (postgres repository)', async () => {
     const pool = createPgPool(PG);
-    await resetScope(pool, 'indexer', ['read_cursors', 'event_sources', 'events']);
+    await resetScope(pool, 'indexer', INDEXER_TABLES);
     await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
     return new PgEventRepository(pool, sealedCodec(new Uint8Array(32).fill(4)));
   });
   // Plain rows are searched in SQL (ILIKE) instead of being decrypted and scanned.
   suite('Indexer (postgres repository, plain)', async () => {
     const pool = createPgPool(PG);
-    await resetScope(pool, 'indexer', ['read_cursors', 'event_sources', 'events']);
+    await resetScope(pool, 'indexer', INDEXER_TABLES);
     await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
     return new PgEventRepository(pool);
   });
@@ -296,7 +300,7 @@ retentionSuite('Retention (memory repository)', async () => new MemoryEventRepos
 if (PG) {
   retentionSuite('Retention (postgres repository)', async () => {
     const pool = createPgPool(PG);
-    await resetScope(pool, 'indexer', ['read_cursors', 'event_sources', 'events']);
+    await resetScope(pool, 'indexer', INDEXER_TABLES);
     await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
     return new PgEventRepository(pool, sealedCodec(new Uint8Array(32).fill(4)));
   });

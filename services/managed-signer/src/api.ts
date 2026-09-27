@@ -1,5 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
-import { Service, HttpError, requireFields, isHex64, CognitoTokenError, type CognitoVerifier, type Req, type ServiceOptions } from '@sedecim/service-kit';
+import { Service, HttpError, requireFields, isHex64, lookupToken, CognitoTokenError, type CognitoVerifier, type Req, type ServiceOptions } from '@sedecim/service-kit';
 import type { EventTemplate } from '@sedecim/nostr-core';
 import { DEVICE_SESSION_PREFIX, ManagedSigner, ManagedSignerError, RateLimitedError, type Actor } from './service';
 
@@ -38,8 +37,6 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
   const svc = new Service(serviceOpts);
   const log = svc.logger;
 
-  const lookup = (tokens: Record<string, string> | undefined, token: string) =>
-    Object.entries(tokens ?? {}).find(([t]) => t.length === token.length && timingSafeEqual(Buffer.from(t), Buffer.from(token)))?.[1];
   const bearer = (req: Req) => {
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7).trim() : '';
@@ -64,7 +61,7 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
     }
     const deviceId = claimedDevice(req);
     await core.assertDeviceUsable(deviceId);
-    const principal = lookup(serviceTokens, token);
+    const principal = lookupToken(serviceTokens, token);
     if (principal) {
       if (typeof account !== 'string' || !account) throw new HttpError(400, 'x-account-id header required');
       return { owner: account, principal, ...(deviceId ? { deviceId } : {}) };
@@ -99,7 +96,7 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
   const route = (fn: (req: Req, caller: Caller) => Promise<unknown>, keyOp = true) => (req: Req) =>
     mapErrors(async () => {
       const caller = await authenticate(req);
-      if (keyOp && requireDeviceSession && !caller.viaDeviceSession && !lookup(serviceTokens, bearer(req))) throw new HttpError(403, 'device session required');
+      if (keyOp && requireDeviceSession && !caller.viaDeviceSession && !lookupToken(serviceTokens, bearer(req))) throw new HttpError(403, 'device session required');
       return fn(req, caller);
     });
 
@@ -118,7 +115,7 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
   // Called by the policy side when a device is revoked (idempotent). Revocation tokens only.
   svc.post('/v1/devices/:id/revoke', (req) =>
     mapErrors(async () => {
-      const principal = lookup(revocationTokens, bearer(req));
+      const principal = lookupToken(revocationTokens, bearer(req));
       if (!principal) throw new HttpError(401, 'invalid revocation token');
       const deviceId = req.params.id!;
       if (!DEVICE_ID.test(deviceId)) throw new HttpError(400, 'invalid device id');

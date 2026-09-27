@@ -1,0 +1,74 @@
+name: reproducible-images
+
+# NFR010-03: two builds of the same commit produce the same digest. Every release image is built twice
+# with scripts/build-image.sh (the invocation release.yml uses), each time in a fresh BuildKit builder with
+# no cache, and the manifest digests are compared. On a mismatch scripts/image-diff.sh prints where the
+# images differ and both archives are uploaded. The weekly run also catches pins that stopped resolving
+# (Alpine drops superseded package builds: docs/building.md, "Imagen tor").
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - infra/**
+      - package.json
+      - package-lock.json
+      - scripts/build-image.sh
+      - scripts/image-diff.sh
+      - .github/workflows/reproducible-images.yml
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - infra/**
+      - package.json
+      - package-lock.json
+      - scripts/build-image.sh
+      - scripts/image-diff.sh
+      - .github/workflows/reproducible-images.yml
+  schedule:
+    - cron: '41 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [indexer, identity-service, policy-engine, blob-store, managed-signer, notification-gateway, web, tor]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build twice in clean builders and compare the digests
+        env:
+          NAME: ${{ matrix.name }}
+        run: |
+          first=$(sh scripts/build-image.sh "$NAME" first.tar | tail -n 1)
+          second=$(sh scripts/build-image.sh "$NAME" second.tar | tail -n 1)
+          {
+            echo "### nostr-$NAME"
+            echo "- build 1: \`$first\`"
+            echo "- build 2: \`$second\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$first" != "$second" ]; then
+            echo "::error::nostr-$NAME is not reproducible: $first != $second"
+            sh scripts/image-diff.sh first.tar second.tar
+            exit 1
+          fi
+          echo "nostr-$NAME reproducible: $first"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: unreproducible-${{ matrix.name }}
+          path: |
+            first.tar
+            second.tar
+          compression-level: 0
+          retention-days: 7

@@ -21,6 +21,8 @@ export interface CognitoIdentity {
 export class CognitoTokenError extends Error {}
 
 const b64url = (s: string) => Buffer.from(s, 'base64url');
+/** Forged tokens with random `kid`s must not turn the verifier into a JWKS request amplifier. */
+export const JWKS_MIN_REFETCH_MS = 60_000;
 
 /**
  * Verifies Acceso (AWS Cognito) tokens the same way authentication-server-api does: RS256 against the
@@ -29,6 +31,8 @@ const b64url = (s: string) => Buffer.from(s, 'base64url');
 export class CognitoVerifier {
   readonly issuer: string;
   private jwks?: { at: number; keys: Map<string, JsonWebKey> };
+  /** Last JWKS fetch attempt: an unknown `kid` triggers at most one refetch per JWKS_MIN_REFETCH_MS. */
+  private lastFetch = -Infinity;
 
   constructor(private readonly cfg: CognitoConfig) {
     this.issuer = `https://cognito-idp.${cfg.region}.amazonaws.com/${cfg.userPoolId}`;
@@ -36,13 +40,15 @@ export class CognitoVerifier {
 
   private async key(kid: string): Promise<JsonWebKey> {
     const now = (this.cfg.now ?? Date.now)();
-    if (!this.jwks || now - this.jwks.at > 3_600_000 || !this.jwks.keys.has(kid)) {
-      const res = await (this.cfg.fetch ?? fetch)(this.cfg.jwksUrl ?? `${this.issuer}/.well-known/jwks.json`);
+    const stale = !this.jwks || now - this.jwks.at > 3_600_000;
+    if (stale || (!this.jwks!.keys.has(kid) && now - this.lastFetch >= JWKS_MIN_REFETCH_MS)) {
+      this.lastFetch = now;
+      const res = await (this.cfg.fetch ?? fetch)(this.cfg.jwksUrl ?? `${this.issuer}/.well-known/jwks.json`, { signal: AbortSignal.timeout(5_000) });
       if (!res.ok) throw new CognitoTokenError(`jwks fetch failed: ${res.status}`);
       const body = (await res.json()) as { keys: Array<JsonWebKey & { kid: string }> };
       this.jwks = { at: now, keys: new Map(body.keys.map((k) => [k.kid, k])) };
     }
-    const k = this.jwks.keys.get(kid);
+    const k = this.jwks?.keys.get(kid);
     if (!k) throw new CognitoTokenError('unknown signing key');
     return k;
   }

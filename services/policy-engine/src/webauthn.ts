@@ -6,6 +6,13 @@ import { createHash, createPublicKey, randomBytes, timingSafeEqual, verify, X509
  * vendor roots (no FIDO MDS): the signature proves the authenticator produced this credential.
  */
 
+/** Strips base64 '=' padding in linear time (a /=+$/ regex backtracks on long runs of '='). */
+function unpad(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 61) end--;
+  return s.slice(0, end);
+}
+
 export const b64u = {
   encode: (b: Uint8Array) => Buffer.from(b).toString('base64url'),
   decode: (s: string) => {
@@ -50,7 +57,12 @@ export function cborDecode(buf: Uint8Array, offset = 0, depth = 0): { value: Cbo
     case 3: {
       need(len);
       const bytes = buf.slice(offset, offset + len);
-      return { value: major === 2 ? bytes : new TextDecoder('utf-8', { fatal: true }).decode(bytes), offset: offset + len };
+      if (major === 2) return { value: bytes, offset: offset + len };
+      try {
+        return { value: new TextDecoder('utf-8', { fatal: true }).decode(bytes), offset: offset + len };
+      } catch {
+        throw new WebAuthnError('invalid UTF-8 in CBOR text string');
+      }
     }
     case 4: {
       const arr: Cbor[] = [];
@@ -66,6 +78,8 @@ export function cborDecode(buf: Uint8Array, offset = 0, depth = 0): { value: Cbo
       for (let i = 0; i < len; i++) {
         const k = cborDecode(buf, offset, depth + 1);
         const v = cborDecode(buf, k.offset, depth + 1);
+        // CTAP2 canonical CBOR has unique keys; a duplicate could shadow a checked field.
+        if (map.has(k.value)) throw new WebAuthnError('duplicate CBOR map key');
         map.set(k.value, v.value);
         offset = v.offset;
       }
@@ -154,7 +168,10 @@ export function verifyRegistration(
   if (!clientData.origin || !expected.origins.includes(clientData.origin)) throw new WebAuthnError('origin not allowed');
   if (clientData.crossOrigin) throw new WebAuthnError('cross-origin registration not allowed');
 
-  const att = cborDecode(b64u.decode(cred.response.attestationObject)).value;
+  const attRaw = b64u.decode(cred.response.attestationObject);
+  const attDecoded = cborDecode(attRaw);
+  if (attDecoded.offset !== attRaw.length) throw new WebAuthnError('trailing bytes after attestationObject');
+  const att = attDecoded.value;
   if (!(att instanceof Map)) throw new WebAuthnError('invalid attestationObject');
   const fmt = att.get('fmt');
   const attStmt = att.get('attStmt');
@@ -171,10 +188,16 @@ export function verifyRegistration(
   const credentialId = authData.slice(55, 55 + credLen);
   if (credentialId.length !== credLen || credLen === 0) throw new WebAuthnError('truncated credential id');
   const credentialIdB64 = b64u.encode(credentialId);
-  if (credentialIdB64 !== cred.id.replace(/=+$/, '') || (cred.rawId !== undefined && cred.rawId.replace(/=+$/, '') !== credentialIdB64)) throw new WebAuthnError('credential id mismatch');
+  if (credentialIdB64 !== unpad(cred.id) || (cred.rawId !== undefined && unpad(cred.rawId) !== credentialIdB64)) throw new WebAuthnError('credential id mismatch');
   const cose = cborDecode(authData, 55 + credLen);
   if (cose.offset !== authData.length && !(flags & 0x80)) throw new WebAuthnError('trailing authenticator data');
   const publicKey = coseToJwk(cose.value);
+  let credKey;
+  try {
+    credKey = createPublicKey({ key: publicKey, format: 'jwk' }); // also rejects points off the curve
+  } catch {
+    throw new WebAuthnError('credential public key is not a valid P-256 point');
+  }
 
   const signed = Buffer.concat([authData, sha256(clientDataRaw)]);
   if (fmt === 'none') {
@@ -187,13 +210,24 @@ export function verifyRegistration(
     let key;
     if (x5c !== undefined) {
       if (!Array.isArray(x5c) || !(x5c[0] instanceof Uint8Array)) throw new WebAuthnError('packed: invalid x5c');
-      const cert = new X509Certificate(x5c[0]);
+      let cert: X509Certificate;
+      try {
+        cert = new X509Certificate(x5c[0]);
+      } catch {
+        throw new WebAuthnError('packed: x5c[0] is not an X.509 certificate');
+      }
       if (!/OU=Authenticator Attestation/.test(cert.subject)) throw new WebAuthnError('packed: attestation certificate OU must be "Authenticator Attestation"');
       key = cert.publicKey;
     } else {
-      key = createPublicKey({ key: publicKey, format: 'jwk' });
+      key = credKey;
     }
-    if (!verify('sha256', signed, key, sig)) throw new WebAuthnError('attestation signature invalid');
+    let ok = false;
+    try {
+      ok = verify('sha256', signed, key, sig);
+    } catch {
+      ok = false;
+    }
+    if (!ok) throw new WebAuthnError('attestation signature invalid');
   } else {
     throw new WebAuthnError(`unsupported attestation format: ${String(fmt)}`);
   }

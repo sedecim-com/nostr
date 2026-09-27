@@ -5,6 +5,9 @@ name: release
 # prevented, deployments only from `v*` tags: configured in Settings -> Environments, see
 # docs/building.md). Only those jobs can push images, sign (cosign keyless) and attest (SLSA provenance,
 # SBOM). Verification: scripts/verify-release.sh <tag>, docs/keygen-air-gapped.md.
+# REL-01: the `dod` job blocks publication unless the Definition of Done holds for the tagged commit, and
+# the release stays a draft until `verify` has checked what was published (docs/release-checklist.md).
+# NFR010-03: images are built twice and must match (scripts/build-image.sh, scripts/rebuild-image.sh).
 on:
   push:
     tags: ['v*']
@@ -67,52 +70,39 @@ jobs:
           if-no-files-found: error
 
   # One image per Dockerfile target / service in docker-compose.yml, exported as an OCI archive: this job
-  # cannot push; publish-images pushes exactly these bytes (the digest is checked there).
+  # cannot push; publish-images pushes exactly these bytes (the digest is checked there). NFR010-03: each
+  # image is built twice with scripts/build-image.sh, in two fresh builders without cache, and the release
+  # stops if the digests differ, so the published digest is the one anyone rebuilds from the tag
+  # (scripts/rebuild-image.sh).
   images:
     needs: build
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - { name: indexer, context: ., target: service, service: indexer }
-          - { name: identity-service, context: ., target: service, service: identity-service }
-          - { name: policy-engine, context: ., target: service, service: policy-engine }
-          - { name: blob-store, context: ., target: service, service: blob-store }
-          - { name: managed-signer, context: ., target: service, service: managed-signer }
-          - { name: notification-gateway, context: ., target: service, service: notification-gateway }
-          - { name: web, context: ., target: web, service: '' }
-          - { name: tor, context: infra/tor, target: '', service: '' }
+        name: [indexer, identity-service, policy-engine, blob-store, managed-signer, notification-gateway, web, tor]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Image name
+      - name: Build twice (reproducible) and record the manifest digest
         env:
           NAME: ${{ matrix.name }}
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nostr-$NAME" >> "$GITHUB_ENV"
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: ${{ matrix.context }}
-          target: ${{ matrix.target }}
-          build-args: ${{ matrix.service && format('SERVICE={0}', matrix.service) || '' }}
-          push: false
-          # Provenance and SBOM are attested by publish-images (actions/attest-*), not embedded by buildx.
-          provenance: false
-          sbom: false
-          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ github.ref_name }}
-            org.opencontainers.image.licenses=Apache-2.0
-          outputs: type=oci,dest=image.tar
-      - name: Record the manifest digest
+          IMAGE_VERSION: ${{ github.ref_name }}
+          IMAGE_REVISION: ${{ github.sha }}
+          IMAGE_SOURCE: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          digest=$(tar -xOf image.tar index.json | jq -r '.manifests | if length == 1 then .[0].digest else error("expected one manifest") end')
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nostr-$NAME"
+          export IMAGE_NAME="$image:$IMAGE_VERSION"
+          digest=$(sh scripts/build-image.sh "$NAME" image.tar | tail -n 1)
+          again=$(sh scripts/build-image.sh "$NAME" rebuild.tar | tail -n 1)
+          if [ "$digest" != "$again" ]; then
+            echo "::error::nostr-$NAME is not reproducible: $digest != $again"
+            sh scripts/image-diff.sh image.tar rebuild.tar
+            exit 1
+          fi
           echo "$digest" > digest
-          echo "$IMAGE@$digest"
+          echo "$image@$digest"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: image-${{ matrix.name }}
@@ -122,10 +112,40 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
+  # REL-01 Definition of Done (docs/release-checklist.md), read-only: for this exact commit CI is green
+  # (tests and browser E2E, interop gate, leak tests, tor profile…), the restore drill passed recently,
+  # the SBOM exists, the security audits are done or waived by someone other than the releaser, and the
+  # release notes carry the trust-model section. Nothing is published unless it passes.
+  dod:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-files
+          path: release
+      - name: Definition of Done
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        run: node scripts/release-gate.mjs all --tag "$TAG" --sha "$GITHUB_SHA" --sbom release/sbom.cdx.json --actor "$ACTOR" --actor "$TRIGGERING_ACTOR"
+
   # Push, sign and attest each image. Protected environment: needs approval from a reviewer other than
-  # whoever triggered the run.
+  # whoever triggered the run. Only after the Definition of Done passed.
   publish-images:
-    needs: [build, images]
+    needs: [build, images, dod]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -201,7 +221,9 @@ jobs:
           path: image-${{ matrix.name }}.txt
           if-no-files-found: error
 
-  # Sign the release files, attest them and create the GitHub Release. Same protected environment.
+  # Sign the release files, attest them and create the GitHub Release as a DRAFT (not public yet): the
+  # body is docs/releases/<tag>.md (REL-02, must carry the trust-model section) plus images.txt. Same
+  # protected environment. `verify` publishes the draft only after checking what was published.
   publish:
     needs: publish-images
     runs-on: ubuntu-latest
@@ -211,6 +233,16 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Release notes exist and carry the trust-model section (REL-02)
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/release-gate.mjs notes --tag "$TAG"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-files
@@ -247,7 +279,7 @@ jobs:
             release/keygen.html
             release/keygen.mjs
           sbom-path: release/sbom.cdx.json
-      - name: GitHub Release
+      - name: GitHub Release (draft)
         working-directory: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -255,16 +287,56 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           {
-            echo "Verificación: \`sh scripts/verify-release.sh $TAG\` (docs/building.md)."
-            echo "Generador air-gapped: docs/keygen-air-gapped.md."
+            cat "../docs/releases/$TAG.md"
             echo
-            echo "Imágenes (fijadas por digest):"
+            echo "## Imágenes (fijadas por digest)"
+            echo
             echo '```'
             cat images.txt
             echo '```'
           } > notes.md
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" --clobber -- keygen.html keygen.mjs sbom.cdx.json images.txt SHA256SUMS ./*.sigstore.json
+          files="keygen.html keygen.mjs sbom.cdx.json images.txt SHA256SUMS $(echo ./*.sigstore.json)"
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            # Re-run of a release that did not finish: only a draft may be replaced.
+            if [ "$draft" != true ]; then echo "release $TAG is already published; cut a new tag"; exit 1; fi
+            # shellcheck disable=SC2086
+            gh release upload "$TAG" --clobber -- $files
+            gh release edit "$TAG" --notes-file notes.md
           else
-            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md -- keygen.html keygen.mjs sbom.cdx.json images.txt SHA256SUMS ./*.sigstore.json
+            # shellcheck disable=SC2086
+            gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file notes.md -- $files
           fi
+
+  # REL-01: verify what was just published, as a user would (scripts/verify-release.sh: signatures,
+  # checksums, attestations of the files and of every image in images.txt), and only then turn the draft
+  # into a public release. If verification fails the release stays a draft (docs/release-checklist.md).
+  verify:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # read the draft and publish it
+      packages: read # the images may still be private right after the first release
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify the draft release (scripts/verify-release.sh)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: sh scripts/verify-release.sh "$TAG" "$RUNNER_TEMP/verify"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false

@@ -15,6 +15,7 @@ import {
   createManagedSignerApi,
   createSimulatedEnclave,
   EnclaveClient,
+  EnclaveSigner,
   enclaveBackendFromEnv,
   inProcessTransport,
   ManagedSigner,
@@ -72,6 +73,14 @@ describe('enclave signer over a local socket (vsock stand-in)', () => {
     expect(raw.toString('utf8')).not.toContain(bytesToHex(sk));
     const exported = await client.exportNcryptsec(sealed, pubkey, 'otra contraseña larga', 4);
     expect(bytesToHex(nip49.decryptKey(exported, 'otra contraseña larga').secretKey)).toBe(bytesToHex(sk));
+  });
+
+  it('keeps FR-026 export off unless explicitly enabled (IR-2026-09-01)', async () => {
+    const sim = createSimulatedEnclave();
+    // Same NSM/KMS, but an enclave built with the production default.
+    const locked = new EnclaveClient({ transport: inProcessTransport(new EnclaveSigner({ nsm: sim.nsm, kms: sim.kms, kmsKeyId: 'alias/simulated-enclave' })), attestation: sim.policy });
+    const { pubkey, sealed } = await locked.generate();
+    await expect(locked.exportNcryptsec(sealed, pubkey, 'una contraseña larga', 4)).rejects.toThrow(/export disabled/);
   });
 
   it('refuses a sealed blob presented with another pubkey (KMS context + enclave check)', async () => {

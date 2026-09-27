@@ -29,6 +29,18 @@ export interface Res {
   headers?: Record<string, string>;
 }
 
+/** Constant-time string comparison; compares byte lengths first so timingSafeEqual never throws. */
+export function safeEqual(a: string, b: string): boolean {
+  const x = Buffer.from(a, 'utf8');
+  const y = Buffer.from(b, 'utf8');
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
+/** Principal of the first configured token that matches (constant time per comparison). */
+export function lookupToken(tokens: Record<string, string> | undefined, token: string): string | undefined {
+  return Object.entries(tokens ?? {}).find(([t]) => safeEqual(t, token))?.[1];
+}
+
 export class HttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -96,9 +108,9 @@ export class Service {
     const header = req.headers.authorization;
     if (route.auth === 'bearer') {
       const token = header?.startsWith('Bearer ') ? header.slice(7) : '';
-      const match = Object.entries(this.opts.bearerTokens ?? {}).find(([t]) => t.length === token.length && timingSafeEqual(Buffer.from(t), Buffer.from(token)));
-      if (!match) throw new HttpError(401, 'invalid bearer token');
-      req.principal = match[1];
+      const principal = token ? lookupToken(this.opts.bearerTokens, token) : undefined;
+      if (!principal) throw new HttpError(401, 'invalid bearer token');
+      req.principal = principal;
       return;
     }
     if (route.auth === 'nip98-optional' && !header) return;
@@ -141,7 +153,7 @@ export class Service {
       const r: Req = {
         method: req.method!,
         path: url.pathname,
-        params: Object.fromEntries(route.keys.map((k, i) => [k, decodeURIComponent(m[i + 1]!)])),
+        params: Object.fromEntries(route.keys.map((k, i) => [k, decodeParam(m[i + 1]!)])),
         query: url.searchParams,
         headers: req.headers,
         rawBody,
@@ -180,6 +192,14 @@ export class Service {
 
   async close(): Promise<void> {
     await new Promise<void>((r) => (this.server ? this.server.close(() => r()) : r()));
+  }
+}
+
+function decodeParam(v: string): string {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    throw new HttpError(400, 'malformed path parameter');
   }
 }
 

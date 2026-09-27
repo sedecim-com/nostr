@@ -50,3 +50,54 @@ firmados; las bases de datos son índices derivados.
 4. **Marmot**: marmot-ts 0.5.1 + ts-mls rc.16 detrás de `GroupCryptoProvider`; tráfico por el relay secundario porque Buzz rechaza los kinds (ADR 0006).
 5. **Licencia/nombre**: Apache-2.0 con scope `@sedecim` (ADR 0001); Buzz upstream sin fork (ADR 0002). Marca comercial pendiente.
 6. **Notificaciones móviles**, **región cloud/legal para managed**: abiertas. Threat models por perfil en `docs/threat-models/`.
+
+## Indexer / mirror: escalado horizontal (NFR005-01)
+El indexer (`services/indexer`) corre con N réplicas sobre la misma base Postgres, sin duplicados ni pérdidas.
+Las lecturas (`/v1/*`) no tienen estado: cualquier réplica las sirve detrás del Service de Kubernetes.
+
+- **Shards.** Cada relay de `INDEXER_RELAYS` es un shard (suscripción base con los kinds espejados) y cada par
+  relay + canal NIP-29 (`#h`) es otro (Buzz solo reparte el tráfico de canal a suscripciones `#h`). Todas las
+  réplicas descubren los canales (kind 39000); cada una solo se suscribe a los shards que le tocan.
+- **Asignación determinista.** Membresía por latido en `indexer_replicas` (reloj de la base, cada
+  `INDEXER_HEARTBEAT_MS`, 5 s por defecto; una réplica sin latido durante `INDEXER_MEMBER_TTL_MS`, 3 latidos
+  por defecto, se da por caída). El dueño de cada shard se elige por *rendezvous hashing* (HRW) sobre las
+  réplicas vivas: todas calculan lo mismo y, al entrar o salir una réplica, solo se mueven sus shards.
+- **Checkpoints por shard.** El dueño guarda en `indexer_checkpoints` hasta qué `created_at` está todo escrito:
+  solo avanza con la suscripción conectada y tras su EOSE, nunca por delante de un evento en vuelo ni de una
+  escritura fallida, y nunca retrocede. Quien toma un shard (réplica caída, rebalanceo, reinicio) se
+  resuscribe desde `checkpoint − INDEXER_OVERLAP_SECONDS` (900 s por defecto); lo repetido se descarta.
+  Un shard nunca sincronizado se reconstruye desde el principio. Tras una reconexión al relay la
+  suscripción se reabre desde su checkpoint.
+- **Escrituras idempotentes.** `event_id` es la clave primaria (`INSERT … ON CONFLICT DO NOTHING RETURNING`),
+  así que cada evento se inserta una sola vez aunque dos réplicas lo reciban a la vez. Para eventos
+  reemplazables y direccionables, los escritores de una misma dirección se serializan con
+  `pg_advisory_xact_lock` y la nueva cabeza borra las versiones que reemplaza: tras cualquier carrera queda
+  solo la cabeza NIP-01 (mayor `created_at`, empate por menor id). La columna `d_tag` (migración 003)
+  permite elegir cabezas también en un espejo sellado.
+- **Trabajos únicos.** La retención institucional (FR023-08) se reclama de forma atómica en `indexer_jobs`:
+  la ejecuta una sola réplica por `RETENTION_INTERVAL_MS`, y sus borrados son idempotentes de todos modos.
+  El filtrado por políticas (FR023-05) se evalúa en cada lectura, en la réplica que la atiende.
+- **Parada.** SIGTERM guarda los checkpoints y da de baja la réplica, así que sus shards se mueven en el
+  siguiente latido de las demás y no hay que esperar al TTL.
+
+Durante un cambio de membresía, las vistas pueden diferir un latido: dos réplicas espejan el mismo shard (inocuo)
+o ninguna lo hace durante como mucho un TTL (lo cubre el checkpoint). **Límite:** un evento publicado
+durante ese hueco con un `created_at` más de `INDEXER_OVERLAP_SECONDS` anterior al checkpoint no se recupera
+hasta una reconstrucción completa. Por eso la ventana por defecto es amplia; los gift wraps con marca de
+tiempo aleatoria no se espejan por defecto.
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `INDEXER_REPLICA_ID` | hostname | Identidad única de la réplica (en k8s, el nombre del pod vía `fieldRef`) |
+| `INDEXER_HEARTBEAT_MS` | `5000` | Latido, volcado de checkpoints y rebalanceo |
+| `INDEXER_MEMBER_TTL_MS` | 3 latidos | Tras cuánto tiempo sin latido se reparten los shards de una réplica |
+| `INDEXER_OVERLAP_SECONDS` | `900` | Solape al resuscribirse desde un checkpoint |
+
+Despliegue: `deploy/k8s/base/indexer.yaml` (anti-afinidad preferente por nodo, identidad por pod); el overlay
+`stage` fija 2 réplicas. En compose, `docker compose --profile scale up -d` añade `indexer-2` (puerto
+`INDEXER_2_PORT`, 8091). Sin `DATABASE_URL` el indexer usa memoria y es de una sola réplica. La prueba de
+concurrencia (`services/indexer/test/sharding.test.ts`) levanta 3–4 réplicas contra dos relays de prueba
+(uno como Buzz), con caída, alta y baja de réplicas y publicación concurrente. Comprueba que queda
+indexado exactamente el conjunto publicado, que cada id se inserta una sola vez y que las direcciones
+reemplazables quedan en su última versión. Corre en memoria y, con `TEST_DATABASE_URL`, sobre Postgres
+con un pool por réplica (CI). Las cifras de carga están en [`load-testing.md`](load-testing.md).

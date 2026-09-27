@@ -11,6 +11,21 @@ function parseList(v: string | null): string[] | undefined {
 
 const MAX_CHANNELS = 100;
 
+/** Non-negative integer query parameter; NaN or negative values would otherwise reach SQL (500). */
+function intParam(req: Req, name: string): number | undefined {
+  const v = req.query.get(name);
+  if (v === null) return undefined;
+  const n = Number(v);
+  if (v === '' || !Number.isSafeInteger(n) || n < 0) throw new HttpError(400, `${name} must be a non-negative integer`);
+  return n;
+}
+
+function kindList(v: string | null): number[] | undefined {
+  const kinds = parseList(v)?.map(Number);
+  if (kinds?.some((k) => !Number.isSafeInteger(k) || k < 0)) throw new HttpError(400, 'kinds must be non-negative integers');
+  return kinds;
+}
+
 function channelList(v: string | null, required: boolean): string[] | undefined {
   const hs = parseList(v);
   if (!hs?.length) {
@@ -84,13 +99,13 @@ export function createIndexerApi(repo: EventRepository, opts: ServiceOptions & {
     async (req) => {
       const q: EventQuery = {
         ids: parseList(req.query.get('ids')),
-        kinds: parseList(req.query.get('kinds'))?.map(Number),
+        kinds: kindList(req.query.get('kinds')),
         authors: parseList(req.query.get('authors')),
         h: req.query.get('h') ?? undefined,
         p: req.query.get('p') ?? undefined,
-        since: req.query.has('since') ? Number(req.query.get('since')) : undefined,
-        until: req.query.has('until') ? Number(req.query.get('until')) : undefined,
-        limit: req.query.has('limit') ? Math.min(Number(req.query.get('limit')), 1000) : 100,
+        since: intParam(req, 'since'),
+        until: intParam(req, 'until'),
+        limit: Math.min(intParam(req, 'limit') ?? 100, 1000),
       };
       const touchesGated = !q.kinds || q.kinds.some((k) => P_GATED.includes(k));
       if (touchesGated) {
@@ -157,7 +172,7 @@ export function createIndexerApi(repo: EventRepository, opts: ServiceOptions & {
         h = await g.channels(h);
         if (!h.length) return eventsBody([]);
       }
-      return eventsBody(await g.filter(await repo.search({ text, h, kinds: parseList(req.query.get('kinds'))?.map(Number), limit })));
+      return eventsBody(await g.filter(await repo.search({ text, h, kinds: kindList(req.query.get('kinds')), limit })));
     },
     auth,
   );

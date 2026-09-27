@@ -49,6 +49,14 @@ configMapGenerator:
       - config.toml=files/secure-relay.config.toml
 
 patches:
+  # NFR005-01: two mirror replicas sharding the relay/channels (docs/architecture.md, indexer).
+  - target:
+      kind: Deployment
+      name: indexer
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
   # NodePort = port of the ALB target group (terraform var.node_port). 31800 belongs to buzz-hermes.
   - target:
       kind: Service

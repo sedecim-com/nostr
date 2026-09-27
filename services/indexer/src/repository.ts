@@ -106,11 +106,17 @@ export class MemoryEventRepository implements EventRepository {
       return false;
     }
     if (isReplaceableKind(evt.kind) || isAddressableKind(evt.kind)) {
+      // Only the NIP-01 head of an address is kept (same outcome as the Postgres repository under races).
       const addr = eventAddress(evt);
-      for (const r of this.rows.values()) {
+      const older: string[] = [];
+      for (const [id, r] of this.rows) {
+        if (r.deleted) continue;
         const re = this.codec.decode(r.stored);
-        if (eventAddress(re) === addr && !r.deleted && !supersedes(evt, re)) return false;
+        if (eventAddress(re) !== addr) continue;
+        if (!supersedes(evt, re)) return false;
+        older.push(id);
       }
+      older.forEach((id) => this.rows.delete(id));
     }
     this.rows.set(evt.id, { event: evt, stored: this.codec.encode(evt), firstSeenAt: now, lastSeenAt: now, relays: [relay], sensitivity: classify(evt), deleted: false, ...(communityId ? { communityId } : {}) });
     return true;
@@ -199,37 +205,45 @@ interface PgEventRow {
 export class PgEventRepository implements EventRepository {
   constructor(private readonly pool: Pool, private readonly codec: EventCodec = plainCodec) {}
 
+  /**
+   * Idempotent under concurrent replicas (NFR005-01): the event id is the primary key, writers of the same
+   * replaceable/addressable address are serialized with a transaction-scoped advisory lock, and inserting a
+   * new head deletes the versions it supersedes, so a race always ends with the NIP-01 head alone.
+   */
   async upsert(evt: NostrEvent, relay: string, communityId?: string): Promise<boolean> {
+    const addressable = isAddressableKind(evt.kind);
+    const replaceable = addressable || isReplaceableKind(evt.kind);
+    const d = addressable ? (getTagValue(evt, 'd') ?? '') : null;
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const exists = await client.query('SELECT 1 FROM events WHERE event_id = $1', [evt.id]);
+      const seen = await client.query('UPDATE events SET last_seen_at = now() WHERE event_id = $1', [evt.id]);
       let inserted = false;
-      if (exists.rowCount) {
-        await client.query('UPDATE events SET last_seen_at = now() WHERE event_id = $1', [evt.id]);
-      } else {
+      if (!seen.rowCount) {
         let superseded = false;
-        if (isReplaceableKind(evt.kind) || isAddressableKind(evt.kind)) {
-          const d = isAddressableKind(evt.kind) ? (getTagValue(evt, 'd') ?? '') : null;
+        if (replaceable) {
+          await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [eventAddress(evt)]);
           const heads = await client.query<{ event_id: string; created_at: string }>(
-            `SELECT event_id, created_at FROM events WHERE pubkey = $1 AND kind = $2 AND NOT deleted_tombstone ${d !== null ? `AND raw_event_json -> 'tags' @> $3::jsonb` : ''}`,
-            d !== null ? [evt.pubkey, evt.kind, JSON.stringify([['d', d]])] : [evt.pubkey, evt.kind],
+            'SELECT event_id, created_at FROM events WHERE pubkey = $1 AND kind = $2 AND d_tag IS NOT DISTINCT FROM $3 AND NOT deleted_tombstone',
+            [evt.pubkey, evt.kind, d],
           );
-          superseded = heads.rows.some((h) => Number(h.created_at) > evt.created_at || (Number(h.created_at) === evt.created_at && h.event_id < evt.id));
+          superseded = heads.rows.some((h) => h.event_id !== evt.id && (Number(h.created_at) > evt.created_at || (Number(h.created_at) === evt.created_at && h.event_id < evt.id)));
         }
         if (!superseded) {
           const enc = this.codec.encode(evt);
-          await client.query(
-            `INSERT INTO events (event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, community_id, h_tag, p_tags, sensitivity_class)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (event_id) DO NOTHING`,
-            [evt.id, evt.pubkey, evt.kind, evt.created_at, enc.raw ? JSON.stringify(enc.raw) : null, enc.encrypted ? Buffer.from(enc.encrypted) : null, communityId ?? null, getTagValue(evt, 'h') ?? null, getTagValues(evt, 'p'), classify(evt)],
+          const r = await client.query(
+            `INSERT INTO events (event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, community_id, h_tag, p_tags, sensitivity_class, d_tag)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
+            [evt.id, evt.pubkey, evt.kind, evt.created_at, enc.raw ? JSON.stringify(enc.raw) : null, enc.encrypted ? Buffer.from(enc.encrypted) : null, communityId ?? null, getTagValue(evt, 'h') ?? null, getTagValues(evt, 'p'), classify(evt), d],
           );
-          inserted = true;
+          inserted = r.rowCount === 1;
+          if (inserted && replaceable) {
+            await client.query('DELETE FROM events WHERE pubkey = $1 AND kind = $2 AND d_tag IS NOT DISTINCT FROM $3 AND event_id <> $4 AND NOT deleted_tombstone', [evt.pubkey, evt.kind, d, evt.id]);
+          }
         }
       }
-      if (inserted || exists.rowCount) {
-        await client.query('INSERT INTO event_sources (event_id, relay_url) VALUES ($1,$2) ON CONFLICT DO NOTHING', [evt.id, relay]);
-      }
+      // Also when another replica inserted it concurrently (ON CONFLICT waited for its commit).
+      await client.query('INSERT INTO event_sources (event_id, relay_url) SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM events WHERE event_id = $1) ON CONFLICT DO NOTHING', [evt.id, relay]);
       await client.query('COMMIT');
       return inserted;
     } catch (err) {

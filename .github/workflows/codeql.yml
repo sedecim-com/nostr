@@ -1,0 +1,47 @@
+name: codeql
+
+# Static analysis, part of the internal pre-review for SEC-01/SEC-02 (docs/security/internal-review-2026-09.md).
+# It does not replace the external audit or the pentest.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - '**/node_modules/**'
+              - interop/**
+            # blob-store exists to write uploaded bytes to disk: the path is the sha256 of the content and
+            # the bytes are served with nosniff + sandbox CSP (IR-2026-09 review), so this query only flags
+            # the intended behavior.
+            query-filters:
+              - exclude:
+                  id: js/http-to-file-access
+      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          category: /language:javascript-typescript

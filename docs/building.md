@@ -1,4 +1,4 @@
-# Build desde source y verificación de releases (OPS-09, NFR010-02, OPS-08)
+# Build desde source y verificación de releases (OPS-09, NFR010-02, NFR010-03, OPS-08)
 
 Esta guía explica cómo construir cada artefacto desde el código de un tag, cómo compararlo con lo
 publicado y qué partes son reproducibles bit a bit (y cuáles no). Los releases los genera
@@ -132,44 +132,96 @@ diff local.json publicado.json
 coincide bit a bit; sin esos dos campos, dos ejecuciones sobre el mismo checkout dieron el mismo
 resultado. Puede variar con otra versión de npm.
 
-### Imágenes de los servicios: no reproducibles bit a bit
+### Imágenes de los servicios: reproducibles bit a bit (NFR010-03)
+
+Dos builds del mismo commit producen el mismo digest. Estado: se da por comprobado cuando
+`reproducible-images.yml` pase en GitHub para las ocho imágenes (sin Docker local no se pudo probar
+antes de añadirlo). Requisitos: Docker con Buildx (driver
+`docker-container`, que el script crea), git, jq y `gh` para descargar `images.txt`.
 
 ```bash
-docker compose build                                                     # todas, como el stack local
-docker buildx build --target service --build-arg SERVICE=indexer -t nostr-indexer .   # una a una:
-#   SERVICE = indexer | identity-service | policy-engine | blob-store | managed-signer | notification-gateway
-docker buildx build --target web -t nostr-web .
-docker buildx build -t nostr-tor infra/tor
+sh scripts/verify-release.sh v0.2.0                 # primero: images.txt firmado por el release
+sh scripts/rebuild-image.sh v0.2.0 indexer release-v0.2.0/images.txt
+#   servicio = indexer | identity-service | policy-engine | blob-store | managed-signer |
+#              notification-gateway | web | tor
 ```
 
-`release.yml` construye exactamente esas combinaciones (contexto, `target`, `SERVICE`). El digest de una
-imagen construida en local **no** coincidirá con el publicado: las imágenes base (`node:26-alpine`,
-`nginx:1.31-alpine`, `alpine:3.20`) se referencian por tag y cambian con el tiempo, `apk add` instala la
-versión vigente de Tor, y las capas llevan marcas de tiempo. Lo que sí se puede comprobar:
+`rebuild-image.sh` clona el tag en un directorio temporal (con `umask 022`), construye la imagen con
+`scripts/build-image.sh` en un builder nuevo y compara el digest con el de `images.txt`. Termina en `OK` o
+en `FALLO` con los comandos para ver la diferencia (`skopeo copy` de la imagen publicada a un archivo OCI y
+`scripts/image-diff.sh`, que muestra el config y, por cada capa distinta, los archivos que cambian; para un
+análisis más fino, [diffoci](https://github.com/reproducible-containers/diffoci)). Sin tercer argumento
+descarga `images.txt` con `gh`.
 
-- **Origen**: la firma cosign y la provenance SLSA (sección anterior) prueban que la imagen la construyó
-  `release.yml` desde el commit del tag; la provenance registra el commit exacto.
-- **Contenido propio**: las imágenes de servicio ejecutan el TypeScript de las fuentes con `tsx`, sin
-  compilar. Extrae el código y compáralo con el checkout del tag:
+`scripts/build-image.sh <servicio> <salida.tar>` es la única forma de construir una imagen de release:
+lo usan el job `images` de `release.yml`, el workflow
+[`reproducible-images.yml`](../.github/workflows/reproducible-images.yml) y `rebuild-image.sh`. Qué lo hace
+reproducible:
 
-  ```bash
-  cid=$(docker create ghcr.io/sedecim-com/nostr-indexer@sha256:<digest>)
-  docker cp "$cid:/app" app-publicada && docker rm "$cid"
-  for d in packages services apps; do diff -r --exclude node_modules --exclude dist "$d" "app-publicada/$d"; done
-  cmp package-lock.json app-publicada/package-lock.json
-  ```
+- **Entradas fijadas**: imágenes base por digest (`node`, `nginx` y `alpine` en los `Dockerfile`, con el tag
+  al lado), frontend del Dockerfile (`# syntax=…@sha256:…`) y BuildKit por digest (en el script: la
+  compresión de capas y los metadatos dependen de su versión). `npm ci` instala exactamente el
+  `package-lock.json` (integridad por hash, sin scripts de instalación).
+- **Sin marcas de tiempo**: `SOURCE_DATE_EPOCH` = hora del commit (`git log -1 --format=%ct`) para los
+  metadatos de la imagen, y el exportador OCI con `rewrite-timestamp=true` lleva a esa fecha la de todos los
+  archivos creados en el build. `adduser` escribe el día actual en `/etc/shadow`: los Dockerfiles vacían ese
+  campo (las cuentas están bloqueadas).
+- **Sin attestations embebidas**: `--provenance=false --sbom=false`, porque llevan la hora del build. La
+  provenance SLSA y el SBOM se añaden aparte en `publish-images`, sobre el mismo digest.
+- **Permisos estables**: los archivos copiados del repositorio conservan el modo del checkout; con
+  `umask 022` (el de los runners de GitHub) coinciden. `nginx.conf`, `torrc` y `entrypoint.sh` se copian
+  con `--chmod` explícito.
+- **Plataforma fija**: `linux/amd64` (en Apple Silicon se emula; tarda más, pero el digest es el mismo).
+- **Build sin aleatoriedad**: Vite nombra los assets por el hash de su contenido; el web se construye
+  dentro de la imagen con el Node fijado.
+- **Mismas etiquetas**: `org.opencontainers.image.{source,revision,version,licenses}` salen del tag y del
+  commit, así que se reproducen. El nombre `imagen:tag` solo va en el índice del archivo OCI, no en el
+  manifiesto, y no cambia el digest.
+
+Cómo se comprueba: `reproducible-images.yml` construye cada imagen dos veces, en dos builders nuevos sin
+caché, y falla si los digests difieren (en las PR que tocan `Dockerfile`, `infra/`, `package*.json` o los
+scripts, en `main` y cada lunes). El job `images` de `release.yml` hace lo mismo con cada imagen del
+release y se detiene si no coinciden, así que todo digest publicado ya se ha reconstruido una vez.
+
+#### Imagen `tor`: excepción
+
+`infra/tor/Dockerfile` instala Tor con `apk` fijando la versión exacta de cada paquete (`tor`, `su-exec`
+y las librerías que Tor enlaza y la base no trae). Alpine no mantiene archivo histórico: cada rama
+conserva solo la última compilación de cada paquete. Por eso:
+
+- Mientras esas versiones sigan publicadas, la imagen `tor` es reproducible como las demás.
+- Cuando Alpine publica una actualización de alguno de esos paquetes (normalmente de seguridad), el build
+  **falla** en lugar de producir otra imagen; el run semanal de `reproducible-images.yml` lo detecta. Hay
+  que subir las versiones (lista actual: `docker run --rm alpine:<tag>@<digest> apk add -s tor su-exec`
+  muestra lo que instalaría) en una PR.
+- Desde ese momento, los releases anteriores **ya no se pueden reconstruir** para `tor`. Su origen se sigue
+  verificando con la firma cosign y la provenance SLSA, y el contenido con los paquetes listados en
+  `/lib/apk/db/installed` de la imagen publicada.
+
+Las otras siete imágenes no instalan paquetes del sistema: solo dependen de imágenes base fijadas por
+digest y de npm, que conserva todas las versiones publicadas.
+
+Para construir sin comparar (desarrollo): `docker compose build`, o una sola imagen con
+`sh scripts/build-image.sh indexer indexer.tar` (imprime el digest en la última línea).
 
 ## Publicar un release (mantenedores)
 
-1. Asegúrate de que `main` está en verde (`ci`).
-2. Crea y sube un tag anotado: `git tag -a v0.2.0 -m v0.2.0 && git push origin v0.2.0`.
-3. `release.yml` construye sin permisos de escritura (job `build`: generador, E2E del HTML sin red y SBOM;
-   job `images`: una imagen OCI por servicio, sin subirla).
-4. Los jobs `publish-images` y `publish` esperan aprobación en el entorno `release`. Una persona distinta
-   de quien subió el tag revisa el run y aprueba. Son dos aprobaciones: primero las imágenes (suben los
-   bytes exactos del build, comprobando el digest, firman y atestan) y después los archivos (firma,
-   attestations y GitHub Release con `images.txt`).
-5. Verifica el resultado con `sh scripts/verify-release.sh v0.2.0`.
+La lista completa de condiciones y el job que hace cumplir cada una está en
+[release-checklist.md](release-checklist.md). En resumen:
+
+1. Prepara en una PR las notas `docs/releases/v0.2.0.md` (plantilla `docs/releases/TEMPLATE.md`) y el
+   informe de auditoría o el waiver aprobado de `docs/security/audits/`.
+2. Asegúrate de que `ci` y el restore drill están en verde en el commit que vas a etiquetar.
+3. Crea y sube un tag anotado: `git tag -a v0.2.0 -m v0.2.0 && git push origin v0.2.0`.
+4. `release.yml` construye sin permisos de escritura (job `build`: generador, E2E del HTML sin red y SBOM;
+   job `images`: cada imagen dos veces, que deben dar el mismo digest, sin subirla) y el job `dod`
+   comprueba la Definition of Done (CI, restore drill, SBOM, auditorías, notas).
+5. Los jobs `publish-images`, `publish` y `verify` esperan aprobación en el entorno `release`. Una persona
+   distinta de quien subió el tag revisa el run y aprueba. Son tres aprobaciones: primero las imágenes
+   (suben los bytes exactos del build, comprobando el digest, firman y atestan), después los archivos
+   (firma, attestations y GitHub Release **en borrador** con las notas e `images.txt`) y por último la
+   verificación (`scripts/verify-release.sh` sobre lo publicado), que hace público el release solo si todo
+   verifica.
 
 Para repetir un release que falló: *Actions → release → Run workflow*, elige el **tag** en «Use workflow
 from» y escríbelo de nuevo en el campo `tag`. El workflow se niega a ejecutarse desde una rama, porque la
@@ -191,6 +243,7 @@ que no se pueden versionar en el repositorio:
 - **GHCR**: tras el primer release, en cada paquete `nostr-*` (*Package settings*) cambia la visibilidad a
   pública para que cualquiera pueda descargar y verificar las imágenes sin credenciales.
 
-Los jobs de build solo tienen `contents: read`. Solo `publish-images` (`packages: write`, `id-token: write`,
-`attestations: write`) y `publish` (`contents: write`, `id-token: write`, `attestations: write`) pueden
-escribir, y ambos corren en el entorno protegido.
+Los jobs de build solo tienen `contents: read` (y `dod`, además, `actions: read` para consultar las
+ejecuciones de CI). Solo `publish-images` (`packages: write`, `id-token: write`, `attestations: write`),
+`publish` (`contents: write`, `id-token: write`, `attestations: write`) y `verify` (`contents: write` para
+publicar el borrador, `packages: read`) pueden escribir, y los tres corren en el entorno protegido.
