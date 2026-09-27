@@ -39,7 +39,7 @@ patches:
   # CA bundle for sslmode=verify-full in every workload with a DATABASE_URL.
   - target:
       kind: Deployment
-      name: relay|indexer|identity-service|managed-signer
+      name: relay|indexer|identity-service|managed-signer|policy-engine|relay-allowlist
     patch: |-
       - op: add
         path: /spec/template/spec/volumes/-

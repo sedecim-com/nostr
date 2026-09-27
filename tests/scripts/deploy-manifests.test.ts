@@ -150,7 +150,7 @@ describe.skipIf(!hasKubectl)('kubectl kustomize deploy/k8s/overlays/stage', () =
     expect(docs.some((d) => /^kind: StatefulSet$/m.test(d) && /^  name: postgres$/m.test(d))).toBe(false);
     expect(out.stdout).toMatch(/POSTGRES_URL_QUERY: \?sslmode=verify-full&sslrootcert=\/etc\/rds-ca\/rds-ca-us-east-1\.pem/);
     const withDb = docs.filter((d) => /name: DATABASE_URL/.test(d));
-    expect(withDb.length).toBe(4);
+    expect(withDb.length).toBe(5);
     for (const d of withDb) {
       expect(d).toMatch(/@\$\(POSTGRES_HOST\):5432\/\$\((PLATFORM_DB|POSTGRES_DB)\)\$\(POSTGRES_URL_QUERY\)/);
       expect(d).toMatch(/mountPath: \/etc\/rds-ca/);
