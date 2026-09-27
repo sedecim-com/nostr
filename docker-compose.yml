@@ -234,6 +234,8 @@ services:
       - ./infra/web/flags.json:/usr/share/nginx/html/flags.json:ro
       # deployment settings (mode self-hosted | saas, relays, Cognito): infra/web/config.saas.example.json
       - ${WEB_CONFIG:-./infra/web/config.json}:/usr/share/nginx/html/config.json:ro
+      # admin console at /admin/ (policyEngineUrl, identityServiceUrl): infra/web/admin-config.json
+      - ${WEB_ADMIN_CONFIG:-./infra/web/admin-config.json}:/usr/share/nginx/html/admin/config.json:ro
     restart: unless-stopped
     read_only: true
     tmpfs: [/var/cache/nginx, /var/run, /tmp]

@@ -1,0 +1,24 @@
+{
+  "name": "@sedecim/admin-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Consola de administración institucional (policy-engine e identity-service) autenticada por NIP-98.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "dependencies": {
+    "@emotion/cache": "11.14.0",
+    "@emotion/react": "11.14.0",
+    "@emotion/styled": "11.14.1",
+    "@mui/material": "7.3.11",
+    "@sedecim/nostr-core": "0.1.0",
+    "@sedecim/policy-client": "0.1.0",
+    "@sedecim/relay-pool": "0.1.0",
+    "@sedecim/signer": "0.1.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  }
+}

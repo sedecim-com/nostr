@@ -47,6 +47,7 @@ describe('deploy/k8s copies of the compose config files', () => {
     expect(read('deploy/k8s/base/files/01-platform-db.sh')).toBe(read('infra/postgres/01-platform-db.sh'));
     expect(read('deploy/k8s/base/files/secure-relay.config.toml')).toBe(read('infra/secure-relay/config.toml'));
     expect(JSON.parse(read('deploy/k8s/base/files/web-config.json'))).toEqual(JSON.parse(read('infra/web/config.json')));
+    expect(JSON.parse(read('deploy/k8s/base/files/admin-config.json'))).toEqual(JSON.parse(read('infra/web/admin-config.json')));
     expect(read('deploy/k8s/components/institutional/files/secure-relay.config.toml')).toBe(read('infra/secure-relay/config.institutional.toml'));
   });
 
@@ -54,6 +55,14 @@ describe('deploy/k8s copies of the compose config files', () => {
     const inst = read('infra/secure-relay/config.institutional.toml');
     expect(inst.startsWith(read('infra/secure-relay/config.toml'))).toBe(true);
     expect(inst).toMatch(/^\[grpc\]\nevent_admission_server = "http:\/\/relay-allowlist:50051"$/m);
+  });
+
+  it('the stage admin console never allows the development key and points at the stage APIs', () => {
+    const stage = JSON.parse(read('deploy/k8s/overlays/stage/files/admin-config.json')) as Record<string, unknown>;
+    expect(stage.devLocalKey).not.toBe(true);
+    expect(JSON.parse(read('infra/web/admin-config.json')).devLocalKey).not.toBe(true);
+    expect(stage.policyEngineUrl).toBe('https://nostr-stage-policy.ai.acce.so');
+    expect(stage.identityServiceUrl).toBe('https://nostr-stage-id.ai.acce.so');
   });
 
   it('the stage secure relay config only changes relay_url', () => {

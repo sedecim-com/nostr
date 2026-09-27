@@ -60,6 +60,9 @@ configMapGenerator:
   - name: web-config
     files:
       - config.json=files/web-config.json
+  - name: web-admin-config
+    files:
+      - config.json=files/admin-config.json
   - name: edge-conf
     files:
       - nginx.conf=files/edge-nginx.conf

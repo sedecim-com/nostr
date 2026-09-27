@@ -1,5 +1,6 @@
-# Web client (nginx serving apps/web-saas; flags.json is baked into the image by the build).
-# config.json (mode, relays, Cognito) comes from the `web-config` ConfigMap, as compose mounts it.
+# Web client (nginx serving apps/web-saas, and apps/admin-console under /admin/; flags.json is baked into
+# the image by the build). config.json (mode, relays, Cognito) comes from the `web-config` ConfigMap and
+# admin/config.json from `web-admin-config`, as compose mounts them.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,6 +33,10 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
+              readOnly: true
+            - name: admin-config
+              mountPath: /usr/share/nginx/html/admin/config.json
               subPath: config.json
               readOnly: true
             # compose: tmpfs [/var/cache/nginx, /var/run, /tmp]
@@ -68,6 +73,9 @@ spec:
         - name: config
           configMap:
             name: web-config
+        - name: admin-config
+          configMap:
+            name: web-admin-config
         - name: cache
           emptyDir: {}
         - name: run

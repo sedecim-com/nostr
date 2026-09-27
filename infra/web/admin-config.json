@@ -1,0 +1,5 @@
+{
+  "policyEngineUrl": "http://localhost:8083",
+  "identityServiceUrl": "http://localhost:8082",
+  "devLocalKey": false
+}

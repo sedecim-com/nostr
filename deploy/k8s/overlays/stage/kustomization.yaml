@@ -34,6 +34,10 @@ configMapGenerator:
     behavior: replace
     files:
       - config.json=files/web-config.json
+  - name: web-admin-config
+    behavior: replace
+    files:
+      - config.json=files/admin-config.json
   - name: secure-relay-config
     behavior: replace
     files:

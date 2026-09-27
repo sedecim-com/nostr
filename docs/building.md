@@ -105,6 +105,7 @@ o con los paquetes enlazados desde otra ubicación cambia esos comentarios y, po
 
 ```bash
 npm run build:web                        # apps/web-saas/dist
+npm run build:admin                      # apps/admin-console/dist (en la imagen, bajo /admin/)
 ```
 
 El resultado fue idéntico en dos builds consecutivos del mismo checkout. En el release la web solo se
@@ -114,7 +115,8 @@ publica dentro de la imagen `nostr-web` (construida con la imagen oficial de Nod
 ```bash
 cid=$(docker create ghcr.io/sedecim-com/nostr-web@sha256:<digest>)
 docker cp "$cid:/usr/share/nginx/html" web-publicada && docker rm "$cid"
-diff -r apps/web-saas/dist web-publicada
+diff -r -x admin apps/web-saas/dist web-publicada
+diff -r apps/admin-console/dist web-publicada/admin
 ```
 
 ### SBOM: reproducible salvo metadatos

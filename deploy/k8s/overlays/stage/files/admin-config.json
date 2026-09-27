@@ -1,0 +1,5 @@
+{
+  "policyEngineUrl": "https://nostr-stage-policy.ai.acce.so",
+  "identityServiceUrl": "https://nostr-stage-id.ai.acce.so",
+  "devLocalKey": false
+}

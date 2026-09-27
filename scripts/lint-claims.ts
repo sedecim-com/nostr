@@ -20,7 +20,7 @@ export interface ClaimViolation {
   text: string;
 }
 
-export const DEFAULT_ROOTS = ['apps/web-saas/src', 'apps/web-saas/index.html', 'apps/web-saas/static', 'apps/sovereign-client/src', 'apps/key-generator/src', 'packages/profiles/src'];
+export const DEFAULT_ROOTS = ['apps/web-saas/src', 'apps/web-saas/index.html', 'apps/web-saas/static', 'apps/admin-console/src', 'apps/admin-console/index.html', 'apps/sovereign-client/src', 'apps/key-generator/src', 'packages/profiles/src'];
 
 const SOURCE_EXT = new Set(['.ts', '.tsx', '.mts', '.js', '.mjs', '.jsx']);
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'test', '__tests__']);
