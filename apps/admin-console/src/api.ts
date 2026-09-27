@@ -17,6 +17,8 @@ export interface Rotation {
 export type RotationRequired = Omit<Rotation, 'id' | 'status'> & Partial<Pick<Rotation, 'id' | 'status'>>;
 
 export interface AuditEntry {
+  /** Monotonic sequence number, the cursor for `before`. */
+  id: number;
   at: number;
   actor: string;
   action: string;
@@ -126,7 +128,7 @@ export class PolicyAdminApi {
   webauthnOptions = (id: string) => this.call<CreationOptionsJSON>('POST', `/v1/devices/${enc(id)}/webauthn/options`);
   webauthnRegister = (id: string, credential: RegistrationCredentialJSON) => this.call<Device>('POST', `/v1/devices/${enc(id)}/webauthn/register`, credential);
 
-  /** Newest first; `before` is the `at` of the oldest entry already shown. */
+  /** Newest first; `before` is the `id` of the oldest entry already shown (exclusive). */
   audit = async (q: { limit: number; before?: number }) => {
     const qs = new URLSearchParams({ limit: String(q.limit) });
     if (q.before !== undefined) qs.set('before', String(q.before));

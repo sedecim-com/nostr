@@ -7,7 +7,7 @@ import { errorText, fmtDate } from '../ui';
 export const AUDIT_PAGE = 20;
 
 /**
- * Server-side pagination (newest first, `before` = `at` of the last row shown); the actor/action
+ * Server-side pagination (newest first, `before` = `id` of the last row shown); the actor/action
  * filters only narrow the page already loaded.
  */
 export function AuditView({ api }: { api: PolicyAdminApi }) {
@@ -69,8 +69,8 @@ export function AuditView({ api }: { api: PolicyAdminApi }) {
             </TableRow>
           </TableHead>
           <TableBody id="audit-rows">
-            {visible.map((r, i) => (
-              <TableRow key={`${r.at}-${i}`} data-action={r.action}>
+            {visible.map((r) => (
+              <TableRow key={r.id} data-action={r.action}>
                 <TableCell>{fmtDate(r.at)}</TableCell>
                 <TableCell title={r.actor}>{/^[0-9a-f]{64}$/.test(r.actor) ? shortNpub(r.actor) : r.actor}</TableCell>
                 <TableCell>{r.action}</TableCell>
@@ -93,7 +93,7 @@ export function AuditView({ api }: { api: PolicyAdminApi }) {
         <Typography id="audit-page" aria-live="polite">
           Página {page + 1}
         </Typography>
-        <Button disabled={loading || rows.length < AUDIT_PAGE || !last} onClick={() => last && setCursors((c) => [...c, last.at])}>
+        <Button disabled={loading || rows.length < AUDIT_PAGE || !last} onClick={() => last && setCursors((c) => [...c, last.id])}>
           Anteriores
         </Button>
       </Stack>

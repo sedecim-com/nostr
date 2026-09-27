@@ -17,6 +17,7 @@ export interface StubRotation {
   status: 'pending' | 'done';
 }
 export interface StubAudit {
+  id: number;
   at: number;
   actor: string;
   action: string;
@@ -43,10 +44,10 @@ export function createPolicyStub(opts: { adminPubkeys: string[]; corsOrigins: st
   const now = () => (clock = Math.max(clock + 1, Date.now()));
 
   // Older entries so the audit table has several pages.
-  for (let i = 0; i < (opts.seedAudit ?? 0); i++) audit.push({ at: now() - 5_000_000 + i, actor: 'seed', action: i % 2 ? 'seed.even' : 'seed.odd', target: `seed-${i}` });
+  for (let i = 0; i < (opts.seedAudit ?? 0); i++) audit.push({ id: audit.length + 1, at: now() - 5_000_000 + i, actor: 'seed', action: i % 2 ? 'seed.even' : 'seed.odd', target: `seed-${i}` });
   audit.sort((a, b) => a.at - b.at);
 
-  const log = (actor: string, action: string, target: string, details?: Record<string, unknown>) => audit.push({ at: now(), actor, action, target, ...(details ? { details } : {}) });
+  const log = (actor: string, action: string, target: string, details?: Record<string, unknown>) => audit.push({ id: audit.length + 1, at: now(), actor, action, target, ...(details ? { details } : {}) });
 
   const svc = new Service({ name: 'policy-stub', corsOrigins: opts.corsOrigins });
   const admin = (req: { pubkey?: string; method: string; path: string; query: URLSearchParams }) => {
@@ -160,7 +161,7 @@ export function createPolicyStub(opts: { adminPubkeys: string[]; corsOrigins: st
     admin(req);
     const limit = Math.min(Math.max(Number(req.query.get('limit') ?? 50) || 50, 1), 200);
     const before = req.query.get('before');
-    const list = audit.filter((e) => before === null || e.at < Number(before)).sort((a, b) => b.at - a.at);
+    const list = audit.filter((e) => before === null || e.id < Number(before)).sort((a, b) => b.id - a.id);
     return { audit: list.slice(0, limit) };
   }, 'nip98');
 

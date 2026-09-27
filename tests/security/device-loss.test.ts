@@ -12,10 +12,9 @@ import WebSocket from 'ws';
 import { generateSecretKey, verifyEvent } from '@sedecim/nostr-core';
 import { MarmotTsProvider, MemoryGroupNetwork, VolatileGroupStorage, type ExtendedGroupSession } from '@sedecim/marmot-adapter';
 import { createManagedSignerApi, ManagedSigner, MemoryVault } from '@sedecim/managed-signer';
-import { PolicyEngine } from '@sedecim/policy-engine';
+import { createPolicyApi, PolicyEngine } from '@sedecim/policy-engine';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
-import { StubPolicyApi, type RotationFeedItem } from '@sedecim/rotation-worker/testing';
 import { createTestCognito } from '@sedecim/service-kit';
 import { LocalSigner, ManagedSignerClient, Nip46Bunker, Nip46Signer } from '@sedecim/signer';
 import { createLogger } from '@sedecim/telemetry-policy';
@@ -33,9 +32,8 @@ describe('device loss end to end (SEC-04, FR-024)', () => {
   const pools: RelayPool[] = [];
   const closers: Array<() => unknown> = [];
 
-  // Policy-engine (in memory) behind the rotation contract.
+  // The real policy-engine API (in-memory repository): rotations, audit and NIP-98 admin checks.
   const engine = new PolicyEngine();
-  const feed: RotationFeedItem[] = [];
   const adminSigner = new LocalSigner(generateSecretKey());
   let policyBase: string;
 
@@ -47,10 +45,10 @@ describe('device loss end to end (SEC-04, FR-024)', () => {
   beforeAll(async () => {
     await relay.start();
     const admin = await adminSigner.getPublicKey();
-    const stub = new StubPolicyApi({ adminPubkeys: [admin], feed: () => feed, audit: () => engine.audit });
-    policyBase = await stub.listen();
+    const policyApi = createPolicyApi(engine, { name: 'policy-sec04', adminPubkeys: [admin], logger: silent });
+    policyBase = await policyApi.listen();
     signerBase = await signerApi.listen();
-    closers.push(() => stub.close(), () => signerApi.close(), () => relay.stop());
+    closers.push(() => policyApi.close(), () => signerApi.close(), () => relay.stop());
   });
   afterAll(async () => {
     pools.forEach((p) => p.close());
@@ -115,7 +113,6 @@ describe('device loss end to end (SEC-04, FR-024)', () => {
 
     // ================= The phone is stolen: the organisation revokes it. =================
     const rotations = await engine.revokeDevice(admin, phone.id, 'robado');
-    feed.push(...rotations);
     expect(rotations).toEqual([expect.objectContaining({ resourceId: group.groupId, removedPubkey: alice })]);
 
     // 1. No policy session: the open one is invalid, no new one, access denied for that device.
