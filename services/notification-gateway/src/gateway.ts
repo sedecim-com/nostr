@@ -59,6 +59,9 @@ export interface GatewayOptions {
 /** Push services of the major browsers (Chrome/Edge via FCM, Firefox autopush, Safari, legacy Edge/WNS). */
 export const DEFAULT_PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', 'push.services.mozilla.com', 'push.apple.com', 'notify.windows.com'];
 
+/** Push delays hide activity timing (ADR 0010): draw them from the CSPRNG, not Math.random. */
+const cryptoRandom = () => randomBytes(4).readUInt32BE(0) / 2 ** 32;
+
 const TOR_ONLY_PROFILES = new Set<string>(['sovereign', 'sovereign-tor']);
 
 /**
@@ -131,7 +134,7 @@ export class NotificationGateway {
     for (const reg of this.regs.values()) {
       if (reg.pubkey !== pubkey || (relay && !reg.relays.includes(relay))) continue;
       if (reg.timer) continue; // already pending: this activity is batched into that push
-      const delay = this.opts.delayFor ? this.opts.delayFor(reg.policy, Date.now(), reg.lastSentAt) : nextPushDelayMs(reg.policy, Date.now(), reg.lastSentAt, this.opts.random);
+      const delay = this.opts.delayFor ? this.opts.delayFor(reg.policy, Date.now(), reg.lastSentAt) : nextPushDelayMs(reg.policy, Date.now(), reg.lastSentAt, this.opts.random ?? cryptoRandom);
       reg.timer = setTimeout(() => void this.fire(reg), delay);
     }
   }

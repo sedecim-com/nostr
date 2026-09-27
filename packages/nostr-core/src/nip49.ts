@@ -50,15 +50,34 @@ function parse(ncryptsec: string) {
   return { logn: b[1]!, salt: b.slice(2, 18), nonce: b.slice(18, 42), ksb: b[42]!, ct: b.slice(43) };
 }
 
-export function decryptKey(ncryptsec: string, password: string): { secretKey: Uint8Array; keySecurity: number; logn: number } {
-  const { logn, salt, nonce, ksb, ct } = parse(ncryptsec);
+export interface DecryptOptions {
+  /**
+   * Reject payloads whose scrypt cost exceeds 2^maxLogN before running scrypt. logN is chosen by whoever
+   * produced the ncryptsec, so services decrypting untrusted input must cap it (memory ~ 2^logN KiB).
+   */
+  maxLogN?: number;
+}
+
+/** scrypt cost parameter (log2 N) declared by an ncryptsec, without decrypting it. */
+export function ncryptsecLogN(ncryptsec: string): number {
+  return parse(ncryptsec).logn;
+}
+
+function parseCapped(ncryptsec: string, opts: DecryptOptions) {
+  const p = parse(ncryptsec);
+  if (opts.maxLogN !== undefined && p.logn > opts.maxLogN) throw new Error(`ncryptsec logN ${p.logn} exceeds the allowed maximum ${opts.maxLogN}`);
+  return p;
+}
+
+export function decryptKey(ncryptsec: string, password: string, opts: DecryptOptions = {}): { secretKey: Uint8Array; keySecurity: number; logn: number } {
+  const { logn, salt, nonce, ksb, ct } = parseCapped(ncryptsec, opts);
   const key = scrypt(passwordBytes(password), salt, { N: 2 ** logn, r: 8, p: 1, dkLen: 32 });
   const secretKey = xchacha20poly1305(key, nonce, new Uint8Array([ksb])).decrypt(ct);
   return { secretKey, keySecurity: ksb, logn };
 }
 
-export async function decryptKeyAsync(ncryptsec: string, password: string) {
-  const { logn, salt, nonce, ksb, ct } = parse(ncryptsec);
+export async function decryptKeyAsync(ncryptsec: string, password: string, opts: DecryptOptions = {}) {
+  const { logn, salt, nonce, ksb, ct } = parseCapped(ncryptsec, opts);
   const key = await scryptAsync(passwordBytes(password), salt, { N: 2 ** logn, r: 8, p: 1, dkLen: 32 });
   const secretKey = xchacha20poly1305(key, nonce, new Uint8Array([ksb])).decrypt(ct);
   return { secretKey, keySecurity: ksb, logn };

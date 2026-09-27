@@ -51,6 +51,18 @@ function fakeSecretsManager() {
 }
 
 describe('SecretsManagerVault (unit, FR005-02)', () => {
+  it('rejects a sealed secret whose GCM tag was truncated (tag length pinned to 16 bytes)', async () => {
+    const { kms } = fakeKms();
+    const { sm, secrets } = fakeSecretsManager();
+    const vault = new SecretsManagerVault(sm, kms, { kmsKeyId: 'alias/acceso-nostr', prefix: 'test/keys/' });
+    const id = keyId();
+    await vault.put(id, generateSecretKey());
+    const entry = secrets.get(vault.name(id))!;
+    const sealed = JSON.parse(entry.value) as { tag: string };
+    entry.value = JSON.stringify({ ...sealed, tag: Buffer.from(sealed.tag, 'base64').subarray(0, 4).toString('base64') });
+    await expect(vault.get(id)).rejects.toThrow();
+  });
+
   it('stores only AES-GCM ciphertext and a KMS-wrapped data key under the prefix, and zeroes key buffers', async () => {
     const { kms, issued, returned } = fakeKms();
     const { sm, secrets } = fakeSecretsManager();

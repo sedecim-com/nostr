@@ -190,7 +190,7 @@ export class SimulatedKms implements EnclaveKms {
   async decrypt(req: { keyId: string; ciphertextBlob: Uint8Array; context: Record<string, string>; attestationDocument: Uint8Array }) {
     const pub = this.recipientKey(req.attestationDocument, 'decrypt');
     const b = Buffer.from(req.ciphertextBlob);
-    const d = createDecipheriv('aes-256-gcm', this.master, b.subarray(0, 12));
+    const d = createDecipheriv('aes-256-gcm', this.master, b.subarray(0, 12), { authTagLength: 16 });
     d.setAAD(this.aad(req.keyId, req.context));
     d.setAuthTag(b.subarray(b.length - 16));
     let dk: Buffer;

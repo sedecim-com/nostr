@@ -68,6 +68,8 @@ export interface ManagedSignerOptions {
 }
 
 const MAX_SESSION_TTL_MS = 30 * 86_400_000;
+/** Highest scrypt cost accepted on import (2^18 x 1 KiB = 256 MiB); what our clients produce (16/18). */
+export const MAX_IMPORT_LOG_N = 18;
 /** At most one `rate-limited` audit row per key per window, so an abusive client cannot flood the log. */
 const RATE_AUDIT_WINDOW_MS = 60_000;
 
@@ -200,8 +202,22 @@ export class ManagedSigner {
 
   /** local -> managed migration (explicit, opt-in). */
   async importEncrypted(owner: string, principal: string, ncryptsec: string, password: string): Promise<KeyRecord> {
+    if (typeof ncryptsec !== 'string' || typeof password !== 'string') throw new ManagedSignerError(400, 'ncryptsec and password must be strings');
+    let logN: number;
+    try {
+      logN = nip49.ncryptsecLogN(ncryptsec);
+    } catch {
+      throw new ManagedSignerError(400, 'invalid ncryptsec');
+    }
+    // logN is attacker-chosen: 2^20 would make scrypt allocate 1 GiB per request.
+    if (logN > MAX_IMPORT_LOG_N) throw new ManagedSignerError(400, `ncryptsec logN ${logN} is above ${MAX_IMPORT_LOG_N}: re-encrypt it with a lower cost to import`);
     if (this.opts.sealedKeys) return this.persist(await this.opts.sealedKeys.importNcryptsec(ncryptsec, password), owner, principal, 'imported', {});
-    const { secretKey } = await nip49.decryptKeyAsync(ncryptsec, password);
+    let secretKey: Uint8Array;
+    try {
+      ({ secretKey } = await nip49.decryptKeyAsync(ncryptsec, password, { maxLogN: MAX_IMPORT_LOG_N }));
+    } catch {
+      throw new ManagedSignerError(400, 'cannot decrypt ncryptsec (wrong password or corrupted payload)');
+    }
     try {
       return await this.store(secretKey, owner, principal, 'imported', {});
     } finally {

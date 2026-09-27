@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdir, readFile, rm, writeFile, rename, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, getTagValue, getTagValues, verifyEvent, type NostrEvent } from '@sedecim/nostr-core';
 import { createLogger, type Logger } from '@sedecim/telemetry-policy';
@@ -14,6 +15,9 @@ export interface BlobStoreOptions {
   maxBytes?: number;
   logger?: Logger;
 }
+
+/** Served with every blob: no sniffing, no scripts, no plugins, even for `text/html` or SVG uploads. */
+export const BLOB_SAFETY_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" } as const;
 
 interface Meta {
   sha256: string;
@@ -39,6 +43,14 @@ export class BlobStore {
 
   private path(hash: string, ext: 'bin' | 'json') {
     return join(this.opts.dir, hash.slice(0, 2), `${hash}.${ext}`);
+  }
+
+  private async meta(hash: string): Promise<Meta | undefined> {
+    try {
+      return JSON.parse(await readFile(this.path(hash, 'json'), 'utf8')) as Meta;
+    } catch {
+      return undefined;
+    }
   }
 
   private auth(header: string | undefined, verb: 'upload' | 'delete' | 'get'): NostrEvent | string {
@@ -81,24 +93,28 @@ export class BlobStore {
       const data = await this.body(req);
       const hash = bytesToHex(sha256(data));
       if (!getTagValues(a, 'x').includes(hash)) return reason(403, 'authorization does not cover this hash');
-      const meta: Meta = { sha256: hash, size: data.length, type: String(req.headers['content-type'] ?? 'application/octet-stream').slice(0, 100), uploader: a.pubkey, uploaded: Math.floor(Date.now() / 1000) };
-      await mkdir(join(this.opts.dir, hash.slice(0, 2)), { recursive: true, mode: 0o700 });
-      await writeFile(this.path(hash, 'bin') + '.tmp', data, { mode: 0o600 });
-      await rename(this.path(hash, 'bin') + '.tmp', this.path(hash, 'bin'));
-      await writeFile(this.path(hash, 'json'), JSON.stringify(meta), { mode: 0o600 });
-      this.log.info('blob stored', { sha256: hash, size: data.length });
+      // Content is public by hash: re-uploading the same bytes must not transfer ownership (and with it
+      // the right to delete another user's blob). The first uploader keeps it.
+      const existing = await this.meta(hash);
+      const meta: Meta = existing ?? { sha256: hash, size: data.length, type: String(req.headers['content-type'] ?? 'application/octet-stream').slice(0, 100), uploader: a.pubkey, uploaded: Math.floor(Date.now() / 1000) };
+      if (!existing) {
+        await mkdir(join(this.opts.dir, hash.slice(0, 2)), { recursive: true, mode: 0o700 });
+        const tmp = `${this.path(hash, 'bin')}.${randomBytes(6).toString('hex')}.tmp`;
+        await writeFile(tmp, data, { mode: 0o600 });
+        await rename(tmp, this.path(hash, 'bin'));
+        await writeFile(this.path(hash, 'json'), JSON.stringify(meta), { flag: 'wx', mode: 0o600 }).catch((err: NodeJS.ErrnoException) => {
+          if (err.code !== 'EEXIST') throw err; // concurrent upload of the same bytes: first one wins
+        });
+        this.log.info('blob stored', { sha256: hash, size: data.length });
+      }
       const base = this.opts.publicUrl ?? this.url;
       return { status: 200, body: JSON.stringify({ url: `${base}/${hash}`, sha256: hash, size: meta.size, type: meta.type, uploaded: meta.uploaded }), headers: { ...cors, 'content-type': 'application/json' } };
     }
     const m = /^\/([0-9a-f]{64})(\.[a-z0-9]{1,8})?$/.exec(url.pathname);
     if (m) {
       const hash = m[1]!;
-      let meta: Meta;
-      try {
-        meta = JSON.parse(await readFile(this.path(hash, 'json'), 'utf8')) as Meta;
-      } catch {
-        return reason(404, 'not found');
-      }
+      const meta = await this.meta(hash);
+      if (!meta) return reason(404, 'not found');
       if (req.method === 'DELETE') {
         const a = this.auth(req.headers.authorization, 'delete');
         if (typeof a === 'string') return reason(401, a);
@@ -108,7 +124,8 @@ export class BlobStore {
         return { status: 200, body: '{"deleted":true}', headers: { ...cors, 'content-type': 'application/json' } };
       }
       if (req.method === 'GET' || req.method === 'HEAD') {
-        const headers = { ...cors, 'content-type': meta.type, 'content-length': String((await stat(this.path(hash, 'bin'))).size), 'cache-control': 'public, max-age=31536000, immutable' };
+        // The type is uploader-chosen: never let a stored blob run as a page on this origin.
+        const headers = { ...cors, ...BLOB_SAFETY_HEADERS, 'content-type': meta.type, 'content-length': String((await stat(this.path(hash, 'bin'))).size), 'cache-control': 'public, max-age=31536000, immutable' };
         return { status: 200, headers, ...(req.method === 'GET' ? { body: new Uint8Array(await readFile(this.path(hash, 'bin'))) } : {}) };
       }
     }

@@ -91,18 +91,25 @@ launch template.
 | Imagen del enclave modificada (código malicioso) | n/a | KMS deniega | PCR0/1/2 distintos. Probado en `enclave-signer.test.ts` |
 | Enclave en modo debug (consola visible) | n/a | Rechazado | En debug los PCR0-2 valen cero. `verifyAttestation` lo rechaza y KMS no casa los PCR |
 | Backend comprometido pide firmas en nombre del usuario | Puede firmar | **Puede firmar** | **No mitigado**: el enclave obedece al padre. Ver "Riesgos residuales" |
+| Backend comprometido pide exportar una llave (FR-026) | Puede | **Puede, si la exportación está activa** | **No mitigado** salvo con `ENCLAVE_ALLOW_EXPORT=0`. Ver "Riesgos residuales" |
 | Canal padre ⇄ enclave manipulado (eventos falsos) | n/a | Detectado | El cliente verifica cada evento: firma, pubkey, kind y contenido |
 | Blob sellado presentado con otra pubkey | n/a | Rechazado | El contexto KMS incluye la pubkey y el enclave compara la pubkey derivada |
 | Administrador de KMS cambia la política | Puede | Puede | **Residual**: `kms:PutKeyPolicy`. Mitigación operativa: rol de break-glass y alarma de CloudTrail sobre `PutKeyPolicy` en esta llave |
 
 ### Riesgos residuales (el tier sigue siendo custodial)
 
-- **Autorización fuera del enclave.** El backend verifica el token de Acceso (Cognito), no el enclave. Un
-  backend comprometido no puede robar llaves, pero sí pedir firmas mientras controle el proceso. Siguiente
-  paso posible: que el enclave verifique el JWT de Cognito con el JWKS fijado en la imagen, dentro del PCR2.
-- **Exportación FR-026.** El enclave devuelve un `ncryptsec` cifrado con la contraseña del usuario, que pasa
-  por el backend. Un backend comprometido podría capturar la contraseña y el `ncryptsec`. La EIF puede
-  arrancar con `ENCLAVE_ALLOW_EXPORT=0` si un despliegue no necesita migración.
+- **Autorización fuera del enclave.** El backend verifica el token de Acceso (Cognito), no el enclave. Con
+  la exportación desactivada (`ENCLAVE_ALLOW_EXPORT=0`), un backend comprometido no puede robar llaves, pero
+  sí pedir firmas mientras controle el proceso. Siguiente paso posible: que el enclave verifique el JWT de
+  Cognito con el JWKS fijado en la imagen, dentro del PCR2.
+- **Exportación FR-026.** El enclave devuelve un `ncryptsec` cifrado con la contraseña que recibe, que pasa
+  por el backend. Como el enclave no autentica al usuario, **un backend comprometido puede pedir la
+  exportación de cualquier blob sellado con una contraseña elegida por él y obtener la nsec**: con la
+  exportación activa (valor por defecto) el enclave no protege la confidencialidad de las llaves frente al
+  padre, solo frente al robo de la base de datos, de Secrets Manager o de las credenciales IAM. Los
+  despliegues que no necesiten migración deben arrancar la EIF con `ENCLAVE_ALLOW_EXPORT=0`; ligar la
+  exportación a una prueba del usuario verificada dentro del enclave queda pendiente (hallazgo IR-2026-09-01
+  en [la revisión interna](security/internal-review-2026-09.md)).
 - **Política KMS.** Quien pueda ejecutar `PutKeyPolicy` puede quitar las condiciones. Hay que restringir
   quién la administra (`enclave_key_admin_arns`) y auditar.
 - **Cadena de suministro de la EIF.** Los PCR solo prueban qué imagen corre, no que la imagen sea correcta.

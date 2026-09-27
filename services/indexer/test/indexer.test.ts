@@ -109,6 +109,9 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
         expect(other.status).toBe(403);
         const summary = await (await fetch(`${base}/v1/channels/general/summary`)).json();
         expect(summary.messages).toBeGreaterThanOrEqual(1);
+        // Malformed numeric parameters are a 400, never a database error (500).
+        for (const q of ['kinds=abc', 'kinds=9&limit=-1', 'kinds=9&since=x', 'kinds=9&until=1.5', 'kinds=-3', 'kinds=9&limit='])
+          expect((await fetch(`${base}/v1/events?${q}`)).status, q).toBe(400);
       } finally {
         await api.close();
       }

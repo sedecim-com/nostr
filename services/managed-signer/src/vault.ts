@@ -179,7 +179,7 @@ export class SecretsManagerVault implements Vault {
     const dek = await this.kms.decrypt(this.opts.kmsKeyId, Buffer.from(s.edk, 'base64'), this.context(k));
     const parts: Buffer[] = [];
     try {
-      const decipher = createDecipheriv('aes-256-gcm', dek, Buffer.from(s.iv, 'base64'));
+      const decipher = createDecipheriv('aes-256-gcm', dek, Buffer.from(s.iv, 'base64'), { authTagLength: 16 });
       decipher.setAAD(Buffer.from(name));
       decipher.setAuthTag(Buffer.from(s.tag, 'base64'));
       parts.push(decipher.update(Buffer.from(s.ct, 'base64')), decipher.final());
