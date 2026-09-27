@@ -216,13 +216,14 @@ export interface SimulatedEnclave {
 }
 
 /** Wires a simulated NSM + KMS to a real EnclaveSigner. */
-export function createSimulatedEnclave(opts: { pcrs?: Record<number, string>; kmsPcrs?: Record<number, string>; now?: () => number } = {}): SimulatedEnclave {
+export function createSimulatedEnclave(opts: { pcrs?: Record<number, string>; kmsPcrs?: Record<number, string>; now?: () => number; allowExport?: boolean } = {}): SimulatedEnclave {
   const pki = createTestPki();
   const pcrs = opts.pcrs ?? simulatedPcrs();
   const expected = opts.kmsPcrs ?? simulatedPcrs();
   const policy = { trustedRootFingerprints: [pki.fingerprint], expectedPcrs: { 0: expected[0], 1: expected[1], 2: expected[2] } };
   const nsm = new SimulatedNsm({ pki, pcrs, ...(opts.now ? { now: opts.now } : {}) });
   const kms = new SimulatedKms({ ...policy, keyId: 'alias/simulated-enclave' });
-  const enclave = new EnclaveSigner({ nsm, kms, kmsKeyId: 'alias/simulated-enclave' });
+  // Export stays on in the (already insecure) simulation so dev/tests can exercise FR-026.
+  const enclave = new EnclaveSigner({ nsm, kms, kmsKeyId: 'alias/simulated-enclave', allowExport: opts.allowExport ?? true });
   return { enclave, kms, nsm, pki, pcrs, policy };
 }

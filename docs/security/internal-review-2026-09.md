@@ -48,7 +48,7 @@ Severidad según la escala de [audit-scope.md](audit-scope.md) §7.
 
 | Id | Componente | Severidad | Descripción | Estado | Commit / test |
 |---|---|---|---|---|---|
-| IR-2026-09-01 | managed-signer (enclave) | **Alta** | La operación `export` del enclave cifra la nsec con la contraseña que envía el padre. Como el enclave no autentica al usuario, un backend comprometido puede exportar cualquier blob sellado con su propia contraseña y robar todas las llaves. `ENCLAVE_ALLOW_EXPORT` está activo por defecto. La documentación decía que un backend comprometido "no puede robar llaves". | **Abierto** (arquitectónico). Documentación corregida en `docs/managed-enclave.md`. Recomendación: arrancar la EIF de producción con `ENCLAVE_ALLOW_EXPORT=0` hasta que la exportación exija una prueba del usuario verificada dentro del enclave (JWT de Cognito con JWKS fijado en la imagen, o firma de la llave local de destino). | `a6b968c` (doc) |
+| IR-2026-09-01 | managed-signer (enclave) | **Alta** | La operación `export` del enclave cifra la nsec con la contraseña que envía el padre. Como el enclave no autentica al usuario, un backend comprometido puede exportar cualquier blob sellado con su propia contraseña y robar todas las llaves. `ENCLAVE_ALLOW_EXPORT` estaba activo por defecto. La documentación decía que un backend comprometido "no puede robar llaves". | **Mitigado**: la exportación del enclave queda desactivada por defecto (solo `ENCLAVE_ALLOW_EXPORT=1` la activa, para migraciones controladas; test en `enclave-signer.test.ts`) y la documentación está corregida. Sigue abierto el arreglo de fondo: exigir una prueba del usuario verificada dentro del enclave (JWT de Cognito con JWKS fijado en la imagen, o firma de la llave local de destino). | integración S8 |
 | IR-2026-09-02 | managed-signer (API y enclave) | Media | `POST /v1/keys/import` ejecutaba scrypt con el `logN` elegido por quien envía el ncryptsec: con logN 20, 1 GiB de memoria y segundos de CPU por petición (DoS del signer y del enclave, que tiene poca memoria). Además una contraseña errónea daba 500. | **Corregido**: tope `MAX_IMPORT_LOG_N = 18` comprobado antes de scrypt (servicio y enclave), opción `maxLogN` en `nip49.decryptKey*`, errores 400. | `a6b968c`, `tests/security/managed-import-limits.test.ts` |
 | IR-2026-09-03 | blob-store | Media | Volver a subir un blob existente sobrescribía los metadatos y convertía al nuevo firmante en "uploader". Como el contenido es público por hash, cualquiera con subida permitida podía apropiarse de un adjunto ajeno y borrarlo. | **Corregido**: el primer uploader conserva la propiedad; la subida repetida es idempotente; escritura de metadatos exclusiva (`wx`) y temporal con nombre único. | `a6b968c`, `services/blob-store/test/blob-store.test.ts` |
 | IR-2026-09-04 | service-kit (NIP-98) | Media | NIP-98 no tiene protección anti-replay: una cabecera capturada se puede reutilizar durante ±60 s contra la misma URL y método (con el mismo cuerpo). TLS lo mitiga; el riesgo es mayor detrás de proxies que registren cabeceras. | **Abierto**: requiere una caché compartida de ids de evento entre réplicas (Redis) para las rutas mutantes. Candidato a corregir antes de SEC-02. | — |
@@ -71,13 +71,13 @@ Severidad según la escala de [audit-scope.md](audit-scope.md) §7.
 | IR-2026-09-21 | notification-gateway | Informativa | `NOTIFY_PUSH_HOSTS=""` desactiva la allowlist anti-SSRF, y el puerto del endpoint no se restringe. | **Aceptado**: opción explícita del operador, documentada; el valor por defecto es la allowlist. | — |
 | IR-2026-09-22 | managed-signer (CBOR) | Informativa | La detección de claves duplicadas del CBOR del enclave compara por identidad y no detecta claves duplicadas de tipo bytes o array. | **Aceptado**: los documentos Nitro usan claves de texto y enteras, que son las que se leen. | — |
 
-Resumen (22 hallazgos): 1 alta (abierta, arquitectónica), 4 medias (2 corregidas, 2 abiertas), 12 bajas (8
+Resumen (22 hallazgos): 1 alta (mitigada con la exportación desactivada por defecto; el arreglo de fondo sigue abierto), 4 medias (2 corregidas, 2 abiertas), 12 bajas (8
 corregidas, 4 abiertas) y 5 informativas (1 corregida, 4 aceptadas). No hay hallazgos críticos conocidos. Esto **no**
 equivale a "sin críticos": la ausencia de hallazgos en una revisión interna no es evidencia para SEC-01.
 
 ## 3. Qué hacer antes de la auditoría externa
 
-1. Decidir IR-2026-09-01: exportación desactivada en producción o prueba de usuario dentro del enclave.
+1. IR-2026-09-01: la exportación del enclave ya está desactivada por defecto; decidir si se implementa la prueba de usuario dentro del enclave para poder activarla con seguridad.
 2. Corregir IR-2026-09-04 (anti-replay de NIP-98) e IR-2026-09-05 (límites de tasa) para no pagar por
    redescubrirlos en el pentest.
 3. Triar la primera ejecución de CodeQL en CI.

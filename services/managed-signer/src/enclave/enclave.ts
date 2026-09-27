@@ -46,7 +46,10 @@ export interface EnclaveSignerOptions {
   kms: EnclaveKms;
   /** KMS key whose policy is conditioned on this enclave's measurements. */
   kmsKeyId: string;
-  /** FR-026 export (password-encrypted ncryptsec). Default true. */
+  /**
+   * FR-026 export (password-encrypted ncryptsec). Off unless explicitly enabled: the password comes from the
+   * parent, so with export on a compromised backend can exfiltrate every sealed key (IR-2026-09-01).
+   */
   allowExport?: boolean;
 }
 
@@ -170,7 +173,7 @@ export class EnclaveSigner implements RequestHandler {
           return { ok: true, result };
         }
         case 'export': {
-          if (this.opts.allowExport === false) throw new Error('export disabled');
+          if (this.opts.allowExport !== true) throw new Error('export disabled');
           if (typeof req.password !== 'string' || req.password.length < 12) throw new Error('export password must be at least 12 characters');
           if (!Number.isInteger(req.logN) || req.logN < 1 || req.logN > 22) throw new Error('invalid logN');
           const sk = await this.unseal(req.sealed, req.pubkey, creds);
