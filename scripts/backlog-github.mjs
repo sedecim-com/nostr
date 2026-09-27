@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // GitHub Issues are the source of truth of the backlog; docs/backlog/backlog.json is derived from them.
-//   node scripts/backlog-github.mjs seed           create what is missing on GitHub from backlog.json (never overwrites)
+//   node scripts/backlog-github.mjs seed           create what is missing on GitHub from backlog.json; also keeps
+//                                                  milestone titles in line with meta.sprints and "blocked by" links
+//                                                  in line with each issue's "Depende de" (never edits an issue)
 //   node scripts/backlog-github.mjs pull [--write] rebuild backlog.json tasks from the issues
 // Env: GITHUB_TOKEN, GITHUB_REPOSITORY (owner/repo), GITHUB_API_URL (optional, tests).
 //
@@ -84,6 +86,7 @@ export function parseTitle(title) {
 // GitHub rejects commas in label names (422) and caps them at 50 chars; pull maps them back to the epic.
 const epicLabel = (epic) => `epic:${epic.replace(/,/g, '')}`.slice(0, 50);
 const milestoneTitle = (s) => `${s.id} · ${s.name}`;
+const milestoneDescription = (s) => `Fase ${s.phase}${s.start ? ` · ${s.start} → ${s.end}` : s.end ? ` · hasta ${s.end}` : ''}`;
 const sprintOfMilestone = (title) => title?.split(' · ')[0];
 
 async function fieldIds(api) {
@@ -125,12 +128,20 @@ export async function seed(api, backlog) {
     ...[...new Set(tasks.map((t) => t.epic))].map((e) => [epicLabel(e), 'd4c5f9', e.slice(0, 100)]),
   ];
   for (const [name, color, description] of wanted) if (!existingLabels.has(name)) await api.request('POST', `/repos/${api.repo}/labels`, { name, color, description });
-  // milestones = sprints
+  // milestones = sprints. meta.sprints is not rebuilt from GitHub, so it owns the sprint names: a renamed sprint
+  // renames its milestone. Due dates are only set on creation (GitHub normalises them).
   const milestones = new Map((await api.all(`/repos/${api.repo}/milestones?state=all`)).map((m) => [sprintOfMilestone(m.title), m]));
+  let renamed = 0;
   for (const s of meta.sprints) {
-    if (milestones.has(s.id)) continue;
-    const body = { title: milestoneTitle(s), description: `Fase ${s.phase}${s.start ? ` · ${s.start} → ${s.end}` : s.end ? ` · hasta ${s.end}` : ''}`, ...(s.end ? { due_on: `${s.end}T23:59:59Z` } : {}), ...(s.id === 'v0.1' ? { state: 'closed' } : {}) };
-    milestones.set(s.id, await api.request('POST', `/repos/${api.repo}/milestones`, body));
+    const want = { title: milestoneTitle(s), description: milestoneDescription(s) };
+    const m = milestones.get(s.id);
+    if (!m) {
+      milestones.set(s.id, await api.request('POST', `/repos/${api.repo}/milestones`, { ...want, ...(s.end ? { due_on: `${s.end}T23:59:59Z` } : {}), ...(s.id === 'v0.1' ? { state: 'closed' } : {}) }));
+    } else if (m.title !== want.title || (m.description ?? '') !== want.description) {
+      log(`milestone "${m.title}" → "${want.title}"`);
+      milestones.set(s.id, await api.request('PATCH', `/repos/${api.repo}/milestones/${m.number}`, want));
+      renamed++;
+    }
   }
   // issues
   const issues = await api.all(`/repos/${api.repo}/issues?state=all`);
@@ -184,9 +195,17 @@ export async function seed(api, backlog) {
       }
     }
   }
-  for (const t of tasks.filter((x) => x.deps.length)) {
-    const issue = byId.get(t.id);
-    if (!issue) continue;
+  // "blocked by" follows the "Depende de" section of each issue, which is what pull reads: missing links are
+  // added and, on open issues, links to backlog tasks that the section no longer lists are removed. Links to
+  // other issues, closed issues and bodies without the section are left alone.
+  let unlinked = 0;
+  const taskIssueIds = new Set([...byId.values()].map((i) => i.id));
+  for (const [id, issue] of byId) {
+    const sections = parseBody(issue.body ?? '');
+    if (!('Depende de' in sections)) continue;
+    const want = new Map([...new Set(sections['Depende de'].match(ID_RE) ?? [])].filter((d) => byId.has(d)).map((d) => [byId.get(d).id, d]));
+    const open = issue.state === 'open';
+    if (!want.size && !open) continue;
     let have;
     try {
       have = new Set((await api.all(`/repos/${api.repo}/issues/${issue.number}/dependencies/blocked_by`)).map((i) => i.id));
@@ -194,18 +213,27 @@ export async function seed(api, backlog) {
       log(`dependencies unavailable (${err.message}): skipping "blocked by" links`);
       break;
     }
-    for (const d of t.deps) {
-      const dep = byId.get(d);
-      if (!dep || have.has(dep.id)) continue;
+    for (const [depId, d] of want) {
+      if (have.has(depId)) continue;
       try {
-        await api.request('POST', `/repos/${api.repo}/issues/${issue.number}/dependencies/blocked_by`, { issue_id: dep.id });
+        await api.request('POST', `/repos/${api.repo}/issues/${issue.number}/dependencies/blocked_by`, { issue_id: depId });
         linked++;
       } catch (err) {
-        log(`blocked_by ${t.id} ← ${d}: ${err.message}`);
+        log(`blocked_by ${id} ← ${d}: ${err.message}`);
+      }
+    }
+    if (!open) continue;
+    for (const h of have) {
+      if (want.has(h) || !taskIssueIds.has(h)) continue;
+      try {
+        await api.request('DELETE', `/repos/${api.repo}/issues/${issue.number}/dependencies/blocked_by/${h}`);
+        unlinked++;
+      } catch (err) {
+        log(`blocked_by ${id} ✕ ${h}: ${err.message}`);
       }
     }
   }
-  return { created, linked, labels: wanted.length, milestones: milestones.size, epics: epics.size };
+  return { created, linked, unlinked, renamed, labels: wanted.length, milestones: milestones.size, epics: epics.size };
 }
 
 export async function pull(api, backlog) {
@@ -266,7 +294,7 @@ if (isMain) {
   const api = createClient({ token, repo, ...(baseUrl ? { baseUrl } : {}) });
   if (cmd === 'seed') {
     const r = await seed(api, backlog);
-    console.log(`seed: ${r.created.length} tareas creadas, ${r.linked} relaciones nuevas; ${r.epics} epics, ${r.milestones} milestones`);
+    console.log(`seed: ${r.created.length} tareas creadas, ${r.linked} relaciones nuevas y ${r.unlinked} retiradas; ${r.epics} epics, ${r.milestones} milestones (${r.renamed} renombrados)`);
   } else if (cmd === 'pull') {
     const { backlog: next, warnings } = await pull(api, backlog);
     for (const w of warnings) console.log(`::warning::${w}`);

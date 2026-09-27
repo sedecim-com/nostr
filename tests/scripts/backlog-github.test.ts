@@ -10,7 +10,7 @@ type Issue = { id: number; number: number; title: string; body: string; labels: 
 /** Minimal in-memory GitHub REST/GraphQL for the endpoints the sync uses. */
 class FakeGitHub {
   labels: Array<{ name: string }> = [];
-  milestones: Array<{ number: number; title: string; state: string; due_on?: string }> = [];
+  milestones: Array<{ number: number; title: string; description?: string; state: string; due_on?: string }> = [];
   issues: Issue[] = [];
   writes = 0;
   server?: Server;
@@ -49,9 +49,16 @@ class FakeGitHub {
     if (path === '/labels' && method === 'POST') return this.labels.push({ name: body.name }), { status: 201, body: {} };
     if (path === '/milestones' && method === 'GET') return { status: 200, body: this.page(this.milestones, u.searchParams) };
     if (path === '/milestones' && method === 'POST') {
-      const m = { number: this.milestones.length + 1, title: body.title, state: body.state ?? 'open', due_on: body.due_on };
+      const m = { number: this.milestones.length + 1, title: body.title, description: body.description, state: body.state ?? 'open', due_on: body.due_on };
       this.milestones.push(m);
       return { status: 201, body: m };
+    }
+    let ms = /^\/milestones\/(\d+)$/.exec(path);
+    if (ms && method === 'PATCH') {
+      const m = this.milestones[Number(ms[1]) - 1]!;
+      Object.assign(m, body);
+      for (const i of this.issues) if (i.milestone?.number === m.number) i.milestone = { number: m.number, title: m.title };
+      return { status: 200, body: m };
     }
     if (path === '/issues' && method === 'GET') {
       const label = u.searchParams.get('labels');
@@ -77,6 +84,12 @@ class FakeGitHub {
     m = /^\/issues\/(\d+)\/dependencies\/blocked_by$/.exec(path);
     if (m && method === 'GET') return { status: 200, body: this.page(this.issues[Number(m[1]) - 1]!.blocked_by.map((id) => ({ id })), u.searchParams) };
     if (m && method === 'POST') return this.issues[Number(m[1]) - 1]!.blocked_by.push(body.issue_id), { status: 201, body: {} };
+    m = /^\/issues\/(\d+)\/dependencies\/blocked_by\/(\d+)$/.exec(path);
+    if (m && method === 'DELETE') {
+      const i = this.issues[Number(m[1]) - 1]!;
+      i.blocked_by = i.blocked_by.filter((id) => id !== Number(m![2]));
+      return { status: 200, body: i };
+    }
     return { status: 404, body: { message: `fake: ${method} ${path}` } };
   }
 }
@@ -145,6 +158,34 @@ describe('backlog ⇄ GitHub Issues (GitHub is the source)', () => {
     const r = await seed(api, backlog);
     expect(r.created).toEqual([]);
     expect(gh.writes).toBe(before);
+  });
+
+  it('seed renames the milestone of a renamed sprint and aligns "blocked by" with each issue body', async () => {
+    const gh5 = new FakeGitHub();
+    await gh5.start();
+    const api5 = createClient({ token: 't', repo: 'o/r', baseUrl: gh5.url, writeDelayMs: 0, log: () => undefined });
+    const all = backlog.tasks as Array<{ id: string; deps: string[]; status: string }>;
+    const open = all.find((t) => t.status !== 'Hecho' && t.status !== 'Descartado' && t.deps.length > 0)!;
+    const closed = all.find((t) => t.status === 'Hecho' && t.deps.length > 0)!;
+    const ids = new Set([open.id, ...open.deps, closed.id, ...closed.deps]);
+    const small = { meta: backlog.meta, tasks: backlog.tasks.filter((t: { id: string }) => ids.has(t.id)) };
+    await seed(api5, small);
+    const issueOf = (id: string) => gh5.issues.find((i) => i.title.startsWith(`[${id}]`))!;
+    expect(issueOf(open.id).blocked_by.length).toBe(open.deps.length);
+    // the open issue drops its first dependency in the body; the closed one too (closed issues are not pruned)
+    for (const t of [open, closed]) issueOf(t.id).body = issueOf(t.id).body.replace(/(### Depende de\n\n)[^\n]*/, `$1${t.deps.slice(1).join(', ') || '_Sin información_'}`);
+    const sprint = small.meta.sprints.find((s: { id: string }) => s.id === (backlog.tasks.find((t: { id: string }) => t.id === open.id) as { sprint: string }).sprint);
+    const renamedMeta = { ...small.meta, sprints: small.meta.sprints.map((s: { id: string; name: string }) => (s === sprint ? { ...s, name: `${s.name} (renombrado)` } : s)) };
+    const r = await seed(api5, { meta: renamedMeta, tasks: small.tasks });
+    expect(r).toMatchObject({ created: [], renamed: 1, unlinked: 1, linked: 0 });
+    expect(issueOf(open.id).blocked_by).toEqual(open.deps.slice(1).map((d) => issueOf(d).id));
+    expect(issueOf(closed.id).blocked_by.length).toBe(closed.deps.length);
+    expect(gh5.milestones.find((m) => m.title.startsWith(`${sprint.id} · `))!.title).toBe(`${sprint.id} · ${sprint.name} (renombrado)`);
+    expect(issueOf(open.id).milestone!.title).toContain('(renombrado)');
+    const before = gh5.writes;
+    await seed(api5, { meta: renamedMeta, tasks: small.tasks });
+    expect(gh5.writes).toBe(before);
+    gh5.stop();
   });
 
   it('pull rebuilds exactly the same tasks from GitHub', async () => {

@@ -2,8 +2,9 @@ name: backlog-sync
 
 # GitHub Issues are the source of truth of the backlog (docs/backlog/GITHUB.md). This workflow rebuilds
 # docs/backlog/{backlog.json,README.md,backlog.csv} from the issues and opens/updates one PR with the result.
-# `seed` (create on GitHub whatever backlog.json has and the issues don't) runs when this workflow or the
-# sync script change on main — that is how the first merge populates the issues — or on demand.
+# `seed` (create on GitHub whatever backlog.json has and the issues don't; rename milestones after meta.sprints
+# and align "blocked by" links with each issue's "Depende de") runs when this workflow or the sync script change
+# on main — that is how the first merge populates the issues — or on demand.
 on:
   push:
     branches: [main]
