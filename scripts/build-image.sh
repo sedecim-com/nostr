@@ -26,7 +26,7 @@ usage() {
 
 service=${1:-}
 out=${2:-}
-[ -n "$service" ] && [ -n "$out" ] || usage
+if [ -z "$service" ] || [ -z "$out" ]; then usage; fi
 
 # Same context / target / SERVICE as docker-compose.yml.
 case "$service" in
