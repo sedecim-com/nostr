@@ -11,6 +11,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@sedecim/blossom-client": "0.1.0",
     "@sedecim/delivery-engine": "0.1.0",
     "@sedecim/encrypted-store": "0.1.0",
     "@sedecim/identity": "0.1.0",

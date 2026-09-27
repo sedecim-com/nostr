@@ -19,3 +19,5 @@ deploy/k8s/secret.yaml
 *.tfstate.*
 leak-results/
 tor-profile-results/
+interop/mdk-harness/target/
+interop-mdk-report.json

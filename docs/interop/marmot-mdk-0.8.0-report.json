@@ -1,0 +1,135 @@
+{
+  "relay": "packages/test-relay (NIP-42, kind 1059 #p-gated)",
+  "marmotTs": {
+    "forwardSecrecy": true,
+    "postCompromiseSecurity": true,
+    "multiDevice": true,
+    "implementation": "marmot-ts",
+    "version": "0.5.1 (ts-mls 2.0.0-rc.16)",
+    "ciphersuite": "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519"
+  },
+  "mdk": {
+    "implementation": "mdk-core 0.8.0 (mdk-memory-storage 0.8.0)",
+    "ciphersuite": "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 (0x0001)",
+    "transport": "nostr-sdk 0.44.1"
+  },
+  "steps": [
+    {
+      "step": "mdk publishes key package (30443)",
+      "ok": true,
+      "detail": {
+        "tags": [
+          "d",
+          "mls_protocol_version",
+          "mls_ciphersuite",
+          "mls_extensions",
+          "mls_proposals",
+          "relays",
+          "i",
+          "client",
+          "encoding"
+        ]
+      }
+    },
+    {
+      "step": "marmot-ts adds MDK key package (commit + gift-wrapped Welcome)",
+      "ok": true
+    },
+    {
+      "step": "MDK joins from the marmot-ts Welcome",
+      "ok": true,
+      "detail": {
+        "errors": []
+      }
+    },
+    {
+      "step": "MDK decrypts a marmot-ts application message",
+      "ok": true,
+      "detail": {
+        "results": [
+          {
+            "event_id": "14ae8be9a66d59a6decaf053158f4ee5462e47742f457e8e2ef4bef536bd8044",
+            "result": "application"
+          },
+          {
+            "error": "Failed to decrypt message with any exporter secret from epochs 0 to 0",
+            "event_id": "e223e2f87dbe86c1bc648e70a32f86916eb1305324872897737309be3d82e88d",
+            "result": "error"
+          }
+        ]
+      }
+    },
+    {
+      "step": "marmot-ts decrypts the MDK reply",
+      "ok": true
+    },
+    {
+      "step": "MDK adds the marmot-ts kind 30443 key package",
+      "ok": false,
+      "detail": {
+        "error": "MDK create_group: Missing required tag: mls_proposals",
+        "keyPackageTags": [
+          "d",
+          "mls_protocol_version",
+          "mls_ciphersuite",
+          "mls_extensions",
+          "encoding",
+          "i",
+          "client",
+          "relays"
+        ],
+        "knownIncompatibility": "mls_proposals"
+      }
+    },
+    {
+      "step": "MDK creates a group with the marmot-ts key package (legacy kind 443 copy)",
+      "ok": true
+    },
+    {
+      "step": "marmot-ts joins from the MDK Welcome",
+      "ok": true
+    },
+    {
+      "step": "marmot-ts decrypts an MDK application message",
+      "ok": true
+    },
+    {
+      "step": "MDK decrypts the marmot-ts reply",
+      "ok": true,
+      "detail": {
+        "results": [
+          {
+            "event_id": "584c14d78611fb1ff890af5e65c39de4f6344d3567596fc8a64f88e3f1347ff2",
+            "result": "application"
+          }
+        ]
+      }
+    }
+  ],
+  "failures": [
+    "MDK adds the marmot-ts kind 30443 key package"
+  ],
+  "knownIncompatibilities": [
+    {
+      "id": "mls_proposals",
+      "status": "open (upstream)",
+      "detail": "MDK >= 0.7 rejects kind 30443 key packages without the mls_proposals tag = 0x000a (SelfRemove, MIP-00). ts-mls 2.0.0-rc.16 does not implement SelfRemove, so marmot-ts 0.5.1 neither advertises the capability nor the tag: MDK cannot add a marmot-ts member by its current key package. Legacy kind 443 copies are still accepted by MDK 0.8.0."
+    },
+    {
+      "id": "key-package-lifetime",
+      "status": "mitigated in marmot-adapter",
+      "detail": "marmot-ts sets not_before = current second with no skew margin; OpenMLS (MDK) requires not_before < now, so a Welcome or key package processed within the same second fails with \"Lifetime is not acceptable\". The adapter waits for the next second before handing them out; a receiver whose clock is behind the creator still rejects them until it catches up."
+    },
+    {
+      "id": "key-package-d-tag",
+      "status": "fixed in marmot-adapter",
+      "detail": "MDK requires the kind 30443 d tag to be 64 hex chars (32 random bytes, MIP-00). The adapter used the device id; it now uses a random 32-byte slot per device, persisted with the MLS state."
+    }
+  ],
+  "at": "2026-09-26T23:12:35.222Z",
+  "environment": {
+    "mdkHarness": "interop/mdk-harness (mdk-core 0.8.0, mdk-memory-storage 0.8.0, nostr-sdk 0.44.1; Cargo.lock), cargo build --release --locked, rustc 1.94.1",
+    "mdkUpstream": "crates.io mdk-core 0.8.0 = latest published release (github.com/marmot-protocol/mdk tag v0.8.0); MDK main (0.10.x, cgka-engine) is not published to crates.io and was not exercised",
+    "command": "npx vitest run tests/interop/marmot-mdk.interop.test.ts"
+  }
+}

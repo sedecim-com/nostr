@@ -48,6 +48,15 @@ describe('RFC 8291 aes128gcm encryption', () => {
 });
 
 describe('RFC 8292 VAPID', () => {
+  it('keeps a private key with leading zero bytes at 32 bytes', () => {
+    const d = new Uint8Array(32);
+    d[31] = 7;
+    const keys = vapidKeysFromPrivate(d);
+    expect(keys.privateKey).toHaveLength(32);
+    expect(vapidAuthorization('https://push.example.net/x', keys, 'mailto:ops@example.org')).toMatch(/^vapid t=/);
+    for (let i = 0; i < 2000; i++) expect(generateVapidKeys().privateKey).toHaveLength(32);
+  });
+
   it('signs an ES256 JWT for the push service origin with the VAPID key', () => {
     const keys = generateVapidKeys();
     expect(vapidKeysFromPrivate(keys.privateKey).publicKey).toEqual(keys.publicKey);

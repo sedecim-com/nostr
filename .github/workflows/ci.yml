@@ -128,7 +128,7 @@ jobs:
       - name: Render the stage overlay
         run: kubectl kustomize deploy/k8s/overlays/stage > /dev/null
       - name: Deploy scripts
-        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh
+        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh
       - name: SLO rules and their unit tests (promtool)
         run: |
           curl -sSfL -o prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
@@ -144,6 +144,43 @@ jobs:
           terraform fmt -check -recursive deploy/terraform
           terraform -chdir=deploy/terraform/examples/stage init -backend=false -input=false
           terraform -chdir=deploy/terraform/examples/stage validate
+
+  # FR025-04: mixed Marmot group marmot-ts <-> MDK (Rust Marmot Development Kit) through a websocket relay,
+  # creator on each side, messages both ways. interop/mdk-harness pins MDK in Cargo.lock and its toolchain
+  # in rust-toolchain.toml (the runner's rustup installs it). Known incompatibilities are asserted and
+  # listed in interop-mdk-report.json (docs/marmot.md).
+  marmot-mdk:
+    if: ${{ !inputs.stack_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            interop/mdk-harness/target/
+          key: mdk-harness-${{ runner.os }}-${{ hashFiles('interop/mdk-harness/Cargo.lock', 'interop/mdk-harness/rust-toolchain.toml') }}
+          restore-keys: mdk-harness-${{ runner.os }}-
+      - name: Build the MDK harness
+        working-directory: interop/mdk-harness
+        run: cargo build --release --locked
+      - name: marmot-ts <-> MDK interop
+        env:
+          MDK_INTEROP_REQUIRED: "1"
+        run: npx vitest run tests/interop/marmot-mdk.interop.test.ts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: marmot-mdk-report
+          path: interop-mdk-report.json
 
   # FR020-03 / FR022-02: the real sovereign CLI in a network namespace, every frame captured with tcpdump.
   # Tor profile: zero DNS, zero IPv6, nothing but the SOCKS proxy; direct profile: only the persona's

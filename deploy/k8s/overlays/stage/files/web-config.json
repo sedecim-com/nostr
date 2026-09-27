@@ -3,6 +3,9 @@
   "relays": [
     "wss://nostr-stage-relay.ai.acce.so"
   ],
+  "secureRelays": [
+    "wss://nostr-stage-secure.ai.acce.so"
+  ],
   "buzzMedia": "https://nostr-stage-relay.ai.acce.so/media",
   "blobStore": "https://nostr-stage-blobs.ai.acce.so",
   "identityService": "https://nostr-stage-id.ai.acce.so",

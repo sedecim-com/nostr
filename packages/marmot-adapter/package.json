@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@internet-privacy/marmot-ts": "0.5.1",
+    "@noble/curves": "2.2.0",
+    "@noble/hashes": "2.2.0",
     "@scure/base": "2.4.0",
     "@sedecim/encrypted-store": "0.1.0",
     "@sedecim/nostr-core": "0.1.0",

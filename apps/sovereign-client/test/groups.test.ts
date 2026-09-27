@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TestRelay, TestSocksServer } from '@sedecim/test-relay';
+import { TestBlossomServer, TestRelay, TestSocksServer } from '@sedecim/test-relay';
+import { publishServerList } from '@sedecim/blossom-client';
+import { MediaKeyUnavailableError, type ExtendedGroupSession } from '@sedecim/marmot-adapter';
 import { SovereignClient } from '../src/index';
 
 const ONION = 'marmotgroupsrelayabcdefghijklmnopqrstuvwxyz234567abcdefgh.onion';
@@ -79,7 +81,7 @@ describe('sovereign client — Marmot/MLS high-security groups (FR-025)', () => 
     }
   });
 
-  it('full backup restores relays, panel config and MLS group state on a clean device (FR027-02)', async () => {
+  it('full backup restores relays, panel config and MLS group state on a clean device, as a new leaf (FR027-02, FR025-06)', async () => {
     const alice = (await (await client.identities()).list()).find((p) => p.label === 'Alice')!;
     const pkg = await client.exportBackup(alice.id, 'backup-pass', { scryptLogN: 4 });
     expect(JSON.stringify(pkg)).not.toMatch(/Redacción|mls-|\$u8|127\.0\.0\.1/);
@@ -90,11 +92,125 @@ describe('sovereign client — Marmot/MLS high-security groups (FR-025)', () => 
       expect(await (await clean.identities()).getConfig(alice.id)).toEqual(client.profileFor(alice));
       const [g] = await clean.groupList(alice.id);
       expect(g!.name).toBe('Redacción');
+      // The restored state is the source device's leaf: never used to send (cloned leaves break FS).
+      expect(g!.restored).toBe(true);
+      expect((await clean.device(alice.id)).id).not.toBe(alice.id);
+      await expect(clean.groupSend(alice.id, g!.groupId, 'con la hoja clonada')).rejects.toThrow(/rejoin/);
+      expect(await clean.groupRejoin(alice.id)).toEqual([{ groupId: g!.groupId, status: 'joined' }]);
+      const after = (await clean.groupList(alice.id))[0]!;
+      expect(after.restored).toBeUndefined();
+      expect(after.devices!.filter((d) => d.pubkey === alice.pubkey)).toEqual([expect.objectContaining({ self: true })]);
       await clean.groupSend(alice.id, g!.groupId, 'desde el backup');
       const carol = (await (await client.identities()).list()).find((p) => p.label === 'Carol')!;
       expect((await client.groupSync(carol.id, g!.groupId)).map((m) => m.content)).toContain('desde el backup');
+      // The source device's leaf was removed: it no longer reads the group.
+      await client.groupSend(carol.id, g!.groupId, 'solo la hoja nueva');
+      expect(await client.groupSync(alice.id, g!.groupId).then((m) => m.map((x) => x.content), () => [])).not.toContain('solo la hoja nueva');
+      expect((await clean.groupSync(alice.id, g!.groupId)).map((m) => m.content)).toContain('solo la hoja nueva');
     } finally {
       clean.close();
+    }
+  });
+
+  it('one persona on two (then three) devices in the same group; member proposes, admin commits (FR025-06/09)', async () => {
+    const dana = await client.createPersona({ label: 'Dana', relays: [relay.url] });
+    const erin = await client.createPersona({ label: 'Erin', relays: [relay.url] });
+    // An additional device: key-only backup (no MLS state) imported on another installation.
+    const keyOnly = await client.exportBackup(dana.id, 'pw', { scryptLogN: 4, includeMls: false });
+    const second = new SovereignClient({ dataDir: await mkdtemp(join(tmpdir(), 'sovereign-dev2-')), passphrase: 'p2', scryptLogN: 4 });
+    const third = new SovereignClient({ dataDir: await mkdtemp(join(tmpdir(), 'sovereign-dev3-')), passphrase: 'p3', scryptLogN: 4 });
+    try {
+      await second.restoreBackup(JSON.parse(JSON.stringify(keyOnly)), 'pw');
+      await second.setDeviceLabel(dana.id, 'Portátil');
+      expect((await second.device(dana.id)).id).not.toBe((await client.device(dana.id)).id);
+      await client.groupPublishKeyPackage(dana.id);
+      await second.groupPublishKeyPackage(dana.id);
+
+      const g = await client.groupCreate(erin.id, 'multi');
+      const inv = await client.groupInvite(erin.id, g.groupId, dana.pubkey);
+      expect(inv.devices!.filter((d) => d.pubkey === dana.pubkey)).toHaveLength(2);
+      expect((await client.groupAccept(dana.id)).map((x) => x.groupId)).toEqual([g.groupId]);
+      expect((await second.groupAccept(dana.id)).map((x) => x.groupId)).toEqual([g.groupId]);
+
+      await client.groupSend(erin.id, g.groupId, 'hola dana');
+      expect((await client.groupSync(dana.id, g.groupId)).map((m) => m.content)).toContain('hola dana');
+      expect((await second.groupSync(dana.id, g.groupId)).map((m) => m.content)).toContain('hola dana');
+      await second.groupSend(dana.id, g.groupId, 'desde el portátil');
+      const onFirst = await client.groupSync(dana.id, g.groupId);
+      expect(onFirst.find((m) => m.content === 'desde el portátil')?.sender).toBe(dana.pubkey);
+      expect((await client.groupDevices(erin.id, g.groupId)).find((d) => d.label === 'Portátil')?.pubkey).toBe(dana.pubkey);
+
+      // A third device, requested by a non-admin device of Dana: proposal -> admin commit.
+      await third.restoreBackup(JSON.parse(JSON.stringify(keyOnly)), 'pw');
+      await third.groupPublishKeyPackage(dana.id);
+      const req = await second.groupAddDevice(dana.id, g.groupId);
+      expect(req.committed).toBe(false);
+      await expect(second.groupCommit(dana.id, g.groupId)).rejects.toThrow(/admin/);
+      const pending = await client.groupProposals(erin.id, g.groupId);
+      expect(pending).toEqual([expect.objectContaining({ type: 'add', proposer: dana.pubkey, target: dana.pubkey, admissible: true })]);
+      expect((await client.groupCommit(erin.id, g.groupId)).devices!.filter((d) => d.pubkey === dana.pubkey)).toHaveLength(3);
+      expect((await third.groupAccept(dana.id)).map((x) => x.groupId)).toEqual([g.groupId]);
+      await client.groupSend(erin.id, g.groupId, 'ya sois tres');
+      expect((await third.groupSync(dana.id, g.groupId)).map((m) => m.content)).toContain('ya sois tres');
+      expect((await second.groupSync(dana.id, g.groupId)).map((m) => m.content)).toContain('ya sois tres');
+
+      // Removing the persona removes every device.
+      expect((await client.groupRemove(erin.id, g.groupId, dana.pubkey)).devices).toHaveLength(1);
+      await client.groupSend(erin.id, g.groupId, 'sin dana');
+      for (const c of [client, second, third]) {
+        expect(await c.groupSync(dana.id, g.groupId).then((m) => m.map((x) => x.content), () => [])).not.toContain('sin dana');
+      }
+    } finally {
+      second.close();
+      third.close();
+    }
+  });
+
+  it('MIP-04: encrypted group media via the Blossom list (kind 10063) and the blob-store fallback (FR025-05)', async () => {
+    const blossom = new TestBlossomServer();
+    const blobStore = new TestBlossomServer();
+    await blossom.start();
+    await blobStore.start();
+    const media = new SovereignClient({ dataDir: await mkdtemp(join(tmpdir(), 'sovereign-media-')), passphrase: 'pm', scryptLogN: 4, blobStore: blobStore.url });
+    try {
+      const fran = await media.createPersona({ label: 'Fran', relays: [relay.url] });
+      const gus = await media.createPersona({ label: 'Gus', relays: [relay.url] });
+      const hugo = await media.createPersona({ label: 'Hugo', relays: [relay.url] });
+      const s = await media.session(fran.id);
+      await s.pool.publish(await publishServerList(s.signer, [blossom.url]), [relay.url]);
+      await media.groupPublishKeyPackage(gus.id);
+      await media.groupPublishKeyPackage(hugo.id);
+      const g = await media.groupCreate(fran.id, 'fotos');
+      await media.groupInvite(fran.id, g.groupId, gus.pubkey);
+      await media.groupInvite(fran.id, g.groupId, hugo.pubkey);
+      await media.groupAccept(gus.id);
+      await media.groupAccept(hugo.id);
+
+      const photo = new TextEncoder().encode('PNG… acta de la asamblea');
+      const sent = await media.groupSendFile(fran.id, g.groupId, { data: photo, filename: 'acta.png', mimeType: 'image/png', caption: 'el acta' });
+      expect(sent.attachment.url!.startsWith(blossom.url)).toBe(true); // the user's server list comes first
+      const [msg] = await media.groupSync(gus.id, g.groupId);
+      expect(msg!.content).toBe('el acta');
+      expect(msg!.media![0]).toMatchObject({ filename: 'acta.png', type: 'image/png', version: 'mip04-v2' });
+      const got = await media.groupFetchFile(gus.id, g.groupId, msg!.media![0]!.sha256);
+      expect(new TextDecoder().decode(got.data)).toBe('PNG… acta de la asamblea');
+      for (const b of blossom.blobs.values()) expect(Buffer.from(b.data).includes(Buffer.from('asamblea'))).toBe(false);
+
+      // Hugo is removed; the next file uses an epoch he never reaches. Gus has no list: blob-store fallback.
+      await media.groupSync(hugo.id, g.groupId);
+      await media.groupRemove(fran.id, g.groupId, hugo.pubkey);
+      await media.groupSync(gus.id, g.groupId);
+      const next = await media.groupSendFile(gus.id, g.groupId, { data: new TextEncoder().encode('segunda'), filename: 'b.txt', mimeType: 'text/plain' });
+      expect(next.attachment.url!.startsWith(blobStore.url)).toBe(true);
+      expect(new TextDecoder().decode((await media.groupFetchFile(fran.id, g.groupId, next.attachment.sha256)).data)).toBe('segunda');
+      await expect(media.groupFetchFile(hugo.id, g.groupId, next.attachment.sha256)).rejects.toThrow();
+      const hugoSession = (await media.groupSession(hugo.id)) as ExtendedGroupSession;
+      const ct = blobStore.blobs.get(next.attachment.url!.split('/').pop()!)!.data;
+      await expect(hugoSession.decryptMedia(g.groupId, ct, next.attachment, next.epoch)).rejects.toBeInstanceOf(MediaKeyUnavailableError);
+    } finally {
+      media.close();
+      await blossom.stop();
+      await blobStore.stop();
     }
   });
 
