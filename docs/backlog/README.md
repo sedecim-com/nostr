@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **164 tareas** · 135 hechas · 21 parciales · 2 pendientes · 6 descartadas
-- **83 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **164 tareas** · 136 hechas · 20 parciales · 2 pendientes · 6 descartadas
+- **80 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -67,7 +67,7 @@
 | NFR-007 | 2 | 2 | — |
 | NFR-008 | 2 | 2 | — |
 | NFR-009 | 2 | 1 | NFR009-02 (S3) |
-| NFR-010 | 4 | 1 | FR003-06 (S4), NFR010-02 (S4), NFR010-03 (S8) |
+| NFR-010 | 4 | 2 | FR003-06 (S4), NFR010-02 (S4) |
 
 ## S1 · Cierre F0 y gate de interoperabilidad (F0, 2026-09-28 → 2026-10-09) — 22 SP
 
@@ -217,7 +217,7 @@
 | [SEC-02](https://github.com/sedecim-com/nostr/issues/193) | P0 | Pentest de API, relay, key service y cliente | §20.3 | Seguridad | 8 | OPS-02, FR005-04, FR023-03 | Parcial | Informe externo; hallazgos críticos y altos corregidos |
 | [REL-01](https://github.com/sedecim-com/nostr/issues/196) | P1 | Checklist de Definition of Done automatizado en el pipeline de release | Apéndice D | Infra | 3 | SEC-01, SEC-02, NFR010-02, NFR003-02, FR020-03 | Parcial | El release se bloquea si falta: tests, interop, restore, leak tests, firma, SBOM |
 | [DEC-11](https://github.com/sedecim-com/nostr/issues/198) | P2 | Búsqueda y registro de la marca "Acceso Nostr" | §25.1-1 | Decisión | 1 | DEC-01 | Pendiente | Búsqueda de anterioridades y solicitud de registro presentada, o marca alternativa decidida |
-| [NFR010-03](https://github.com/sedecim-com/nostr/issues/191) | P2 | Imágenes Docker reproducibles | NFR-010 | Infra | 3 | OPS-01 | Parcial | Dos builds del mismo commit producen el mismo digest |
+| [NFR010-03](https://github.com/sedecim-com/nostr/issues/191) | P2 | Imágenes Docker reproducibles | NFR-010 | Infra | 3 | OPS-01 | Hecho | Dos builds del mismo commit producen el mismo digest |
 | [REL-02](https://github.com/sedecim-com/nostr/issues/197) | P2 | Release notes con los cambios de trust model por release | Apéndice D | Doc | 1 | REL-01 | Parcial | Plantilla y primer release notes publicados |
 | [NFR005-01](https://github.com/sedecim-com/nostr/issues/179) | P3 | Indexer escalable horizontalmente (reparto por relay y upserts idempotentes) | NFR-005 | Dev | 5 | FR014-01 | Hecho | N réplicas sin duplicados ni pérdidas; test de concurrencia |
 | [NFR005-02](https://github.com/sedecim-com/nostr/issues/180) | P3 | Pruebas de carga del relay y el indexer | NFR-005 | QA | 3 | NFR005-01 | Parcial | Informe con throughput y límites |

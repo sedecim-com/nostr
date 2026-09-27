@@ -2694,8 +2694,8 @@
     "OPS-01"
    ],
    "sprint": "S8",
-   "status": "Parcial",
-   "evidence": "Bases fijadas por digest, paquetes apk con versión exacta en tor (Alpine 3.24), scripts/build-image.sh único (BuildKit fijado, sin caché, SOURCE_DATE_EPOCH, rewrite-timestamp), scripts/image-diff.sh y rebuild-image.sh; workflow reproducible-images.yml que construye las 8 imágenes dos veces y compara digests, y release.yml usa el mismo camino; docs/building.md. Falta que reproducible-images.yml pase en GitHub",
+   "status": "Hecho",
+   "evidence": "Bases fijadas por digest, paquetes apk con versión exacta en tor (Alpine 3.24, sin /var/log/apk.log), scripts/build-image.sh único (BuildKit fijado, sin caché, SOURCE_DATE_EPOCH, rewrite-timestamp), scripts/image-diff.sh y rebuild-image.sh; reproducible-images.yml construye las 8 imágenes dos veces y compara digests: las 8 idénticas en la PR #215 (run 36338419319); release.yml usa el mismo camino; docs/building.md",
    "issue": 191
   },
   {
