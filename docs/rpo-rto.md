@@ -13,7 +13,7 @@
 | Tier | Quién opera | Quién respalda | Base técnica |
 |---|---|---|---|
 | **Self-hosted** | El cliente (docker compose) | El cliente, con `scripts/backup.sh` / `scripts/restore.sh` | [Runbook](runbooks/restore.md), drill nocturno en CI |
-| **SaaS** | Sedecim (Kubernetes en AWS `us-east-1`, [`deploy/`](../deploy/README.md)) | Sedecim | Volúmenes EBS + `pg_dump` al bucket `acceso-nostr-<env>-backups-*`; Postgres gestionado con PITR en NFR001-03 |
+| **SaaS** | Sedecim (Kubernetes en AWS `us-east-1`, [`deploy/`](../deploy/README.md)) | Sedecim | Volúmenes EBS + `pg_dump` al bucket `acceso-nostr-<env>-backups-*`. Postgres gestionado (RDS Multi-AZ, backups automáticos 14 días + PITR) definido como código en NFR001-03; rige desde su `terraform apply` ([runbook](runbooks/rds-postgres.md)) |
 | **Institucional** | Sedecim o la institución, en infraestructura dedicada | Según contrato; mismas herramientas | Como SaaS + archivado continuo de WAL y copia de datos y WAL en una segunda región. Las llaves managed se quedan en `us-east-1` (ADR 0009) |
 
 ## Tabla aprobada
@@ -24,8 +24,8 @@ cuando se complete NFR001-03 (Postgres gestionado con PITR).
 
 | Componente | Dónde vive | Self-hosted RPO / RTO | SaaS RPO / RTO | Institucional RPO / RTO | Hoy |
 |---|---|---|---|---|---|
-| Eventos del relay (Buzz) | Postgres `buzz` | 24 h / 4 h | 24 h / 4 h; 1 h / 1 h con PITR (NFR001-03) | 15 min / 1 h | `pg_dump` con `backup.sh` (RPO = frecuencia del cron del operador). En SaaS sin PITR todavía: 24 h |
-| Mirror e identidad | Postgres `sedecim` | 24 h / 4 h | 24 h / 4 h; 1 h / 1 h con PITR (NFR001-03) | 15 min / 1 h | `pg_dump` con `backup.sh`. El mirror además se reconstruye desde los relays |
+| Eventos del relay (Buzz) | Postgres `buzz` | 24 h / 4 h | 24 h / 4 h; 1 h / 1 h con PITR (NFR001-03) | 15 min / 1 h | `pg_dump` con `backup.sh` (RPO = frecuencia del cron del operador). SaaS: RDS Multi-AZ con PITR ya definido como código (NFR001-03). Rige al aplicarse con `terraform apply`; hasta entonces, 24 h |
+| Mirror e identidad | Postgres `sedecim` | 24 h / 4 h | 24 h / 4 h; 1 h / 1 h con PITR (NFR001-03) | 15 min / 1 h | `pg_dump` con `backup.sh`. SaaS: misma instancia RDS con PITR (NFR001-03), rige al aplicarse. El mirror además se reconstruye desde los relays |
 | Media de canales (Buzz Blossom) | SeaweedFS (`seaweedfs-data`) | 24 h / 4 h | 24 h / 4 h | 1 h / 4 h | Archivo del volumen con `backup.sh` |
 | Adjuntos cifrados | blob-store (`blob-data`) | 24 h / 4 h | 24 h / 4 h | 1 h / 4 h | Archivo del volumen con `backup.sh`. Son blobs cifrados en el cliente: el backup no expone contenido |
 | Grupos Marmot (relay secundario) | SQLite (`secure-relay-data`) | 24 h / 4 h | 24 h / 4 h | 1 h / 4 h | Archivo del volumen con `backup.sh`. El estado MLS de cada miembro está además en su backup de cliente |
@@ -36,6 +36,12 @@ cuando se complete NFR001-03 (Postgres gestionado con PITR).
 
 Notas:
 
+- **PITR en SaaS (NFR001-03):** `deploy/terraform/modules/acceso-nostr/rds.tf` define RDS PostgreSQL 17
+  Multi-AZ con backups automáticos (`rds_backup_retention_days`, 14 días por defecto), PITR, protección contra
+  borrado y cifrado KMS. El overlay de stage ya apunta a RDS (`deploy/k8s/components/rds-postgres`). Los
+  objetivos aprobados no cambian: el 1 h / 1 h de SaaS en bases de datos entra en vigor cuando RDS esté
+  aplicado con `terraform apply` y los datos migrados, y el failover se haya probado en staging con
+  `scripts/rds-failover-test.sh` ([runbook](runbooks/rds-postgres.md)). Mientras tanto rige 24 h / 4 h.
 - **RPO 0 en llaves** significa que ninguna llave confirmada al usuario puede perderse: se escriben de
   forma síncrona antes de responder. Perder una llave es perder una identidad, a diferencia de los datos,
   que en Nostr suelen estar replicados en otros relays del usuario.
@@ -58,6 +64,7 @@ Notas:
 |---|---|---|
 | El restore funciona en un host limpio | `restore-drill.yml`: datos sembrados en Buzz, mirror, media, blob-store y secure relay → `backup.sh` → `docker compose down -v` sin `.env` → `restore.sh` → datos presentes → `npm run test:interop` | Cada noche; si falla, abre un issue |
 | RTO de la parte automatizada | Tiempo de restore + arranque del drill, en el resumen del job | Cada noche |
+| Failover de Postgres SaaS (NFR001-03) | `scripts/rds-failover-test.sh --yes` contra la instancia RDS de staging: failover forzado, caída medida, cambio de AZ ([runbook](runbooks/rds-postgres.md#prueba-de-failover)). En CI solo con un `aws` falso | Tras el primer `terraform apply` y en cada cambio de clase o versión mayor; pendiente |
 | Backup del cliente | `identity.test.ts`, `groups.test.ts` (restauración en dispositivo limpio) | Cada PR |
 | Integridad ante caídas del almacenamiento local | `encrypted-store/test/crash.test.ts` (kill -9 a mitad de escritura) | Cada PR |
 

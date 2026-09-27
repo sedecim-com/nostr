@@ -12,6 +12,7 @@ import {
   parseKindLimits,
   PgDeviceStore,
   type DeviceStore,
+  enclaveBackendFromEnv,
   LocalEnvelopeVault,
   ManagedSigner,
   MemoryKeyRegistry,
@@ -79,12 +80,17 @@ const rateLimits =
       };
 if (rateLimits && !(rateLimits.perKey.perMinute > 0 && rateLimits.perKind.perMinute > 0)) throw new Error('MANAGED_SIGNER_RATE_PER_KEY / _PER_KIND must be positive numbers');
 
+// Signing backend (FR005-05): in-process (default) or a Nitro Enclave that only returns signatures.
+const enclave = enclaveBackendFromEnv(env);
+if (enclave) await enclave.client.verify();
+
 const core = new ManagedSigner(vault, {
   registry,
   devices,
   retentionDays,
   usageRetentionMonths: Number(env.MANAGED_SIGNER_USAGE_RETENTION_MONTHS ?? 12),
   rateLimits,
+  ...(enclave ? { sealedKeys: enclave.client } : {}),
   ...(env.MANAGED_SIGNER_DEVICE_SESSION_TTL_S ? { deviceSessionTtlMs: Number(env.MANAGED_SIGNER_DEVICE_SESSION_TTL_S) * 1000 } : {}),
 });
 const api = createManagedSignerApi(core, {

@@ -55,7 +55,7 @@ spec:
                   key: MIRROR_AT_REST_KEY
                   optional: true
             - name: DATABASE_URL
-              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(PLATFORM_DB)
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(PLATFORM_DB)$(POSTGRES_URL_QUERY)
             - name: INDEXER_RELAYS
               value: ws://relay:3000
             # Buzz maps Host to a community and checks the NIP-42 relay tag: present the public URL.

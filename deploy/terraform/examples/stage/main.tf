@@ -32,6 +32,12 @@ variable "node_security_group_id" {
   default     = ""
 }
 
+variable "rds_subnet_ids" {
+  description = "Subredes privadas de vpc-7907b103 en al menos dos AZ (RDS Multi-AZ, NFR001-03)."
+  type        = list(string)
+  default     = []
+}
+
 module "acceso_nostr_stage" {
   source = "../../modules/acceso-nostr"
 
@@ -54,6 +60,18 @@ module "acceso_nostr_stage" {
     "nostr-stage-policy.ai.acce.so",
     "nostr-stage-signer.ai.acce.so",
   ]
+
+  # NFR001-03: RDS PostgreSQL 17 Multi-AZ, backups automáticos 14 días + PITR, TLS obligatorio, solo desde
+  # los nodos. rds_endpoint va a POSTGRES_HOST en deploy/k8s/overlays/stage (docs/runbooks/rds-postgres.md).
+  enable_rds                     = true
+  rds_subnet_ids                 = var.rds_subnet_ids
+  rds_allowed_security_group_ids = compact([var.node_security_group_id])
+
+  # FR005-05 (prototipo, docs/managed-enclave.md): activar solo con una EIF construida y medida.
+  # enable_enclave_signer = true
+  # enclave_pcr0          = "<PCR0 de nitro-cli build-enclave>"
+  # enclave_pcr1          = "<PCR1>"
+  # enclave_pcr2          = "<PCR2>"
 }
 
 output "acceso_nostr_stage" {
@@ -64,5 +82,8 @@ output "acceso_nostr_stage" {
     signer_credentials_secret    = module.acceso_nostr_stage.managed_signer_credentials_secret
     backup_bucket                = module.acceso_nostr_stage.backup_bucket
     target_group_arn             = module.acceso_nostr_stage.alb_target_group_arn
+    rds_instance_id              = module.acceso_nostr_stage.rds_instance_id
+    rds_endpoint                 = module.acceso_nostr_stage.rds_endpoint
+    rds_master_user_secret_arn   = module.acceso_nostr_stage.rds_master_user_secret_arn
   }
 }

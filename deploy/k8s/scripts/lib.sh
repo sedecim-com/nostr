@@ -63,4 +63,19 @@ check_rendered_config() {
     [[ "${dry_run}" -eq 1 ]] || die "${msg}"
     printf 'aviso: %s: el apply real se negará\n' "${msg}" >&2
   fi
+  # components/rds-postgres: POSTGRES_HOST = terraform output rds_endpoint (NFR001-03).
+  if grep -q '^  POSTGRES_HOST: ""$' "${file}"; then
+    msg="POSTGRES_HOST vacío en ${OVERLAY}/kustomization.yaml (terraform output rds_endpoint)"
+    [[ "${dry_run}" -eq 1 ]] || die "${msg}"
+    printf 'aviso: %s: el apply real se negará\n' "${msg}" >&2
+  fi
+}
+
+# True when the rendered manifests ($1) contain a workload of kind $2 named $3.
+has_workload() {
+  awk -v kind="kind: $2" -v name="  name: $3" '
+    /^---$/ { k = 0; next }
+    $0 == kind { k = 1 }
+    k && $0 == name { found = 1 }
+    END { exit !found }' "$1"
 }

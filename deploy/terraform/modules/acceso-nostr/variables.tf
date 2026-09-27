@@ -150,3 +150,174 @@ variable "alb_security_group_id" {
   type        = string
   default     = ""
 }
+
+# --- managed signer, enclave tier (FR005-05, docs/managed-enclave.md)
+variable "enable_enclave_signer" {
+  description = "Crea la llave KMS condicionada a la attestation del enclave Nitro (requiere enable_managed_signer y los PCR esperados)."
+  type        = bool
+  default     = false
+}
+
+variable "enclave_pcr0" {
+  description = "PCR0 (hash de la imagen EIF, = kms:RecipientAttestation:ImageSha384), 96 hex. Salida de nitro-cli build-enclave."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.enclave_pcr0 == "" || can(regex("^[0-9a-fA-F]{96}$", var.enclave_pcr0))
+    error_message = "enclave_pcr0: 96 caracteres hex (SHA-384)."
+  }
+}
+
+variable "enclave_pcr1" {
+  description = "PCR1 (kernel y bootstrap del enclave), 96 hex."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.enclave_pcr1 == "" || can(regex("^[0-9a-fA-F]{96}$", var.enclave_pcr1))
+    error_message = "enclave_pcr1: 96 caracteres hex (SHA-384)."
+  }
+}
+
+variable "enclave_pcr2" {
+  description = "PCR2 (aplicación del enclave), 96 hex."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.enclave_pcr2 == "" || can(regex("^[0-9a-fA-F]{96}$", var.enclave_pcr2))
+    error_message = "enclave_pcr2: 96 caracteres hex (SHA-384)."
+  }
+}
+
+variable "enclave_pcr8" {
+  description = "PCR8 (certificado con el que se firmó la EIF), 96 hex. Vacío = no se exige."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.enclave_pcr8 == "" || can(regex("^[0-9a-fA-F]{96}$", var.enclave_pcr8))
+    error_message = "enclave_pcr8: 96 caracteres hex (SHA-384)."
+  }
+}
+
+variable "enclave_principal_arns" {
+  description = "Principales IAM del host padre que reenvían las llamadas KMS del enclave (rol de la instancia Nitro). El usuario IAM del signer se añade si create_iam_users = true."
+  type        = list(string)
+  default     = []
+}
+
+variable "enclave_key_admin_arns" {
+  description = "Administradores de la llave del enclave (sin permisos de uso). Vacío = raíz de la cuenta."
+  type        = list(string)
+  default     = []
+}
+
+variable "enclave_host_ami_id" {
+  description = "AMI (Amazon Linux 2023 con aws-nitro-enclaves-cli) del host padre. Vacío = no se crea el launch template."
+  type        = string
+  default     = ""
+}
+
+variable "enclave_host_instance_type" {
+  description = "Tipo de instancia con soporte de Nitro Enclaves (>= 4 vCPU: el enclave reserva CPUs completas)."
+  type        = string
+  default     = "m6i.xlarge"
+}
+
+variable "enclave_host_instance_profile" {
+  description = "Instance profile del host padre (su rol va en enclave_principal_arns)."
+  type        = string
+  default     = ""
+}
+
+variable "enclave_host_security_group_ids" {
+  description = "SGs del host padre."
+  type        = list(string)
+  default     = []
+}
+
+# --- Postgres gestionado (NFR001-03, docs/runbooks/rds-postgres.md)
+variable "enable_rds" {
+  description = "Crea RDS PostgreSQL Multi-AZ con backups automáticos y PITR (requiere vpc_id, rds_subnet_ids y rds_allowed_security_group_ids)."
+  type        = bool
+  default     = false
+}
+
+variable "rds_subnet_ids" {
+  description = "Subredes privadas de la VPC del cluster, al menos dos AZ."
+  type        = list(string)
+  default     = []
+}
+
+variable "rds_allowed_security_group_ids" {
+  description = "SGs autorizados a llegar al puerto 5432 (nodos del cluster kops)."
+  type        = list(string)
+  default     = []
+}
+
+variable "rds_engine_version" {
+  description = "Versión de PostgreSQL (mayor; las menores se aplican en la ventana de mantenimiento)."
+  type        = string
+  default     = "17"
+}
+
+variable "rds_instance_class" {
+  description = "Clase de instancia (Multi-AZ duplica el coste: primaria + standby)."
+  type        = string
+  default     = "db.t4g.medium"
+}
+
+variable "rds_allocated_storage" {
+  description = "GiB iniciales (gp3)."
+  type        = number
+  default     = 50
+}
+
+variable "rds_max_allocated_storage" {
+  description = "Tope de autoescalado del almacenamiento (GiB)."
+  type        = number
+  default     = 200
+}
+
+variable "rds_master_username" {
+  description = "Usuario maestro (solo administración; la contraseña la genera y guarda RDS en Secrets Manager)."
+  type        = string
+  default     = "acceso_admin"
+}
+
+variable "rds_backup_retention_days" {
+  description = "Días de backups automáticos y ventana de PITR (docs/rpo-rto.md)."
+  type        = number
+  default     = 14
+
+  validation {
+    condition     = var.rds_backup_retention_days >= 7 && var.rds_backup_retention_days <= 35
+    error_message = "rds_backup_retention_days: entre 7 y 35 (máximo de RDS)."
+  }
+}
+
+variable "rds_backup_window" {
+  description = "Ventana diaria del snapshot automático (UTC)."
+  type        = string
+  default     = "07:00-08:00"
+}
+
+variable "rds_maintenance_window" {
+  description = "Ventana semanal de mantenimiento (UTC), sin solaparse con la de backup."
+  type        = string
+  default     = "sun:08:30-sun:09:30"
+}
+
+variable "rds_deletion_protection" {
+  description = "Protección contra borrado (desactivarla es un cambio explícito antes de destruir)."
+  type        = bool
+  default     = true
+}
+
+variable "rds_performance_insights" {
+  description = "Activa Performance Insights (7 días gratis), cifrado con la llave de RDS."
+  type        = bool
+  default     = false
+}

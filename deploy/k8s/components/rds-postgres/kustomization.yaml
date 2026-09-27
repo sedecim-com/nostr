@@ -1,0 +1,55 @@
+# Managed Postgres (NFR001-03): services use RDS PostgreSQL Multi-AZ from deploy/terraform instead of the
+# in-cluster StatefulSet. The overlay sets POSTGRES_HOST (terraform output rds_endpoint); deploy.sh refuses an
+# empty value. TLS is verified against the RDS us-east-1 CA bundle
+# (https://truststore.pki.rds.amazonaws.com/us-east-1/us-east-1-bundle.pem), since the parameter group sets
+# rds.force_ssl = 1. Credentials stay in acceso-nostr-secrets (POSTGRES_PASSWORD, application role created
+# once with the RDS master secret: docs/runbooks/rds-postgres.md).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+configMapGenerator:
+  - name: acceso-nostr-config
+    behavior: merge
+    literals:
+      - POSTGRES_URL_QUERY=?sslmode=verify-full&sslrootcert=/etc/rds-ca/rds-ca-us-east-1.pem
+  - name: rds-ca
+    files:
+      - rds-ca-us-east-1.pem=files/rds-ca-us-east-1.pem
+
+patches:
+  # No in-cluster database: its PVC stays until the migration is verified (runbook), then is deleted by hand.
+  - patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: postgres
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: postgres
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: postgres-init
+  # CA bundle for sslmode=verify-full in every workload with a DATABASE_URL.
+  - target:
+      kind: Deployment
+      name: relay|indexer|identity-service|managed-signer
+    patch: |-
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: rds-ca
+          configMap:
+            name: rds-ca
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value:
+          name: rds-ca
+          mountPath: /etc/rds-ca
+          readOnly: true

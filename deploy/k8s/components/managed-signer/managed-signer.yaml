@@ -46,7 +46,7 @@ spec:
                   name: acceso-nostr-secrets
                   key: POSTGRES_PASSWORD
             - name: DATABASE_URL
-              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(PLATFORM_DB)
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(PLATFORM_DB)$(POSTGRES_URL_QUERY)
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:

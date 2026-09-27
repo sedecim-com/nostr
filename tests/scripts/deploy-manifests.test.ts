@@ -145,6 +145,18 @@ describe.skipIf(!hasKubectl)('kubectl kustomize deploy/k8s/overlays/stage', () =
     expect(read('deploy/terraform/modules/acceso-nostr/variables.tf')).toMatch(/default\s+= 31810/);
   });
 
+  it('uses RDS with verified TLS instead of the in-cluster Postgres (NFR001-03)', () => {
+    const docs = out.stdout.split('\n---\n');
+    expect(docs.some((d) => /^kind: StatefulSet$/m.test(d) && /^  name: postgres$/m.test(d))).toBe(false);
+    expect(out.stdout).toMatch(/POSTGRES_URL_QUERY: \?sslmode=verify-full&sslrootcert=\/etc\/rds-ca\/rds-ca-us-east-1\.pem/);
+    const withDb = docs.filter((d) => /name: DATABASE_URL/.test(d));
+    expect(withDb.length).toBe(4);
+    for (const d of withDb) {
+      expect(d).toMatch(/@\$\(POSTGRES_HOST\):5432\/\$\((PLATFORM_DB|POSTGRES_DB)\)\$\(POSTGRES_URL_QUERY\)/);
+      expect(d).toMatch(/mountPath: \/etc\/rds-ca/);
+    }
+  });
+
   it('runs every pod as non-root without privilege escalation', () => {
     const pods = out.stdout.split('\n---\n').filter((d) => /^kind: (Deployment|StatefulSet|Job)$/m.test(d));
     expect(pods.length).toBeGreaterThan(10);

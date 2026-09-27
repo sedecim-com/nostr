@@ -6,3 +6,4 @@ export * from './api';
 export * from './devices';
 export * from './ratelimit';
 export * from './metrics';
+export * from './enclave/index';

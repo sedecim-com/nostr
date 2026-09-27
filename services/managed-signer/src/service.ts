@@ -9,9 +9,11 @@ import {
   wipe,
   type EventTemplate,
   type NostrEvent,
+  type Signer,
 } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import type { Vault } from './vault';
+import type { SealedKeyOps } from './enclave/client';
 import { MemoryKeyRegistry, PubkeyAlreadyManagedError, type KeyRecord, type KeyRegistry, type UsageRecord } from './registry';
 import { MemoryDeviceStore, type DeviceRevocation, type DeviceStore } from './devices';
 import { DEFAULT_RATE_LIMITS, SigningRateLimiter, type RateLimitConfig } from './ratelimit';
@@ -57,6 +59,11 @@ export interface ManagedSignerOptions {
   /** Per-key / per-kind limits (FR005-06); `false` disables them. */
   rateLimits?: RateLimitConfig | false;
   metrics?: SignerMetrics;
+  /**
+   * Enclave tier (FR005-05): keys are generated, unsealed and used only inside the enclave; the vault then
+   * stores sealed blobs this process cannot decrypt.
+   */
+  sealedKeys?: SealedKeyOps;
   now?: () => number;
 }
 
@@ -169,9 +176,9 @@ export class ManagedSigner {
     return secret;
   }
 
-  private async withSigner<T>(k: KeyRecord, fn: (s: LocalSigner) => Promise<T>): Promise<T> {
+  private async withSigner<T>(k: KeyRecord, fn: (s: Signer) => Promise<T>): Promise<T> {
     const secret = await this.secretOf(k);
-    const signer = new LocalSigner(secret, 'managed');
+    const signer = this.opts.sealedKeys ? this.opts.sealedKeys.signer(secret, k.pubkey) : new LocalSigner(secret, 'managed');
     wipe(secret);
     try {
       return await fn(signer);
@@ -182,6 +189,7 @@ export class ManagedSigner {
   }
 
   async create(owner: string, principal: string, opts: { allowedKinds?: number[] } = {}): Promise<KeyRecord> {
+    if (this.opts.sealedKeys) return this.persist(await this.opts.sealedKeys.generate(), owner, principal, 'created', opts);
     const sk = generateSecretKey();
     try {
       return await this.store(sk, owner, principal, 'created', opts);
@@ -192,6 +200,7 @@ export class ManagedSigner {
 
   /** local -> managed migration (explicit, opt-in). */
   async importEncrypted(owner: string, principal: string, ncryptsec: string, password: string): Promise<KeyRecord> {
+    if (this.opts.sealedKeys) return this.persist(await this.opts.sealedKeys.importNcryptsec(ncryptsec, password), owner, principal, 'imported', {});
     const { secretKey } = await nip49.decryptKeyAsync(ncryptsec, password);
     try {
       return await this.store(secretKey, owner, principal, 'imported', {});
@@ -202,15 +211,20 @@ export class ManagedSigner {
 
   private async store(sk: Uint8Array, owner: string, principal: string, action: 'created' | 'imported', opts: { allowedKinds?: number[] }): Promise<KeyRecord> {
     if (!selfTestKey(sk).ok) throw new ManagedSignerError(500, 'key self-test failed');
-    const pubkey = getPublicKey(sk);
+    return this.persist({ pubkey: getPublicKey(sk), sealed: sk }, owner, principal, action, opts);
+  }
+
+  /** Stores the vault material (the secret, or a sealed blob in the enclave tier) and the registry record. */
+  private async persist(key: { pubkey: string; sealed: Uint8Array }, owner: string, principal: string, action: 'created' | 'imported', opts: { allowedKinds?: number[] }): Promise<KeyRecord> {
+    const { pubkey } = key;
     if (await this.registry.liveByPubkey(pubkey)) throw new ManagedSignerError(409, 'key already managed');
     const keyId = randomBytes(16).toString('hex');
-    await this.vault.put(keyId, sk);
+    await this.vault.put(keyId, key.sealed);
     const rec: KeyRecord = {
       keyId,
       owner,
       pubkey,
-      provider: this.vault.provider,
+      provider: this.opts.sealedKeys ? `${this.opts.sealedKeys.provider}+${this.vault.provider}` : this.vault.provider,
       version: 1,
       state: 'active',
       createdAt: this.now(),
@@ -231,7 +245,7 @@ export class ManagedSigner {
 
   private view(rec: KeyRecord) {
     const { migrationChallenge: _c, ...k } = rec;
-    return { ...k, custody: 'managed' as const, custodial: true, disclosure: MANAGED_DISCLOSURE };
+    return { ...k, custody: this.opts.sealedKeys ? ('managed-enclave' as const) : ('managed' as const), custodial: true, disclosure: MANAGED_DISCLOSURE };
   }
 
   async describe(keyId: string, owner: string) {
@@ -291,7 +305,7 @@ export class ManagedSigner {
     const secret = await this.secretOf(k);
     let ncryptsec: string;
     try {
-      ncryptsec = await nip49.encryptKeyAsync(secret, password, logN, 0x00);
+      ncryptsec = this.opts.sealedKeys ? await this.opts.sealedKeys.exportNcryptsec(secret, k.pubkey, password, logN) : await nip49.encryptKeyAsync(secret, password, logN, 0x00);
     } finally {
       wipe(secret);
     }

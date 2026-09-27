@@ -128,7 +128,7 @@ jobs:
       - name: Render the stage overlay
         run: kubectl kustomize deploy/k8s/overlays/stage > /dev/null
       - name: Deploy scripts
-        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh
+        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh
       - name: SLO rules and their unit tests (promtool)
         run: |
           curl -sSfL -o prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
