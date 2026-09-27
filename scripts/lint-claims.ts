@@ -2,7 +2,8 @@
  * FR028-03 — CI lint: no absolute privacy claims ("100% anónimo", "imposible de rastrear", …) in any
  * user-facing copy (spec §2.2). Scans string literals, template literal text and JSX text of the UI
  * sources with the same rules as assertNoAbsoluteClaims (packages/profiles), plus visible text of
- * HTML entry points. Read-only: it never modifies the scanned files.
+ * HTML entry points and Markdown release notes (docs/releases, REL-02). Read-only: it never modifies the
+ * scanned files.
  *
  *   npm run lint:claims                 (default roots)
  *   tsx scripts/lint-claims.ts DIR|FILE…
@@ -20,7 +21,7 @@ export interface ClaimViolation {
   text: string;
 }
 
-export const DEFAULT_ROOTS = ['apps/web-saas/src', 'apps/web-saas/index.html', 'apps/web-saas/static', 'apps/admin-console/src', 'apps/admin-console/index.html', 'apps/sovereign-client/src', 'apps/key-generator/src', 'packages/profiles/src'];
+export const DEFAULT_ROOTS = ['apps/web-saas/src', 'apps/web-saas/index.html', 'apps/web-saas/static', 'apps/admin-console/src', 'apps/admin-console/index.html', 'apps/sovereign-client/src', 'apps/key-generator/src', 'packages/profiles/src', 'docs/releases'];
 
 const SOURCE_EXT = new Set(['.ts', '.tsx', '.mts', '.js', '.mjs', '.jsx']);
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'test', '__tests__']);
@@ -86,6 +87,17 @@ export function scanHtml(file: string, source: string): ClaimViolation[] {
   return out;
 }
 
+/** Prose of a Markdown file (fenced code blocks skipped), line by line. */
+export function scanMarkdown(file: string, source: string): ClaimViolation[] {
+  const out: ClaimViolation[] = [];
+  let fenced = false;
+  source.split('\n').forEach((line, i) => {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    else if (!fenced && line.trim() && isClaim(line.replace(/\s+/g, ' ').trim())) out.push({ file, line: i + 1, column: 1, text: line.trim() });
+  });
+  return out;
+}
+
 function* walk(path: string): Generator<string> {
   const st = statSync(path, { throwIfNoEntry: false });
   if (!st) return;
@@ -96,7 +108,7 @@ function* walk(path: string): Generator<string> {
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       if (!SKIP_DIRS.has(entry.name)) yield* walk(join(path, entry.name));
-    } else if (SOURCE_EXT.has(extname(entry.name)) || extname(entry.name) === '.html') yield join(path, entry.name);
+    } else if (SOURCE_EXT.has(extname(entry.name)) || extname(entry.name) === '.html' || extname(entry.name) === '.md') yield join(path, entry.name);
   }
 }
 
@@ -107,6 +119,7 @@ export function lintClaims(roots: string[] = DEFAULT_ROOTS, cwd = process.cwd())
       const file = relative(cwd, abs) || abs;
       const source = readFileSync(abs, 'utf8');
       if (extname(abs) === '.html') out.push(...scanHtml(file, source));
+      else if (extname(abs) === '.md') out.push(...scanMarkdown(file, source));
       else if (SOURCE_EXT.has(extname(abs)) && !/\.d\.ts$/.test(abs)) out.push(...scanSource(file, source));
     }
   return out;
