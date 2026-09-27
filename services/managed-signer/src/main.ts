@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { hexToBytes } from '@sedecim/nostr-core';
-import { CognitoVerifier, createPgPool, migrate } from '@sedecim/service-kit';
+import { CognitoVerifier, createPgPool, migrate, rateLimitFromEnv } from '@sedecim/service-kit';
 import { startMetricsServer } from '@sedecim/metrics/server';
 import {
   awsKms,
@@ -8,6 +8,7 @@ import {
   createManagedSignerApi,
   DEFAULT_AWS_REGION,
   DEFAULT_RATE_LIMITS,
+  DEFAULT_SCRYPT_LIMITS,
   MemoryDeviceStore,
   parseKindLimits,
   PgDeviceStore,
@@ -80,6 +81,21 @@ const rateLimits =
       };
 if (rateLimits && !(rateLimits.perKey.perMinute > 0 && rateLimits.perKind.perMinute > 0)) throw new Error('MANAGED_SIGNER_RATE_PER_KEY / _PER_KIND must be positive numbers');
 
+// IR-2026-09-20: scrypt admission for import/export. MANAGED_SIGNER_SCRYPT_PER_OWNER = perMinute[:burst] per
+// owner, _CONCURRENCY = scrypt runs at once per replica, _QUEUE = runs waiting; MANAGED_SIGNER_SCRYPT_LIMITS=off.
+const [scryptPerMin, scryptBurst] = (env.MANAGED_SIGNER_SCRYPT_PER_OWNER ?? '').split(':').filter(Boolean).map(Number);
+const scryptLimits =
+  env.MANAGED_SIGNER_SCRYPT_LIMITS === 'off'
+    ? (false as const)
+    : {
+        perOwner: scryptPerMin !== undefined ? { perMinute: scryptPerMin, ...(scryptBurst !== undefined ? { burst: scryptBurst } : {}) } : DEFAULT_SCRYPT_LIMITS.perOwner,
+        maxConcurrent: perMin(env.MANAGED_SIGNER_SCRYPT_CONCURRENCY, DEFAULT_SCRYPT_LIMITS.maxConcurrent),
+        maxQueue: perMin(env.MANAGED_SIGNER_SCRYPT_QUEUE, DEFAULT_SCRYPT_LIMITS.maxQueue),
+      };
+if (scryptLimits && !(scryptLimits.perOwner.perMinute > 0 && (scryptLimits.perOwner.burst ?? 1) > 0 && scryptLimits.maxConcurrent >= 1 && scryptLimits.maxQueue >= 0)) {
+  throw new Error('MANAGED_SIGNER_SCRYPT_PER_OWNER / _CONCURRENCY / _QUEUE must be positive numbers');
+}
+
 // Signing backend (FR005-05): in-process (default) or a Nitro Enclave that only returns signatures.
 const enclave = enclaveBackendFromEnv(env);
 if (enclave) await enclave.client.verify();
@@ -90,6 +106,7 @@ const core = new ManagedSigner(vault, {
   retentionDays,
   usageRetentionMonths: Number(env.MANAGED_SIGNER_USAGE_RETENTION_MONTHS ?? 12),
   rateLimits,
+  scryptLimits,
   ...(enclave ? { sealedKeys: enclave.client } : {}),
   ...(env.MANAGED_SIGNER_DEVICE_SESSION_TTL_S ? { deviceSessionTtlMs: Number(env.MANAGED_SIGNER_DEVICE_SESSION_TTL_S) * 1000 } : {}),
 });
@@ -100,12 +117,15 @@ const api = createManagedSignerApi(core, {
   ...(Object.keys(serviceTokens).length ? { serviceTokens } : {}),
   ...(Object.keys(revocationTokens).length ? { revocationTokens } : {}),
   requireDeviceSession: env.MANAGED_SIGNER_REQUIRE_DEVICE_SESSION === 'true',
+  // IR-2026-09-05: per-IP buckets (RATE_LIMIT_* env); the per-key signing limits above stay separate.
+  rateLimit: rateLimitFromEnv(env),
 });
 if (!Object.keys(revocationTokens).length) api.logger.warn('MANAGED_SIGNER_REVOCATION_TOKENS empty: device revocations cannot be received');
 
 // Metrics (FR005-06) on an internal port, never through the public API: operation/limit counters only.
 if (env.METRICS_PORT) {
-  const m = await startMetricsServer(core.metrics, { port: Number(env.METRICS_PORT), host: env.METRICS_HOST ?? '0.0.0.0' });
+  const render = async () => (await core.metrics.render()) + (api.rateLimiter ? await api.rateLimiter.render() : '');
+  const m = await startMetricsServer({ render }, { port: Number(env.METRICS_PORT), host: env.METRICS_HOST ?? '0.0.0.0' });
   api.logger.info('metrics listening', { url: m.url });
 }
 

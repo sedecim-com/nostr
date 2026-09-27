@@ -113,6 +113,17 @@ describe('NIP-98', () => {
     expect(() => nip98.verifyAuthHeader(header, { url: 'https://api.example/v1/y', method: 'POST', body })).toThrow(/url/);
     expect(() => nip98.verifyAuthHeader(header, { url: 'https://api.example/v1/x', method: 'POST', body: '{}' })).toThrow(/payload/);
     expect(() => nip98.verifyAuthHeader(header, { url: 'https://api.example/v1/x', method: 'POST', body, now: evt.created_at + 600 })).toThrow(/stale/);
+    // A payload hash for a body that was not sent.
+    expect(() => nip98.verifyAuthHeader(header, { url: 'https://api.example/v1/x', method: 'POST' })).toThrow(/payload/);
+  });
+
+  it('gives identical requests signed in the same second distinct event ids (servers accept each id once)', () => {
+    const sk = generateSecretKey();
+    const pk = getPublicKey(sk);
+    const t = () => ({ ...toUnsigned(nip98.buildHttpAuthTemplate('https://api.example/v1/x', 'GET'), pk), created_at: 1_800_000_000 });
+    const [a, b] = [finalizeEvent(t(), sk), finalizeEvent(t(), sk)];
+    expect(a.id).not.toBe(b.id);
+    expect(a.tags.find((x) => x[0] === 'nonce')?.[1]).toMatch(/^[0-9a-f]{32}$/);
   });
 });
 

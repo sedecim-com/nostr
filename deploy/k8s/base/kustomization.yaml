@@ -55,6 +55,9 @@ configMapGenerator:
       - COGNITO_USER_POOL_ID=
       - COGNITO_CLIENT_ID=
       - AWS_REGION=us-east-1
+      # Every API is reached through the edge, which sends the client address as X-Forwarded-For:
+      # the in-process rate limiters trust that one hop (IR-2026-09-05; RATE_LIMIT_* in docs).
+      - RATE_LIMIT_TRUST_PROXY_HOPS=1
   - name: postgres-init
     files:
       - 01-platform-db.sh=files/01-platform-db.sh

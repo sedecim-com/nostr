@@ -1,5 +1,7 @@
 # Production TLS front for the self-hosted stack (compose.tls.yml). Certificates via ACME.
 # Each service gets its own subdomain so Nostr relays keep a clean WebSocket origin (NIP-42 relay tag).
+# Rate limits: the stock Caddy image has no limiter module; the services apply their own per-address and
+# per-principal buckets (RATE_LIMIT_*, compose.tls.yml trusts this proxy's X-Forwarded-For).
 {
 	email {$ACME_EMAIL}
 }
@@ -8,6 +10,7 @@
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
 		Referrer-Policy no-referrer
 		-Server
 	}

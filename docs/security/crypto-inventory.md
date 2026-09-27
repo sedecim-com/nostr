@@ -81,9 +81,12 @@ autor del seal coincide con el del rumor. DMs y archivos NIP-17 en `nip17.ts:49-
 
 ### 2.5 NIP-98 y NIP-42
 
-- NIP-98: `packages/nostr-core/src/nip98.ts:37` `verifyAuthHeader`: kind 27235, firma, ventana ±60 s, `u`
-  exacto, `method`, `payload` = SHA-256 del cuerpo si hay cuerpo. **Sin caché anti-replay** (IR-2026-09-04).
-  Lo aplica `packages/service-kit/src/http.ts` `Service.authenticate`.
+- NIP-98: `packages/nostr-core/src/nip98.ts` `verifyAuthHeader`: kind 27235, firma, ventana ±60 s, `u`
+  exacto, `method`, `payload` = SHA-256 del cuerpo si hay cuerpo (y rechazo de un `payload` sin cuerpo).
+  `buildHttpAuthTemplate` añade un tag `nonce` aleatorio de 16 B. Lo aplica
+  `packages/service-kit/src/http.ts` `Service.authenticate`, con anti-replay por id de evento
+  (`packages/service-kit/src/replay.ts`: `PgReplayStore` compartido entre réplicas con Postgres,
+  `MemoryReplayStore` por proceso sin él; IR-2026-09-04).
 - NIP-42: `packages/relay-pool/src/connection.ts` (kind 22242, modos `auto`/`on-demand`).
 - Blossom (kind 24242, verbo, `x` = hash, `expiration`): `services/blob-store/src/server.ts` `auth`.
 - Prueba de control de una llave nueva (identity-service): evento kind 27235 con tags `account` y `u`,
@@ -134,7 +137,8 @@ Desviación menor: `store.ts:50` usa la sal hex como bytes UTF-8 (no la decodifi
 
 Sesiones de dispositivo `sds_` + 32 B aleatorios, guardadas como SHA-256 (`service.ts:128-150`); desafío de
 migración de 16 B aleatorios firmado con la llave exportada (`service.ts:318-350`). Límites de tasa por llave
-y por kind: `services/managed-signer/src/ratelimit.ts`.
+y por kind: `services/managed-signer/src/ratelimit.ts`; en el mismo archivo, `ScryptGate` limita import y
+export (scrypt) por dueño y en concurrencia por réplica (IR-2026-09-20).
 
 ### 2.10 Tier enclave (Nitro) — código propio, objetivo prioritario
 
@@ -238,7 +242,8 @@ Desviaciones conocidas respecto a lo habitual:
 2. WebAuthn sin validación de la cadena x5c ni de AAGUID (IR-2026-09-17).
 3. Espejo sellado sin AAD (IR-2026-09-15).
 4. Sal del store como texto hex (§2.7).
-5. NIP-98 sin anti-replay (IR-2026-09-04).
+5. Anti-replay de NIP-98 solo por proceso en servicios sin Postgres (notification-gateway), y tokens Blossom
+   (kind 24242) reutilizables hasta su `expiration`, como permite BUD-02 (IR-2026-09-04).
 
 ## 6. Vectores y tests criptográficos presentes
 

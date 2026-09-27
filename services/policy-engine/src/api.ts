@@ -39,6 +39,7 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
     if (req.token !== undefined) {
       const principal = lookupToken(opts.bearerTokens, req.token);
       if (!principal) throw new HttpError(401, 'invalid bearer token');
+      req.limitPrincipal(`service:${principal}`);
       return `service:${principal}`;
     }
     return admin(req.pubkey);
@@ -50,7 +51,7 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
     return req.pubkey!;
   };
 
-  svc.get('/health', () => ({ ok: true }));
+  svc.get('/health', () => ({ ok: true }), 'none', { rateClass: 'none' });
 
   svc.get('/v1/subjects', async (req) => (admin(req.pubkey), { subjects: await engine.listSubjects() }), 'nip98');
   svc.put('/v1/subjects/:pubkey', async (req) => {

@@ -4,7 +4,7 @@ import WebSocket from 'ws';
 import { generateSecretKey, getPublicKey, hexToBytes, nip19, npubEncode } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
-import { createPgPool, migrate } from '@sedecim/service-kit';
+import { createPgPool, HttpRateLimiter, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, type ReplayStore } from '@sedecim/service-kit';
 import { createLogger, type TelemetryLevel } from '@sedecim/telemetry-policy';
 import { NostrMetricsExporter, parseRegionMap, startAckProbe } from '@sedecim/metrics';
 import { startMetricsServer } from '@sedecim/metrics/server';
@@ -32,12 +32,16 @@ const codec = env.MIRROR_AT_REST_KEY ? sealedCodec(hexToBytes(env.MIRROR_AT_REST
 let repo;
 // NFR005-01: replicas sharing DATABASE_URL split the relays/channels among themselves (rendezvous hashing).
 let coordinator: ShardCoordinator;
+// IR-2026-09-04: used NIP-98 ids shared by every replica through Postgres; per process without it.
+let replayStore: ReplayStore | undefined;
 if (env.DATABASE_URL) {
   const pool = createPgPool(env.DATABASE_URL);
   const applied = await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
   logger.info('migrations applied', { applied: applied.join(',') || 'none' });
+  await migrateReplayStore(pool);
   repo = new PgEventRepository(pool, codec);
   coordinator = new PgShardCoordinator(pool);
+  replayStore = new PgReplayStore(pool);
 } else {
   logger.warn('DATABASE_URL not set: using in-memory repository (single replica)');
   repo = new MemoryEventRepository(codec);
@@ -81,6 +85,10 @@ const serviceSecret = serviceKey();
 logger.info('mirror service identity', { npub: npubEncode(getPublicKey(serviceSecret)) });
 const pool = new RelayPool({ webSocketFactory, signer: new LocalSigner(serviceSecret), authMode: 'auto', authRelayUrl: publicUrl });
 
+// IR-2026-09-05: per-replica token buckets on the public API (RATE_LIMIT_* env, service-kit).
+const rateLimitOpts = rateLimitFromEnv(env);
+const rateLimiter = rateLimitOpts ? new HttpRateLimiter(rateLimitOpts) : undefined;
+
 // NFR004-01 / FR011-03: optional Prometheus exporter on its own internal port (never on the public API).
 // TELEMETRY_LEVEL=none (or no METRICS_PORT) keeps it off; relay labels are hosts only (onion relays hashed).
 if (env.METRICS_PORT) {
@@ -90,7 +98,8 @@ if (env.METRICS_PORT) {
   if (!exporter) logger.info('metrics disabled by telemetry level', { telemetryLevel: level });
   else {
     exporter.attachPool(pool);
-    const m = await startMetricsServer(exporter, { port: Number(env.METRICS_PORT), host: env.METRICS_HOST ?? '0.0.0.0' });
+    const render = async () => (await exporter.render()) + (rateLimiter ? await rateLimiter.render() : '');
+    const m = await startMetricsServer({ render }, { port: Number(env.METRICS_PORT), host: env.METRICS_HOST ?? '0.0.0.0' });
     logger.info('metrics exporter listening', { url: m.url, telemetryLevel: level });
     const every = Number(env.ACK_PROBE_INTERVAL_MS ?? 0);
     // The mirror only subscribes; a synthetic probe (empty ephemeral event) measures ACK latency per relay.
@@ -151,5 +160,13 @@ if (env.POLICY_ENGINE_URL) {
   }
 }
 
-const api = createIndexerApi(repo, { name: 'indexer', publicBaseUrl: env.PUBLIC_BASE_URL, requireAuth: env.INDEXER_REQUIRE_AUTH === 'true', logger, ...(policy ? { policy } : {}) });
+const api = createIndexerApi(repo, {
+  name: 'indexer',
+  publicBaseUrl: env.PUBLIC_BASE_URL,
+  requireAuth: env.INDEXER_REQUIRE_AUTH === 'true',
+  logger,
+  ...(rateLimiter ? { rateLimit: rateLimiter } : {}),
+  ...(replayStore ? { replayStore } : {}),
+  ...(policy ? { policy } : {}),
+});
 await api.listen(Number(env.PORT ?? 8081), env.HOST ?? '0.0.0.0');

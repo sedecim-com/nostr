@@ -151,6 +151,9 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_DB:-sedecim}
       MIRROR_AT_REST_KEY: ${MIRROR_AT_REST_KEY:-}
       INDEXER_REQUIRE_AUTH: ${INDEXER_REQUIRE_AUTH:-true}
+      # IR-2026-09-05: read bucket per address and reader (perMinute[:burst]; empty = 600:300). The load
+      # test raises it: its lag poller reads ~10 times per second from one address.
+      RATE_LIMIT_READ: ${INDEXER_RATE_LIMIT_READ:-}
       # Institutional mode (FR023-05/08): reads evaluated by the policy-engine and retention enforced on the
       # mirror. Set both (the token must be in POLICY_SERVICE_TOKENS); empty URL keeps it off.
       POLICY_ENGINE_URL: ${INDEXER_POLICY_ENGINE_URL:-}

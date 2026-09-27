@@ -12,7 +12,7 @@ export class SignerMetrics {
     new Counter('managed_signer_operations_total', 'Custodial operations by type and result (ok, rate_limited, denied, error).', ['op', 'result']),
   );
   readonly rateLimited = this.registry.register(
-    new Counter('managed_signer_rate_limited_total', 'Custodial operations rejected with 429 by the per-key or per-kind limit.', ['op', 'scope']),
+    new Counter('managed_signer_rate_limited_total', 'Custodial operations rejected with 429 (per-key/per-kind signing limits; per-owner/busy for import and export).', ['op', 'scope']),
   );
   readonly deviceRevocations = this.registry.register(
     new Counter('managed_signer_device_revocations_total', 'Device revocations received (new = first time for that device).', ['result']),

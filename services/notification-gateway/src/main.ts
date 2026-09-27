@@ -3,6 +3,7 @@ import { generateSecretKey, getPublicKey, hexToBytes, nip19, npubEncode } from '
 import { LocalSigner } from '@sedecim/signer';
 import { normalizeRelayUrl, RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { createLogger } from '@sedecim/telemetry-policy';
+import { rateLimitFromEnv, serveMetrics } from '@sedecim/service-kit';
 import { b64u, createNotificationApi, createWebPushSender, DEFAULT_PUSH_HOSTS, generateVapidKeys, NotificationGateway, vapidKeysFromPrivate } from './index';
 
 const env = process.env;
@@ -59,5 +60,7 @@ const gateway = new NotificationGateway({
   logger,
 });
 
-const api = createNotificationApi(gateway, { name: 'notification-gateway', publicBaseUrl: env.PUBLIC_BASE_URL, corsOrigins: list(env.CORS_ORIGINS), logger, vapid: keys });
+// No database: used NIP-98 ids are remembered per process (a capture can be replayed once per replica).
+const api = createNotificationApi(gateway, { name: 'notification-gateway', publicBaseUrl: env.PUBLIC_BASE_URL, corsOrigins: list(env.CORS_ORIGINS), logger, vapid: keys, rateLimit: rateLimitFromEnv(env) });
+if (env.METRICS_PORT && api.rateLimiter) await serveMetrics(() => api.rateLimiter!.render(), { port: Number(env.METRICS_PORT), host: env.METRICS_HOST ?? '0.0.0.0' });
 await api.listen(Number(env.PORT ?? 8086), env.HOST ?? '0.0.0.0');

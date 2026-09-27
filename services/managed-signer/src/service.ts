@@ -16,7 +16,7 @@ import type { Vault } from './vault';
 import type { SealedKeyOps } from './enclave/client';
 import { MemoryKeyRegistry, PubkeyAlreadyManagedError, type KeyRecord, type KeyRegistry, type UsageRecord } from './registry';
 import { MemoryDeviceStore, type DeviceRevocation, type DeviceStore } from './devices';
-import { DEFAULT_RATE_LIMITS, SigningRateLimiter, type RateLimitConfig } from './ratelimit';
+import { DEFAULT_RATE_LIMITS, DEFAULT_SCRYPT_LIMITS, ScryptGate, SigningRateLimiter, type RateLimitConfig, type ScryptLimitConfig } from './ratelimit';
 import { SignerMetrics, type SignerOp } from './metrics';
 
 export const MANAGED_DISCLOSURE =
@@ -30,7 +30,8 @@ export class ManagedSignerError extends Error {
 
 /** FR005-06: too many operations for this key (or this kind of this key). */
 export class RateLimitedError extends ManagedSignerError {
-  constructor(readonly scope: 'key' | 'kind', readonly retryAfterSeconds: number) {
+  /** `owner`/`busy`: import/export admission (IR-2026-09-20). */
+  constructor(readonly scope: 'key' | 'kind' | 'owner' | 'busy', readonly retryAfterSeconds: number) {
     super(429, `rate limit exceeded (${scope}): retry after ${retryAfterSeconds}s`);
   }
 }
@@ -58,6 +59,8 @@ export interface ManagedSignerOptions {
   deviceSessionTtlMs?: number;
   /** Per-key / per-kind limits (FR005-06); `false` disables them. */
   rateLimits?: RateLimitConfig | false;
+  /** Per-owner rate/concurrency and global concurrency of scrypt (import/export); `false` disables them. */
+  scryptLimits?: ScryptLimitConfig | false;
   metrics?: SignerMetrics;
   /**
    * Enclave tier (FR005-05): keys are generated, unsealed and used only inside the enclave; the vault then
@@ -79,6 +82,7 @@ export class ManagedSigner {
   readonly devices: DeviceStore;
   readonly metrics: SignerMetrics;
   private readonly limiter?: SigningRateLimiter;
+  private readonly scryptGate?: ScryptGate;
   private readonly lastRateAudit = new Map<string, number>();
   private readonly revocationListeners = new Set<(r: DeviceRevocation) => void | Promise<void>>();
 
@@ -87,6 +91,16 @@ export class ManagedSigner {
     this.devices = opts.devices ?? new MemoryDeviceStore();
     this.metrics = opts.metrics ?? new SignerMetrics();
     if (opts.rateLimits !== false) this.limiter = new SigningRateLimiter(opts.rateLimits ?? DEFAULT_RATE_LIMITS);
+    if (opts.scryptLimits !== false) this.scryptGate = new ScryptGate(opts.scryptLimits ?? DEFAULT_SCRYPT_LIMITS, () => this.now());
+  }
+
+  /** Runs a scrypt operation through the per-owner/global admission (wrong passwords count too). */
+  private async scrypt<T>(op: 'import' | 'export', owner: string, fn: () => Promise<T>): Promise<T> {
+    if (!this.scryptGate) return fn();
+    const r = await this.scryptGate.run(owner, fn);
+    if (r.ok) return r.value;
+    this.metrics.rateLimited.inc({ op, scope: r.scope });
+    throw new RateLimitedError(r.scope, Math.max(1, Math.ceil(r.retryAfterMs / 1000)));
   }
 
   private now() {
@@ -211,11 +225,13 @@ export class ManagedSigner {
     }
     // logN is attacker-chosen: 2^20 would make scrypt allocate 1 GiB per request.
     if (logN > MAX_IMPORT_LOG_N) throw new ManagedSignerError(400, `ncryptsec logN ${logN} is above ${MAX_IMPORT_LOG_N}: re-encrypt it with a lower cost to import`);
-    if (this.opts.sealedKeys) return this.persist(await this.opts.sealedKeys.importNcryptsec(ncryptsec, password), owner, principal, 'imported', {});
+    const sealed = this.opts.sealedKeys;
+    if (sealed) return this.persist(await this.scrypt('import', owner, () => sealed.importNcryptsec(ncryptsec, password)), owner, principal, 'imported', {});
     let secretKey: Uint8Array;
     try {
-      ({ secretKey } = await nip49.decryptKeyAsync(ncryptsec, password, { maxLogN: MAX_IMPORT_LOG_N }));
-    } catch {
+      ({ secretKey } = await this.scrypt('import', owner, () => nip49.decryptKeyAsync(ncryptsec, password, { maxLogN: MAX_IMPORT_LOG_N })));
+    } catch (err) {
+      if (err instanceof RateLimitedError) throw err;
       throw new ManagedSignerError(400, 'cannot decrypt ncryptsec (wrong password or corrupted payload)');
     }
     try {
@@ -318,13 +334,15 @@ export class ManagedSigner {
   async export(keyId: string, owner: string, principal: string, password: string, logN = 18): Promise<{ ncryptsec: string; challenge: string }> {
     const k = await this.key(keyId, owner);
     if (password.length < 12) throw new ManagedSignerError(400, 'export password must be at least 12 characters');
-    const secret = await this.secretOf(k);
-    let ncryptsec: string;
-    try {
-      ncryptsec = this.opts.sealedKeys ? await this.opts.sealedKeys.exportNcryptsec(secret, k.pubkey, password, logN) : await nip49.encryptKeyAsync(secret, password, logN, 0x00);
-    } finally {
-      wipe(secret);
-    }
+    const sealed = this.opts.sealedKeys;
+    const ncryptsec = await this.scrypt('export', owner, async () => {
+      const secret = await this.secretOf(k);
+      try {
+        return sealed ? await sealed.exportNcryptsec(secret, k.pubkey, password, logN) : await nip49.encryptKeyAsync(secret, password, logN, 0x00);
+      } finally {
+        wipe(secret);
+      }
+    });
     k.state = 'export-pending';
     k.migrationChallenge = randomBytes(16).toString('hex');
     k.lastUsed = this.now();

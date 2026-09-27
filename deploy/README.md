@@ -63,6 +63,13 @@ Secrets Manager `k8s/<env>/...`, y entrada por un NodePort registrado en un targ
   Cada servicio conserva su host (como el `Caddyfile` de compose), todos bajo `*.ai.acce.so` para que los
   cubra el certificado comodín: `nostr-stage` (web), `nostr-stage-relay`, `-secure`, `-blobs`, `-mirror`,
   `-id`, `-policy` y `-signer`. El TLS termina en el ALB. El ALB hace health check a `/_edge_health`.
+  El edge toma la IP del cliente de `X-Forwarded-For` (solo confía en saltos privados, `real_ip_recursive`),
+  aplica `limit_req`/`limit_conn` por IP (web 20 r/s, ráfaga 100; APIs 10 r/s, ráfaga 40; blobs 5 r/s;
+  handshakes de relay 5 r/s; conexiones 16–64 según host) con 429 y `Retry-After`, añade HSTS (solo si
+  `X-Forwarded-Proto: https`), `X-Content-Type-Options` y `X-Frame-Options`, y reenvía a los servicios la IP
+  ya resuelta (por eso `RATE_LIMIT_TRUST_PROXY_HOPS=1` en `acceso-nostr-config`). Los límites son **por pod
+  del edge** (2 réplicas: el límite efectivo es el doble). Detalle en
+  [docs/architecture.md](../docs/architecture.md#apis-anti-replay-nip-98-y-límites-de-tasa).
 - **No incluido en stage:** Tor (perfil soberano/self-hosted, no aplica al SaaS).
 
 ## Terraform: consumo desde `infrastructure`

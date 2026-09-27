@@ -8,7 +8,7 @@ import { b64u, type VapidKeys } from './webpush';
  */
 export function createNotificationApi(gateway: NotificationGateway, opts: ServiceOptions & { vapid: VapidKeys }) {
   const svc = new Service({ maxBodyBytes: 16_384, ...opts });
-  svc.get('/health', () => ({ ok: true }));
+  svc.get('/health', () => ({ ok: true }), 'none', { rateClass: 'none' });
   // Browsers need the VAPID public key as `applicationServerKey` to subscribe.
   svc.get('/v1/vapid', () => ({ publicKey: b64u.encode(opts.vapid.publicKey) }));
   svc.post(
