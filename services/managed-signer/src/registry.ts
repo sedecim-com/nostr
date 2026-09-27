@@ -23,10 +23,12 @@ export interface KeyRecord {
 export interface UsageRecord {
   at: number;
   keyId: string;
-  action: 'sign' | 'nip44_encrypt' | 'nip44_decrypt' | 'export' | 'migration-confirmed' | 'deleted' | 'destroyed' | 'created' | 'imported';
+  action: 'sign' | 'nip44_encrypt' | 'nip44_decrypt' | 'export' | 'migration-confirmed' | 'deleted' | 'destroyed' | 'created' | 'imported' | 'rate-limited';
   kind?: number;
   eventId?: string;
   principal: string;
+  /** Device of the session that made the call (FR024-03), when it came through a device session. */
+  deviceId?: string;
 }
 
 export class PubkeyAlreadyManagedError extends Error {
@@ -179,14 +181,30 @@ export class PgKeyRegistry implements KeyRegistry {
     await this.pool.query('UPDATE managed_keys SET last_used_at = $2 WHERE key_id = $1', [keyId, ts(at)]);
   }
   async recordUsage(u: UsageRecord) {
-    await this.pool.query('INSERT INTO managed_key_usage (key_id, at, action, kind, event_id, principal) VALUES ($1,$2,$3,$4,$5,$6)', [u.keyId, ts(u.at), u.action, u.kind ?? null, u.eventId ?? null, u.principal]);
+    await this.pool.query('INSERT INTO managed_key_usage (key_id, at, action, kind, event_id, principal, device_id) VALUES ($1,$2,$3,$4,$5,$6,$7)', [
+      u.keyId,
+      ts(u.at),
+      u.action,
+      u.kind ?? null,
+      u.eventId ?? null,
+      u.principal,
+      u.deviceId ?? null,
+    ]);
   }
   async usageOf(keyId: string) {
-    const { rows } = await this.pool.query<{ at: Date; key_id: string; action: UsageRecord['action']; kind: number | null; event_id: string | null; principal: string }>(
-      'SELECT at, key_id, action, kind, event_id, principal FROM managed_key_usage WHERE key_id = $1 ORDER BY at, id',
+    const { rows } = await this.pool.query<{ at: Date; key_id: string; action: UsageRecord['action']; kind: number | null; event_id: string | null; principal: string; device_id: string | null }>(
+      'SELECT at, key_id, action, kind, event_id, principal, device_id FROM managed_key_usage WHERE key_id = $1 ORDER BY at, id',
       [keyId],
     );
-    return rows.map((r) => ({ at: r.at.getTime(), keyId: r.key_id, action: r.action, principal: r.principal, ...(r.kind === null ? {} : { kind: r.kind }), ...(r.event_id === null ? {} : { eventId: r.event_id }) }));
+    return rows.map((r) => ({
+      at: r.at.getTime(),
+      keyId: r.key_id,
+      action: r.action,
+      principal: r.principal,
+      ...(r.kind === null ? {} : { kind: r.kind }),
+      ...(r.event_id === null ? {} : { eventId: r.event_id }),
+      ...(r.device_id === null ? {} : { deviceId: r.device_id }),
+    }));
   }
   async purgeUsageBefore(at: number) {
     const r = await this.pool.query('DELETE FROM managed_key_usage WHERE at < $1', [ts(at)]);

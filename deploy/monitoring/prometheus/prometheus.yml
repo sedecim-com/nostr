@@ -41,6 +41,14 @@ scrape_configs:
         labels:
           service: indexer
 
+  # FR005-06: managed-signer operation / rate-limit counters (SaaS only; remove where the signer is not
+  # deployed). Labels are op/result/scope classes only, never key ids, owners or kinds.
+  - job_name: managed-signer
+    static_configs:
+      - targets: ['managed-signer:9464']
+        labels:
+          service: managed-signer
+
   # Availability SLI: one probe per service every 30 s. `service` is the label every SLO rule groups by.
   - job_name: slo-probes
     metrics_path: /probe

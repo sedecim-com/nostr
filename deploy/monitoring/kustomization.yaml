@@ -13,6 +13,7 @@ configMapGenerator:
     files:
       - slo-availability.rules.yml=prometheus/rules/slo-availability.rules.yml
       - relay-latency.rules.yml=prometheus/rules/relay-latency.rules.yml
+      - managed-signer.rules.yml=prometheus/rules/managed-signer.rules.yml
   - name: blackbox-config
     files:
       - blackbox.yml=blackbox/blackbox.yml

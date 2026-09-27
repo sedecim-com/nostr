@@ -1,6 +1,5 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { NostrMetricsExporter } from './exporter';
 import { PROMETHEUS_CONTENT_TYPE } from './registry';
 
 export interface MetricsServer {
@@ -11,9 +10,10 @@ export interface MetricsServer {
 /**
  * Serves `GET /metrics` on its own (internal) port, separate from any public API, so Prometheus can
  * scrape it without exposing it through the edge. Pass the exporter only when the profile allows
- * telemetry (NostrMetricsExporter cannot be built at level 'none').
+ * telemetry (NostrMetricsExporter cannot be built at level 'none'). Any `render()` source works (e.g. a
+ * service's own Registry).
  */
-export async function startMetricsServer(exporter: NostrMetricsExporter, opts: { port?: number; host?: string } = {}): Promise<MetricsServer> {
+export async function startMetricsServer(exporter: { render(): Promise<string> }, opts: { port?: number; host?: string } = {}): Promise<MetricsServer> {
   const server: Server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
     if (req.method !== 'GET' || path !== '/metrics') {

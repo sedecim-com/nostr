@@ -27,6 +27,7 @@ import {
   type GroupProposal,
   type GroupSession,
 } from '@sedecim/marmot-adapter';
+import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
 import { downloadFromServers, fetchServerList, sanitizeMetadata, selectUploadServers, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
 
 export interface SovereignOptions {
@@ -485,6 +486,33 @@ export class SovereignClient {
     const http = await this.blobHttp(personaId, [url, ...servers]);
     const { data } = await downloadFromServers(hash, { url, servers }, s.signer, { http });
     return { data: await gs.decryptMedia(groupId, data, ref.attachment, ref.epoch), attachment: ref.attachment };
+  }
+
+  /**
+   * FR024-02/03 revocation worker run by this persona, which must be an admin of the groups (MIP-03) and a
+   * policy-engine admin (NIP-98). Use a dedicated device/persona: it syncs the groups and discards what it
+   * decrypts. HTTP goes through the persona's network policy (Tor-only / allowlist + these hosts).
+   */
+  async revocationWorker(
+    personaId: string,
+    opts: { policyUrl: string; policyBearer?: string; managedSigner?: { url: string; token: string }; backoff?: { baseMs?: number; maxMs?: number } },
+  ): Promise<{ worker: RotationWorker; propagator?: RevocationPropagator }> {
+    const s = await this.session(personaId);
+    const urls = [opts.policyUrl, ...(opts.managedSigner ? [opts.managedSigner.url] : [])];
+    const guard = new NetworkGuard({
+      mode: s.persona.network,
+      socksHost: this.opts.socksHost,
+      socksPort: this.opts.socksPort,
+      isolationKey: s.persona.id,
+      allowedHosts: [...new Set([...s.persona.relays, ...urls].map((u) => new URL(u).hostname))],
+    });
+    const f = guard.fetchApi();
+    const source = new HttpPolicySource({ baseUrl: opts.policyUrl, signer: s.signer, fetch: f, ...(opts.policyBearer ? { bearer: opts.policyBearer } : {}) });
+    const worker = new RotationWorker({ source, session: await this.groupSession(personaId), ...(opts.backoff ? { backoff: opts.backoff } : {}) });
+    const propagator = opts.managedSigner
+      ? new RevocationPropagator({ audit: () => source.audit(), sinks: [managedSignerSink({ baseUrl: opts.managedSigner.url, token: opts.managedSigner.token, fetch: f })] })
+      : undefined;
+    return { worker, ...(propagator ? { propagator } : {}) };
   }
 
   async groupAccept(personaId: string): Promise<GroupHandle[]> {

@@ -30,6 +30,8 @@ spec:
           ports:
             - name: http
               containerPort: 8084
+            - name: metrics
+              containerPort: 9464
           envFrom:
             - configMapRef:
                 name: acceso-nostr-config
@@ -61,6 +63,16 @@ spec:
                   name: acceso-nostr-secrets
                   key: MANAGED_SIGNER_SERVICE_TOKENS
                   optional: true
+            # FR024-03: token:principal of the rotation worker, the only caller of POST /v1/devices/:id/revoke.
+            - name: MANAGED_SIGNER_REVOCATION_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: MANAGED_SIGNER_REVOCATION_TOKENS
+                  optional: true
+            # FR005-06: rate-limit counters for Prometheus (cluster-internal).
+            - name: METRICS_PORT
+              value: "9464"
             - name: CORS_ORIGINS
               value: $(WEB_ORIGIN)
           volumeMounts:
@@ -107,3 +119,6 @@ spec:
     - name: http
       port: 8084
       targetPort: 8084
+    - name: metrics
+      port: 9464
+      targetPort: 9464

@@ -3,3 +3,6 @@ export * from './aws';
 export * from './registry';
 export * from './service';
 export * from './api';
+export * from './devices';
+export * from './ratelimit';
+export * from './metrics';

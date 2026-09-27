@@ -58,7 +58,7 @@ sesiones de `MarmotTsProvider`; `GroupSession` no cambia):
   `GroupMessage` incluye `senderLeaf` y `epoch`. Un miembro no puede hablar en nombre de otra pubkey: el
   rumor se descarta si su `pubkey` no coincide con la credencial de la hoja emisora.
 - **Expulsar a una persona elimina todas sus hojas**; `removeDevice` (`group remove-device --leaf N`)
-  elimina solo una (dispositivo perdido).
+  elimina solo una (dispositivo perdido). La revocación institucional (FR-024, abajo) expulsa todas.
 
 ### Hallazgo: ts-mls rc.16 impedía el multi-dispositivo
 La política por defecto de ts-mls 2.0.0-rc.16 (`defaultKeyPackageEqualityConfig`) considera "ya en el grupo"
@@ -86,6 +86,71 @@ y bifurcan épocas. Por eso:
    misma), el admin compromete y un segundo `rejoin` (o `group accept`) completa la entrada.
 4. El dispositivo origen, si seguía vivo, queda fuera del grupo. Para tener **dos dispositivos a la vez** no
    se restaura un backup completo: se exporta sin MLS (`backup export --no-mls`) y se usa `group add-device`.
+
+## Revocación de dispositivos: rotación automática y firmantes (FR-024)
+Flujo completo de un dispositivo perdido o robado, probado de punta a punta en
+`tests/security/device-loss.test.ts` (SEC-04):
+
+1. **Policy-engine** (fuente de verdad). El admin revoca el dispositivo (`POST /v1/devices/:id/revoke`,
+   NIP-98 de admin): las sesiones abiertas quedan inválidas, no se abren nuevas y `evaluate` deniega con
+   `device revoked`. Por cada recurso de tipo `group` del que el dueño es miembro se registra una rotación
+   `{id, at, resourceId, reason, removedPubkey, status: 'pending'}`.
+   - **Convención**: el `id` de un recurso `group` es el **id MLS del grupo** (hex, el que muestra
+     `sovereign group list`): `PUT /v1/resources/<groupId>` con `{kind: 'group', members: [...]}`. Sin esa
+     convención el worker no sabe qué grupo rotar (falla y reintenta; nunca marca la rotación como hecha).
+2. **Worker de rotación** (`packages/rotation-worker`, FR024-02). Lo ejecuta una identidad que es **admin del
+   grupo** (MIP-03: solo los admins hacen commit) y admin del policy-engine (NIP-98):
+   ```bash
+   SOVEREIGN_POLICY_BEARER=… SOVEREIGN_REVOCATION_TOKEN=… \
+   sovereign group rotation-worker --persona ADMIN --policy https://policy.example \
+     --managed-signer https://signer.example [--interval 15] [--once]
+   ```
+   Cada ciclo lee `GET /v1/rotations?status=pending`, sincroniza el grupo y, si la pubkey sigue dentro, hace
+   `removeMember` (un Remove por **cada hoja** de esa pubkey en un único commit → época nueva). Solo cuando el
+   commit fue aceptado por algún relay y la pubkey ya no está en el roster llama a
+   `POST /v1/rotations/:id/done` (bearer `SOVEREIGN_POLICY_BEARER` o NIP-98). Propiedades:
+   - **idempotente**: si el miembro ya no está (lo expulsó otro admin, rotación duplicada) se marca hecha sin
+     commit; si falla el `done` después del commit, el ciclo siguiente la encuentra expulsada y la marca;
+   - **reintentos** con backoff exponencial por rotación (5 s → 10 min); un fallo (relays caídos, grupo que
+     esta identidad no tiene, intento de expulsarse a sí misma) **nunca** marca la rotación como hecha;
+   - **logs** solo con id de rotación, prefijo del grupo, época y resultado; nunca texto de mensajes. Usa un
+     dispositivo (o una persona admin) dedicado: el worker sincroniza los grupos y descarta lo que descifra.
+3. **Firmantes** (FR024-03). Con `--managed-signer` el worker también propaga cada `device.revoke` de la
+   auditoría del policy-engine a `POST /v1/devices/:id/revoke` del managed-signer, autenticado con un token de
+   revocación (`MANAGED_SIGNER_REVOCATION_TOKENS`, que no sirve para nada más). Es idempotente y se reintenta
+   hasta que todos los destinos lo aceptan.
+   - **Managed-signer**: los clientes abren **sesiones ligadas al dispositivo** (`POST /v1/device-sessions`
+     con su token de Acceso → token `sds_…`, 12 h por defecto; solo se guarda su SHA-256). Al revocar el
+     dispositivo sus sesiones se borran, no se abren nuevas y cualquier petición con `x-device-id` de ese
+     dispositivo se rechaza; la revocación se comprueba en cada uso (también si llegó mientras se abría la
+     sesión). `MANAGED_SIGNER_REQUIRE_DEVICE_SESSION=true` obliga a usar sesiones de dispositivo para toda
+     operación con llaves. El log de uso registra qué dispositivo firmó (`device_id`).
+   - **Bunker NIP-46** (`Nip46Bunker`): las sesiones de cliente viven en el propio bunker (clave pública
+     efímera del cliente → dispositivo). `bindDevice(clientPubkey, deviceId)` liga cada cliente a su
+     dispositivo y `revokeDevice(deviceId)` las elimina, bloquea esas claves de cliente (ni con el secreto
+     vuelven a conectar) y rota el secreto de conexión. Un bunker delante del vault managed se engancha con
+     `ManagedSigner.onDeviceRevoked`; uno independiente debe recibir la misma llamada de su operador.
+
+### Límites de la revocación
+- **Revocar no borra**: lo que el dispositivo ya descifró (mensajes, media, estado MLS de épocas anteriores)
+  sigue en él. La rotación solo protege lo que se envía **después** del commit del worker.
+- **Ventana**: entre la revocación y el commit pasan el intervalo de sondeo (15 s por defecto) y los
+  reintentos; si el dispositivo sigue conectado a los relays en ese tiempo, puede leer lo que se envíe.
+- **Se expulsan todas las hojas de la pubkey**, también los otros dispositivos legítimos de esa persona
+  (la rotación del policy-engine nombra una pubkey, no una hoja). El admin los vuelve a invitar con un key
+  package **nuevo** publicado desde cada dispositivo legítimo; no usar `invitePersona`/`group add-device` a
+  ciegas, porque puede recoger un key package publicado por el dispositivo robado.
+- **Si el dispositivo tenía la llave Nostr** (custodia local), quien lo tiene puede firmar como la persona y
+  publicar key packages nuevos: revocar el dispositivo no basta. Hay que revocar el sujeto
+  (`POST /v1/subjects/:pubkey/revoke`) y migrar a una identidad nueva. La revocación de dispositivo es
+  suficiente cuando la llave no está en él (NIP-46 o managed).
+- **Managed-signer**: no verifica que el `device_id` de una sesión esté registrado en el policy-engine (las
+  cuentas de Acceso y las pubkeys no están enlazadas allí). Quien tenga las credenciales de Acceso del
+  usuario puede abrir una sesión con otro id: el runbook de pérdida incluye cerrar las sesiones de Acceso
+  (cierre global en Cognito).
+- **Bunker**: las revocaciones y el secreto rotado viven en la memoria del proceso; el operador debe
+  persistir el secreto nuevo (`bunker.secret`) si reinicia el bunker.
+- La propagación lee la auditoría del policy-engine (`GET /v1/audit`) hasta que este emita eventos propios.
 
 ## Propuestas de miembros y commit del admin (FR025-09)
 - Cualquier miembro propone Add/Remove como mensaje de grupo kind `445` (`proposeAdd`, `proposeRemove`,
@@ -214,6 +279,7 @@ sovereign group commit    --persona A --group <gid>                # el admin co
 sovereign group devices   --persona A --group <gid>
 sovereign group propose   --persona B --group <gid> --remove <npub-C>
 sovereign group remove-device --persona A --group <gid> --leaf 3   # dispositivo perdido
+sovereign group rotation-worker --persona A --policy <url>         # rotación automática tras revocar (FR-024)
 
 # Tras restaurar un backup completo en un dispositivo nuevo
 sovereign group rejoin --persona A                                 # hoja nueva; la clonada se elimina

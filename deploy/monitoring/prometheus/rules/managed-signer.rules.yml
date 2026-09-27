@@ -1,0 +1,57 @@
+# Managed (custodial) signer abuse controls (FR005-06, FR024-03). See docs/threat-models/institutional.md.
+# Source: services/managed-signer (job managed-signer, METRICS_PORT). Labels are op/result/scope classes
+# only: which key, owner or device is affected is in the audit log (managed_key_usage), never in metrics.
+# Each 429 already writes a `rate-limited` audit row (at most one per key per minute).
+groups:
+  - name: managed-signer-sli
+    interval: 30s
+    rules:
+      - record: managed_signer:signatures:rate5m
+        expr: sum by (service) (rate(managed_signer_operations_total{op="sign",result="ok"}[5m]))
+      # Baseline: the previous day, leaving out the last hour so a fresh burst does not hide itself.
+      - record: managed_signer:signatures:rate1d_baseline
+        expr: sum by (service) (rate(managed_signer_operations_total{op="sign",result="ok"}[1d] offset 1h))
+      - record: managed_signer:rate_limited:rate5m
+        expr: sum by (service) (rate(managed_signer_rate_limited_total[5m]))
+
+  - name: managed-signer-alerts
+    rules:
+      - alert: ManagedSignerSigningRateAnomalous
+        expr: |
+          managed_signer:signatures:rate5m > 3 * managed_signer:signatures:rate1d_baseline
+          and
+          managed_signer:signatures:rate5m > 1
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.service }}: {{ $value | printf \"%.2f\" }} firmas/s, más del triple que su línea base de 1 d"
+          description: "El ritmo de firmas custodiales supera tres veces el del día anterior desde hace 15 min. Posible uso anómalo de llaves managed: revisar el log de uso (acciones sign y rate-limited) y, si procede, revocar el dispositivo o la sesión."
+          runbook: docs/threat-models/institutional.md
+      - alert: ManagedSignerRateLimitedSustained
+        expr: managed_signer:rate_limited:rate5m > 0.2
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.service }}: {{ $value | printf \"%.2f\" }} operaciones/s rechazadas con 429"
+          description: "Hay clientes chocando con el límite por llave o por kind de forma sostenida (10 min). Revisar las filas rate-limited del log de uso para identificar la llave y el dispositivo."
+          runbook: docs/threat-models/institutional.md
+      # A revoked device that keeps trying is a lost or stolen device in someone's hands.
+      - alert: ManagedSignerRevokedDeviceActivity
+        expr: sum by (service) (increase(managed_signer_revoked_device_rejections_total[15m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.service }}: un dispositivo revocado sigue intentando usar el managed-signer"
+          description: "Hay peticiones rechazadas por dispositivo revocado en los últimos 15 min. Confirmar que la cuenta de Acceso del usuario también se cerró (cierre global de sesión)."
+          runbook: docs/marmot.md
+      - alert: ManagedSignerMetricsMissing
+        expr: up{job="managed-signer"} == 0
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Métricas del managed-signer caídas ({{ $labels.instance }})"
+          description: "Los límites de firma y las revocaciones no se están midiendo; revisar el servicio y METRICS_PORT."
+          runbook: docs/threat-models/institutional.md

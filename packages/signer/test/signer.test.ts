@@ -121,4 +121,28 @@ describe('NIP-46 remote signing (FR-004)', () => {
     await expect(remote.getPublicKey()).rejects.toThrow(/unauthorized/);
     remote.close();
   });
+
+  it('drops the sessions of a revoked device and never lets them back (FR024-03)', async () => {
+    const pointer = await bunker.pointer();
+    const stolen = new Nip46Signer(pointer, { pool: clientPool, timeoutMs: 5000 });
+    const other = new Nip46Signer(pointer, { pool: clientPool, timeoutMs: 5000 });
+    await stolen.connect();
+    await other.connect();
+    bunker.bindDevice(await stolen.clientPubkey(), 'dev-phone');
+    bunker.bindDevice(await other.clientPubkey(), 'dev-laptop');
+    expect(bunker.sessions()).toEqual(expect.arrayContaining([{ clientPubkey: await stolen.clientPubkey(), deviceId: 'dev-phone' }]));
+    expect(verifyEvent(await stolen.signEvent({ kind: 1, content: 'antes' }))).toBe(true);
+
+    expect(bunker.revokeDevice('dev-phone')).toEqual([await stolen.clientPubkey()]);
+    await expect(stolen.signEvent({ kind: 1, content: 'después' })).rejects.toThrow(/unauthorized/);
+    // Neither the old secret nor the new one lets that client key back in.
+    await expect(stolen.connect()).rejects.toThrow(/client revoked/);
+    expect(bunker.secret).not.toBe(pointer.secret);
+    await expect(new Nip46Signer(pointer, { pool: clientPool, timeoutMs: 5000 }).connect()).rejects.toThrow(/invalid secret/);
+    const otherPk = await other.clientPubkey();
+    expect(() => bunker.bindDevice(otherPk, 'dev-phone')).toThrow(/revoked/);
+    // Other devices keep working.
+    expect(verifyEvent(await other.signEvent({ kind: 1, content: 'sigue' }))).toBe(true);
+    for (const r of [stolen, other]) r.close();
+  });
 });

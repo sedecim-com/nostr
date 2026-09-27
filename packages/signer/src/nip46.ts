@@ -284,9 +284,12 @@ export interface BunkerPolicy {
  */
 export class Nip46Bunker {
   private sub?: { close(): void };
-  private readonly connected = new Set<string>();
+  /** Authorized client pubkeys -> device they are bound to (FR024-03), if any. */
+  private readonly connected = new Map<string, string | undefined>();
+  private readonly revokedClients = new Set<string>();
+  private readonly revokedDevices = new Set<string>();
   private readonly transport: LocalSigner;
-  readonly secret: string;
+  private currentSecret: string;
 
   constructor(
     private readonly userSigner: Signer,
@@ -297,15 +300,59 @@ export class Nip46Bunker {
     secret: string = bytesToHex(randomBytes(16)),
   ) {
     this.transport = new LocalSigner(transportSecretKey);
-    this.secret = secret;
+    this.currentSecret = secret;
+  }
+
+  /** Current connection secret (changes after `rotateSecret` / `revokeDevice`). */
+  get secret(): string {
+    return this.currentSecret;
+  }
+
+  /** New connection secret: bunker URLs handed out before stop working for new clients. */
+  rotateSecret(): string {
+    this.currentSecret = bytesToHex(randomBytes(16));
+    return this.currentSecret;
+  }
+
+  /** Authorized client sessions and the device each one is bound to. */
+  sessions(): Array<{ clientPubkey: string; deviceId?: string }> {
+    return [...this.connected].map(([clientPubkey, deviceId]) => ({ clientPubkey, ...(deviceId ? { deviceId } : {}) }));
+  }
+
+  /** Bind an authorized client to a device (policy-engine device id) so that revoking the device drops it. */
+  bindDevice(clientPubkey: string, deviceId: string): void {
+    if (this.revokedDevices.has(deviceId)) throw new Error('device revoked');
+    if (!this.connected.has(clientPubkey)) throw new Error('unknown client session');
+    this.connected.set(clientPubkey, deviceId);
+  }
+
+  /** Drop one client session for good: it cannot reconnect, not even with the secret. */
+  revokeClient(clientPubkey: string): void {
+    this.connected.delete(clientPubkey);
+    this.revokedClients.add(clientPubkey);
+  }
+
+  /**
+   * FR024-03: drop every client session bound to a revoked device and block those client keys. The
+   * connection secret is rotated too (the device may have kept a bunker URL with it). Returns the
+   * dropped client pubkeys.
+   */
+  revokeDevice(deviceId: string, opts: { rotateSecret?: boolean } = {}): string[] {
+    this.revokedDevices.add(deviceId);
+    const dropped = [...this.connected].filter(([, d]) => d === deviceId).map(([c]) => c);
+    dropped.forEach((c) => this.revokeClient(c));
+    if (opts.rotateSecret ?? true) this.rotateSecret();
+    return dropped;
   }
 
   /** Accept a client-initiated nostrconnect:// offer: answer with its secret and authorize that client. */
-  async acceptNostrConnect(uri: string): Promise<void> {
+  async acceptNostrConnect(uri: string, opts: { deviceId?: string } = {}): Promise<void> {
     const offer = parseNostrConnect(uri);
+    if (this.revokedClients.has(offer.clientPubkey)) throw new Error('client revoked');
+    if (opts.deviceId && this.revokedDevices.has(opts.deviceId)) throw new Error('device revoked');
     const content = await this.transport.nip44Encrypt(offer.clientPubkey, JSON.stringify({ id: bytesToHex(randomBytes(8)), result: offer.secret }));
     const evt = await this.transport.signEvent({ kind: NOSTR_CONNECT_KIND, content, tags: [['p', offer.clientPubkey]] });
-    this.connected.add(offer.clientPubkey);
+    this.connected.set(offer.clientPubkey, opts.deviceId);
     this.policy.onRequest?.({ clientPubkey: offer.clientPubkey, method: 'connect', allowed: true });
     await this.pool.publish(evt, offer.relays);
   }
@@ -345,10 +392,11 @@ export class Nip46Bunker {
     let kind: number | undefined;
     try {
       if (req.method === 'connect') {
-        const ok = params[1] === this.secret;
+        const revoked = this.revokedClients.has(evt.pubkey);
+        const ok = !revoked && params[1] === this.currentSecret;
         this.policy.onRequest?.({ clientPubkey: evt.pubkey, method: req.method, allowed: ok });
-        if (!ok) return reply({ error: 'invalid secret' });
-        this.connected.add(evt.pubkey);
+        if (!ok) return reply({ error: revoked ? 'client revoked' : 'invalid secret' });
+        if (!this.connected.has(evt.pubkey)) this.connected.set(evt.pubkey, undefined);
         return reply({ result: 'ack' });
       }
       if (req.method === 'ping') return reply({ result: 'pong' });
