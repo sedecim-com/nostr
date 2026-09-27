@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **164 tareas** · 123 hechas · 13 parciales · 22 pendientes · 6 descartadas
-- **128 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **164 tareas** · 134 hechas · 15 parciales · 9 pendientes · 6 descartadas
+- **88 story points** pendientes en 8 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -34,7 +34,7 @@
 | FR-002 | 3 | 3 | — |
 | FR-003 | 7 | 5 | FR003-06 (S4), FR003-07 (S4) |
 | FR-004 | 5 | 5 | — |
-| FR-005 | 7 | 5 | FR005-05 (S7), FR005-06 (S7) |
+| FR-005 | 7 | 6 | FR005-05 (S7) |
 | FR-006 | 3 | 3 | — |
 | FR-007 | 4 | 4 | — |
 | FR-008 | 2 | 2 | — |
@@ -52,8 +52,8 @@
 | FR-020 | 3 | 2 | FR020-02 (Diferido) |
 | FR-021 | 2 | 2 | — |
 | FR-022 | 2 | 2 | — |
-| FR-023 | 6 | 2 | FR023-03 (S7), FR023-04 (S7), FR023-05 (S7), FR023-06 (S7) |
-| FR-024 | 3 | 1 | FR024-02 (S7), FR024-03 (S7) |
+| FR-023 | 6 | 6 | — |
+| FR-024 | 3 | 3 | — |
 | FR-025 | 10 | 9 | FR025-08 (S6) |
 | FR-026 | 3 | 3 | — |
 | FR-027 | 3 | 3 | — |
@@ -195,19 +195,19 @@
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| [FR023-03](https://github.com/sedecim-com/nostr/issues/161) | P0 | Persistencia del policy-engine en Postgres | FR-023 | Dev | 3 | FR023-02 | Pendiente | Sujetos, recursos, dispositivos y auditoría sobreviven reinicios |
-| [FR023-04](https://github.com/sedecim-com/nostr/issues/162) | P1 | Sincronizar el allowlist NIP-42 del relay con el policy-engine | FR-023, §16 | Dev | 3 | FR023-03 | Pendiente | Allowlist NIP-42 de Buzz (configuración de la imagen upstream) y del secure-relay actualizado desde /v1/relay/allowlist |
-| [FR023-05](https://github.com/sedecim-com/nostr/issues/163) | P1 | Aplicar la política en el indexer y las APIs derivadas | FR-023 | Dev | 3 | FR023-03, FR014-03 | Pendiente | Lecturas filtradas por evaluate(); tests de denegación |
-| [FR024-02](https://github.com/sedecim-com/nostr/issues/168) | P1 | Ejecutar la rotación MLS automáticamente al revocar (commit Remove) | FR-024 | Dev | 3 | FR024-01, FR025-01, FR023-03 | Pendiente | La revocación dispara removeMember en los grupos afectados |
-| [SEC-04](https://github.com/sedecim-com/nostr/issues/195) | P1 | Pruebas de pérdida de dispositivo de extremo a extremo | §20.3 | QA | 3 | FR024-02 | Pendiente | Revocar → sin sesión → grupos rotados → el dispositivo robado no lee |
-| [FR005-06](https://github.com/sedecim-com/nostr/issues/91) | P2 | Rate limiting y alertas de uso anómalo de firma | FR-005 | Seguridad | 2 | FR005-03 | Pendiente | Límites por llave/kind y alerta en auditoría |
-| [FR023-06](https://github.com/sedecim-com/nostr/issues/164) | P2 | Directorio organizacional (cargos ↔ npubs) opcional | FR-023, §16 | Dev | 3 | FR023-03 | Pendiente | Mapeo gestionado desde admin-console, sin publicar vínculos |
-| [FR023-07](https://github.com/sedecim-com/nostr/issues/165) | P2 | Device trust con passkeys/attestation | §16 | Dev | 5 | FR023-03 | Pendiente | Registro de dispositivos con WebAuthn y nivel attested |
-| [FR023-08](https://github.com/sedecim-com/nostr/issues/166) | P2 | Retención por workspace/canal y legal hold donde el modelo lo permita | §16, §12.2 | Dev | 5 | FR023-03 | Pendiente | Políticas configurables y aviso de que borrar no borra copias replicadas |
-| [FR024-03](https://github.com/sedecim-com/nostr/issues/169) | P2 | Revocar sesiones NIP-46 y tokens de managed-signer ligados al dispositivo | FR-024 | Dev | 2 | FR024-01, FR005-04 | Pendiente | Tras revocar, el signer rechaza al dispositivo |
-| [NFR001-03](https://github.com/sedecim-com/nostr/issues/172) | P2 | Postgres de alta disponibilidad y backups gestionados | NFR-001 | Infra | 3 | NFR001-01 | Pendiente | Failover probado; backups automáticos |
-| [OPS-07](https://github.com/sedecim-com/nostr/issues/58) | P2 | App admin-console (organizaciones, políticas, dispositivos, auditoría) | §17.1 | Dev | 8 | FR023-03 | Pendiente | Consola web autenticada por NIP-98 sobre policy-engine e identity-service |
-| [FR005-05](https://github.com/sedecim-com/nostr/issues/90) | P3 | Tier enclave: firma dentro de Nitro Enclave con KMS condicionado por attestation | FR-005, §8.4 | Dev | 8 | FR005-02, DEC-09 | Pendiente | Prototipo con attestation verificada; backend general sin llave en claro |
+| [FR023-03](https://github.com/sedecim-com/nostr/issues/161) | P0 | Persistencia del policy-engine en Postgres | FR-023 | Dev | 3 | FR023-02 | Hecho | Sujetos, recursos, dispositivos y auditoría sobreviven reinicios |
+| [FR023-04](https://github.com/sedecim-com/nostr/issues/162) | P1 | Sincronizar el allowlist NIP-42 del relay con el policy-engine | FR-023, §16 | Dev | 3 | FR023-03 | Hecho | Allowlist NIP-42 de Buzz (configuración de la imagen upstream) y del secure-relay actualizado desde /v1/relay/allowlist |
+| [FR023-05](https://github.com/sedecim-com/nostr/issues/163) | P1 | Aplicar la política en el indexer y las APIs derivadas | FR-023 | Dev | 3 | FR023-03, FR014-03 | Hecho | Lecturas filtradas por evaluate(); tests de denegación |
+| [FR024-02](https://github.com/sedecim-com/nostr/issues/168) | P1 | Ejecutar la rotación MLS automáticamente al revocar (commit Remove) | FR-024 | Dev | 3 | FR024-01, FR025-01, FR023-03 | Hecho | La revocación dispara removeMember en los grupos afectados |
+| [SEC-04](https://github.com/sedecim-com/nostr/issues/195) | P1 | Pruebas de pérdida de dispositivo de extremo a extremo | §20.3 | QA | 3 | FR024-02 | Hecho | Revocar → sin sesión → grupos rotados → el dispositivo robado no lee |
+| [FR005-06](https://github.com/sedecim-com/nostr/issues/91) | P2 | Rate limiting y alertas de uso anómalo de firma | FR-005 | Seguridad | 2 | FR005-03 | Hecho | Límites por llave/kind y alerta en auditoría |
+| [FR023-06](https://github.com/sedecim-com/nostr/issues/164) | P2 | Directorio organizacional (cargos ↔ npubs) opcional | FR-023, §16 | Dev | 3 | FR023-03 | Hecho | Mapeo gestionado desde admin-console, sin publicar vínculos |
+| [FR023-07](https://github.com/sedecim-com/nostr/issues/165) | P2 | Device trust con passkeys/attestation | §16 | Dev | 5 | FR023-03 | Hecho | Registro de dispositivos con WebAuthn y nivel attested |
+| [FR023-08](https://github.com/sedecim-com/nostr/issues/166) | P2 | Retención por workspace/canal y legal hold donde el modelo lo permita | §16, §12.2 | Dev | 5 | FR023-03 | Hecho | Políticas configurables y aviso de que borrar no borra copias replicadas |
+| [FR024-03](https://github.com/sedecim-com/nostr/issues/169) | P2 | Revocar sesiones NIP-46 y tokens de managed-signer ligados al dispositivo | FR-024 | Dev | 2 | FR024-01, FR005-04 | Hecho | Tras revocar, el signer rechaza al dispositivo |
+| [NFR001-03](https://github.com/sedecim-com/nostr/issues/172) | P2 | Postgres de alta disponibilidad y backups gestionados | NFR-001 | Infra | 3 | NFR001-01 | Parcial | Failover probado; backups automáticos |
+| [OPS-07](https://github.com/sedecim-com/nostr/issues/58) | P2 | App admin-console (organizaciones, políticas, dispositivos, auditoría) | §17.1 | Dev | 8 | FR023-03 | Hecho | Consola web autenticada por NIP-98 sobre policy-engine e identity-service |
+| [FR005-05](https://github.com/sedecim-com/nostr/issues/90) | P3 | Tier enclave: firma dentro de Nitro Enclave con KMS condicionado por attestation | FR-005, §8.4 | Dev | 8 | FR005-02, DEC-09 | Parcial | Prototipo con attestation verificada; backend general sin llave en claro |
 
 ## S8 · Hardening, escalabilidad y release (Release, 2027-01-18 → 2027-01-29) — 32 SP
 

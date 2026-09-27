@@ -469,8 +469,8 @@
     "FR023-03"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "apps/admin-console (build:admin, servida en /admin/ por la imagen web): login NIP-07, NIP-46 o llave local solo en desarrollo; cada petición con NIP-98. Personas, recursos y políticas, dispositivos y passkeys, rotaciones, directorio, retención, auditoría paginada, vínculos de identidad. docs/admin-console.md. E2E tests/browser/admin-console.e2e.ts (68 checks: NIP-98 verificado, CRUD, revocación, passkey con autenticador virtual, axe sin violaciones serias, sin violaciones de CSP)",
    "issue": 58
   },
   {
@@ -1004,8 +1004,8 @@
     "DEC-09"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Prototipo en services/managed-signer/src/enclave (programa del enclave por vsock, KMS con Recipient/CiphertextForRecipient, verificación de attestation: cadena hasta la raíz AWS Nitro G1 fijada, ES384, PCR0/1/2, frescura, nonce, sin debug), backend MANAGED_SIGNER_BACKEND=enclave que solo recibe firmas, Terraform enclave.tf (KMS condicionado por attestation). Tests contra una PKI de prueba (enclave-attestation.test.ts, enclave-signer.test.ts); docs/managed-enclave.md. Falta: construir la EIF, medir los PCR y ejecutar en una instancia Nitro contra KMS real",
    "issue": 90
   },
   {
@@ -1021,8 +1021,8 @@
     "FR005-03"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Token buckets por llave y por kind en managed-signer (defaults 120/min por llave, 60/min por kind; configurables), 429 con Retry-After, auditoría rate-limited y métricas sin etiquetas identificables; alertas Prometheus (tasa de firma 3x sobre la base, 429 sostenidos, dispositivo revocado insistiendo) con tests promtool (deploy/monitoring/prometheus/rules/managed-signer.rules.yml)",
    "issue": 91
   },
   {
@@ -2190,8 +2190,8 @@
     "FR023-02"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "PolicyRepository con implementación Postgres (migración services/policy-engine/migrations/001_policy.sql, tablas policy_*) y en memoria sin DATABASE_URL; auditoría append-only (triggers rechazan UPDATE/DELETE/TRUNCATE), tokens de sesión como SHA-256. Tests: misma batería en ambos repositorios, reinicio con estado conservado, append-only (services/policy-engine/test/policy-engine.test.ts). DATABASE_URL en docker-compose y deploy/k8s",
    "issue": 161
   },
   {
@@ -2207,8 +2207,8 @@
     "FR023-03"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Job relay-allowlist (services/policy-engine/src/allowlist-sync*.ts): Buzz con BUZZ_PUBKEY_ALLOWLIST (tabla pubkey_allowlist, solo filas note=policy-engine, sin reinicio, fail-closed) y secure-relay con admisión gRPC nauthz por pubkey autenticada (infra/secure-relay/config.institutional.toml). Perfil compose institutional y componente k8s deploy/k8s/components/institutional. Riesgo documentado: nostr-rs-relay es fail-open si no alcanza el gRPC (docs/institutional.md). Tests: allowlist-sync.test.ts",
    "issue": 162
   },
   {
@@ -2225,8 +2225,8 @@
     "FR014-03"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Indexer con POLICY_ENGINE_URL/TOKEN: NIP-98 obligatorio y evaluate() por recurso (canal h o workspace), error del motor = denegar. Tests de denegación: services/indexer/test/policy.test.ts y tests/e2e/institutional-policy.test.ts",
    "issue": 163
   },
   {
@@ -2242,8 +2242,8 @@
     "FR023-03"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Directorio organizacional (GET/PUT/DELETE /v1/directory) solo para admins NIP-98, nunca publicado en relays; gestionado desde la admin-console (OPS-07)",
    "issue": 164
   },
   {
@@ -2259,8 +2259,8 @@
     "FR023-03"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Registro WebAuthn de dispositivos (POST /v1/devices/:id/webauthn/options|register) con verificación en servidor (node:crypto, CBOR propio, ES256, formatos packed y none; challenge, origen, rpIdHash, UP) que da trust attested; attested no se puede asignar a mano. WEBAUTHN_REQUIRE_ATTESTATION=true rechaza none. Tests: webauthn.test.ts; flujo de passkey en admin-console.e2e.ts con autenticador virtual",
    "issue": 165
   },
   {
@@ -2276,8 +2276,8 @@
     "FR023-03"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Retención por recurso (canal o workspace) con legal hold (GET/PUT /v1/retention) y job enforceRetention en el indexer que borra el mirror vencido salvo legal hold; la API devuelve el aviso de que borrar no elimina copias replicadas en otros relays o clientes. Tests: repositorios memoria/Postgres y tests/e2e/institutional-policy.test.ts",
    "issue": 166
   },
   {
@@ -2312,8 +2312,8 @@
     "FR023-03"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "packages/rotation-worker + sovereign group rotation-worker: lee rotaciones pendientes del policy-engine, hace removeMember (todas las hojas) como admin del grupo y marca done solo tras el commit aceptado (época nueva, pubkey fuera); idempotente, backoff, nunca done si falla. Tests: packages/rotation-worker/test y tests/security/device-loss.test.ts contra la API real del policy-engine",
    "issue": 168
   },
   {
@@ -2330,8 +2330,8 @@
     "FR005-04"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Managed-signer: sesiones ligadas a dispositivo (POST /v1/device-sessions, solo hash), POST /v1/devices/:id/revoke (tokens MANAGED_SIGNER_REVOCATION_TOKENS) que borra sus sesiones y bloquea nuevas; el worker lo propaga desde la auditoría del policy-engine. Bunker NIP-46: revokeDevice/revokeClient y rotación del secreto. Tests: devices-limits.test.ts, signer.test.ts, device-loss.test.ts",
    "issue": 169
   },
   {
@@ -2381,8 +2381,8 @@
     "NFR001-01"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Terraform rds.tf: PostgreSQL 17 Multi-AZ, backups automáticos 14 días con PITR, cifrado KMS, TLS obligatorio, contraseña gestionada por RDS; componente k8s rds-postgres (TLS verificado) en el overlay stage; scripts/rds-failover-test.sh (dry-run por defecto, tests con aws simulado); runbook docs/runbooks/rds-postgres.md. Falta el terraform apply, migrar los datos y ejecutar el failover en staging",
    "issue": 172
   },
   {
@@ -2764,8 +2764,8 @@
     "FR024-02"
    ],
    "sprint": "S7",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "tests/security/device-loss.test.ts: revocar el teléfono → sesión de política inválida y sin nueva → el worker rota el grupo → el estado MLS robado no lee lo posterior → managed-signer (401/403) y bunker NIP-46 lo rechazan, el portátil sigue funcionando. Límites en docs/marmot.md",
    "issue": 195
   },
   {
