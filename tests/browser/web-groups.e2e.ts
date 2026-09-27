@@ -123,7 +123,7 @@ try {
   assert((await bob.page.textContent('#groups-relays'))?.includes(secure.url), 'groups use the secure relay configured by the deployment (ADR 0006)');
   assert((await bob.page.textContent('#groups-kp-status'))?.includes('Sin key package'), 'a persona without a key package is told nobody can invite it yet');
   await bob.page.locator('#groups-keypackage').click();
-  await bob.page.locator('#groups-kp-status').getByText('Key package publicado').waitFor({ timeout: 20_000 });
+  await bob.page.locator('#groups-kp-status').getByText(/^Key package publicado:/).waitFor({ timeout: 20_000 });
   assert(secure.query([{ kinds: [30443, 443], authors: [bob.pubkey] }]).length >= 1, 'Bob key package published to the secure relay');
 
   // --- Alice creates a group
