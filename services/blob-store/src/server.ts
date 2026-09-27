@@ -22,6 +22,8 @@ export interface BlobStoreOptions {
 }
 
 type Reply = { status: number; body?: Uint8Array | string; headers?: Record<string, string> };
+/** Either the verified token or the reply to send instead; kept apart so request data never reaches a reply. */
+type Authorized = { event: NostrEvent; reply?: undefined } | { event?: undefined; reply: Reply };
 
 /** Served with every blob: no sniffing, no scripts, no plugins, even for `text/html` or SVG uploads. */
 export const BLOB_SAFETY_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" } as const;
@@ -95,7 +97,11 @@ export class BlobStore {
   async handle(req: IncomingMessage): Promise<Reply> {
     const url = new URL(req.url ?? '/', 'http://x');
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-sha-256', 'access-control-allow-methods': 'GET, HEAD, PUT, DELETE' };
-    const reason = (status: number, r: string, extra: Record<string, string> = {}): Reply => ({ status, body: JSON.stringify({ error: r }), headers: { ...cors, 'content-type': 'application/json', 'x-reason': r, ...extra } });
+    const reason = (status: number, r: string, retryAfter?: string): Reply => {
+      const headers: Record<string, string> = { ...cors, 'content-type': 'application/json', 'x-reason': r };
+      if (retryAfter !== undefined) headers['retry-after'] = retryAfter;
+      return { status, body: JSON.stringify({ error: r }), headers };
+    };
     if (req.method === 'OPTIONS') return { status: 204, headers: cors };
     if (url.pathname === '/health') return { status: 200, body: '{"ok":true}', headers: { 'content-type': 'application/json' } };
     const rl = this.rateLimiter;
@@ -105,13 +111,14 @@ export class BlobStore {
       const d = rl?.check(cls, scope, id);
       if (!d || d.ok) return undefined;
       logRateLimited(this.log, cls, scope, d.retryAfterMs);
-      return reason(429, 'too many requests', { 'retry-after': retryAfterSeconds(d.retryAfterMs) });
+      return reason(429, 'too many requests', retryAfterSeconds(d.retryAfterMs));
     };
     /** Verifies a kind 24242 token; failures charge the strict `auth` bucket of the address. */
-    const authorize = (verb: 'upload' | 'delete'): NostrEvent | Reply => {
+    const authorize = (verb: 'upload' | 'delete'): Authorized => {
       const a = this.auth(req.headers.authorization, verb);
-      if (typeof a === 'string') return (ip && limited('auth', 'ip', ip)) || reason(401, a);
-      return limited('mutating', 'principal', a.pubkey) ?? a;
+      if (typeof a === 'string') return { reply: (ip && limited('auth', 'ip', ip)) || reason(401, a) };
+      const reply = limited('mutating', 'principal', a.pubkey);
+      return reply ? { reply } : { event: a };
     };
     const cls: RateClass = req.method === 'GET' || req.method === 'HEAD' ? 'read' : 'mutating';
     if (ip) {
@@ -119,11 +126,11 @@ export class BlobStore {
       if (r) return r;
     }
     if (req.method === 'PUT' && url.pathname === '/upload') {
-      const a = authorize('upload');
-      if (!('pubkey' in a)) return a;
+      const { event: a, reply } = authorize('upload');
+      if (!a) return reply!;
       // Checked before reading the body: each upload may buffer up to maxBytes.
       const inFlight = this.uploadsByIp.get(ip) ?? 0;
-      if (rl && inFlight >= (this.opts.maxConcurrentUploadsPerIp ?? 4)) return reason(429, 'too many concurrent uploads', { 'retry-after': '1' });
+      if (rl && inFlight >= (this.opts.maxConcurrentUploadsPerIp ?? 4)) return reason(429, 'too many concurrent uploads', '1');
       this.uploadsByIp.set(ip, inFlight + 1);
       try {
         return await this.upload(req, a, cors, reason);
@@ -158,15 +165,15 @@ export class BlobStore {
     return { status: 200, body: JSON.stringify({ url: `${base}/${hash}`, sha256: hash, size: meta.size, type: meta.type, uploaded: meta.uploaded }), headers: { ...cors, 'content-type': 'application/json' } };
   }
 
-  private async byHash(req: IncomingMessage, url: URL, cors: Record<string, string>, reason: (status: number, r: string) => Reply, authorize: (verb: 'delete') => NostrEvent | Reply): Promise<Reply> {
+  private async byHash(req: IncomingMessage, url: URL, cors: Record<string, string>, reason: (status: number, r: string) => Reply, authorize: (verb: 'delete') => Authorized): Promise<Reply> {
     const m = /^\/([0-9a-f]{64})(\.[a-z0-9]{1,8})?$/.exec(url.pathname);
     if (m) {
       const hash = m[1]!;
       const meta = await this.meta(hash);
       if (!meta) return reason(404, 'not found');
       if (req.method === 'DELETE') {
-        const a = authorize('delete');
-        if (!('pubkey' in a)) return a;
+        const { event: a, reply } = authorize('delete');
+        if (!a) return reply!;
         if (a.pubkey !== meta.uploader || !getTagValues(a, 'x').includes(hash)) return reason(403, 'only the uploader can delete');
         await rm(this.path(hash, 'bin'), { force: true });
         await rm(this.path(hash, 'json'), { force: true });
