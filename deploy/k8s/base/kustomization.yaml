@@ -40,6 +40,7 @@ configMapGenerator:
       - INDEXER_PUBLIC_URL=http://indexer:8081
       - INDEXER_REQUIRE_AUTH=true
       - INDEXER_CHANNEL_REFRESH_MS=30000
+      - INDEXER_POLICY_ENGINE_URL=
       - IDENTITY_PUBLIC_URL=http://identity-service:8082
       - POLICY_PUBLIC_URL=http://policy-engine:8083
       - POLICY_ADMIN_PUBKEYS=

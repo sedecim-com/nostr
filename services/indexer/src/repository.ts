@@ -72,7 +72,12 @@ export interface EventRepository {
   unreadCounts(reader: string, hs: string[]): Promise<Record<string, number>>;
   /** Plaintext search over channel messages only (CHANNEL_MESSAGE_KINDS), newest first. */
   search(q: SearchQuery): Promise<MirroredEvent[]>;
+  /** Retention (FR023-08): hard-deletes mirrored events older than `before`; returns how many. */
+  purge(q: PurgeQuery): Promise<number>;
 }
+
+/** Events of one channel (`h`) or one community created before `before` (unix seconds), minus the exceptions. */
+export type PurgeQuery = { before: number } & ({ h: string; exceptCommunities: string[] } | { community: string; exceptH: string[] });
 
 function matches(q: EventQuery, m: MirroredEvent): boolean {
   const e = m.event;
@@ -88,11 +93,11 @@ function matches(q: EventQuery, m: MirroredEvent): boolean {
 }
 
 export class MemoryEventRepository implements EventRepository {
-  private readonly rows = new Map<string, MirroredEvent & { stored: ReturnType<EventCodec['encode']> }>();
+  private readonly rows = new Map<string, MirroredEvent & { stored: ReturnType<EventCodec['encode']>; communityId?: string }>();
   private readonly cursors = new Map<string, number>();
   constructor(private readonly codec: EventCodec = plainCodec) {}
 
-  async upsert(evt: NostrEvent, relay: string): Promise<boolean> {
+  async upsert(evt: NostrEvent, relay: string, communityId?: string): Promise<boolean> {
     const now = Date.now();
     const cur = this.rows.get(evt.id);
     if (cur) {
@@ -107,7 +112,7 @@ export class MemoryEventRepository implements EventRepository {
         if (eventAddress(re) === addr && !r.deleted && !supersedes(evt, re)) return false;
       }
     }
-    this.rows.set(evt.id, { event: evt, stored: this.codec.encode(evt), firstSeenAt: now, lastSeenAt: now, relays: [relay], sensitivity: classify(evt), deleted: false });
+    this.rows.set(evt.id, { event: evt, stored: this.codec.encode(evt), firstSeenAt: now, lastSeenAt: now, relays: [relay], sensitivity: classify(evt), deleted: false, ...(communityId ? { communityId } : {}) });
     return true;
   }
 
@@ -126,7 +131,7 @@ export class MemoryEventRepository implements EventRepository {
   async query(q: EventQuery): Promise<MirroredEvent[]> {
     const out = [...this.rows.values()].filter((m) => matches(q, m));
     out.sort((a, b) => b.event.created_at - a.event.created_at);
-    return out.slice(0, q.limit ?? 500).map(({ stored: _s, ...m }) => ({ ...m, event: this.codec.decode(_s) }));
+    return out.slice(0, q.limit ?? 500).map(({ stored: _s, communityId: _c, ...m }) => ({ ...m, event: this.codec.decode(_s) }));
   }
 
   async get(id: string) {
@@ -167,6 +172,17 @@ export class MemoryEventRepository implements EventRepository {
       (m) => m.sensitivity === 'channel' && (!q.h?.length || q.h.includes(getTagValue(m.event, 'h')!)),
     );
     return candidates.filter((m) => contentMatches(m.event, q.text)).slice(0, q.limit ?? 50);
+  }
+
+  async purge(q: PurgeQuery): Promise<number> {
+    let n = 0;
+    for (const [id, r] of this.rows) {
+      if (r.event.created_at >= q.before) continue;
+      const h = getTagValue(r.event, 'h');
+      const hit = 'h' in q ? h === q.h && !(r.communityId && q.exceptCommunities.includes(r.communityId)) : r.communityId === q.community && !(h && q.exceptH.includes(h));
+      if (hit && this.rows.delete(id)) n++;
+    }
+    return n;
   }
 }
 
@@ -325,5 +341,14 @@ export class PgEventRepository implements EventRepository {
       args,
     );
     return rows.map((r) => this.toMirrored(r)).filter((m) => contentMatches(m.event, q.text)).slice(0, limit);
+  }
+
+  async purge(q: PurgeQuery): Promise<number> {
+    // event_sources rows go with their event (ON DELETE CASCADE). Index columns only: works on a sealed mirror.
+    const r =
+      'h' in q
+        ? await this.pool.query('DELETE FROM events WHERE created_at < $1 AND h_tag = $2 AND (community_id IS NULL OR NOT community_id = ANY($3))', [q.before, q.h, q.exceptCommunities])
+        : await this.pool.query('DELETE FROM events WHERE created_at < $1 AND community_id = $2 AND (h_tag IS NULL OR NOT h_tag = ANY($3))', [q.before, q.community, q.exceptH]);
+    return r.rowCount ?? 0;
   }
 }

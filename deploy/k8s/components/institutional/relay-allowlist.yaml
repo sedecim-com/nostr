@@ -1,18 +1,20 @@
+# FR023-04: polls the policy-engine allowlist and applies it to Buzz (pubkey_allowlist table) and to the
+# secure-relay (nauthz gRPC event admission on :50051). Stateless: one replica.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: policy-engine
+  name: relay-allowlist
   labels:
-    app: policy-engine
+    app: relay-allowlist
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: policy-engine
+      app: relay-allowlist
   template:
     metadata:
       labels:
-        app: policy-engine
+        app: relay-allowlist
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -22,11 +24,14 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: policy-engine
+        - name: relay-allowlist
           image: acceso-nostr-service
+          command: ["sh", "-c", "exec node_modules/.bin/tsx services/policy-engine/src/allowlist-sync-main.ts"]
           ports:
             - name: http
-              containerPort: 8083
+              containerPort: 8087
+            - name: grpc
+              containerPort: 50051
           envFrom:
             - configMapRef:
                 name: acceso-nostr-config
@@ -34,28 +39,23 @@ spec:
             - name: SERVICE
               value: policy-engine
             - name: PORT
-              value: "8083"
-            - name: POLICY_SERVICE_TOKENS
+              value: "8087"
+            - name: ALLOWLIST_GRPC_PORT
+              value: "50051"
+            - name: POLICY_ENGINE_URL
+              value: http://policy-engine:8083
+            - name: POLICY_ENGINE_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: acceso-nostr-secrets
-                  key: POLICY_SERVICE_TOKENS
-                  optional: true
-            # FR023-03: policy state persists in policy_* tables of the platform DB.
+                  key: RELAY_ALLOWLIST_POLICY_TOKEN
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: acceso-nostr-secrets
                   key: POSTGRES_PASSWORD
-            - name: DATABASE_URL
-              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(PLATFORM_DB)
-            - name: PUBLIC_BASE_URL
-              value: $(POLICY_PUBLIC_URL)
-            # Admin console and device passkeys (WebAuthn RP) run in the web app.
-            - name: CORS_ORIGINS
-              value: $(WEB_ORIGIN)
-            - name: WEBAUTHN_ORIGINS
-              value: $(WEB_ORIGIN)
+            - name: BUZZ_DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -73,11 +73,11 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 20m
+              memory: 96Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 250m
+              memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -90,13 +90,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: policy-engine
+  name: relay-allowlist
   labels:
-    app: policy-engine
+    app: relay-allowlist
 spec:
   selector:
-    app: policy-engine
+    app: relay-allowlist
   ports:
     - name: http
-      port: 8083
-      targetPort: 8083
+      port: 8087
+      targetPort: 8087
+    - name: grpc
+      port: 50051
+      targetPort: 50051

@@ -1,0 +1,24 @@
+# Institutional mode (docs/institutional.md; compose profile `institutional`). Opt-in: add
+# `components: [../../components/institutional]` to an overlay. Needs RELAY_ALLOWLIST_POLICY_TOKEN and
+# INDEXER_POLICY_ENGINE_TOKEN in acceso-nostr-secrets, both listed in POLICY_SERVICE_TOKENS.
+# - relay-allowlist: FR023-04 allowlist sync (Buzz table + secure-relay gRPC admission).
+# - Buzz enforces its pubkey allowlist; the indexer evaluates reads and applies retention (FR023-05/08).
+# - secure-relay config with `[grpc] event_admission_server` (copy of infra/secure-relay/config.institutional.toml;
+#   an overlay that replaces secure-relay-config must add that section itself).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - relay-allowlist.yaml
+configMapGenerator:
+  - name: acceso-nostr-config
+    behavior: merge
+    literals:
+      - BUZZ_PUBKEY_ALLOWLIST=true
+      - INDEXER_POLICY_ENGINE_URL=http://policy-engine:8083
+      - ALLOWLIST_SYNC_INTERVAL_MS=30000
+      - BUZZ_ALLOWLIST_HOSTS=
+      - ALLOWLIST_EXTRA_PUBKEYS=
+  - name: secure-relay-config
+    behavior: replace
+    files:
+      - config.toml=files/secure-relay.config.toml

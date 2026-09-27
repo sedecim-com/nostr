@@ -7,7 +7,8 @@ import { createPgPool, migrate } from '@sedecim/service-kit';
 import { createLogger, type TelemetryLevel } from '@sedecim/telemetry-policy';
 import { NostrMetricsExporter, parseRegionMap, startAckProbe } from '@sedecim/metrics';
 import { startMetricsServer } from '@sedecim/metrics/server';
-import { createIndexerApi, DEFAULT_MIRROR_KINDS, Indexer, MemoryEventRepository, PgEventRepository, plainCodec, sealedCodec } from './index';
+import { bearer, PolicyEngineClient } from '@sedecim/policy-client';
+import { createIndexerApi, DEFAULT_MIRROR_KINDS, enforceRetention, Indexer, MemoryEventRepository, PgEventRepository, plainCodec, sealedCodec, type IndexerPolicy } from './index';
 
 const env = process.env;
 const logger = createLogger({ base: { service: 'indexer' }, minimizeIp: true });
@@ -80,5 +81,30 @@ if (env.METRICS_PORT) {
 const indexer = new Indexer(pool, repo, { relays, filters: [{ kinds }], communityId: env.COMMUNITY_ID, logger, channelRefreshMs: Number(env.INDEXER_CHANNEL_REFRESH_MS ?? 30_000) });
 void indexer.start().then(() => logger.info('initial backfill complete', { ingested: indexer.ingested }));
 
-const api = createIndexerApi(repo, { name: 'indexer', publicBaseUrl: env.PUBLIC_BASE_URL, requireAuth: env.INDEXER_REQUIRE_AUTH === 'true', logger });
+// Institutional mode (FR023-05, FR023-08): reads filtered by the policy-engine and retention enforced on the
+// mirror. Both need POLICY_ENGINE_URL and a service token listed in the engine's POLICY_SERVICE_TOKENS.
+let policy: IndexerPolicy | undefined;
+if (env.POLICY_ENGINE_URL) {
+  if (!env.POLICY_ENGINE_TOKEN) throw new Error('POLICY_ENGINE_TOKEN is required with POLICY_ENGINE_URL');
+  const client = new PolicyEngineClient(env.POLICY_ENGINE_URL, bearer(env.POLICY_ENGINE_TOKEN));
+  const workspaceId = env.INDEXER_POLICY_WORKSPACE || env.COMMUNITY_ID;
+  policy = { evaluate: (i) => client.evaluate(i), ...(workspaceId ? { workspaceId } : {}) };
+  logger.info('institutional mode: reads evaluated by the policy-engine', { workspace: workspaceId ?? 'none' });
+  const every = Number(env.RETENTION_INTERVAL_MS ?? 3_600_000);
+  if (every > 0) {
+    const runRetention = async () => {
+      try {
+        const res = await enforceRetention(repo, (await client.retention()).policies);
+        const deleted = res.reduce((n, r) => n + r.deleted, 0);
+        if (deleted) logger.info('retention applied', { deleted, resources: res.filter((r) => r.deleted).map((r) => r.resourceId).join(',') });
+      } catch (err) {
+        logger.warn('retention run failed', { error: (err as Error).message });
+      }
+    };
+    void runRetention();
+    setInterval(() => void runRetention(), every).unref();
+  }
+}
+
+const api = createIndexerApi(repo, { name: 'indexer', publicBaseUrl: env.PUBLIC_BASE_URL, requireAuth: env.INDEXER_REQUIRE_AUTH === 'true', logger, ...(policy ? { policy } : {}) });
 await api.listen(Number(env.PORT ?? 8081), env.HOST ?? '0.0.0.0');

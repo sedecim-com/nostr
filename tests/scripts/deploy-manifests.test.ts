@@ -47,6 +47,13 @@ describe('deploy/k8s copies of the compose config files', () => {
     expect(read('deploy/k8s/base/files/01-platform-db.sh')).toBe(read('infra/postgres/01-platform-db.sh'));
     expect(read('deploy/k8s/base/files/secure-relay.config.toml')).toBe(read('infra/secure-relay/config.toml'));
     expect(JSON.parse(read('deploy/k8s/base/files/web-config.json'))).toEqual(JSON.parse(read('infra/web/config.json')));
+    expect(read('deploy/k8s/components/institutional/files/secure-relay.config.toml')).toBe(read('infra/secure-relay/config.institutional.toml'));
+  });
+
+  it('the institutional secure relay config only adds the gRPC event admission (FR023-04)', () => {
+    const inst = read('infra/secure-relay/config.institutional.toml');
+    expect(inst.startsWith(read('infra/secure-relay/config.toml'))).toBe(true);
+    expect(inst).toMatch(/^\[grpc\]\nevent_admission_server = "http:\/\/relay-allowlist:50051"$/m);
   });
 
   it('the stage secure relay config only changes relay_url', () => {
@@ -61,6 +68,7 @@ describe('every compose service has a Kubernetes workload', () => {
     ...readdirSync(join(root, 'deploy/k8s/base')).filter((f) => f.endsWith('.yaml')).map((f) => read(`deploy/k8s/base/${f}`)),
     read('deploy/k8s/components/managed-signer/managed-signer.yaml'),
     read('deploy/k8s/components/notification-gateway/notification-gateway.yaml'),
+    read('deploy/k8s/components/institutional/relay-allowlist.yaml'),
   ].join('\n---\n');
   const servicesBlock = compose.slice(compose.indexOf('\nservices:\n'), compose.indexOf('\nvolumes:\n'));
   const services = [...servicesBlock.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((m) => m[1]!);

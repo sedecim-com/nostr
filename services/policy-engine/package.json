@@ -13,6 +13,7 @@
   "dependencies": {
     "@sedecim/nostr-core": "0.1.0",
     "@sedecim/policy-client": "0.1.0",
-    "@sedecim/service-kit": "0.1.0"
+    "@sedecim/service-kit": "0.1.0",
+    "@sedecim/telemetry-policy": "0.1.0"
   }
 }

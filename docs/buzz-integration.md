@@ -93,4 +93,5 @@ coherencia con el informe y los flags versionados, texto de la PR).
   El SDK (`dmInboxFilter`) y el indexer (`DEFAULT_MIRROR_KINDS`) respetan esta regla; el mirror nunca pide
   gift wraps ajenos.
 - Con `BUZZ_REQUIRE_AUTH_TOKEN=false` los clientes de terceros se autentican solo con NIP-42; activar
-  `BUZZ_PUBKEY_ALLOWLIST=true` (o el allowlist del policy-engine) para relays privados.
+  `BUZZ_PUBKEY_ALLOWLIST=true` para relays privados; en modo institucional el servicio `relay-allowlist`
+  mantiene la tabla `pubkey_allowlist` desde el policy-engine (FR023-04, `docs/institutional.md`).

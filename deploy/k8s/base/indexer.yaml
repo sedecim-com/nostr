@@ -63,6 +63,15 @@ spec:
               value: $(RELAY_URL)
             - name: PUBLIC_BASE_URL
               value: $(INDEXER_PUBLIC_URL)
+            # Institutional mode (FR023-05/08): empty URL keeps it off (components/institutional sets it).
+            - name: POLICY_ENGINE_URL
+              value: $(INDEXER_POLICY_ENGINE_URL)
+            - name: POLICY_ENGINE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: INDEXER_POLICY_ENGINE_TOKEN
+                  optional: true
             # NFR004-01: Prometheus exporter (cluster-internal) + synthetic ACK probe every 30 s.
             - name: METRICS_PORT
               value: "9464"

@@ -16,6 +16,7 @@ Secrets Manager `k8s/<env>/...`, y entrada por un NodePort registrado en un targ
 |---|---|
 | `k8s/base/` | Todos los servicios de `docker-compose.yml`: relay Buzz, Postgres, Redis, SeaweedFS (+ Job de bucket), secure-relay, indexer, identity-service, policy-engine, blob-store, web y el proxy `edge` (NodePort). |
 | `k8s/components/managed-signer/` | Firma custodial (solo SaaS, opt-in): vault `aws` = KMS + Secrets Manager (ADR 0009). |
+| `k8s/components/institutional/` | Modo institucional (opt-in): `relay-allowlist`, allowlist de Buzz activado, secure-relay con admisión gRPC e indexer con políticas ([`docs/institutional.md`](../docs/institutional.md)). |
 | `k8s/overlays/stage/` | Stage: imágenes de ECR, hosts `*.ai.acce.so`, NodePort `31810`, monitorización y managed-signer. |
 | `k8s/scripts/` | `deploy.sh`, `update-stage.sh`, `teardown-stage.sh` y auxiliares (`generate-secret.sh`, `mirror-ecr-deps.sh`, `build-push.sh`). |
 | `k8s/values.env` | Valores de stage (ECR, contexto esperado, NodePort, host, IDs de Secrets Manager). |
