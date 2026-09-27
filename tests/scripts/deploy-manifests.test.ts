@@ -82,11 +82,16 @@ describe('every compose service has a Kubernetes workload', () => {
   const servicesBlock = compose.slice(compose.indexOf('\nservices:\n'), compose.indexOf('\nvolumes:\n'));
   const services = [...servicesBlock.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((m) => m[1]!);
 
+  it('indexer-2 is only another replica of the indexer image', () => {
+    expect(compose).toMatch(/\n  indexer-2:\n[\s\S]*?profiles: \[scale\][\s\S]*?SERVICE: indexer[\s\S]*?<<: \*indexer-env/);
+  });
+
   it('reads the compose service list', () => {
     expect(services).toEqual(expect.arrayContaining(['relay', 'postgres', 'indexer', 'managed-signer', 'web']));
   });
 
-  it.each(services.filter((s) => s !== 'tor'))('%s', (service) => {
+  // indexer-2 is a second compose replica of `indexer` (NFR005-01); Kubernetes scales it with `replicas`.
+  it.each(services.filter((s) => s !== 'tor' && s !== 'indexer-2'))('%s', (service) => {
     expect(manifests).toMatch(new RegExp(`kind: (Deployment|StatefulSet|Job)\\nmetadata:\\n  name: ${service}\\n`));
   });
 

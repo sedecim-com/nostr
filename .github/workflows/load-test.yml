@@ -1,0 +1,102 @@
+name: load-test
+
+# NFR005-02: load test of the Buzz relay and the indexer on the compose stack (docs/load-testing.md).
+# Same stack as ci.yml `stack`; the load profile runs with 1 indexer replica and then with 2 (NFR005-01).
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Load profile (scripts/load/lib.ts PROFILES)
+        type: choice
+        options: [smoke, baseline, stress]
+        default: baseline
+      steps:
+        description: Per-client rates to ramp through, comma separated (ev/s per client)
+        default: "1,2,5,10"
+      clients:
+        description: Concurrent NIP-42 clients
+        default: "20"
+      duration:
+        description: Seconds per step
+        default: "60"
+  schedule:
+    # Weekly, Monday 05:17 UTC.
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load-test
+  cancel-in-progress: false
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PROFILE: ${{ inputs.profile || 'baseline' }}
+      STEPS: ${{ inputs.steps || '1,2,5,10' }}
+      CLIENTS: ${{ inputs.clients || '20' }}
+      DURATION: ${{ inputs.duration || '60' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Configure stack
+        run: |
+          sh scripts/init-env.sh
+          echo "INDEXER_CHANNEL_REFRESH_MS=2000" >> .env
+      - name: Build images
+        run: docker compose --profile scale build
+      - name: Start stack (1 indexer replica)
+        run: docker compose up -d
+      - name: Wait for services
+        run: sh scripts/wait-stack.sh
+      - name: Load test, 1 indexer replica
+        run: |
+          npx tsx scripts/load/run.ts --relay ws://localhost:3000 --indexer http://localhost:8081 \
+            --profile "$PROFILE" --clients "$CLIENTS" --duration "$DURATION" --steps "$STEPS" \
+            --label "buzz-1idx" --title "Carga Buzz + indexer (1 réplica)" --out load-1idx
+      - name: Scale the indexer to 2 replicas
+        run: |
+          docker compose --profile scale up -d indexer-2
+          start=$(date +%s)
+          until curl -fsS http://localhost:8091/health >/dev/null 2>&1; do
+            if [ $(( $(date +%s) - start )) -gt 300 ]; then echo "timeout waiting for indexer-2"; exit 1; fi
+            sleep 3
+          done
+          # let both replicas see each other and rebalance the shards (heartbeat 5 s, TTL 15 s)
+          sleep 20
+      - name: Load test, 2 indexer replicas
+        run: |
+          npx tsx scripts/load/run.ts --relay ws://localhost:3000 --indexer http://localhost:8081,http://localhost:8091 \
+            --profile "$PROFILE" --clients "$CLIENTS" --duration "$DURATION" --steps "$STEPS" \
+            --label "buzz-2idx" --title "Carga Buzz + indexer (2 réplicas)" --out load-2idx
+      - name: Report
+        if: always()
+        run: |
+          for f in load-1idx.md load-2idx.md; do
+            if [ -f "$f" ]; then cat "$f" >> "$GITHUB_STEP_SUMMARY"; fi
+          done
+          docker stats --no-stream > docker-stats.txt 2>&1 || true
+      - name: Collect logs
+        if: always()
+        run: docker compose --profile scale logs --no-color > compose.log 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: load-report
+          path: |
+            load-1idx.json
+            load-1idx.md
+            load-2idx.json
+            load-2idx.md
+            docker-stats.txt
+            compose.log
+      - name: Stop stack
+        if: always()
+        run: docker compose --profile scale down -v

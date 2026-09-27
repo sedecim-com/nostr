@@ -137,8 +137,12 @@ services:
   indexer:
     <<: *service
     build: { context: ., target: service, args: { SERVICE: indexer } }
-    environment:
+    environment: &indexer-env
       INDEXER_RELAYS: ws://relay:3000
+      # NFR005-01: replicas sharing DATABASE_URL split relays/channels (heartbeats + checkpoints in Postgres).
+      INDEXER_REPLICA_ID: indexer-1
+      INDEXER_HEARTBEAT_MS: ${INDEXER_HEARTBEAT_MS:-5000}
+      INDEXER_OVERLAP_SECONDS: ${INDEXER_OVERLAP_SECONDS:-900}
       # Buzz maps the Host header to a community and checks the NIP-42 relay tag against it: present the public URL.
       INDEXER_RELAY_PUBLIC_URL: ${RELAY_URL:-ws://localhost:3000}
       # NIP-42 service identity of the mirror (Buzz refuses anonymous REQs). Allowlist its npub on private relays.
@@ -162,6 +166,21 @@ services:
       RELAY_DEFAULT_REGION: ${RELAY_DEFAULT_REGION:-local}
       ACK_PROBE_INTERVAL_MS: ${ACK_PROBE_INTERVAL_MS:-0}
     ports: ["${INDEXER_PORT:-8081}:8081"]
+    depends_on:
+      relay: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  # NFR005-01: second mirror replica over the same database (`docker compose --profile scale up -d`).
+  indexer-2:
+    <<: *service
+    profiles: [scale]
+    build: { context: ., target: service, args: { SERVICE: indexer } }
+    environment:
+      <<: *indexer-env
+      INDEXER_REPLICA_ID: indexer-2
+      # NIP-98 `u` tags are checked against the URL this replica is reached at.
+      PUBLIC_BASE_URL: ${INDEXER_2_PUBLIC_URL:-http://localhost:8091}
+    ports: ["${INDEXER_2_PORT:-8091}:8081"]
     depends_on:
       relay: { condition: service_healthy }
       postgres: { condition: service_healthy }

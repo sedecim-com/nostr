@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { generateSecretKey, getPublicKey, hexToBytes, nip19, npubEncode } from '@sedecim/nostr-core';
@@ -8,7 +9,20 @@ import { createLogger, type TelemetryLevel } from '@sedecim/telemetry-policy';
 import { NostrMetricsExporter, parseRegionMap, startAckProbe } from '@sedecim/metrics';
 import { startMetricsServer } from '@sedecim/metrics/server';
 import { bearer, PolicyEngineClient } from '@sedecim/policy-client';
-import { createIndexerApi, DEFAULT_MIRROR_KINDS, enforceRetention, Indexer, MemoryEventRepository, PgEventRepository, plainCodec, sealedCodec, type IndexerPolicy } from './index';
+import {
+  createIndexerApi,
+  DEFAULT_MIRROR_KINDS,
+  enforceRetention,
+  Indexer,
+  MemoryEventRepository,
+  MemoryShardCoordinator,
+  PgEventRepository,
+  PgShardCoordinator,
+  plainCodec,
+  sealedCodec,
+  type IndexerPolicy,
+  type ShardCoordinator,
+} from './index';
 
 const env = process.env;
 const logger = createLogger({ base: { service: 'indexer' }, minimizeIp: true });
@@ -16,15 +30,21 @@ const relays = (env.INDEXER_RELAYS ?? 'ws://relay:3000').split(',').map((s) => s
 const codec = env.MIRROR_AT_REST_KEY ? sealedCodec(hexToBytes(env.MIRROR_AT_REST_KEY)) : plainCodec;
 
 let repo;
+// NFR005-01: replicas sharing DATABASE_URL split the relays/channels among themselves (rendezvous hashing).
+let coordinator: ShardCoordinator;
 if (env.DATABASE_URL) {
   const pool = createPgPool(env.DATABASE_URL);
   const applied = await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
   logger.info('migrations applied', { applied: applied.join(',') || 'none' });
   repo = new PgEventRepository(pool, codec);
+  coordinator = new PgShardCoordinator(pool);
 } else {
-  logger.warn('DATABASE_URL not set: using in-memory repository');
+  logger.warn('DATABASE_URL not set: using in-memory repository (single replica)');
   repo = new MemoryEventRepository(codec);
+  coordinator = new MemoryShardCoordinator();
 }
+// Unique per replica: the pod name in Kubernetes, the container id in compose.
+const replicaId = env.INDEXER_REPLICA_ID?.trim() || hostname();
 
 const kinds = env.INDEXER_KINDS ? env.INDEXER_KINDS.split(',').map(Number) : DEFAULT_MIRROR_KINDS;
 // Relays such as Buzz refuse anonymous REQs: the mirror authenticates (NIP-42) with a service identity.
@@ -78,8 +98,25 @@ if (env.METRICS_PORT) {
   }
 }
 
-const indexer = new Indexer(pool, repo, { relays, filters: [{ kinds }], communityId: env.COMMUNITY_ID, logger, channelRefreshMs: Number(env.INDEXER_CHANNEL_REFRESH_MS ?? 30_000) });
-void indexer.start().then(() => logger.info('initial backfill complete', { ingested: indexer.ingested }));
+const indexer = new Indexer(pool, repo, {
+  relays,
+  filters: [{ kinds }],
+  communityId: env.COMMUNITY_ID,
+  logger,
+  channelRefreshMs: Number(env.INDEXER_CHANNEL_REFRESH_MS ?? 30_000),
+  coordinator,
+  replicaId,
+  heartbeatMs: Number(env.INDEXER_HEARTBEAT_MS ?? 5000),
+  ...(env.INDEXER_MEMBER_TTL_MS ? { memberTtlMs: Number(env.INDEXER_MEMBER_TTL_MS) } : {}),
+  overlapSeconds: Number(env.INDEXER_OVERLAP_SECONDS ?? 900),
+});
+void indexer.start().then(() => logger.info('initial backfill complete', { ingested: indexer.ingested, replica: replicaId, replicas: indexer.members.length, shards: indexer.ownedShards().length }));
+// Graceful stop: flush checkpoints and deregister so the other replicas take the shards over at once.
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(sig, () => {
+    void indexer.stop().finally(() => process.exit(0));
+  });
+}
 
 // Institutional mode (FR023-05, FR023-08): reads filtered by the policy-engine and retention enforced on the
 // mirror. Both need POLICY_ENGINE_URL and a service token listed in the engine's POLICY_SERVICE_TOKENS.
@@ -101,8 +138,16 @@ if (env.POLICY_ENGINE_URL) {
         logger.warn('retention run failed', { error: (err as Error).message });
       }
     };
-    void runRetention();
-    setInterval(() => void runRetention(), every).unref();
+    // One replica per interval (claimed in the database); deletes are idempotent anyway.
+    const maybeRun = async () => {
+      try {
+        if (await coordinator.claimJob('retention', every, replicaId)) await runRetention();
+      } catch (err) {
+        logger.warn('retention claim failed', { error: (err as Error).message });
+      }
+    };
+    void maybeRun();
+    setInterval(() => void maybeRun(), Math.min(every, 60_000)).unref();
   }
 }
 
