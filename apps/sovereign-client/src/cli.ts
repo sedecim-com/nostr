@@ -15,7 +15,7 @@
  *   sovereign dm send --persona ID --to NPUB "text"
  *   sovereign dm inbox --persona ID
  *   sovereign outbox --persona ID        (delivery states per relay)
- *   sovereign resume --persona ID        (retry pending messages)
+ *   sovereign resume --persona ID        (retry pending messages; any command that opens the persona does too)
  *   sovereign history sync --persona ID [--since UNIX] [--group G]   (rebuild channels/DMs; NIP-77 or REQ fallback)
  *   sovereign history export --persona ID --out FILE [--since UNIX]  (JSONL, one signed NIP-01 event per line)
  *   sovereign history import --persona ID FILE [--dry-run]           (verify signatures, republish valid events)
@@ -246,6 +246,8 @@ async function main() {
       process.exitCode = 2;
     }
   } finally {
+    // FR011-04: let the retry of earlier pending messages (started when the persona opened) finish first.
+    await client.settle().catch(() => undefined);
     client.close();
   }
 }
