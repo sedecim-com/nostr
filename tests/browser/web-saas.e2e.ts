@@ -312,6 +312,11 @@ try {
   assert((await page.textContent('#panel-issues'))?.includes('Tor-only no puede garantizarse desde un navegador'), 'panel blocks Tor-only in the browser');
   assert(await page.isDisabled('#panel-save'), 'a blocking configuration cannot be applied');
   await page.getByRole('button', { name: 'Descartar cambios' }).click();
+  // FR010-04: a quorum above the persona's relays (one here) is refused instead of being capped in silence.
+  await fill(page, 'cfg-quorum', '3');
+  assert((await page.textContent('#panel-issues'))?.includes('El quorum (3) supera los relays de esta persona (1)'), 'panel refuses a quorum above the persona relays (FR010-04)');
+  assert(await page.isDisabled('#panel-save'), 'a quorum its relays cannot meet cannot be applied');
+  await page.getByRole('button', { name: 'Descartar cambios' }).click();
   await page.getByRole('button', { name: 'Bloquear' }).click();
   await fill(page, 'local-pass', 'contraseña-incorrecta');
   await page.getByRole('button', { name: 'Desbloquear' }).click();

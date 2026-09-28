@@ -3,6 +3,7 @@ import { Alert, Button, Chip, Stack, Table, TableBody, TableCell, TableHead, Tab
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import { normalizeRelayUrl, relayDegradation, type RelayDegradation, type RelayHealth } from '@sedecim/relay-pool';
 import { useWorkspace } from '../lib/workspace';
+import { cappedQuorumNotice } from '../lib/outbox';
 
 /** Same threshold as the RelayAckLatencyP95High alert (docs/slo.md, "Latencia"). */
 export const DEGRADED_P95_MS = 2000;
@@ -107,7 +108,7 @@ export function OutboxView() {
               <TableCell>{r.opId.slice(0, 8)}</TableCell>
               <TableCell>{r.state}</TableCell>
               <TableCell sx={{ whiteSpace: 'pre-line' }}>{Object.values(r.relayStatus).map((x) => `${new URL(x.relay).host}: ${x.acceptedAt ? 'OK' : x.permanent ? 'rechazado' : 'pendiente'} (${x.attemptCount})`).join('\n')}</TableCell>
-              <TableCell>{r.blockedReason ?? r.failureReason ?? (r.meta?.dmRelaySource === 'fallback' || r.meta?.dmRelaySource === 'nip65-read' ? 'Destinatario sin relays de DM' : '')}</TableCell>
+              <TableCell>{[r.blockedReason ?? r.failureReason ?? (r.meta?.dmRelaySource === 'fallback' || r.meta?.dmRelaySource === 'nip65-read' ? 'Destinatario sin relays de DM' : ''), cappedQuorumNotice(r)].filter(Boolean).join(' ')}</TableCell>
             </TableRow>
           ))}
         </TableBody>

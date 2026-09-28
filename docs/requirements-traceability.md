@@ -15,7 +15,7 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-007 | Identity linking | ✅ | `identity.test.ts` + `services/identity-service/test` (confirmación explícita, auditoría, visibilidad); vínculo público opcional firmado por ambas personas (`public-link.test.ts`, `docs/public-link.md`) |
 | FR-008 | Persistir antes de transmitir | ✅ | `packages/delivery-engine/test/engine.test.ts` |
 | FR-009 | Relay ack ≠ recepción | ✅ | `engine.test.ts`, `relay-pool/test/pool.test.ts` (estados separados) |
-| FR-010 | Multi-relay + quorum | ✅ | `engine.test.ts` (2 de 3) |
+| FR-010 | Multi-relay + quorum | ✅ | `engine.test.ts` (2 de 3). FR010-04: el motor no recorta el quorum en silencio (el registro guarda `requestedQuorum` y la web lo avisa) y el panel rechaza un quorum mayor que los relays de la persona (`QUORUM_RELAYS` en `profiles.test.ts`, E2E en `tests/browser/web-saas.e2e.ts`) |
 | FR-011 | Reintento desde outbox | ✅ | `engine.test.ts` (offline → online, mismo event id; estadísticas y clases de fallo por relay); métricas de outbox en `packages/metrics/test` |
 | FR-012 | Deduplicación | ✅ | `pool.test.ts`, `sync.test.ts` |
 | FR-013 | Sync tras reinstalar | ✅ | `packages/sync`: NIP-77 (Negentropy, solo se transfieren los faltantes) con fallback automático a REQ por ventanas si el relay no lo soporta o aborta la sesión (`sync.test.ts`); gift wraps con timestamps de hasta 2 días sin pérdidas (`gift-wrap-window.test.ts`); E2E reinstalar → restaurar backup → canales, DMs y outbox iguales (`tests/e2e/reinstall-history.test.ts`) |

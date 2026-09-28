@@ -35,7 +35,10 @@ export interface OutboxRecord {
   /** The signed event. Once set it is never regenerated: retries republish the same event id. */
   event?: NostrEvent;
   relays: string[];
+  /** Relay acceptances needed to reach REPLICATED: never more than `relays.length`. */
   quorum: number;
+  /** FR010-04: the quorum asked for when there were fewer relays (then `quorum` was capped to them). */
+  requestedQuorum?: number;
   relayStatus: Record<string, RelayAttempt>;
   createdAt: number;
   updatedAt: number;

@@ -103,6 +103,18 @@ describe('DeliveryEngine', () => {
     expect(rec.relayStatus[a.url]!.acceptedAt).toBeTypeOf('number');
   });
 
+  it('never caps the quorum in silence: the record keeps the quorum asked for (FR010-04)', async () => {
+    const [a, b] = [await relay(), await relay()];
+    const engine = new DeliveryEngine({ store: memStore(), publisher: pool(), signer, retry: fast });
+    cleanups.push(() => engine.stop());
+    const capped = await engine.submit({ template: { kind: 1, content: 'q3' } }, { relays: [a.url, b.url], quorum: 3, wait: true });
+    expect(capped).toMatchObject({ state: 'REPLICATED', quorum: 2, requestedQuorum: 3 });
+    expect((await engine.get(capped.opId))!.requestedQuorum).toBe(3); // persisted, so the outbox can show it
+    const met = await engine.submit({ template: { kind: 1, content: 'q2' } }, { relays: [a.url, b.url], quorum: 2, wait: true });
+    expect(met.quorum).toBe(2);
+    expect(met).not.toHaveProperty('requestedQuorum');
+  });
+
   it('keeps an offline message in the outbox and publishes the same event when connectivity returns (FR-011)', async () => {
     const r = await relay();
     r.faults.offline = true;

@@ -106,7 +106,10 @@ export class DeliveryEngine {
     }
     const relays = [...new Set(opts.relays.map(normalizeRelayUrl))];
     if (relays.length === 0) throw new Error('at least one relay is required');
-    const quorum = Math.max(1, Math.min(opts.quorum ?? 1, relays.length));
+    // FR010-04: a quorum above the relays could never be met. It is capped, never in silence: the record keeps
+    // what was asked for so the outbox and the UI can say so.
+    const requested = Math.max(1, opts.quorum ?? 1);
+    const quorum = Math.min(requested, relays.length);
     const t = this.now();
     const rec: OutboxRecord = {
       opId,
@@ -114,6 +117,7 @@ export class DeliveryEngine {
       state: 'DRAFT',
       relays,
       quorum,
+      ...(requested > quorum ? { requestedQuorum: requested } : {}),
       relayStatus: Object.fromEntries(relays.map((r) => [r, { relay: r, attemptCount: 0 } satisfies RelayAttempt])),
       createdAt: t,
       updatedAt: t,

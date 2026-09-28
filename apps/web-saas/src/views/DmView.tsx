@@ -5,6 +5,7 @@ import { getTagValue, normalizePubkey } from '@sedecim/nostr-core';
 import { APP_RECEIPT_KIND, BUZZ_PINNED_ADAPTER, createFileMessage, createReceipt, dmInboxFilter, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, openDirectMessage, parseReceipt, unwrap, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
 import { receiptPolicy } from '@sedecim/profiles';
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
+import { cappedQuorumNotice } from '../lib/outbox';
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 
@@ -52,7 +53,9 @@ export function DmView() {
       }
       const { deliveries } = file ? await messenger().deliver(msg!, route) : await messenger().send({ recipients: [recipient], content: text }, route);
       const unrouted = deliveries.find((d) => d.recipient === recipient && d.source !== 'dm-relays');
-      if (unrouted) ws.notify(`Destinatario sin relays de DM: se envió a ${unrouted.source === 'nip65-read' ? 'sus relays de lectura (NIP-65)' : 'tus relays'}; la entrega es incierta.`, 'warning');
+      const capped = deliveries.map((d) => cappedQuorumNotice(d.record)).find(Boolean);
+      const notices = [unrouted && `Destinatario sin relays de DM: se envió a ${unrouted.source === 'nip65-read' ? 'sus relays de lectura (NIP-65)' : 'tus relays'}; la entrega es incierta.`, capped].filter(Boolean);
+      if (notices.length) ws.notify(notices.join(' '), 'warning');
       setText('');
       setFile(undefined);
     } catch (err) {
