@@ -74,11 +74,15 @@ export interface DirectMessage extends Unwrapped {
   roomId: string;
 }
 
-export async function openDirectMessage(signer: Signer, wrap: NostrEvent): Promise<DirectMessage> {
-  const u = await unwrap(signer, wrap);
+/** The message in an authenticated unwrap (a kind 14 or 15 rumor). */
+export function directMessageFrom(u: Unwrapped): DirectMessage {
   if (u.rumor.kind !== DM_KIND && u.rumor.kind !== FILE_MESSAGE_KIND) throw new Error(`unexpected rumor kind ${u.rumor.kind}`);
   const participants = [...new Set([u.sender, ...getTagValues(u.rumor, 'p')])].sort();
   return { ...u, kind: u.rumor.kind, participants, subject: getTagValue(u.rumor, 'subject'), roomId: participants.join(',') };
+}
+
+export async function openDirectMessage(signer: Signer, wrap: NostrEvent): Promise<DirectMessage> {
+  return directMessageFrom(await unwrap(signer, wrap));
 }
 
 /**

@@ -13,7 +13,8 @@
  *   sovereign channel send --persona ID --group G "text"
  *   sovereign channel read --persona ID --group G
  *   sovereign dm send --persona ID --to NPUB "text"   (to the recipient's DM relays, kind 10050, like the web)
- *   sovereign dm inbox --persona ID
+ *   sovereign dm inbox --persona ID     (reads its DM relays; receipts for its DMs move them to RECIPIENT_ACKED/READ)
+ *   sovereign dm watch --persona ID     (keeps reading them: DMs and receipts as they arrive; Ctrl-C to stop)
  *   sovereign dm relays --persona ID     (publish this persona's DM relay list, kind 10050; also on create/import)
  *   sovereign outbox --persona ID        (delivery states per relay)
  *   sovereign resume --persona ID        (retry pending messages; any command that opens the persona does too)
@@ -61,7 +62,8 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
-import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags } from '@sedecim/messaging';
+import type { OutboxRecord } from '@sedecim/delivery-engine';
+import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
 import { CONTINUITY_VAULT_TEXTS } from '@sedecim/profiles';
 import { SovereignClient } from './app';
 
@@ -80,6 +82,10 @@ const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i -
 const MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.pdf': 'application/pdf', '.txt': 'text/plain' };
 const since = () => (opt('--since') !== undefined ? Number(opt('--since')) : undefined);
 
+const dmLine = (m: DirectMessage) => `[${new Date(m.rumor.created_at * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.rumor.content}`;
+/** FR009-03: a receipt for one of our DMs, and the state of that operation after it. */
+const receiptLine = (r: Receipt, rec: OutboxRecord) => `acuse (${r.type === 'read' ? 'leído' : 'recibido'}) de ${r.from.slice(0, 8)}: ${rec.state}`;
+
 /** Password of a backup file: --password-file (first line) or SOVEREIGN_BACKUP_PASSWORD. */
 function backupPassword(): string {
   const file = opt('--password-file');
@@ -93,6 +99,7 @@ async function main() {
   if (!passphrase) throw new Error('set SOVEREIGN_PASSPHRASE (protects the local encrypted stores)');
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
   const needsDm = argv[0] === 'dm' && argv[1] === 'send';
+  const watching = argv[0] === 'dm' && argv[1] === 'watch';
   const client = new SovereignClient({
     dataDir: process.env.SOVEREIGN_DATA_DIR ?? './.data/sovereign',
     passphrase,
@@ -101,6 +108,7 @@ async function main() {
     ...(needsDm ? { relayAdapter: relayAdapter() } : {}),
     ...(process.env.SOVEREIGN_BLOB_STORE ? { blobStore: process.env.SOVEREIGN_BLOB_STORE } : {}),
     ...(process.env.SOVEREIGN_DISCOVERY_RELAYS ? { discoveryRelays: process.env.SOVEREIGN_DISCOVERY_RELAYS.split(',').map((r) => r.trim()).filter(Boolean) } : {}),
+    ...(watching ? { autoReconnect: true } : {}),
   });
   /** FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. */
   const announceDmRelays = async (id: string) => {
@@ -174,7 +182,18 @@ async function main() {
     } else if (a === 'dm' && b === 'relays') {
       await announceDmRelays(need());
     } else if (a === 'dm' && b === 'inbox') {
-      for (const m of await client.inbox(need())) console.log(`[${new Date(m.rumor.created_at * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.rumor.content}`);
+      const acks: string[] = [];
+      for (const m of await client.inbox(need(), { onReceipt: (r, rec) => acks.push(receiptLine(r, rec)) })) console.log(dmLine(m));
+      for (const line of acks) console.log(line);
+    } else if (a === 'dm' && b === 'watch') {
+      // FR009-03: DMs and receipts as they arrive on the persona's DM relays (kind 10050), until Ctrl-C.
+      const stop = await client.watchDms(need(), { onMessage: (m) => console.log(dmLine(m)), onReceipt: (r, rec) => console.log(receiptLine(r, rec)) });
+      console.error('escuchando tus relays de DM (kind 10050); Ctrl-C para salir');
+      await new Promise<void>((resolve) => {
+        process.once('SIGINT', resolve);
+        process.once('SIGTERM', resolve);
+      });
+      stop();
     } else if (a === 'outbox') {
       for (const r of await client.outbox(need())) {
         console.log(`${r.opId.slice(0, 8)} ${r.state.padEnd(16)} ${r.blockedReason ?? ''}`);

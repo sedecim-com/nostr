@@ -3,8 +3,8 @@ import { NetworkBlockedError, RelayPool, type WebSocketFactory } from '@sedecim/
 import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS, type AccessTokenProvider } from '@sedecim/signer';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { dmRouter, publishDmRelayList } from '@sedecim/messaging';
-import { preset, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
+import { DmInbox, dmRouter, publishDmRelayList, type DirectMessage, type Receipt, type WrapOptions } from '@sedecim/messaging';
+import { preset, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
 import { assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
 
@@ -226,6 +226,19 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
 /** FR017-04: publish the persona's DM relay list (kind 10050) so senders route NIP-17 DMs to it. */
 export async function publishDmRelays(s: PersonaSession): Promise<void> {
   await s.engine.submit({ event: await publishDmRelayList(s.signer, s.persona.relays) }, { relays: s.persona.relays, quorum: 1 });
+}
+
+/**
+ * FR009-03: the persona's DM inbox on its own DM relays (its kind 10050). Receipts for its DMs advance the outbox;
+ * incoming DMs are answered with the receipts the panel allows, sent to the sender's DM relays. The receipts already
+ * sent are kept in the vault, so each goes at most once.
+ */
+export function openDmInbox(
+  book: PersonaBook,
+  s: PersonaSession,
+  opts: { policy: () => ReceiptPolicy; wrapOptions?: WrapOptions; onMessage?: (m: DirectMessage, live: boolean) => void; onReceipt?: (r: Receipt, rec: OutboxRecord) => void },
+): DmInbox<OutboxRecord> {
+  return new DmInbox(s.signer, { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, sent: book.store.collection<boolean>(`receipts-${s.persona.id}`), ...opts });
 }
 
 /**

@@ -6,9 +6,9 @@ import { IdentityManager, type BackupPackage, type BackupPackageV2, type Persona
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, dmInboxFilter, dmRouter, joinRequest, openDirectMessage, publishDmRelayList, type DirectMessage, type DmOutbox, type RelayAdapter } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, publishDmRelayList, type DirectMessage, type DmInboxOptions, type InboxOutbox, type InboxPool, type RelayAdapter } from '@sedecim/messaging';
 import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
-import { disclose, preset, validateConfig, type SovereigntyConfig } from '@sedecim/profiles';
+import { disclose, preset, receiptPolicy, validateConfig, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
 import {
   EncryptedGroupStorage,
@@ -52,7 +52,15 @@ export interface SovereignOptions {
    * persona's own relays, like the web's `discoveryRelays`. Each lookup tells them which npub you write to.
    */
   discoveryRelays?: string[];
+  /**
+   * Reconnect to relays that drop while a subscription is open (default false: a one-shot command ends instead).
+   * `sovereign dm watch` turns it on (FR009-03).
+   */
+  autoReconnect?: boolean;
 }
+
+/** FR009-03: what `watchDms` reports. */
+export type DmWatchHandlers = Pick<DmInboxOptions<OutboxRecord>, 'onMessage' | 'onReceipt'>;
 
 /**
  * This installation's identity as an MLS device of a persona. Kept in the persona store *outside* the
@@ -84,6 +92,8 @@ interface Session {
   guard: NetworkGuard;
   /** FR017-06: where recipients' DM relay lists are looked up (the persona's relays plus the configured ones). */
   dmDiscovery: string[];
+  /** FR017-06: the outbox as DMs and receipts use it: queueing for someone's DM relays lets the guard reach them. */
+  dmOutbox: InboxOutbox<OutboxRecord>;
   store: EncryptedStore;
   groups?: Promise<GroupSession>;
   /** FR011-04: the retry of what earlier runs left pending, started when the persona was opened. */
@@ -226,27 +236,32 @@ export class SovereignClient {
       webSocketFactory: persona.network === 'tor-only' ? guard.webSocketFactory() : async (u) => (await guard.assertRoute(u), new WebSocket(u) as unknown as WebSocketLike),
       signer,
       authMode: 'on-demand',
-      autoReconnect: false,
+      autoReconnect: this.opts.autoReconnect ?? false,
       connectTimeoutMs: 15_000,
     });
     const store = await this.openStore(join(this.opts.dataDir, 'personas', personaId));
     // FR017-06: the same routing as the web. A DM wrap goes to the recipient's DM relays, looked up again on each
     // retry until one accepts it (FR010-03). Writing to someone lets the guard reach the relays they published.
+    const allow = (urls: string[]) => guard.allowHosts(urls.map((u) => new URL(u).hostname));
     const route = dmRouter(pool, { discoveryRelays: dmDiscovery, fallback: persona.relays });
     const router = async (rec: { meta?: Record<string, string> }) => {
       const r = await route(rec);
-      if (r) guard.allowHosts(r.relays.map((u) => new URL(u).hostname));
+      if (r) allow(r.relays);
       return r;
     };
     const engine = new DeliveryEngine({ store: store.collection<OutboxRecord>('outbox'), publisher: pool, signer, retry: this.opts.retry, router });
     // FR-011: when a relay comes back (after a drop or a failed attempt) the whole outbox is re-driven.
     pool.onReconnect(() => void engine.resume().catch(() => undefined));
     // DM wraps an earlier run left pending may target the recipients' DM relays: the guard may reach them again.
-    for (const r of await engine.list()) if (r.meta?.recipient) guard.allowHosts(Object.keys(r.relayStatus).map((u) => new URL(u).hostname));
+    for (const r of await engine.list()) if (r.meta?.recipient) allow(Object.keys(r.relayStatus));
+    const dmOutbox: InboxOutbox<OutboxRecord> = {
+      submit: (input, o) => (allow(o.relays), engine.submit(input, o)),
+      applyReceipt: (r) => engine.applyReceipt(r),
+    };
     // FR011-04: what an earlier run left pending (sent without network, cut off) goes out as soon as the
     // persona is opened again, whatever the command. In the background: the command does not wait for it.
     const resumed = engine.resume().catch(() => undefined);
-    const s: Session = { persona, signer, pool, engine, guard, dmDiscovery, store, resumed };
+    const s: Session = { persona, signer, pool, engine, guard, dmDiscovery, dmOutbox, store, resumed };
     this.sessions.set(personaId, s);
     return s;
   }
@@ -323,13 +338,7 @@ export class SovereignClient {
     await (await this.identities()).recordUsage(personaId, { contact: recipient });
     // The NIP-17 gate is checked by the CLI before a DM is composed (flags.json of the interop gate).
     const messenger = new DirectMessenger(s.signer, { nip17: true, readReceipts: false }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
-    const outbox: DmOutbox<OutboxRecord> = {
-      submit: (input, o) => {
-        s.guard.allowHosts(o.relays.map((u) => new URL(u).hostname));
-        return s.engine.submit(input, o);
-      },
-    };
-    const { deliveries } = await messenger.send({ recipients: [recipient], content: text }, { pool: s.pool, outbox, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, wait: true });
+    const { deliveries } = await messenger.send({ recipients: [recipient], content: text }, { pool: s.pool, outbox: s.dmOutbox, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, wait: true });
     return deliveries.map((d) => d.record);
   }
 
@@ -339,18 +348,42 @@ export class SovereignClient {
     return s.engine.submit({ event: await publishDmRelayList(s.signer, s.persona.relays) }, { relays: s.persona.relays, quorum: 1, wait: true });
   }
 
-  async inbox(personaId: string): Promise<DirectMessage[]> {
+  /**
+   * FR009-03: the persona's DM inbox, on its own DM relays (its relays plus those of its kind 10050), as the web
+   * reads it. Receipts for its DMs advance the outbox (RECIPIENT_ACKED, READ). Incoming DMs get the receipts the
+   * profile allows (none with the sovereign presets), sent to the sender's DM relays. Reading its own list lets
+   * the guard reach the relays it names; Tor-only still goes through Tor.
+   */
+  private dmInbox(s: Session, handlers: DmWatchHandlers = {}): DmInbox<OutboxRecord> {
+    const allow = (urls: string[]) => s.guard.allowHosts(urls.map((u) => new URL(u).hostname));
+    const pool: InboxPool = {
+      query: (urls, filters, timeoutMs) => (allow(urls), s.pool.query(urls, filters, timeoutMs)),
+      subscribe: (urls, filters, o) => (allow(urls), s.pool.subscribe(urls, filters, o)),
+    };
+    return new DmInbox(s.signer, {
+      pool,
+      outbox: s.dmOutbox,
+      ownRelays: s.persona.relays,
+      discoveryRelays: s.dmDiscovery,
+      policy: () => receiptPolicy(this.profileFor(s.persona)),
+      sent: s.store.collection<boolean>('receipts'),
+      wrapOptions: (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap,
+      ...handlers,
+    });
+  }
+
+  /** Reads the persona's DM relays once; `onReceipt` reports the receipts that advanced its DMs. */
+  async inbox(personaId: string, handlers: DmWatchHandlers = {}): Promise<DirectMessage[]> {
     const s = await this.session(personaId);
-    const wraps = await s.pool.query(s.persona.relays, [dmInboxFilter(s.persona.pubkey)], 10_000);
-    const out: DirectMessage[] = [];
-    for (const w of wraps) {
-      try {
-        out.push(await openDirectMessage(s.signer, w));
-      } catch {
-        /* not for us / malformed */
-      }
-    }
-    return out.sort((a, b) => a.rumor.created_at - b.rumor.created_at);
+    return this.dmInbox(s, handlers).sync(10_000);
+  }
+
+  /** FR009-03: keeps reading the persona's DM relays as messages and receipts arrive. Returns the stop function. */
+  async watchDms(personaId: string, handlers: DmWatchHandlers): Promise<() => void> {
+    const s = await this.session(personaId);
+    const inbox = this.dmInbox(s, handlers);
+    await inbox.start();
+    return () => inbox.close();
   }
 
   /**

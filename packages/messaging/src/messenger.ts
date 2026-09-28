@@ -2,6 +2,7 @@ import type { NostrEvent, Signer } from '@sedecim/nostr-core';
 import { createDirectMessage, openDirectMessage, type DirectMessageInput, type WrappedMessage, type DirectMessage } from './nip17';
 import type { WrapOptions } from './nip59';
 import { resolveDmRelays, type DmRelayCache, type DmRelaySource, type RelayQuery } from './dm-relays';
+import { createReceipt, type ReceiptType } from './receipts';
 
 export interface MessagingFlags {
   /** NIP-17 DMs: disabled until the E2E interop suite passes against the pinned relay (FR-017). */
@@ -71,15 +72,7 @@ export class DirectMessenger {
     const me = await this.signer.getPublicKey();
     const deliveries: Array<DmDelivery<R>> = [];
     for (const w of message.wraps) {
-      const route =
-        w.recipient === me
-          ? { relays: opts.ownRelays, source: 'self' as const }
-          : await resolveDmRelays(opts.pool, w.recipient, {
-              discoveryRelays: opts.discoveryRelays ?? opts.ownRelays,
-              fallback: opts.fallback ?? opts.ownRelays,
-              timeoutMs: opts.timeoutMs,
-              cache: opts.cache,
-            });
+      const route = w.recipient === me ? { relays: opts.ownRelays, source: 'self' as const } : await this.route(w.recipient, opts);
       const record = await opts.outbox.submit(
         { event: w.event },
         { relays: route.relays, groupId: message.rumor.id, meta: { recipient: w.recipient, dmRelaySource: route.source }, quorum: opts.quorum, wait: opts.wait },
@@ -87,6 +80,33 @@ export class DirectMessenger {
       deliveries.push({ recipient: w.recipient, relays: route.relays, source: route.source, record });
     }
     return { message, deliveries };
+  }
+
+  /**
+   * FR009-03: a receipt goes where the message's sender reads, like a DM: to the sender's DM relays (kind 10050,
+   * else NIP-65 read relays, else `fallback`), never only to ours. The record keeps `meta.recipient` and
+   * `meta.dmRelaySource`, so a retry resolves the route again (FR010-03), and `meta.receipt`. Read receipts also
+   * need the `readReceipts` flag (opt-in, ADR 0005).
+   */
+  async receipt<R>(to: string, rumorId: string, type: ReceiptType, opts: DmSendOptions<R>): Promise<DmDelivery<R>> {
+    if (!this.flags.nip17) throw new FeatureDisabledError('nip17');
+    if (type === 'read' && !this.flags.readReceipts) throw new FeatureDisabledError('readReceipts');
+    const { rumor, event } = await createReceipt(this.signer, to, rumorId, type, this.wrapOptions);
+    const route = await this.route(to, opts);
+    const record = await opts.outbox.submit(
+      { event },
+      { relays: route.relays, groupId: rumor.id, meta: { recipient: to, dmRelaySource: route.source, receipt: type }, quorum: opts.quorum, wait: opts.wait },
+    );
+    return { recipient: to, relays: route.relays, source: route.source, record };
+  }
+
+  private route<R>(recipient: string, opts: DmSendOptions<R>) {
+    return resolveDmRelays(opts.pool, recipient, {
+      discoveryRelays: opts.discoveryRelays ?? opts.ownRelays,
+      fallback: opts.fallback ?? opts.ownRelays,
+      timeoutMs: opts.timeoutMs,
+      cache: opts.cache,
+    });
   }
 
   open(wrap: NostrEvent): Promise<DirectMessage> {
