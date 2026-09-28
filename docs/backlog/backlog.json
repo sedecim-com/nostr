@@ -3301,8 +3301,8 @@
     "FR006-03"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 8a72012 (PR #319):\n\n- `TestSocksServer` (`packages/test-relay/src/socks-server.ts`) elige usuario/contraseña (RFC 1929) cuando el cliente lo ofrece, como Tor, registra el usuario de cada CONNECT y puede exigirlo (`requireAuth`).\n- `packages/tor-network/test/tor.test.ts`: dos llaves de aislamiento llegan al relay `.onion`, cada una con su usuario, contra un servidor que exige credenciales, por WebSocket y por HTTP. Sin credenciales, el servidor rechaza la conexión.\n- `apps/sovereign-client/test/tor-hardening.test.ts`: dos personas Tor del cliente soberano usan como usuario SOCKS su id de persona, distinto entre ellas.\n- Arnés de fugas: `tests/leak/check.ts` exige (`requireIsolation`) que cada CONNECT del CLI real con persona Tor lleve el id de la persona (job `leak-tests`). La prueba unitaria está en `tests/leak/leak.test.ts`.",
    "issue": 243
   },
   {
@@ -3318,8 +3318,8 @@
     "FR020-01"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 8a72012 (PR #319):\n\n- Onion-only: `sovereign persona create|import --onion-only`. La persona sale por Tor y solo acepta relays `.onion`; la validación está en `IdentityManager`, y el error cuenta los relays sin nombrarlos. El guard rechaza cualquier destino clearnet, también los relays de DM de un destinatario.\n- Mensaje de fallo unificado: cualquier error en la capa SOCKS se convierte en `NetworkBlockedError(\"No enviado: red de privacidad no disponible\")`, por WebSocket y HTTP (`TorAgent` en `packages/tor-network/src/guard.ts`). Cubre el proxy caído o que rechaza, y un circuito o un `.onion` inalcanzables. El relay pool lo mantiene como bloqueo, así que el mensaje espera en el outbox.\n- Sin IPs en los logs: los diagnósticos del CLI (errores, estado por relay en `outbox` y `history sync`) muestran cada IP como `ip-<8 hex>`.\n- Tests:\n  - `packages/tor-network/test/tor.test.ts`;\n  - `apps/sovereign-client/test/tor-hardening.test.ts`, con un proceso real del CLI cuya salida no contiene `127.0.0.1`;\n  - `packages/identity/test/identity.test.ts`.",
    "issue": 244
   },
   {
@@ -3336,8 +3336,8 @@
     "FR006-02"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 8a72012 (PR #319):\n\n- CLI: `IdentityManager.sendingAs` devuelve «Enviando como <etiqueta> (npub…) · <custodia> · <red> · <nivel de vínculo>». Se imprime antes de cada envío (canal, DM y grupo MLS) y con `sovereign whoami`.\n- Web: el banner `#sending-as` añade el nivel de vínculo (sin vínculo, privado, selectivo o público).\n  - Los vínculos hechos en el navegador quedan en las dos personas.\n  - Las personas con cuenta en el servicio de identidad los leen de `/v1/accounts/me` al abrirse. Una persona sin cuenta nunca pregunta al servicio.\n- Tests:\n  - `packages/identity/test/identity.test.ts`;\n  - `apps/sovereign-client/test/tor-hardening.test.ts` (banner del proceso real del CLI);\n  - `tests/browser/web-saas.e2e.ts`: custodia, red y «sin vínculo»; tras vincular, «vínculo selectivo» en las dos personas.",
    "issue": 245
   },
   {

@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **246 tareas** · 153 hechas · 23 parciales · 64 pendientes · 6 descartadas
-- **301 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **246 tareas** · 156 hechas · 23 parciales · 61 pendientes · 6 descartadas
+- **297 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -44,7 +44,7 @@
 | FR-004 | 7 | 6 | FR004-08 (Diferido) |
 | FR-005 | 12 | 8 | FR005-05 (S14), FR005-13 (S11), FR005-11 (S12), FR005-10 (Diferido) |
 | FR-006 | 4 | 3 | FR006-04 (Diferido) |
-| FR-007 | 5 | 4 | FR007-05 (S10) |
+| FR-007 | 5 | 5 | — |
 | FR-008 | 3 | 2 | VAULT-04 (S11) |
 | FR-009 | 3 | 3 | — |
 | FR-010 | 5 | 5 | — |
@@ -252,9 +252,9 @@
 | [FR017-06](https://github.com/sedecim-com/nostr/issues/241) | P1 | El cliente soberano enruta DMs por 10050 y publica el suyo | FR-017, FR-010 | Dev | 2 | FR017-04 | Hecho | CLI con el mismo ruteo que la web y test de interoperabilidad web ↔ CLI |
 | [NFR009-02](https://github.com/sedecim-com/nostr/issues/188) | P1 | Corregir los hallazgos de accesibilidad y revisión manual con lector de pantalla | NFR-009 | Dev | 3 | NFR009-01 | Parcial | Informe de la revisión manual y correcciones aplicadas antes de la GA de la web |
 | [OPS-06](https://github.com/sedecim-com/nostr/issues/57) | P1 | Servicio notification-gateway con perfiles de privacidad | §17.1, ADR 0010, PRD GC-G01, GC-G02 | Dev | 3 | DEC-08 | Parcial | Push opaco sin contenido ni remitente y deshabilitado en perfiles Tor, detrás de un flag apagado por defecto donde el relay no permite un disparador seguro; la web no muestra avisos activos si el gateway no puede observar la actividad; ninguna solución da al gateway lectura de DMs ni metadatos adicionales; ADR 0010 con la matriz real por relay |
-| [FR006-06](https://github.com/sedecim-com/nostr/issues/243) | P2 | Test de aislamiento de circuitos Tor por persona | §14.1 | QA | 1 | FR006-03 | Pendiente | Credenciales SOCKS distintas por persona verificadas contra un servidor SOCKS con autenticación |
-| [FR007-05](https://github.com/sedecim-com/nostr/issues/245) | P2 | «Enviando como…» muestra el nivel de vínculo | §16.1, FR-007 | Dev | 1 | FR007-03, FR006-02 | Pendiente | El banner del composer indica identidad, custodia, red y nivel de vínculo (ninguno, privado, selectivo o público) en la web y en el CLI |
-| [FR021-03](https://github.com/sedecim-com/nostr/issues/244) | P2 | Endurecimiento del modo Tor | §14, §18.1 | Dev | 2 | FR020-01 | Pendiente | Opción onion-only en el cliente soberano, mensaje de fallo unificado «No enviado: red de privacidad no disponible» y relays sin IPs en los logs de los perfiles soberanos |
+| [FR006-06](https://github.com/sedecim-com/nostr/issues/243) | P2 | Test de aislamiento de circuitos Tor por persona | §14.1 | QA | 1 | FR006-03 | Hecho | Credenciales SOCKS distintas por persona verificadas contra un servidor SOCKS con autenticación |
+| [FR007-05](https://github.com/sedecim-com/nostr/issues/245) | P2 | «Enviando como…» muestra el nivel de vínculo | §16.1, FR-007 | Dev | 1 | FR007-03, FR006-02 | Hecho | El banner del composer indica identidad, custodia, red y nivel de vínculo (ninguno, privado, selectivo o público) en la web y en el CLI |
+| [FR021-03](https://github.com/sedecim-com/nostr/issues/244) | P2 | Endurecimiento del modo Tor | §14, §18.1 | Dev | 2 | FR020-01 | Hecho | Opción onion-only en el cliente soberano, mensaje de fallo unificado «No enviado: red de privacidad no disponible» y relays sin IPs en los logs de los perfiles soberanos |
 
 ## S11 · Restauración sin relays y operación real (G1–G2, 2026-10-26 → 2026-11-06) — 51 SP
 
