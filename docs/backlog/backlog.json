@@ -3199,8 +3199,8 @@
     "FR027-03"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 33ad788 (PR #311):\n\n- ADR 0011 (Propuesto): docs/adr/0011-continuity-vault.md.\n- services/continuity-vault, separado del indexer y de identity-service:\n  - PUT/GET/DELETE /v1/archives y GET /v1/usage;\n  - cuenta NIP-98 (open/allowlist/off) o Acceso;\n  - metadatos en Postgres y sobres en un ObjectStore con llaves aleatorias;\n  - cuotas por cuenta con bloqueo.\n- packages/continuity: validateArchiveEnvelope, compartido con el cliente. Rechaza campos de más, nsec/hex, sobres cortos o sin relleno y «ciphertext» legible.\n- Tests: packages/continuity/test/continuity.test.ts y services/continuity-vault/test/continuity-vault.test.ts (memoria, archivos y Postgres; concurrencia; nada legible en la base, el object store ni los logs).",
    "issue": 237
   },
   {

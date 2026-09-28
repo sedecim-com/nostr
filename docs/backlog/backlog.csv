@@ -249,7 +249,16 @@
 - Pin de Buzz `ghcr.io/block/buzz@sha256:ac4521f3e464…` (upstream b0d6fb8) en infra/buzz/PIN, compose, kustomize e infra/web/flags.json, con el informe docs/interop/buzz-upstream-ac4521f3e464-report.json.
 - Changelog revisado (ADR 0003): `781d395..b0d6fb8` solo añade docs/nips/NIP-AR.md, sin cambios en el relay. Los adaptadores siguen justificados.
 - El gate pasó contra la candidata (run 36257595164) y de nuevo en el CI de la PR (job stack).","https://github.com/sedecim-com/nostr/issues/236"
-"VAULT-01","VAULT · Encrypted Continuity Vault","PRD GC-B01, FR-013, FR-027","Continuity Vault: contrato y almacenamiento opaco, separado del indexer","ADR del vault; servicio con API de sobres de archivo opacos por cuenta (subir, listar, bajar y borrar) autenticada con NIP-98 o Acceso, que rechaza texto plano como la bóveda de backup de FR027-03; separado del indexer; tests","Dev","P0","8","FR027-03","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/237"
+"VAULT-01","VAULT · Encrypted Continuity Vault","PRD GC-B01, FR-013, FR-027","Continuity Vault: contrato y almacenamiento opaco, separado del indexer","ADR del vault; servicio con API de sobres de archivo opacos por cuenta (subir, listar, bajar y borrar) autenticada con NIP-98 o Acceso, que rechaza texto plano como la bóveda de backup de FR027-03; separado del indexer; tests","Dev","P0","8","FR027-03","S10","2026-10-23","Hecho","Commit 33ad788 (PR #311):
+
+- ADR 0011 (Propuesto): docs/adr/0011-continuity-vault.md.
+- services/continuity-vault, separado del indexer y de identity-service:
+  - PUT/GET/DELETE /v1/archives y GET /v1/usage;
+  - cuenta NIP-98 (open/allowlist/off) o Acceso;
+  - metadatos en Postgres y sobres en un ObjectStore con llaves aleatorias;
+  - cuotas por cuenta con bloqueo.
+- packages/continuity: validateArchiveEnvelope, compartido con el cliente. Rechaza campos de más, nsec/hex, sobres cortos o sin relleno y «ciphertext» legible.
+- Tests: packages/continuity/test/continuity.test.ts y services/continuity-vault/test/continuity-vault.test.ts (memoria, archivos y Postgres; concurrencia; nada legible en la base, el object store ni los logs).","https://github.com/sedecim-com/nostr/issues/237"
 "VAULT-02","VAULT · Encrypted Continuity Vault","PRD GC-B02, FR-027","Sobre de archivo cifrado en el cliente con una backup key separada de la nsec","Web y CLI sellan cada sobre en el cliente; la backup key es distinta de la nsec y viaja en el backup de identidad; restaurar con un logN excesivo se rechaza; test que demuestra que ni la base ni el object store contienen texto ni eventos legibles","Seguridad","P0","5","VAULT-01","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/238"
 "VAULT-07","VAULT · Encrypted Continuity Vault","PRD GC-B07, FR-028","Threat model y disclosure del Continuity Vault","Threat model del vault aprobado; la UI explica los metadatos que ve el operador (cuenta, tamaño y frecuencia) y que no tiene la llave de descifrado; textos incluidos en la revisión legal y de UX (FR028-02)","Seguridad","P0","2","VAULT-01","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/239"
 "FR009-03","FR · Mensajería, entrega y resiliencia","FR-009, §15.1","Acuses que llegan al emisor y DMs recibidos en segundo plano","Los acuses se publican en los 10050 del emisor y llevan la operación a RECIPIENT_ACKED; suscripción de fondo a los 10050 propios","Dev","P1","3","FR009-02","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/240"
