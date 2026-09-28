@@ -2403,7 +2403,7 @@
    "epic": "NFR · Requisitos no funcionales",
    "req": "NFR-001, PRD GC-C01",
    "title": "Infraestructura como código del SaaS (Helm/Terraform)",
-   "done": "terraform apply en infrastructure y deploy de Kubernetes reales; smoke e interop contra los hosts de stage; kubeconform en CI",
+   "done": "Stage desplegado con terraform apply en infrastructure y deploy de Kubernetes reales; smoke e interop contra los hosts de stage; kubeconform en CI",
    "type": "Infra",
    "priority": "P0",
    "sp": 8,
@@ -2906,7 +2906,8 @@
    "deps": [],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 220
   },
   {
    "id": "OPS-17",
@@ -2920,7 +2921,8 @@
    "deps": [],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 221
   },
   {
    "id": "SEC-06",
@@ -2934,7 +2936,8 @@
    "deps": [],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 222
   },
   {
    "id": "SEC-07",
@@ -2950,7 +2953,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 223
   },
   {
    "id": "FR025-11",
@@ -2967,7 +2971,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 224
   },
   {
    "id": "FR005-12",
@@ -2983,7 +2988,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 225
   },
   {
    "id": "FR023-09",
@@ -2999,7 +3005,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 226
   },
   {
    "id": "FR024-04",
@@ -3015,7 +3022,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 227
   },
   {
    "id": "FR010-03",
@@ -3031,7 +3039,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 228
   },
   {
    "id": "FR011-04",
@@ -3047,7 +3056,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 229
   },
   {
    "id": "FR019-03",
@@ -3063,7 +3073,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 230
   },
   {
    "id": "FR010-04",
@@ -3079,7 +3090,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 231
   },
   {
    "id": "FR004-06",
@@ -3095,7 +3107,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 232
   },
   {
    "id": "PANEL-05",
@@ -3112,7 +3125,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 233
   },
   {
    "id": "FR005-08",
@@ -3128,7 +3142,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 234
   },
   {
    "id": "OPS-11",
@@ -3142,7 +3157,8 @@
    "deps": [],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 235
   },
   {
    "id": "BUZZ-07",
@@ -3158,7 +3174,8 @@
    ],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 236
   },
   {
    "id": "VAULT-01",
@@ -3174,7 +3191,8 @@
    ],
    "sprint": "S10",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 237
   },
   {
    "id": "VAULT-02",
@@ -3190,7 +3208,8 @@
    ],
    "sprint": "S10",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 238
   },
   {
    "id": "VAULT-07",
@@ -3206,7 +3225,8 @@
    ],
    "sprint": "S10",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 239
   },
   {
    "id": "FR009-03",
@@ -3222,7 +3242,8 @@
    ],
    "sprint": "S10",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 240
   },
   {
    "id": "FR017-06",
@@ -3238,7 +3259,8 @@
    ],
    "sprint": "S10",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 241
   },
   {
    "id": "FR014-05",
@@ -3254,7 +3276,8 @@
    ],
    "sprint": "S10",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 242
   },
   {
    "id": "FR006-06",
@@ -3270,7 +3293,8 @@
    ],
    "sprint": "S10",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 243
   },
   {
    "id": "FR021-03",
@@ -3286,7 +3310,8 @@
    ],
    "sprint": "S10",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 244
   },
   {
    "id": "FR007-05",
@@ -3303,7 +3328,8 @@
    ],
    "sprint": "S10",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 245
   },
   {
    "id": "VAULT-03",
@@ -3319,7 +3345,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 246
   },
   {
    "id": "VAULT-04",
@@ -3335,7 +3362,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 247
   },
   {
    "id": "VAULT-05",
@@ -3351,7 +3379,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 248
   },
   {
    "id": "VAULT-06",
@@ -3367,7 +3396,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 249
   },
   {
    "id": "OPS-18",
@@ -3383,7 +3413,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 250
   },
   {
    "id": "NFR003-03",
@@ -3399,7 +3430,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 251
   },
   {
    "id": "OPS-20",
@@ -3416,7 +3448,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 252
   },
   {
    "id": "FR026-04",
@@ -3433,7 +3466,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 253
   },
   {
    "id": "FR023-10",
@@ -3449,7 +3483,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 254
   },
   {
    "id": "FR005-13",
@@ -3465,7 +3500,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 255
   },
   {
    "id": "NFR001-04",
@@ -3482,7 +3518,8 @@
    ],
    "sprint": "S11",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 256
   },
   {
    "id": "SEC-11",
@@ -3507,7 +3544,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 257
   },
   {
    "id": "SEC-12",
@@ -3524,7 +3562,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 258
   },
   {
    "id": "PANEL-07",
@@ -3540,7 +3579,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 259
   },
   {
    "id": "OPS-19",
@@ -3557,7 +3597,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 260
   },
   {
    "id": "NFR010-04",
@@ -3573,7 +3614,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 261
   },
   {
    "id": "OPS-13",
@@ -3589,7 +3631,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 262
   },
   {
    "id": "NFR002-03",
@@ -3605,7 +3648,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 263
   },
   {
    "id": "FR005-11",
@@ -3621,7 +3665,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 264
   },
   {
    "id": "FR024-05",
@@ -3638,7 +3683,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 265
   },
   {
    "id": "FR023-12",
@@ -3654,7 +3700,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 266
   },
   {
    "id": "FR023-13",
@@ -3670,7 +3717,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 267
   },
   {
    "id": "FR011-05",
@@ -3686,7 +3734,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 268
   },
   {
    "id": "FR025-12",
@@ -3702,7 +3751,8 @@
    ],
    "sprint": "S12",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 269
   },
   {
    "id": "FR020-05",
@@ -3718,7 +3768,8 @@
    ],
    "sprint": "S13",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 270
   },
   {
    "id": "NFR006-04",
@@ -3734,7 +3785,8 @@
    ],
    "sprint": "S13",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 271
   },
   {
    "id": "FR011-06",
@@ -3750,7 +3802,8 @@
    ],
    "sprint": "S13",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 272
   },
   {
    "id": "DEC-15",
@@ -3764,7 +3817,8 @@
    "deps": [],
    "sprint": "S13",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 273
   },
   {
    "id": "OPS-14",
@@ -3778,7 +3832,8 @@
    "deps": [],
    "sprint": "S14",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 274
   },
   {
    "id": "SEC-08",
@@ -3794,7 +3849,8 @@
    ],
    "sprint": "S15",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 275
   },
   {
    "id": "REL-04",
@@ -3812,7 +3868,8 @@
    ],
    "sprint": "S16",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 276
   },
   {
    "id": "REL-03",
@@ -3834,7 +3891,8 @@
    ],
    "sprint": "S16",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 277
   },
   {
    "id": "SEC-10",
@@ -3850,7 +3908,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 278
   },
   {
    "id": "FR005-09",
@@ -3866,7 +3925,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 279
   },
   {
    "id": "FR005-10",
@@ -3882,7 +3942,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 280
   },
   {
    "id": "NFR001-05",
@@ -3899,7 +3960,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 281
   },
   {
    "id": "NFR003-04",
@@ -3916,7 +3978,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 282
   },
   {
    "id": "FR006-04",
@@ -3932,7 +3995,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 283
   },
   {
    "id": "FR014-04",
@@ -3949,7 +4013,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 284
   },
   {
    "id": "FR015-04",
@@ -3965,7 +4030,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 285
   },
   {
    "id": "PANEL-06",
@@ -3982,7 +4048,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 286
   },
   {
    "id": "FR006-07",
@@ -3998,7 +4065,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 287
   },
   {
    "id": "FR025-14",
@@ -4014,7 +4082,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 288
   },
   {
    "id": "FR023-11",
@@ -4030,7 +4099,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 289
   },
   {
    "id": "FR004-08",
@@ -4046,7 +4116,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 290
   },
   {
    "id": "FR020-06",
@@ -4062,7 +4133,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 291
   },
   {
    "id": "DEC-14",
@@ -4076,7 +4148,8 @@
    "deps": [],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 292
   },
   {
    "id": "OPS-15",
@@ -4092,7 +4165,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 293
   },
   {
    "id": "OPS-16",
@@ -4106,7 +4180,8 @@
    "deps": [],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 294
   },
   {
    "id": "NFR007-02",
@@ -4122,7 +4197,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 295
   },
   {
    "id": "NFR007-03",
@@ -4138,7 +4214,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 296
   },
   {
    "id": "DEC-13",
@@ -4154,7 +4231,8 @@
    ],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 297
   },
   {
    "id": "FR015-05",
@@ -4168,7 +4246,8 @@
    "deps": [],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 298
   },
   {
    "id": "FR013-05",
@@ -4182,7 +4261,8 @@
    "deps": [],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 299
   },
   {
    "id": "FR018-06",
@@ -4196,7 +4276,8 @@
    "deps": [],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 300
   },
   {
    "id": "FR004-07",
@@ -4210,7 +4291,8 @@
    "deps": [],
    "sprint": "Diferido",
    "status": "Pendiente",
-   "evidence": ""
+   "evidence": "",
+   "issue": 301
   }
  ]
 }
