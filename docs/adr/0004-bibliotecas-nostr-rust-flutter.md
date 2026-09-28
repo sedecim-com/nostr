@@ -5,7 +5,7 @@
 
 ## Contexto
 TypeScript ya está decidido (`docs/architecture.md`): `@noble/*` + `@scure/base` con `nostr-tools` como
-oráculo en los tests. Hace falta decidir Rust (desktop Tauri, servicios nativos, MLS) y Flutter (móvil).
+oráculo en los tests (en runtime, solo para NIP-77 en `packages/sync`). Hace falta decidir Rust (desktop Tauri, servicios nativos, MLS) y Flutter (móvil).
 Estado del ecosistema a 2026-09-26:
 
 | Pieza | Qué usa hoy | Fuente |
@@ -34,4 +34,4 @@ Estado del ecosistema a 2026-09-26:
 - **Diferido:** el early release solo tiene clientes propios en TypeScript (ADR 0002). Esta dirección se
   aplica cuando se decida una app nativa; hasta entonces las tareas nativas quedan como P3 sin sprint.
 - FR025-04 (interoperabilidad con MDK) pasa a ser también la validación del núcleo Rust.
-- Hay que exportar vectores de prueba en JSON (tarea derivada, SEC-03).
+- Hay que exportar vectores de prueba en JSON (tarea derivada, SEC-07).

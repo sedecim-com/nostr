@@ -199,7 +199,7 @@ Versión `mip04-v2`, la que implementa marmot-ts 0.5.1 (se usan sus primitivas A
   red de la persona (Tor-only, allowlist ampliada solo con esos servidores).
 
 ## Integración con Buzz: no soportado por el relay fijado
-El Buzz fijado (`02c6309`) tiene una lista cerrada de kinds y responde
+El Buzz fijado (`infra/buzz/PIN`) tiene una lista cerrada de kinds y responde
 `restricted: unknown event kind` a 30443, 445 y 10051 (`docs/interop/`). Por eso los grupos Marmot
 van por el **relay secundario** del stack (`secure-relay`: nostr-rs-relay 0.9.0 fijado por digest,
 NIP-42, gift wraps solo al destinatario; en el perfil `tor`, una instancia propia detrás del onion service,

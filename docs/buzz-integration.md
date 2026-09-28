@@ -1,7 +1,9 @@
 # Integración con Block Buzz (early release, spec §6)
 
 ## Versión fijada
-Ver `infra/buzz/PIN`: commit `02c6309f` (2026-09-25) e imagen `ghcr.io/block/buzz@sha256:da30acf8…`.
+Ver `infra/buzz/PIN`: commit, fecha y digest vigentes. El mismo digest está en `docker-compose.yml` y en
+`deploy/k8s/base/kustomization.yaml`. Cambia según ADR 0003, con el informe del gate de cada pin en `docs/interop/`
+(el primero fue el commit `02c6309f`, 2026-09-25).
 Buzz está bajo Apache-2.0 y se usa **sin modificar** (ADR 0002): no hay fork ni código de Buzz en este repositorio; `NOTICE` lo atribuye.
 
 ## Qué se reutiliza / qué no se delega
@@ -20,7 +22,8 @@ mes, a mano con `workflow_dispatch` y al fusionar en `main` un cambio del workfl
 de `ghcr.io/block/buzz:main` (token de GHCR + `HEAD` del manifiesto, que acepta índices OCI) y lo compara con
 `BUZZ_IMAGE` de `infra/buzz/PIN`. Si cambió, reutiliza el job `stack` de `ci.yml` (`workflow_call` con
 `buzz_image` y `stack_only`) contra la imagen candidata. Si el gate pasa, abre una PR en la rama
-`buzz-upstream/<digest>` que actualiza el PIN, el digest por defecto de `docker-compose.yml`, los flags de
+`buzz-upstream/<digest>` que actualiza el PIN, el digest por defecto de `docker-compose.yml` y de
+`deploy/k8s/base/kustomization.yaml`, los flags de
 despliegue (`infra/web/flags.json`, que llevan el commit del relay) y el informe en
 `docs/interop/`. Solo ese job tiene `contents: write` y `pull-requests: write`. Requisitos y límites:
 - Hay que activar *Allow GitHub Actions to create and approve pull requests* en los ajustes del repositorio.
@@ -43,8 +46,10 @@ estrategias de timestamp, que las suscripciones a kind 1059 sin `#p` propio no f
 **NIP-17 solo se habilita en producción si `interop-report.json` → `nip17.enableFlag = true`**, y con el
 `timestampJitterSeconds` recomendado configurado explícitamente (nunca en silencio).
 
-## Resultado del gate (2026-09-26, commit `02c6309`, build local debug)
-Evidencia: [`docs/interop/buzz-02c6309-report.json`](interop/buzz-02c6309-report.json).
+## Resultado del gate (pin vigente; primera ejecución el 2026-09-26 contra `02c6309`, build local debug)
+Evidencia: [`docs/interop/buzz-upstream-ac4521f3e464-report.json`](interop/buzz-upstream-ac4521f3e464-report.json).
+Los informes anteriores (`buzz-upstream-8096413eb360-report.json` y `buzz-02c6309-report.json`) dan el mismo
+resultado; el job `stack` de CI lo repite en cada PR.
 
 | Verificación | Resultado |
 |---|---|

@@ -1,10 +1,10 @@
 # Inventario criptográfico
 
-- **Versión:** v0.1 (2026-09-27), commit de referencia `aac285b` más la revisión interna (`a6b968c`).
+- **Versión:** v0.1 (2026-09-27), commit de referencia `aac285b` más la revisión interna (`6642ff6`, PR #215).
 - **Para qué:** entrada de la revisión criptográfica externa (SEC-01, ver [audit-scope.md](audit-scope.md)).
   Recoge cada primitiva y protocolo, dónde se usa, con qué biblioteca y versión, cómo se gestionan las llaves,
   de dónde sale la aleatoriedad, qué código es propio y qué vectores de prueba hay.
-- Los números de línea corresponden al commit `a6b968c`. Si el código se mueve, sirve el nombre de la función.
+- Los números de línea corresponden al commit `6642ff6`. Si el código se mueve, sirve el nombre de la función.
 
 ## 1. Bibliotecas y versiones fijadas
 
@@ -22,7 +22,7 @@ Versiones exactas en `package.json` de cada workspace y en `package-lock.json` (
 | `@aws-sdk/client-kms`, `client-secrets-manager` | 3.1141.0 | managed-signer | KMS (envelope, `Recipient` con attestation), Secrets Manager |
 | `node:crypto` (OpenSSL de Node 22) | runtime | servicios | RSA-OAEP, AES-GCM/CBC, ECDSA P-256/P-384, X.509, HMAC, `timingSafeEqual` |
 | WebCrypto (navegador) | runtime | encrypted-store (browser) | AES-GCM 256 no extraíble |
-| `nostr-tools` | 2.25.2 (solo dev) | tests | Oráculo diferencial de interoperabilidad |
+| `nostr-tools` | 2.25.2 | tests; runtime solo en `packages/sync` | Oráculo diferencial de interoperabilidad; NIP-77 (Negentropy) en el cliente soberano |
 
 Observación: conviven dos versiones de `@noble/*` (2.4.0 en nuestro código, 2.2.0 dentro de marmot-ts) y
 versiones 1.x antiguas transitivas de `applesauce-core` (dependencia de marmot-ts). Ninguna de las 1.x se usa

@@ -5,10 +5,11 @@
 
 ## Contexto
 FR-025 está implementado con `@internet-privacy/marmot-ts` 0.5.1 sobre `ts-mls`, forzado a
-`2.0.0-rc.11` tras encontrar que `rc.10` permite a un miembro expulsado derivar la época siguiente
-(`docs/marmot.md`). El Buzz fijado rechaza los kinds 30443, 445 y 10051 con
+`2.0.0-rc.11` (hoy `2.0.0-rc.16`) tras encontrar que `rc.10` permite a un miembro expulsado derivar la época
+siguiente (`docs/marmot.md`). El Buzz fijado rechaza los kinds 30443, 445 y 10051 con
 `restricted: unknown event kind`. La conformidad pasa contra nostr-rs-relay 0.9.0 real
-(`docs/interop/marmot-nostr-rs-relay-0.9.0-report.json`).
+(informe inicial con rc.11 en `docs/interop/marmot-nostr-rs-relay-0.9.0-report.json`; el job `stack` de CI la
+repite contra el secure-relay fijado).
 
 ## Opciones de ruta
 | Opción | A favor | En contra |
@@ -17,12 +18,12 @@ FR-025 está implementado con `@internet-privacy/marmot-ts` 0.5.1 sobre `ts-mls`
 | B · Parchear Buzz para aceptar los kinds | Un solo relay | Exige un fork (descartado en ADR 0002); Buzz interpreta `h` como canal NIP-29 y el `h` de 445 es el id Nostr del grupo, lo que obliga a revisar el scoping; el parche no puede enviarse a upstream sin un diseño previo |
 
 ## Decisión
-- **Proveedor:** marmot-ts 0.5.1 + ts-mls 2.0.0-rc.11 (override) con la autoprueba de secreto
+- **Proveedor:** marmot-ts 0.5.1 + ts-mls 2.0.0-rc.16 (override; como mínimo rc.11) con la autoprueba de secreto
   post-expulsión obligatoria. Se migra a versiones estables en cuanto se publiquen (FR025-08).
 - **Ruta: opción A (secure-relay).** Se reevalúa la opción B solo si upstream Buzz acepta los kinds
   Marmot o ofrece un allowlist de kinds configurable. En ese caso FR025-10 se resuelve actualizando el pin, sin fork.
 
 ## Consecuencias
-- FR025-10 queda en el backlog como P3, condicionado a este ADR.
+- FR025-10 se descartó: sin fork no hay parche; se reevalúa si upstream Buzz acepta los kinds.
 - Documentación de usuario: las personas que usen grupos MLS incluyen `secure-relay` en su lista de
   relays.

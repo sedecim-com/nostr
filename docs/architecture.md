@@ -38,18 +38,22 @@ firmados; las bases de datos son índices derivados.
 | `metrics` | Exportador Prometheus (latencia de ACK por relay y región, outbox) que respeta el nivel de telemetría del perfil ([`slo.md`](slo.md#latencia)) |
 | `profiles` | Configuración del panel, presets (Apéndice B), validación, disclosures y matriz de notificaciones push (ADR 0010) |
 | `policy-client` | Evaluador RBAC/ABAC + device trust |
+| `qr` | Codificador QR propio (ISO/IEC 18004, modo byte) sin dependencias ni red, salida SVG (generador offline, `nostrconnect` en la web) |
+| `rotation-worker` | Worker de revocación (FR-024): rotación MLS pendiente del policy-engine y propagación de revocaciones al managed-signer; hoy corre desde el CLI (`sovereign group rotation-worker`) |
 | `sync` | Reconstrucción de historial: NIP-77 (Negentropy) con detección NIP-11/sonda y fallback automático a REQ por ventanas; `rebuildHistory` (canales, DMs, evidencia para el outbox); export/import JSONL |
-| `service-kit` | HTTP mínimo con NIP-98/bearer y migraciones SQL |
+| `service-kit` | HTTP mínimo con NIP-98/bearer, anti-replay NIP-98, límites de tasa, verificación de tokens de Acceso (Cognito) y migraciones SQL |
 | `test-relay` | Relay/Blossom/SOCKS en memoria para E2E con inyección de fallos |
 
 ## Decisiones (ADR resumidas; ver §25.1)
 1. **Biblioteca base TS**: `@noble/*` + `@scure/base` directamente (auditadas, sin dependencias); `nostr-tools`
-   solo como oráculo de interoperabilidad en tests. Rust/Flutter: rust-nostr + MDK y `flutter_rust_bridge` (ADR 0004), diferido hasta que haya app nativa.
+   como oráculo de interoperabilidad en los tests y, en runtime, solo para NIP-77 (Negentropy) en `packages/sync`. Rust/Flutter: rust-nostr + MDK y `flutter_rust_bridge` (ADR 0004), diferido hasta que haya app nativa.
 2. **Storage local**: XChaCha20-Poly1305 con clave scrypt; nombres de entrada HMAC; escritura atómica.
 3. **Receipts**: rumor gift-wrapped kind `16914`; lectura opt-in (ADR 0005).
 4. **Marmot**: marmot-ts 0.5.1 + ts-mls rc.16 detrás de `GroupCryptoProvider`; tráfico por el relay secundario porque Buzz rechaza los kinds (ADR 0006).
 5. **Licencia/nombre**: Apache-2.0 con scope `@sedecim` (ADR 0001); Buzz upstream sin fork (ADR 0002). Marca comercial pendiente.
-6. **Notificaciones móviles**, **región cloud/legal para managed**: abiertas. Threat models por perfil en `docs/threat-models/`.
+6. **Notificaciones push**: opacas y opt-in por perfil, sin push en sovereign ni Tor (ADR 0010). **Custodia managed**:
+   `us-east-1`, KMS + Secrets Manager y LFPDPPP (ADR 0009; términos pendientes de aprobación legal). Threat models por
+   perfil en `docs/threat-models/`.
 
 ## APIs: anti-replay NIP-98 y límites de tasa
 Aplica a identity-service, policy-engine, indexer, notification-gateway y managed-signer (todos sobre

@@ -4,6 +4,11 @@ Desde OPS-10, **los issues con el label `backlog` son la fuente del backlog**. `
 `backlog.csv` de esta carpeta se generan a partir de ellos: no se editan a mano, y si se editan, la siguiente
 sincronización los sobrescribe.
 
+Excepción: `meta` de `backlog.json` (sprints, `baseline`, `version`, `source`, prioridades) no sale de los
+issues. Se edita a mano por PR y la sincronización lo conserva; después, `node scripts/backlog.mjs` regenera
+`README.md` y `backlog.csv`. Al traer la salida de la rama `backlog-sync` a una PR, primero se trae esa salida y
+después se edita `meta`, para no volver a su valor anterior.
+
 ## Cómo se representa una tarea
 
 | Backlog | En GitHub |

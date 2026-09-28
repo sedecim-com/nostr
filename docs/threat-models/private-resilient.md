@@ -29,8 +29,8 @@ adjuntos cifrados.
 | Riesgo | Nivel | Nota |
 |---|---|---|
 | Correlación de IP entre relays | Alto | Sin Tor, más relays implica más observadores |
-| Signer remoto malicioso | Medio | Mitigado con permisos mínimos; falta UI de permisos (FR004-04) |
-| Push opaco: revela tiempos de actividad | Medio | APNs/FCM ven cuándo hay actividad |
+| Signer remoto malicioso | Medio | Mitigado con permisos mínimos: la web pide solo los kinds que firma y los lista antes de conectar (FR004-04, FR004-06) |
+| Push opaco: revela tiempos de actividad | Medio | El servicio push del navegador ve cuándo hay actividad |
 | Sin forward secrecy en DMs | Medio | Usar Marmot en conversaciones sensibles |
 
 ## Supuestos

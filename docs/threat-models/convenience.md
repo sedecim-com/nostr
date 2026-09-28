@@ -19,7 +19,7 @@ cuenta↔npub en el identity-service, backup cifrado.
 ## Mitigaciones
 | Riesgo | Mitigación | Evidencia |
 |---|---|---|
-| Robo de la llave en el servidor | La nsec se genera y guarda cifrada (NIP-49) en el cliente; el SaaS nunca la recibe | `packages/identity`, E2E en navegador (FR001-05, pendiente de ampliar) |
+| Robo de la llave en el servidor | La nsec se genera y guarda cifrada (NIP-49) en el cliente; el SaaS nunca la recibe | `packages/identity`, `tests/browser/web-saas.e2e.ts` (FR001-05: ninguna petición ni frame WebSocket contiene la nsec) |
 | Pérdida del dispositivo | Backup NIP-49 con clave del usuario; restauración en un dispositivo limpio | `packages/identity/test` (FR-027) |
 | Lectura de DMs por el operador | NIP-44 + gift wrap NIP-59; el relay no ve contenido ni remitente | `packages/messaging/test` |
 | Suplantación en DMs | El unwrap verifica que el firmante del seal coincide con el autor del rumor | `messaging.test.ts` (impersonation) |
