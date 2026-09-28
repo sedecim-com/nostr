@@ -201,7 +201,14 @@ Versión `mip04-v2`, la que implementa marmot-ts 0.5.1 (se usan sus primitivas A
 El Buzz fijado (`02c6309`) tiene una lista cerrada de kinds y responde
 `restricted: unknown event kind` a 30443, 445 y 10051 (`docs/interop/`). Por eso los grupos Marmot
 van por el **relay secundario** del stack (`secure-relay`: nostr-rs-relay 0.9.0 fijado por digest,
-NIP-42 obligatorio, gift wraps solo al destinatario, también publicado como onion service).
+NIP-42, gift wraps solo al destinatario; en el perfil `tor`, una instancia propia detrás del onion service,
+ver `docs/sovereign-tor.md`).
+- Ese relay descarta sin avisar los gift wraps (y los DM de kind 4 y 44) de una conexión no autenticada:
+  no manda CLOSED ni NOTICE.
+- Por eso el relay-pool se autentica antes de cualquier suscripción que pida esos kinds, también en modo
+  `on-demand` (FR025-11). Así llegan las invitaciones (Welcome dentro del gift wrap) y los DM NIP-17.
+- El E2E de grupos de la web y el del CLI (`tests/interop/sovereign-secure-relay.interop.test.ts`) corren en
+  CI contra el nostr-rs-relay real del stack.
 Incluye su URL en los relays de la persona (`--relay ws://localhost:7000`); la política de red de la
 persona (Tor-only, allowlist) se aplica también al tráfico MLS.
 

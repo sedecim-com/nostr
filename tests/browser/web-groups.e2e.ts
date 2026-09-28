@@ -1,9 +1,11 @@
 /**
  * Browser E2E for high-security groups in the web (FR025-07). Run with: npm run test:browser
- * Two browser contexts (Alice, Bob) against in-process relays: a general relay (the persona relays, like
- * Buzz) and the secondary secure relay (NIP-42, gift wraps readable only by their recipient) configured
- * as `secureRelays`. Alice creates a Marmot/MLS group, invites Bob, both chat, Alice removes Bob and Bob
- * can no longer read; reloads restore the encrypted MLS state from the vault.
+ * Two browser contexts (Alice, Bob) against a general relay (the persona relays, like Buzz) and the
+ * secondary secure relay configured as `secureRelays`. Alice creates a Marmot/MLS group, invites Bob, both
+ * chat, Alice removes Bob and Bob can no longer read; reloads restore the encrypted MLS state from the vault.
+ * FR025-11: the secure relay is the real nostr-rs-relay when MARMOT_RELAY_URL is set (CI stack job), and
+ * otherwise an in-process relay that behaves like it: a NIP-42 challenge, no OK to a successful AUTH, and
+ * gift wraps only for their authenticated recipient, with nothing (not even a CLOSED) for anyone else.
  */
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
@@ -12,7 +14,9 @@ import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { chromium, type BrowserContext, type Page } from 'playwright';
-import { bytesToHex, generateSecretKey, getPublicKey, nip19, npubEncode } from '@sedecim/nostr-core';
+import WebSocket from 'ws';
+import { bytesToHex, generateSecretKey, getPublicKey, nip19, npubEncode, type Filter } from '@sedecim/nostr-core';
+import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestRelay } from '@sedecim/test-relay';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
@@ -31,8 +35,13 @@ const MARMOT_KINDS = [30443, 443, 444, 445, 10051];
 
 const relay = new TestRelay({ requireAuth: true, pGatedKinds: [1059], host: '127.0.0.1' });
 await relay.start();
-const secure = new TestRelay({ requireAuth: true, pGatedKinds: [1059], host: '127.0.0.1' });
-await secure.start();
+const localSecure = process.env.MARMOT_RELAY_URL ? undefined : new TestRelay({ silentDmKinds: [4, 44, 1059], silentAuthOk: true, host: '127.0.0.1' });
+await localSecure?.start();
+const secureUrl = process.env.MARMOT_RELAY_URL ?? localSecure!.url;
+const started = Math.floor(Date.now() / 1000) - 5;
+// Public kinds (key packages, group messages) are read back without authenticating.
+const probe = new RelayPool({ webSocketFactory: (url) => new WebSocket(url) as unknown as WebSocketLike });
+const secureQuery = async (filters: Filter[]) => (localSecure ? localSecure.query(filters) : probe.query([secureUrl], filters.map((f) => ({ ...f, since: started })), 10_000));
 
 // Static server with the same nonce substitution and CSP as infra/web/nginx.conf.
 const server = createServer(async (req, res) => {
@@ -53,7 +62,7 @@ const server = createServer(async (req, res) => {
 });
 await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-const config = { mode: 'self-hosted', relays: [relay.url], secureRelays: [secure.url] };
+const config = { mode: 'self-hosted', relays: [relay.url], secureRelays: [secureUrl] };
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const errors: string[] = [];
@@ -120,11 +129,11 @@ try {
 
   // --- Bob makes himself invitable: key package (kind 30443) on the secure relay only
   await openGroups(bob.page);
-  assert((await bob.page.textContent('#groups-relays'))?.includes(secure.url), 'groups use the secure relay configured by the deployment (ADR 0006)');
+  assert((await bob.page.textContent('#groups-relays'))?.includes(secureUrl), 'groups use the secure relay configured by the deployment (ADR 0006)');
   assert((await bob.page.textContent('#groups-kp-status'))?.includes('Sin key package'), 'a persona without a key package is told nobody can invite it yet');
   await bob.page.locator('#groups-keypackage').click();
   await bob.page.locator('#groups-kp-status').getByText(/^Key package publicado:/).waitFor({ timeout: 20_000 });
-  assert(secure.query([{ kinds: [30443, 443], authors: [bob.pubkey] }]).length >= 1, 'Bob key package published to the secure relay');
+  assert((await secureQuery([{ kinds: [30443, 443], authors: [bob.pubkey] }])).length >= 1, 'Bob key package published to the secure relay');
 
   // --- Alice creates a group
   await openGroups(alice.page);
@@ -165,7 +174,7 @@ try {
   await bob.page.locator('#group-send').getByRole('button', { name: 'Enviar' }).click();
   await logHas(alice.page, 'hola alice');
   assert(true, 'Alice receives and decrypts Bob message');
-  const groupEvents = secure.query([{ kinds: [445] }]);
+  const groupEvents = await secureQuery([{ kinds: [445] }]);
   assert(groupEvents.length >= 3 && groupEvents.every((e) => e.tags.some((t) => t[0] === 'h') && !e.content.includes('hola') && e.pubkey !== alice.pubkey && e.pubkey !== bob.pubkey), `secure relay only stores kind 445 ciphertext with ephemeral signers (${groupEvents.length} events)`);
   assert(relay.received.every((e) => !MARMOT_KINDS.includes(e.kind)), 'no Marmot kind was sent to the general relay');
 
@@ -263,6 +272,7 @@ try {
   await browser.close();
   server.close();
   await relay.stop();
-  await secure.stop();
+  probe.close();
+  await localSecure?.stop();
 }
 if (failures) process.exit(1);

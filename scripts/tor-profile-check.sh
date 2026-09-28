@@ -2,12 +2,14 @@
 # FR021-02: validates the compose `tor` profile end to end. Starts the relays and the Tor container,
 # waits for the onion service hostnames (tor-data volume), for Tor to bootstrap and for each onion to
 # answer NIP-11 through the compose SOCKS port, then uses the real sovereign CLI in the Tor profile:
-#   - secure-relay .onion: channel message published and read back (NIP-29 kind 9);
+#   - secure-relay .onion: channel message published and read back (NIP-29 kind 9), and a NIP-17 DM read back
+#     by its recipient (FR025-11: the onion instance's relay_url is the onion, so NIP-42 over it is accepted,
+#     and the client authenticates before asking for gift wraps);
 #   - relay (Buzz) .onion: NIP-17 DM between two Tor personas, read back by the recipient (NIP-42 AUTH
 #     through the onion service). Buzz binds each connection to the community of its Host header, so the
 #     onion host gets its own community first (scripts/buzz-provision-community.ts, operator NIP-98).
 #
-# Usage: bash scripts/tor-profile-check.sh              (starts relay, secure-relay and tor with --build)
+# Usage: bash scripts/tor-profile-check.sh              (starts relay, secure-relay, secure-relay-onion and tor with --build)
 #        TOR_CHECK_SKIP_UP=1 bash scripts/tor-profile-check.sh   (stack already running)
 #        TOR_CHECK_TIMEOUT=600 ...                      (seconds for bootstrap + onion reachability)
 #        BUZZ_OPERATOR_SECRET=<hex>                     (key in the relay RELAY_OPERATOR_PUBKEYS; without it a
@@ -66,7 +68,7 @@ export RELAY_OPERATOR_API_ORIGIN=${RELAY_OPERATOR_API_ORIGIN:-$BUZZ_HTTP_URL}
 
 if [ "${TOR_CHECK_SKIP_UP:-0}" != 1 ]; then
   [ -f .env ] || sh scripts/init-env.sh
-  "${COMPOSE[@]}" up -d --build relay secure-relay tor
+  "${COMPOSE[@]}" up -d --build relay secure-relay secure-relay-onion tor
 fi
 
 nip11() { curl -fsS --max-time 20 -H 'Accept: application/nostr+json' "$@" | grep -q '"name"'; }
@@ -125,6 +127,24 @@ send_with_retry "$OUT/secure.send.log" secure "$S" channel send --persona "$S" -
 cli secure channel read --persona "$S" --group tor-check | tee "$OUT/secure.read.log" || true
 grep -qF "$TEXT" "$OUT/secure.read.log" || fail "the message published to the secure-relay .onion was not read back through Tor"
 echo "ok - secure-relay .onion: published and read back through the compose Tor SOCKS port"
+
+# --- secure-relay .onion: NIP-17 DM from the Tor persona above to a second one, read back by the recipient
+cli secure-b persona create --label tor-secure-b --relay "ws://$SECURE_ONION" --tor --high-risk > "$OUT/secure-b.persona.json" || fail "persona create B (secure-relay onion)"
+SB=$(persona_id "$OUT/secure-b.persona.json")
+SB_PUB=$(pubkey_of "$OUT/secure-b.persona.json")
+[ -n "$SB_PUB" ] || fail "could not read the pubkey of persona B (secure-relay onion)"
+SDM="dm por el onion del secure relay $(date +%s)"
+send_with_retry "$OUT/secure.dm.send.log" secure "$S" dm send --persona "$S" --to "$SB_PUB" "$SDM" ||
+  fail "NIP-17 DM to the secure-relay .onion was not accepted (see $OUT/secure.dm.send.log)"
+found=0
+for _ in 1 2 3 4 5 6; do
+  cli secure-b dm inbox --persona "$SB" > "$OUT/secure.inbox.log" 2>&1 || true
+  if grep -qF "$SDM" "$OUT/secure.inbox.log"; then found=1; break; fi
+  sleep 5
+done
+cat "$OUT/secure.inbox.log"
+[ "$found" = 1 ] || fail "the DM was not read back from the secure-relay .onion by its recipient: nostr-rs-relay only serves gift wraps after a NIP-42 AUTH for the host of its relay_url, which must be the onion (see $OUT/secure.inbox.log and the secure-relay-onion log)"
+echo "ok - secure-relay .onion: DM read back by its recipient (NIP-42 through the onion service)"
 
 # --- relay (Buzz) .onion: NIP-17 DM from Tor persona A to Tor persona B, read back by B
 cli buzz-a persona create --label tor-buzz-a --relay "ws://$RELAY_ONION" --tor --high-risk > "$OUT/buzz-a.persona.json" || fail "persona create A (relay onion)"

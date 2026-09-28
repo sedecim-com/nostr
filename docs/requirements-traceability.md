@@ -21,7 +21,7 @@ Los tests se ejecutan con `npm test` (unitarios + E2E en proceso), `npm run test
 | FR-013 | Sync tras reinstalar | ✅ | `packages/sync`: NIP-77 (Negentropy, solo se transfieren los faltantes) con fallback automático a REQ por ventanas si el relay no lo soporta o aborta la sesión (`sync.test.ts`); gift wraps con timestamps de hasta 2 días sin pérdidas (`gift-wrap-window.test.ts`); E2E reinstalar → restaurar backup → canales, DMs y outbox iguales (`tests/e2e/reinstall-history.test.ts`) |
 | FR-014 | SaaS mirror | ✅ | `services/indexer/test` + `tests/browser/web-saas.e2e.ts` |
 | FR-015 | SaaS send | ✅ | `tests/browser/web-saas.e2e.ts` (web → relay → otro cliente) |
-| FR-016 | NIP-42 | ✅ | `pool.test.ts` (challenge/response, auth-required recuperable) |
+| FR-016 | NIP-42 | ✅ | `pool.test.ts` (challenge/response, auth-required recuperable; AUTH antes de pedir gift wraps y DM, también en `on-demand`, FR025-11); `sovereign-secure-relay.interop.test.ts` y `web-groups.e2e.ts` contra el nostr-rs-relay real en CI |
 | FR-017 | NIP-17 con gate | ✅ | Feature flag + `tests/interop` ejecutado contra Buzz `02c6309`: requiere adaptador de jitter acotado (`docs/interop/buzz-02c6309-report.json`) |
 | FR-018 | Blossom | ✅ | `packages/blossom-client/test`, `services/blob-store/test` (cifrados); Buzz `/media` rechaza blobs cifrados → blob-store; lista de servidores del usuario (kind 10063, BUD-03) en `server-list.test.ts` |
 | FR-019 | Saneamiento EXIF | ✅ | `blossom.test.ts` (JPEG APP1/COM, PNG tEXt, WebP EXIF/XMP/ICCP con flags VP8X; HEIC/HEIF/AVIF rechazado con `requireSanitizable`) |
