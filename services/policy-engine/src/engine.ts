@@ -7,6 +7,7 @@ import {
   type DirectoryEntry,
   type PolicyAuditEntry,
   type Resource,
+  type RevocationPage,
   type RetentionPolicy,
   type Rotation,
   type Subject,
@@ -54,9 +55,26 @@ export class PolicyEngine {
     return this.repo.appendAudit({ at: this.now(), actor, action, target, ...(details ? { details } : {}) });
   }
 
+  /** Sets roles and attributes. Never changes the revocation (FR023-09): lifting it is `reactivateSubject`. */
   async upsertSubject(actor: string, s: Subject) {
-    await this.repo.putSubject(s);
+    const prev = await this.repo.getSubject(s.pubkey);
+    const { suspended: _ignored, ...fields } = s;
+    await this.repo.putSubject({ ...fields, ...(prev?.suspended ? { suspended: true } : {}) });
     await this.log(actor, 'subject.upsert', s.pubkey, { roles: s.roles });
+  }
+
+  /**
+   * FR023-09: lifting a revocation is an explicit action with its own audit entry. Devices revoked with the
+   * subject stay revoked and resource memberships are not restored, so the person needs a new device (and
+   * to be added back to groups) before a relay lets it in again.
+   */
+  async reactivateSubject(actor: string, pubkey: string) {
+    const s = await this.repo.getSubject(pubkey);
+    if (!s) throw new NotFoundError('unknown subject');
+    if (!s.suspended) throw new ConflictError('subject is not revoked');
+    const { suspended: _lifted, ...active } = s;
+    await this.repo.putSubject(active);
+    await this.log(actor, 'subject.reactivate', pubkey);
   }
 
   async upsertResource(actor: string, r: Resource) {
@@ -138,6 +156,20 @@ export class PolicyEngine {
     for (const r of await this.repo.listResources()) if (r.members?.includes(pubkey)) await this.repo.putResource({ ...r, members: r.members.filter((m) => m !== pubkey) });
     await this.log(actor, 'subject.revoke', pubkey);
     return rots;
+  }
+
+  /**
+   * FR024-04: device revocations after `after` (an audit id), oldest first. They come straight from the
+   * audit, filtered by action, so no amount of other audit traffic can push one out of a page.
+   */
+  async listRevocations(q: { after?: number; limit?: number } = {}): Promise<RevocationPage> {
+    const entries = await this.repo.listAuditByAction({ action: 'device.revoke', after: q.after ?? 0, limit: Math.min(Math.max(q.limit ?? 100, 1), 1000) });
+    return {
+      revocations: entries.map((e) => ({ cursor: e.id, at: e.at, deviceId: e.target, ...(typeof e.details?.reason === 'string' ? { reason: e.details.reason } : {}) })),
+      // Read after the page, so that it is never older than what the page holds.
+      latest: await this.repo.lastAuditId('device.revoke'),
+      now: this.now(),
+    };
   }
 
   async markRotationDone(actor: string, id: string): Promise<Rotation> {

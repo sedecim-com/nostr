@@ -8,8 +8,9 @@ DataDirectory /var/lib/tor
 HiddenServiceDir /var/lib/tor/relay
 HiddenServiceVersion 3
 HiddenServicePort 80 relay:3000
+# The secure relay's onion is its own instance, whose relay_url is this onion (NIP-42, FR025-11).
 HiddenServiceDir /var/lib/tor/secure-relay
 HiddenServiceVersion 3
-HiddenServicePort 80 secure-relay:8080
+HiddenServicePort 80 secure-relay-onion:8080
 Log notice stdout
 SafeLogging 1

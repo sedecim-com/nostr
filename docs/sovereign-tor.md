@@ -1,8 +1,8 @@
 # Sovereign Tor Mode (spec §14)
 
 ```bash
-docker compose --profile tor up -d           # Tor SOCKS en 127.0.0.1:9050 + onion service del relay
-docker compose logs tor | grep "onion relay"   # dirección ws://<56 chars>.onion
+docker compose --profile tor up -d           # Tor SOCKS en 127.0.0.1:9050 + onion services de los relays
+docker compose logs tor | grep "onion"         # direcciones ws://<56 chars>.onion (relay y secure relay)
 export SOVEREIGN_PASSPHRASE='…'
 npm run sovereign -- persona create --label Fuente --relay ws://<onion>.onion --high-risk
 npm run sovereign -- channel send --persona <id> --group <h> "texto"
@@ -17,8 +17,19 @@ HTTP del relay que llama el script (p. ej. `http://localhost:3000`), ambos en `.
 BUZZ_OPERATOR_SECRET=<hex|nsec> npx tsx scripts/buzz-provision-community.ts <56 chars>.onion
 ```
 
-Es otro tenant: sus canales y mensajes no se mezclan con los de la comunidad clearnet (`RELAY_URL`). El
-secure-relay (nostr-rs-relay) no lo necesita.
+Es otro tenant: sus canales y mensajes no se mezclan con los de la comunidad clearnet (`RELAY_URL`).
+
+**Secure relay por `.onion`: una instancia propia (FR025-11).** nostr-rs-relay solo acepta un AUTH NIP-42 cuyo
+tag `relay` tenga el host de su `relay_url`, y un cliente que entra por el onion firma para el onion. Por eso
+el onion del secure relay apunta a `secure-relay-onion`, que solo existe en el perfil `tor` y no publica
+puertos en el host.
+- Arranca con la misma configuración, pero con `relay_url = "ws://<onion>/"`
+  (`infra/secure-relay/onion-entrypoint.sh`).
+- El contenedor de Tor publica el hostname del onion en el volumen `onion-names`; las llaves siguen en
+  `tor-data`.
+- Como la comunidad onion de Buzz, tiene sus propios datos: no se mezcla con el secure relay clearnet.
+- Sin ese ajuste, los clientes no se autentican por el onion. El relay descarta los gift wraps sin avisar,
+  y ni las invitaciones a grupos ni los DM NIP-17 llegan.
 
 Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-client/test`, `scripts/leak-test.sh`):
 - Con Tor caído, **no** se abre ninguna conexión: el mensaje queda en outbox con
@@ -72,15 +83,18 @@ reales de tcpdump en `tests/leak/fixtures/` y paquetes sintéticos (IPv6, DoH, m
 ## Perfil `tor` del compose de punta a punta (FR021-02)
 
 ```bash
-bash scripts/tor-profile-check.sh                    # levanta relay, secure-relay y tor (--build)
+bash scripts/tor-profile-check.sh                    # levanta relay, secure-relay, secure-relay-onion y tor (--build)
 TOR_CHECK_SKIP_UP=1 bash scripts/tor-profile-check.sh   # con el stack ya arriba
 ```
 
 Espera los hostnames de los onion services en el volumen `tor-data` (`relay/hostname`,
 `secure-relay/hostname`), `Bootstrapped 100%` y que cada `.onion` responda NIP-11 por el puerto SOCKS del
-compose (hasta `TOR_CHECK_TIMEOUT`, 420 s por etapa). Después, con el CLI en perfil Tor: publica y relee un
-mensaje de canal en el `.onion` del secure-relay, y envía un DM NIP-17 entre dos personas Tor por el `.onion`
-del relay (Buzz), que el destinatario relee (NIP-42 a través del onion service). Antes crea la comunidad del
+compose (hasta `TOR_CHECK_TIMEOUT`, 420 s por etapa). Después, con el CLI en perfil Tor:
+- En el `.onion` del secure-relay, publica y relee un mensaje de canal y envía un DM NIP-17 que el
+  destinatario relee.
+- En el `.onion` del relay (Buzz), envía un DM NIP-17 entre dos personas Tor, que el destinatario relee.
+
+Ambos DM exigen NIP-42 a través del onion service. Antes crea la comunidad del
 host onion con una llave de operador desechable (o `BUZZ_OPERATOR_SECRET`). Si falla, imprime el log
 de Tor y dice qué etapa falló. Job `tor-profile` en CI.
 

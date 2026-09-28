@@ -7,7 +7,7 @@
 # - Postgres: pg_dump (custom format) of Buzz's database and of the platform database (mirror, identity,
 #   managed-signer registry).
 # - Volumes: tar of relay-git, seaweedfs-data (Buzz media), blob-data (encrypted attachments),
-#   secure-relay-data and, when those services run, managed-vault and tor-data. Each service is paused
+#   secure-relay-data and, when those services run, managed-vault, tor-data and secure-relay-onion-data. Each service is paused
 #   (`docker compose pause`) during its copy, so the archive is a consistent snapshot (a few seconds).
 # - .env (relay key and every stack secret), unless --no-env: keep the backup directory encrypted/offline.
 # - SHA256SUMS over everything, checked by scripts/restore.sh.
@@ -44,7 +44,8 @@ trap cleanup EXIT INT TERM
 
 # service  mount path  archive name
 for entry in relay:/data/git:relay-git seaweedfs:/data:seaweedfs-data blob-store:/data:blob-data \
-  secure-relay:/usr/src/app/db:secure-relay-data managed-signer:/data:managed-vault tor:/var/lib/tor:tor-data; do
+  secure-relay:/usr/src/app/db:secure-relay-data secure-relay-onion:/usr/src/app/db:secure-relay-onion-data \
+  managed-signer:/data:managed-vault tor:/var/lib/tor:tor-data; do
   svc=${entry%%:*}
   rest=${entry#*:}
   path=${rest%%:*}

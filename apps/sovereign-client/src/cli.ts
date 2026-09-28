@@ -48,7 +48,8 @@
  *      SOVEREIGN_BACKUP_PASSWORD (backup files, when --password-file is not given),
  *      SOVEREIGN_BLOB_STORE (fallback Blossom/blob-store URL for encrypted group media),
  *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present),
- *      SOVEREIGN_POLICY_BEARER (optional bearer for POST /v1/rotations/:id/done; NIP-98 otherwise),
+ *      SOVEREIGN_POLICY_BEARER (optional service bearer for POST /v1/rotations/:id/done and GET /v1/revocations;
+ *        NIP-98 otherwise),
  *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer)
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';

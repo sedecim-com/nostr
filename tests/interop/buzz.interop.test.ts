@@ -128,7 +128,7 @@ describe.skipIf(!MARMOT_URL)('Marmot/MLS conformance on the secure relay', () =>
     const pools: RelayPool[] = [];
     const makeMember = (name: string) => {
       const signer = new LocalSigner(generateSecretKey());
-      const pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'auto' });
+      const pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'on-demand' });
       pools.push(pool);
       return { signer, storage: new EncryptedGroupStorage(EncryptedStore.withKey(new MemoryBackend(), new Uint8Array(32).fill(name.charCodeAt(0)))), network: new PoolGroupNetwork(pool, [MARMOT_URL!]) };
     };

@@ -49,7 +49,8 @@ log "creating containers and empty volumes (docker compose up --no-start)"
 docker compose up --no-start
 
 for entry in relay:/data/git:relay-git seaweedfs:/data:seaweedfs-data blob-store:/data:blob-data \
-  secure-relay:/usr/src/app/db:secure-relay-data managed-signer:/data:managed-vault tor:/var/lib/tor:tor-data; do
+  secure-relay:/usr/src/app/db:secure-relay-data secure-relay-onion:/usr/src/app/db:secure-relay-onion-data \
+  managed-signer:/data:managed-vault tor:/var/lib/tor:tor-data; do
   svc=${entry%%:*}
   rest=${entry#*:}
   path=${rest%%:*}

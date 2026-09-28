@@ -7,12 +7,30 @@ export interface SubscriptionHandlers {
   onclosed?: (reason: string) => void;
 }
 
+/**
+ * Kinds that relays with NIP-42 DM protection serve only to the authenticated recipient: NIP-04 DMs (4), their
+ * NIP-44 variant (44) and gift wraps (1059: NIP-17 DMs, Marmot Welcomes). nostr-rs-relay with `nip42_dms`
+ * drops them silently for an unauthenticated connection, with no CLOSED or NOTICE to react to (FR025-11).
+ */
+export const RECIPIENT_ONLY_KINDS: readonly number[] = [4, 44, 1059];
+
+const asksRecipientOnly = (filters: Filter[]) => filters.some((f) => f.kinds?.some((k) => RECIPIENT_ONLY_KINDS.includes(k)));
+
 export interface RelayConnectionOptions {
   webSocketFactory?: WebSocketFactory;
   /** Signer used to answer NIP-42 challenges. */
   signer?: Signer;
-  /** 'auto': authenticate as soon as a challenge arrives; 'on-demand': only after auth-required. */
+  /**
+   * 'auto': authenticate as soon as a challenge arrives. 'on-demand': only after auth-required, except that a
+   * subscription asking for RECIPIENT_ONLY_KINDS authenticates first (no relay would say it is needed).
+   */
   authMode?: 'auto' | 'on-demand' | 'never';
+  /**
+   * How long a subscription that must authenticate first waits for the relay's challenge after connecting
+   * (default 500 ms for 'auto', 1500 ms for a recipient-only subscription). If none comes, the relay does not
+   * do NIP-42 and later subscriptions on that connection no longer wait.
+   */
+  challengeWaitMs?: number;
   connectTimeoutMs?: number;
   publishTimeoutMs?: number;
   /** Wait for the OK to a NIP-42 AUTH. Some relays (nostr-rs-relay 0.9) never send it on success. */
@@ -81,8 +99,13 @@ export class RelayConnection {
   /** Set when a connection dropped or an attempt failed; the next successful open is a reconnect. */
   private interrupted = false;
   private challengeWaiters: Array<() => void> = [];
+  /** A subscription already waited for a challenge on this socket and none came: do not wait again. */
+  private challengeWaitExpired = false;
+  /** Resolves once the AUTH of the authentication in flight is on the wire (false if it could not be sent). */
+  private authSent?: Promise<boolean>;
   private readonly rawListeners = new Set<(msg: unknown[]) => void>();
-  private readonly opts: Required<Omit<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect' | 'onPublishResult'>> & Pick<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect' | 'onPublishResult'>;
+  private readonly opts: Required<Omit<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect' | 'onPublishResult' | 'challengeWaitMs'>> &
+    Pick<RelayConnectionOptions, 'signer' | 'authRelayUrl' | 'onReconnect' | 'onPublishResult' | 'challengeWaitMs'>;
 
   constructor(readonly url: string, opts: RelayConnectionOptions = {}) {
     this.opts = {
@@ -91,6 +114,7 @@ export class RelayConnection {
       authRelayUrl: opts.authRelayUrl,
       onReconnect: opts.onReconnect,
       onPublishResult: opts.onPublishResult,
+      challengeWaitMs: opts.challengeWaitMs,
       authMode: opts.authMode ?? 'on-demand',
       connectTimeoutMs: opts.connectTimeoutMs ?? 10_000,
       publishTimeoutMs: opts.publishTimeoutMs ?? 10_000,
@@ -183,6 +207,7 @@ export class RelayConnection {
     this.ws = undefined;
     if (!this.closedByUser) this.interrupted = true;
     this.challenge = undefined;
+    this.challengeWaitExpired = false;
     this.authed.clear();
     if (this.status !== 'blocked') this.status = 'disconnected';
     for (const [, waiters] of this.pendingOks) for (const w of waiters) {
@@ -208,7 +233,19 @@ export class RelayConnection {
   }
 
   private resubscribeAll() {
-    for (const [id, s] of this.subs) this.sendRaw(['REQ', id, ...s.filters]);
+    const send = () => {
+      for (const [id, s] of this.subs) this.sendRaw(['REQ', id, ...s.filters]);
+    };
+    const wait = this.authFirstWait([...this.subs.values()].flatMap((s) => s.filters));
+    if (wait !== undefined) void this.authenticateFirst(wait).then(send, send);
+    else send();
+  }
+
+  /** How long to wait for a challenge before these filters' REQ, or undefined to send it right away. */
+  private authFirstWait(filters: Filter[]): number | undefined {
+    if (!this.canAuth() || this.authed.size > 0) return undefined;
+    const wait = this.opts.authMode === 'auto' ? 500 : asksRecipientOnly(filters) ? 1500 : undefined;
+    return wait === undefined ? undefined : (this.opts.challengeWaitMs ?? wait);
   }
 
   close() {
@@ -363,6 +400,8 @@ export class RelayConnection {
     if (!this.opts.signer) return Promise.resolve(false);
     if (this.authInFlight) return this.authInFlight;
     const signer = this.opts.signer;
+    let markSent: (sent: boolean) => void = () => {};
+    this.authSent = new Promise((resolve) => (markSent = resolve));
     this.authInFlight = (async () => {
       await this.connect();
       if (!(await this.waitForChallenge(this.opts.publishTimeoutMs))) return false;
@@ -374,16 +413,35 @@ export class RelayConnection {
           ['challenge', this.challenge!],
         ],
       });
-      const res = await this.sendAndAwaitOk(evt, 'AUTH', this.opts.authTimeoutMs);
+      const ok = this.sendAndAwaitOk(evt, 'AUTH', this.opts.authTimeoutMs);
+      markSent(true);
+      const res = await ok;
       // No answer at all (not a rejection): accept optimistically; a later auth-required will surface it.
       const silent = !res.ok && res.message === 'error: timeout waiting for OK';
       if (res.ok || silent) this.authed.add(evt.pubkey);
       else this.lastError = `auth failed: ${res.message}`;
       return res.ok || silent;
     })().finally(() => {
+      markSent(false);
       this.authInFlight = undefined;
     });
     return this.authInFlight;
+  }
+
+  /**
+   * Authenticates before a subscription that needs it and resolves once the AUTH is on the wire: relays
+   * process a connection's messages in order, so a REQ sent next is already evaluated as authenticated,
+   * without waiting for an OK that nostr-rs-relay 0.9 never sends on success. Resolves at once when there is
+   * no challenge to answer (the relay does not do NIP-42).
+   */
+  private async authenticateFirst(waitMs: number): Promise<void> {
+    if (this.challengeWaitExpired && !this.challenge) return;
+    if (!(await this.waitForChallenge(waitMs))) {
+      this.challengeWaitExpired = true;
+      return;
+    }
+    const done = this.authenticate().catch(() => false);
+    await Promise.race([this.authSent, done]);
   }
 
   private sendAndAwaitOk(evt: NostrEvent, verb: 'EVENT' | 'AUTH', timeoutMs = this.opts.publishTimeoutMs): Promise<{ ok: boolean; message: string }> {
@@ -453,10 +511,12 @@ export class RelayConnection {
     this.connect().then(
       () => {
         if (!this.subs.has(id)) return;
-        const doReq = () => this.sendRaw(['REQ', id, ...filters]);
-        if (this.opts.authMode === 'auto' && this.canAuth() && this.authed.size === 0) {
-          void this.waitForChallenge(500).then((has) => (has ? this.authenticate().then(doReq) : doReq()));
-        } else doReq();
+        const doReq = () => {
+          if (this.subs.has(id)) this.sendRaw(['REQ', id, ...filters]);
+        };
+        const wait = this.authFirstWait(filters);
+        if (wait !== undefined) void this.authenticateFirst(wait).then(doReq, doReq);
+        else doReq();
       },
       (err: Error) => {
         if (!this.opts.autoReconnect || err instanceof NetworkBlockedError) this.finishSub(id, `error: ${err.message}`);

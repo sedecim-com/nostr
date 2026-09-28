@@ -280,6 +280,14 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npx tsx tests/browser/web-buzz.e2e.ts
+      # FR025-11: groups in the browser with the real secure relay (nostr-rs-relay drops gift wraps silently for
+      # connections that did not authenticate). The CLI side runs in the interop gate above.
+      - name: Web groups against the real secure relay (FR025-11)
+        env:
+          MARMOT_RELAY_URL: ws://localhost:7000
+        run: |
+          npm run build:web
+          npx tsx tests/browser/web-groups.e2e.ts
       - name: Collect logs
         if: always()
         run: docker compose logs --no-color > compose.log 2>&1 || true

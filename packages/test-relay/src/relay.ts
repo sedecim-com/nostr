@@ -37,6 +37,11 @@ export interface TestRelayOptions {
   supportsNegentropy?: boolean;
   /** Do not send OK after a successful AUTH (nostr-rs-relay 0.9 behaviour). */
   silentAuthOk?: boolean;
+  /**
+   * nostr-rs-relay `nip42_dms`: events of these kinds reach only connections authenticated as their author or
+   * a `p` recipient. Everyone else gets nothing, silently: no CLOSED, no NOTICE (e.g. [4, 44, 1059]).
+   */
+  silentDmKinds?: number[];
   /** Answer unauthenticated REQs with a NOTICE instead of CLOSED (Buzz behaviour). */
   authNoticeOnReq?: boolean;
   /** Buzz fan-out: live events carrying an `h` tag only reach subscriptions that filter by `#h`. */
@@ -245,9 +250,14 @@ export class TestRelay {
     for (const c of this.clients) {
       for (const [subId, filters] of c.subs) {
         const live = channelScoped ? filters.filter((f) => f['#h'] !== undefined) : filters;
-        if (matchFilters(live, evt)) this.send(c, ['EVENT', subId, evt]);
+        if (matchFilters(live, evt) && this.dmVisible(c, evt)) this.send(c, ['EVENT', subId, evt]);
       }
     }
+  }
+
+  private dmVisible(state: ClientState, evt: NostrEvent): boolean {
+    if (!this.opts.silentDmKinds?.includes(evt.kind)) return true;
+    return state.authed.has(evt.pubkey) || evt.tags.some((t) => t[0] === 'p' && t[1] !== undefined && state.authed.has(t[1]));
   }
 
   /** Access check shared by REQ and NEG-OPEN: undefined when allowed, otherwise the machine-readable reason. */
@@ -283,7 +293,7 @@ export class TestRelay {
       const denied = this.readDenied(state, [filter]);
       if (denied) return this.send(state, ['NEG-ERR', subId, denied]);
       const { limit: _limit, ...unlimited } = filter;
-      session = { responder: new NegentropyResponder(this.query([unlimited])), messages: 0 };
+      session = { responder: new NegentropyResponder(this.query([unlimited]).filter((e) => this.dmVisible(state, e))), messages: 0 };
       state.neg.set(subId, session); // replaces a previous session with the same id (NIP-77)
     } else {
       this.negStats.msg++;
@@ -311,7 +321,7 @@ export class TestRelay {
     const denied = this.readDenied(state, filters);
     if (denied) return this.send(state, ['CLOSED', subId, denied]);
     state.subs.set(subId, filters);
-    for (const evt of this.query(filters)) this.send(state, ['EVENT', subId, evt]);
+    for (const evt of this.query(filters)) if (this.dmVisible(state, evt)) this.send(state, ['EVENT', subId, evt]);
     this.send(state, ['EOSE', subId]);
   }
 }

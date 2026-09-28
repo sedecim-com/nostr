@@ -354,13 +354,30 @@ services:
       postgres: { condition: service_healthy }
       policy-engine: { condition: service_started }
 
-  # --- optional: Sovereign Tor Mode (SOCKS for clients + onion service for the relay)
+  # --- optional: Sovereign Tor Mode (SOCKS for clients + onion services for the relays)
   tor:
     profiles: [tor]
     build: { context: ./infra/tor }
-    volumes: [tor-data:/var/lib/tor]
+    # onion-names: only the onion hostnames (the keys stay in tor-data), read by secure-relay-onion.
+    volumes: [tor-data:/var/lib/tor, onion-names:/var/lib/onion-names]
     ports: ["127.0.0.1:${TOR_SOCKS_PORT:-9050}:9050"]
-    depends_on: [relay]
+    # Tor resolves the onion targets when it starts: they must be running (secure-relay-onion waits for Tor).
+    depends_on: [relay, secure-relay-onion]
+    restart: unless-stopped
+    networks: [nostr]
+
+  # The secure relay behind its onion service, as its own instance (FR025-11): nostr-rs-relay accepts a NIP-42
+  # AUTH only for the host of its relay_url, which here must be the onion. It renders relay_url from the
+  # hostname Tor publishes. Its own data, as Buzz gives the onion host its own community; no host port.
+  secure-relay-onion:
+    profiles: [tor]
+    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5}
+    entrypoint: ["/bin/sh", "/usr/local/bin/onion-entrypoint.sh"]
+    volumes:
+      - ${SECURE_RELAY_CONFIG:-./infra/secure-relay/config.toml}:/etc/secure-relay/config.toml:ro
+      - ./infra/secure-relay/onion-entrypoint.sh:/usr/local/bin/onion-entrypoint.sh:ro
+      - onion-names:/var/lib/onion-names:ro
+      - secure-relay-onion-data:/usr/src/app/db
     restart: unless-stopped
     networks: [nostr]
 
@@ -373,6 +390,8 @@ volumes:
   blob-data:
   secure-relay-data:
   tor-data:
+  onion-names:
+  secure-relay-onion-data:
 
 networks:
   nostr:

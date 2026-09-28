@@ -115,10 +115,21 @@ Flujo completo de un dispositivo perdido o robado, probado de punta a punta en
      esta identidad no tiene, intento de expulsarse a sí misma) **nunca** marca la rotación como hecha;
    - **logs** solo con id de rotación, prefijo del grupo, época y resultado; nunca texto de mensajes. Usa un
      dispositivo (o una persona admin) dedicado: el worker sincroniza los grupos y descarta lo que descifra.
-3. **Firmantes** (FR024-03). Con `--managed-signer` el worker también propaga cada `device.revoke` de la
-   auditoría del policy-engine a `POST /v1/devices/:id/revoke` del managed-signer, autenticado con un token de
+3. **Firmantes** (FR024-03). Con `--managed-signer` el worker también propaga cada revocación de dispositivo
+   del policy-engine a `POST /v1/devices/:id/revoke` del managed-signer, autenticado con un token de
    revocación (`MANAGED_SIGNER_REVOCATION_TOKENS`, que no sirve para nada más). Es idempotente y se reintenta
    hasta que todos los destinos lo aceptan.
+   - **Sin pérdidas** (FR024-04). El worker lee `GET /v1/revocations?after=<cursor>`: solo las entradas
+     `device.revoke` de la auditoría, de la más antigua a la más nueva y por páginas. Así, ningún volumen de
+     otras entradas de la auditoría (cada `evaluate` escribe una) desplaza una revocación fuera de la
+     página, como pasaba al leer las últimas 100 de `GET /v1/audit`.
+     - Una revocación que falla no deja pasar el cursor y se reintenta en cada ciclo. Las siguientes se
+       propagan igual.
+     - El cursor tampoco pasa una revocación con menos de 60 s según el reloj del policy-engine. El id de
+       auditoría se asigna antes del commit, así que un id menor puede aparecer después que uno mayor.
+     - El cursor se guarda, por policy-engine, en el almacén cifrado de la persona. Al reiniciar se sigue
+       desde ahí. Si el cursor es mayor que la última revocación (otra base, o una reconstruida), empieza de
+       cero.
    - **Managed-signer**: los clientes abren **sesiones ligadas al dispositivo** (`POST /v1/device-sessions`
      con su token de Acceso → token `sds_…`, 12 h por defecto; solo se guarda su SHA-256). Al revocar el
      dispositivo sus sesiones se borran, no se abren nuevas y cualquier petición con `x-device-id` de ese
@@ -190,7 +201,14 @@ Versión `mip04-v2`, la que implementa marmot-ts 0.5.1 (se usan sus primitivas A
 El Buzz fijado (`02c6309`) tiene una lista cerrada de kinds y responde
 `restricted: unknown event kind` a 30443, 445 y 10051 (`docs/interop/`). Por eso los grupos Marmot
 van por el **relay secundario** del stack (`secure-relay`: nostr-rs-relay 0.9.0 fijado por digest,
-NIP-42 obligatorio, gift wraps solo al destinatario, también publicado como onion service).
+NIP-42, gift wraps solo al destinatario; en el perfil `tor`, una instancia propia detrás del onion service,
+ver `docs/sovereign-tor.md`).
+- Ese relay descarta sin avisar los gift wraps (y los DM de kind 4 y 44) de una conexión no autenticada:
+  no manda CLOSED ni NOTICE.
+- Por eso el relay-pool se autentica antes de cualquier suscripción que pida esos kinds, también en modo
+  `on-demand` (FR025-11). Así llegan las invitaciones (Welcome dentro del gift wrap) y los DM NIP-17.
+- El E2E de grupos de la web y el del CLI (`tests/interop/sovereign-secure-relay.interop.test.ts`) corren en
+  CI contra el nostr-rs-relay real del stack.
 Incluye su URL en los relays de la persona (`--relay ws://localhost:7000`); la política de red de la
 persona (Tor-only, allowlist) se aplica también al tráfico MLS.
 

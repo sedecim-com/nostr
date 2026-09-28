@@ -118,6 +118,7 @@ export class PolicyAdminApi {
   listSubjects = async () => (await this.call<{ subjects: Subject[] }>('GET', '/v1/subjects')).subjects;
   putSubject = (pubkey: string, s: { roles: string[]; attributes: Subject['attributes'] }) => this.call<unknown>('PUT', `/v1/subjects/${enc(pubkey)}`, s);
   revokeSubject = async (pubkey: string) => (await this.call<{ rotations: RotationRequired[] }>('POST', `/v1/subjects/${enc(pubkey)}/revoke`)).rotations;
+  reactivateSubject = (pubkey: string) => this.call<unknown>('POST', `/v1/subjects/${enc(pubkey)}/reactivate`);
 
   listResources = async () => (await this.call<{ resources: Resource[] }>('GET', '/v1/resources')).resources;
   putResource = (id: string, r: Omit<Resource, 'id'>) => this.call<unknown>('PUT', `/v1/resources/${enc(id)}`, { kind: r.kind, sensitivity: r.sensitivity, rules: r.rules, ...(r.members ? { members: r.members } : {}) });

@@ -120,10 +120,14 @@ describe('device loss end to end (SEC-04, FR-024)', () => {
     await expect(Promise.resolve().then(() => engine.openSession(alice, phone.id))).rejects.toThrow(/not usable/);
     expect((await engine.evaluate({ pubkey: alice, deviceId: phone.id, resourceId: group.groupId, action: 'read' })).reasons).toEqual(['device revoked']);
 
-    // 2. Revocation propagated to the managed-signer (and from it to the bunker).
+    // 2. Revocation propagated to the managed-signer (and from it to the bunker), even after more than a
+    //    page of other audit entries: the default audit page no longer shows it (B2, FR024-04).
+    for (let i = 0; i < 150; i++) await engine.evaluate({ pubkey: alice, resourceId: group.groupId, action: 'read' });
+    expect((await engine.listAudit()).some((e) => e.action === 'device.revoke')).toBe(false);
     const policy = new HttpPolicySource({ baseUrl: policyBase, signer: adminSigner });
-    const propagator = new RevocationPropagator({ audit: () => policy.audit(), sinks: [managedSignerSink({ baseUrl: signerBase, token: REVOCATION_TOKEN })], logger: silent });
+    const propagator = new RevocationPropagator({ feed: policy, sinks: [managedSignerSink({ baseUrl: signerBase, token: REVOCATION_TOKEN })], logger: silent });
     expect(await propagator.runOnce()).toEqual([phone.id]);
+    expect(await propagator.runOnce()).toEqual([]);
 
     // 3. The worker rotates the group.
     const epochBefore = (await workerSession.group(group.groupId)).epoch;

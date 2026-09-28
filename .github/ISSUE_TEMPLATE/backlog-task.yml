@@ -43,4 +43,4 @@ body:
     id: evidence
     attributes:
       label: Evidencia
-      description: Archivos, PRs o ADRs que prueban el avance (obligatoria al cerrar o marcar como parcial)
+      description: Archivos, PRs o ADRs que prueban el avance (obligatoria al cerrar o marcar como parcial). Para cerrarla como hecha, cita el SHA de un commit de main (7+ caracteres), p. ej. el de la PR que la cierra

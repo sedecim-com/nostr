@@ -91,6 +91,15 @@ export function createPolicyStub(opts: { adminPubkeys: string[]; corsOrigins: st
     log(actor, 'subject.revoke', pk);
     return { rotations: rots };
   }, 'nip98');
+  svc.post('/v1/subjects/:pubkey/reactivate', (req) => {
+    const actor = admin(req);
+    const s = subjects.get(req.params.pubkey!);
+    if (!s) throw new HttpError(404, 'unknown subject');
+    if (!s.suspended) throw new HttpError(409, 'subject is not revoked');
+    delete s.suspended;
+    log(actor, 'subject.reactivate', s.pubkey);
+    return { ok: true };
+  }, 'nip98');
 
   svc.get('/v1/resources', (req) => (admin(req), { resources: [...resources.values()] }), 'nip98');
   svc.put('/v1/resources/:id', (req) => {

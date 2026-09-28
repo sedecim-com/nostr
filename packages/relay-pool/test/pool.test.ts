@@ -90,6 +90,43 @@ describe('RelayPool', () => {
     expect(got.map((e) => e.id)).toEqual([evt.id]);
   });
 
+  it('authenticates before asking for gift wraps, which nostr-rs-relay with nip42_dms drops silently otherwise (FR025-11)', async () => {
+    const r = await startRelay({ silentDmKinds: [4, 44, 1059], silentAuthOk: true });
+    const me = await signer.getPublicKey();
+    const wrap = await new LocalSigner(generateSecretKey()).signEvent({ kind: 1059, content: 'sealed', tags: [['p', me]] });
+    r.inject(wrap);
+    const anonymous = new RelayPool({ webSocketFactory: factory });
+    expect(await anonymous.query([r.url], [{ kinds: [1059], '#p': [me] }], 1500)).toEqual([]);
+    anonymous.close();
+    pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'on-demand' });
+    const started = Date.now();
+    expect((await pool.query([r.url], [{ kinds: [1059], '#p': [me] }], 3000)).map((e) => e.id)).toEqual([wrap.id]);
+    // The REQ follows the AUTH at once, without waiting for the OK nostr-rs-relay never sends (authTimeoutMs: 2 s).
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('does not authenticate for public reads in on-demand mode', async () => {
+    const r = await startRelay({ silentDmKinds: [1059] });
+    r.inject(await signer.signEvent({ kind: 1, content: 'public' }));
+    pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'on-demand' });
+    expect(await pool.query([r.url], [{ kinds: [1] }], 2000)).toHaveLength(1);
+    await new Promise((res) => setTimeout(res, 100));
+    expect(pool.health()[0]!.authenticatedAs).toEqual([]);
+  });
+
+  it('authenticates again before resubscribing to gift wraps after a reconnect', async () => {
+    const r = await startRelay({ silentDmKinds: [1059], silentAuthOk: true });
+    const me = await signer.getPublicKey();
+    pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'on-demand', reconnectBaseMs: 20, reconnectMaxMs: 50 });
+    const seen: string[] = [];
+    await new Promise<void>((resolve) => pool.subscribe([r.url], [{ kinds: [1059], '#p': [me] }], { onevent: (e) => seen.push(e.content), oneose: resolve }));
+    r.disconnectAll();
+    await new Promise((res) => setTimeout(res, 300));
+    r.inject(await new LocalSigner(generateSecretKey()).signEvent({ kind: 1059, content: 'after reconnect', tags: [['p', me]] }));
+    await new Promise((res) => setTimeout(res, 300));
+    expect(seen).toContain('after reconnect');
+  });
+
   it('signs AUTH with the public relay URL when dialling an internal address (Buzz checks the tag against the tenant host)', async () => {
     const r = await startRelay({ requireAuth: true, authNoticeOnReq: true, publicUrl: 'wss://relay.example.org' });
     const internal = `ws://127.0.0.1:${r.port}`;

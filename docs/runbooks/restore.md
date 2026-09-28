@@ -45,6 +45,7 @@ Objetivos de RPO/RTO por tier: [`docs/rpo-rto.md`](../rpo-rto.md) (aprobados el 
 | Llave del relay y demás secretos | `.env` (`BUZZ_RELAY_PRIVATE_KEY`, `INDEXER_NSEC`, contraseñas) | Copia en el backup (`.env`, salvo `--no-env`) + copia offline cifrada |
 | Vault managed | volumen `managed-vault` + KEK | `managed-vault.tgz` si corre el perfil `managed`; la KEK se guarda separada (HSM/KMS) |
 | Onion service | volumen `tor-data` (`relay/hs_ed25519_secret_key`) | `tor-data.tgz` si corre el perfil `tor`: define la dirección .onion |
+| Secure relay del onion | secure-relay-onion (volumen `secure-relay-onion-data`, SQLite) | `secure-relay-onion-data.tgz` si corre el perfil `tor` |
 | Redis | volumen `redis-data` | No se respalda: cachés y pub/sub de Buzz |
 
 ### Backup
