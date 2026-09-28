@@ -3216,8 +3216,8 @@
     "VAULT-01"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 1c2b537 (PR #313):\n\n- Llave de archivo por persona (32 bytes aleatorios, nunca la nsec):\n  - en el CLI viaja en `BackupContents.archiveKey`;\n  - en la web viaja en el backup v2 (`archiveKey` NIP-49), también para personas con signer;\n  - se rechaza si es la nsec.\n- Restaurar rechaza un logN mayor que 20 antes de ejecutar scrypt (`MAX_BACKUP_LOG_N`). `exportBackup` y el generador offline no escriben más.\n- Web y CLI sellan el ledger de entrega en el cliente y lo suben con NIP-98 firmado con la llave derivada: `sovereign vault push|list|verify` (con el guard de Tor) y la tarjeta «Continuity Vault».\n- Tests:\n  - `packages/identity/test/identity.test.ts`;\n  - `apps/web-saas/test/continuity.test.ts`;\n  - `apps/sovereign-client/test/vault.test.ts`;\n  - `tests/browser/web-saas.e2e.ts`.\n\n  Muestran que ni la base, ni el object store, ni los logs contienen texto, eventos, npub ni etiquetas. El test del servicio es `services/continuity-vault/test`.",
    "issue": 238
   },
   {
@@ -3233,8 +3233,8 @@
     "VAULT-01"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Parcial. Commit 74b6b91 (PR #313):\n\n- `docs/threat-models/continuity-vault.md`, en estado Propuesto.\n- `CONTINUITY_VAULT_TEXTS` en el catálogo de disclosures 1.4.0 (`docs/disclosures.md`), que entra en la revisión legal y de UX (FR028-02).\n- La web (tarjeta «Continuity Vault») y el CLI (`sovereign vault push`) muestran esos textos antes de subir nada. Los textos dicen qué ve el operador (cuenta, cuántos archivos, tamaño aproximado, horas, IP y, con Acceso, qué usuario) y que el operador no tiene la llave de archivo.\n\nFalta que el threat model lo apruebe alguien distinto del autor, como los de DEC-10 (en pausa).",
    "issue": 239
   },
   {

@@ -110,6 +110,7 @@ npm run sovereign -- channel send --persona <id> --group <h> "hola"
 npm run sovereign -- outbox --persona <id>      # estado por relay: aceptado ≠ recibido ≠ leído
 npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 npm run sovereign -- vault push --persona <id> --vault URL   # sella el ledger aquí y lo guarda en el Continuity Vault
+npm run sovereign -- dm send --persona <id> --to NPUB "hola"  # a los relays de DM (10050) del destinatario, como la web
 ```
 
 ## Pruebas

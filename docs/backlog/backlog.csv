@@ -259,8 +259,28 @@
   - cuotas por cuenta con bloqueo.
 - packages/continuity: validateArchiveEnvelope, compartido con el cliente. Rechaza campos de más, nsec/hex, sobres cortos o sin relleno y «ciphertext» legible.
 - Tests: packages/continuity/test/continuity.test.ts y services/continuity-vault/test/continuity-vault.test.ts (memoria, archivos y Postgres; concurrencia; nada legible en la base, el object store ni los logs).","https://github.com/sedecim-com/nostr/issues/237"
-"VAULT-02","VAULT · Encrypted Continuity Vault","PRD GC-B02, FR-027","Sobre de archivo cifrado en el cliente con una backup key separada de la nsec","Web y CLI sellan cada sobre en el cliente; la backup key es distinta de la nsec y viaja en el backup de identidad; restaurar con un logN excesivo se rechaza; test que demuestra que ni la base ni el object store contienen texto ni eventos legibles","Seguridad","P0","5","VAULT-01","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/238"
-"VAULT-07","VAULT · Encrypted Continuity Vault","PRD GC-B07, FR-028","Threat model y disclosure del Continuity Vault","Threat model del vault aprobado; la UI explica los metadatos que ve el operador (cuenta, tamaño y frecuencia) y que no tiene la llave de descifrado; textos incluidos en la revisión legal y de UX (FR028-02)","Seguridad","P0","2","VAULT-01","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/239"
+"VAULT-02","VAULT · Encrypted Continuity Vault","PRD GC-B02, FR-027","Sobre de archivo cifrado en el cliente con una backup key separada de la nsec","Web y CLI sellan cada sobre en el cliente; la backup key es distinta de la nsec y viaja en el backup de identidad; restaurar con un logN excesivo se rechaza; test que demuestra que ni la base ni el object store contienen texto ni eventos legibles","Seguridad","P0","5","VAULT-01","S10","2026-10-23","Hecho","Commit 1c2b537 (PR #313):
+
+- Llave de archivo por persona (32 bytes aleatorios, nunca la nsec):
+  - en el CLI viaja en `BackupContents.archiveKey`;
+  - en la web viaja en el backup v2 (`archiveKey` NIP-49), también para personas con signer;
+  - se rechaza si es la nsec.
+- Restaurar rechaza un logN mayor que 20 antes de ejecutar scrypt (`MAX_BACKUP_LOG_N`). `exportBackup` y el generador offline no escriben más.
+- Web y CLI sellan el ledger de entrega en el cliente y lo suben con NIP-98 firmado con la llave derivada: `sovereign vault push|list|verify` (con el guard de Tor) y la tarjeta «Continuity Vault».
+- Tests:
+  - `packages/identity/test/identity.test.ts`;
+  - `apps/web-saas/test/continuity.test.ts`;
+  - `apps/sovereign-client/test/vault.test.ts`;
+  - `tests/browser/web-saas.e2e.ts`.
+
+  Muestran que ni la base, ni el object store, ni los logs contienen texto, eventos, npub ni etiquetas. El test del servicio es `services/continuity-vault/test`.","https://github.com/sedecim-com/nostr/issues/238"
+"VAULT-07","VAULT · Encrypted Continuity Vault","PRD GC-B07, FR-028","Threat model y disclosure del Continuity Vault","Threat model del vault aprobado; la UI explica los metadatos que ve el operador (cuenta, tamaño y frecuencia) y que no tiene la llave de descifrado; textos incluidos en la revisión legal y de UX (FR028-02)","Seguridad","P0","2","VAULT-01","S10","2026-10-23","Parcial","Parcial. Commit 74b6b91 (PR #313):
+
+- `docs/threat-models/continuity-vault.md`, en estado Propuesto.
+- `CONTINUITY_VAULT_TEXTS` en el catálogo de disclosures 1.4.0 (`docs/disclosures.md`), que entra en la revisión legal y de UX (FR028-02).
+- La web (tarjeta «Continuity Vault») y el CLI (`sovereign vault push`) muestran esos textos antes de subir nada. Los textos dicen qué ve el operador (cuenta, cuántos archivos, tamaño aproximado, horas, IP y, con Acceso, qué usuario) y que el operador no tiene la llave de archivo.
+
+Falta que el threat model lo apruebe alguien distinto del autor, como los de DEC-10 (en pausa).","https://github.com/sedecim-com/nostr/issues/239"
 "FR009-03","FR · Mensajería, entrega y resiliencia","FR-009, §15.1","Acuses que llegan al emisor y DMs recibidos en segundo plano","Los acuses se publican en los 10050 del emisor y llevan la operación a RECIPIENT_ACKED; suscripción de fondo a los 10050 propios","Dev","P1","3","FR009-02","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/240"
 "FR017-06","FR · Mensajería, entrega y resiliencia","FR-017, FR-010","El cliente soberano enruta DMs por 10050 y publica el suyo","CLI con el mismo ruteo que la web y test de interoperabilidad web ↔ CLI","Dev","P1","2","FR017-04","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/241"
 "FR014-05","FR · Mensajería, entrega y resiliencia","FR-014, §10.1","El mirror comprueba la membresía NIP-29 y respeta la moderación","Lecturas y búsqueda solo sobre canales de los que eres miembro; tombstone para kind 9005","Dev","P1","3","FR014-03","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/242"

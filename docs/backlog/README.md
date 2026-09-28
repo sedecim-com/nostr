@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **246 tareas** · 149 hechas · 22 parciales · 69 pendientes · 6 descartadas
-- **314 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **246 tareas** · 150 hechas · 23 parciales · 67 pendientes · 6 descartadas
+- **309 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -64,7 +64,7 @@
 | FR-024 | 5 | 3 | FR024-03 (S12), FR024-05 (S12) |
 | FR-025 | 12 | 10 | FR025-08 (Diferido), FR025-14 (Diferido) |
 | FR-026 | 5 | 3 | FR026-04 (S11), FR005-09 (Diferido) |
-| FR-027 | 6 | 4 | VAULT-02 (S10), VAULT-03 (S11) |
+| FR-027 | 6 | 5 | VAULT-03 (S11) |
 | FR-028 | 8 | 4 | FR028-02 (S13), VAULT-07 (S10), PANEL-07 (S12), NFR007-03 (Diferido) |
 | NFR-001 | 5 | 0 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR001-04 (S11), NFR001-05 (Diferido) |
 | NFR-002 | 3 | 2 | NFR002-03 (S12) |
@@ -245,8 +245,8 @@
 | [NFR001-02](https://github.com/sedecim-com/nostr/issues/171) | P0 | Monitorización de SLO (99,9 % mensual) y alertas | NFR-001, PRD GC-C02 | Infra | 3 | NFR001-01 | Parcial | Dashboard de disponibilidad y alertas por servicio desplegados en stage (Prometheus, Grafana, receptores y sonda externa); 7 días de señal útil antes del RC |
 | [NFR001-03](https://github.com/sedecim-com/nostr/issues/172) | P0 | Postgres de alta disponibilidad y backups gestionados | NFR-001, PRD GC-C03 | Infra | 3 | NFR001-01 | Parcial | RDS aplicado y datos migrados; failover real y restore point probados en stage; runbook con los tiempos observados |
 | [VAULT-01](https://github.com/sedecim-com/nostr/issues/237) | P0 | Continuity Vault: contrato y almacenamiento opaco, separado del indexer | PRD GC-B01, FR-013, FR-027 | Dev | 8 | FR027-03 | Hecho | ADR del vault; servicio con API de sobres de archivo opacos por cuenta (subir, listar, bajar y borrar) autenticada con NIP-98 o Acceso, que rechaza texto plano como la bóveda de backup de FR027-03; separado del indexer; tests |
-| [VAULT-02](https://github.com/sedecim-com/nostr/issues/238) | P0 | Sobre de archivo cifrado en el cliente con una backup key separada de la nsec | PRD GC-B02, FR-027 | Seguridad | 5 | VAULT-01 | Pendiente | Web y CLI sellan cada sobre en el cliente; la backup key es distinta de la nsec y viaja en el backup de identidad; restaurar con un logN excesivo se rechaza; test que demuestra que ni la base ni el object store contienen texto ni eventos legibles |
-| [VAULT-07](https://github.com/sedecim-com/nostr/issues/239) | P0 | Threat model y disclosure del Continuity Vault | PRD GC-B07, FR-028 | Seguridad | 2 | VAULT-01 | Pendiente | Threat model del vault aprobado; la UI explica los metadatos que ve el operador (cuenta, tamaño y frecuencia) y que no tiene la llave de descifrado; textos incluidos en la revisión legal y de UX (FR028-02) |
+| [VAULT-02](https://github.com/sedecim-com/nostr/issues/238) | P0 | Sobre de archivo cifrado en el cliente con una backup key separada de la nsec | PRD GC-B02, FR-027 | Seguridad | 5 | VAULT-01 | Hecho | Web y CLI sellan cada sobre en el cliente; la backup key es distinta de la nsec y viaja en el backup de identidad; restaurar con un logN excesivo se rechaza; test que demuestra que ni la base ni el object store contienen texto ni eventos legibles |
+| [VAULT-07](https://github.com/sedecim-com/nostr/issues/239) | P0 | Threat model y disclosure del Continuity Vault | PRD GC-B07, FR-028 | Seguridad | 2 | VAULT-01 | Parcial | Threat model del vault aprobado; la UI explica los metadatos que ve el operador (cuenta, tamaño y frecuencia) y que no tiene la llave de descifrado; textos incluidos en la revisión legal y de UX (FR028-02) |
 | [FR009-03](https://github.com/sedecim-com/nostr/issues/240) | P1 | Acuses que llegan al emisor y DMs recibidos en segundo plano | FR-009, §15.1 | Dev | 3 | FR009-02 | Pendiente | Los acuses se publican en los 10050 del emisor y llevan la operación a RECIPIENT_ACKED; suscripción de fondo a los 10050 propios |
 | [FR014-05](https://github.com/sedecim-com/nostr/issues/242) | P1 | El mirror comprueba la membresía NIP-29 y respeta la moderación | FR-014, §10.1 | Dev | 3 | FR014-03 | Pendiente | Lecturas y búsqueda solo sobre canales de los que eres miembro; tombstone para kind 9005 |
 | [FR017-06](https://github.com/sedecim-com/nostr/issues/241) | P1 | El cliente soberano enruta DMs por 10050 y publica el suyo | FR-017, FR-010 | Dev | 2 | FR017-04 | Pendiente | CLI con el mismo ruteo que la web y test de interoperabilidad web ↔ CLI |
