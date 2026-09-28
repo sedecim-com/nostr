@@ -311,7 +311,9 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
-  # --- optional: opaque push notifications (ADR 0010). Never used by sovereign/Tor personas (refused).
+  # --- optional: opaque push notifications (ADR 0010). Never used by sovereign/Tor personas (refused). OPS-06: it only
+  # accepts registrations on relays where its canary shows it can see activity without reading DMs; Buzz and the
+  # secure relay deliver gift wraps only to their recipient, so with the reference relays it registers nothing.
   notification-gateway:
     <<: *service
     profiles: [push]
@@ -325,6 +327,8 @@ services:
       # NIP-42 identity used to watch gift wraps (kind 1059 #p). Empty: ephemeral.
       NOTIFY_NSEC: ${NOTIFY_NSEC:-}
       NOTIFY_MAX_SUBSCRIPTIONS: ${NOTIFY_MAX_SUBSCRIPTIONS:-10000}
+      # OPS-06: how often (ms) it re-checks with its canary which relays it can watch. Default 6 h.
+      NOTIFY_PROBE_INTERVAL_MS: ${NOTIFY_PROBE_INTERVAL_MS:-21600000}
       PUBLIC_BASE_URL: ${NOTIFY_PUBLIC_URL:-http://localhost:8086}
       CORS_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
       PORT: "8086"

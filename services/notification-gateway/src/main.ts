@@ -25,8 +25,9 @@ function vapid() {
   return generateVapidKeys();
 }
 
-// NIP-42 identity of the watcher. Relays that only serve kind 1059 to its recipient will not show gift
-// wraps to this identity unless the operator grants it (ADR 0010, residual limits).
+// NIP-42 identity of the watcher. Relays that only serve kind 1059 to its recipient (Buzz, the secure relay) show
+// no gift wrap for anyone else to it, and granting it that would be read access to DMs: those relays are not
+// watched (OPS-06, the canary below).
 function serviceKey(): Uint8Array {
   const raw = env.NOTIFY_NSEC?.trim();
   if (!raw) {
@@ -59,6 +60,19 @@ const gateway = new NotificationGateway({
   maxSubscriptions: Number(env.NOTIFY_MAX_SUBSCRIPTIONS ?? 10_000),
   logger,
 });
+
+// OPS-06: which relays the gateway can watch without reading anyone's DMs, checked with a canary at start and every
+// NOTIFY_PROBE_INTERVAL_MS (default 6 h). Until a relay passes, registrations for it are refused. Each check
+// publishes a canary to every relay, so the interval has a floor of one minute.
+const probeEvery = Number(env.NOTIFY_PROBE_INTERVAL_MS || 6 * 3600_000);
+if (!(probeEvery >= 60_000)) throw new Error('NOTIFY_PROBE_INTERVAL_MS must be at least 60000 (ms)');
+const probe = () =>
+  void gateway
+    .probeRelays()
+    .then((found) => logger.info('relays checked', { observable: found.filter((o) => o.observable).length, relays: found.length }))
+    .catch((err: Error) => logger.warn('relay check failed', { error: err.message }));
+probe();
+setInterval(probe, probeEvery).unref();
 
 // No database: used NIP-98 ids are remembered per process (a capture can be replayed once per replica).
 const api = createNotificationApi(gateway, { name: 'notification-gateway', publicBaseUrl: env.PUBLIC_BASE_URL, corsOrigins: list(env.CORS_ORIGINS), logger, vapid: keys, rateLimit: rateLimitFromEnv(env) });

@@ -48,7 +48,8 @@ function setup(extra: Partial<ConstructorParameters<typeof NotificationGateway>[
   const pool = new FakePool();
   const sender = new FakeSender();
   const logs: LogRecord[] = [];
-  const gw = new NotificationGateway({ pool, sender, relays: [{ public: RELAY, dial: 'ws://relay:3000' }], random: () => 0.5, logger: createLogger({ level: 'debug', write: (r) => logs.push(r) }), ...extra });
+  // The push logic on a pool double: which relays can be observed is tested against real relays below (OPS-06).
+  const gw = new NotificationGateway({ pool, sender, relays: [{ public: RELAY, dial: 'ws://relay:3000' }], random: () => 0.5, requireObservation: false, logger: createLogger({ level: 'debug', write: (r) => logs.push(r) }), ...extra });
   return { pool, sender, gw, logs };
 }
 
@@ -108,7 +109,7 @@ describe('batching and random delay (fake timers)', () => {
     gw.register(b, { subscription: sub(2), profile: 'convenience' });
     expect(pool.open).toHaveLength(1);
     expect(pool.open[0]!.urls).toEqual(['ws://relay:3000']);
-    expect(pool.open[0]!.filters).toEqual([{ kinds: [1059], '#p': [a, b].sort(), limit: 0 }]);
+    expect(pool.open[0]!.filters).toEqual([{ kinds: [1059], '#p': [a, b].sort(), limit: 1 }]);
     gw.unregister(a);
     gw.unregister(b);
     expect(pool.open).toHaveLength(0);
@@ -228,6 +229,8 @@ describe('end to end: test relay + NIP-98 API + fake push service', () => {
     });
     api = createNotificationApi(gw, { name: 'notification-gateway', vapid });
     base = await api.listen();
+    // OPS-06: this relay serves gift wraps by #p to anyone, so the canary shows the gateway can watch it.
+    expect((await gw.probeRelays()).map((o) => o.observable)).toEqual([true]);
   });
 
   afterAll(async () => {
@@ -300,5 +303,74 @@ describe('end to end: test relay + NIP-98 API + fake push service', () => {
     pool2.close();
     await until(() => !gw.registrations().some((r) => r.pubkey === p));
     expect(received.some((r) => r.path === '/gone/1')).toBe(true);
+  });
+});
+
+describe('OPS-06: push only where the gateway can observe activity without reading DMs', () => {
+  // Like Buzz and the secure relay: NIP-42, and gift wraps only for their authenticated recipient.
+  const gated = new TestRelay({ requireAuth: true, pGatedKinds: [1059] });
+  const open = new TestRelay();
+  const identity = generateSecretKey();
+  let pool: RelayPool;
+  let gw: NotificationGateway;
+  let api: ReturnType<typeof createNotificationApi>;
+  let base: string;
+  const device = (n: number) => fakeSubscription(`https://fcm.googleapis.com/fcm/send/ops06-${n}`).subscription;
+
+  beforeAll(async () => {
+    await gated.start();
+    await open.start();
+    // The gateway authenticates with its own service identity, as NOTIFY_NSEC in production.
+    pool = new RelayPool({ webSocketFactory: (u) => new WebSocket(u) as unknown as WebSocketLike, signer: new LocalSigner(identity), authMode: 'auto' });
+    gw = new NotificationGateway({ pool, sender: new FakeSender(), relays: [{ public: gated.url }, { public: open.url }] });
+    api = createNotificationApi(gw, { name: 'notification-gateway', vapid: generateVapidKeys() });
+    base = await api.listen();
+  });
+  afterAll(async () => {
+    gw.stop();
+    pool.close();
+    await api.close();
+    await gated.stop();
+    await open.stop().catch(() => undefined); // the last test stops it
+  });
+
+  it('refuses to register before it has checked its relays', async () => {
+    const res = await nip98Fetch(generateSecretKey(), `${base}/v1/subscriptions`, 'POST', { subscription: device(1), profile: 'convenience', relays: [open.url] });
+    expect(res.status).toBe(503);
+    expect((await (await fetch(`${base}/v1/relays`)).json()).relays.every((r: { observable: boolean }) => !r.observable)).toBe(true);
+  });
+
+  it('a canary tells the relay that only serves gift wraps to their recipient from one that serves them to anyone', async () => {
+    const found = await gw.probeRelays(3000);
+    expect(found.find((o) => o.relay === open.url)).toMatchObject({ observable: true });
+    expect(found.find((o) => o.relay === gated.url)).toMatchObject({ observable: false, reason: expect.stringMatching(/closed|not delivered/) });
+    const listed = (await (await fetch(`${base}/v1/relays`)).json()).relays as Array<{ relay: string; observable: boolean }>;
+    expect(Object.fromEntries(listed.map((r) => [r.relay, r.observable]))).toEqual({ [gated.url]: false, [open.url]: true });
+    // A relay that closes the REQ gets no canary. The canary: from a throwaway key to another throwaway key,
+    // expiring soon; never from the gateway itself.
+    expect(gated.received.filter((e: NostrEvent) => e.kind === 1059)).toHaveLength(0);
+    const canaries = open.received.filter((e: NostrEvent) => e.kind === 1059);
+    expect(canaries.length).toBeGreaterThan(0);
+    for (const c of canaries) {
+      expect(c.pubkey).not.toBe(getPublicKey(identity));
+      expect(Number(c.tags.find((t) => t[0] === 'expiration')![1]) - c.created_at).toBeLessThanOrEqual(600);
+    }
+  });
+
+  it('registers only on observable relays, and says which relays it cannot watch', async () => {
+    const onlyGated = await nip98Fetch(generateSecretKey(), `${base}/v1/subscriptions`, 'POST', { subscription: device(2), profile: 'convenience', relays: [gated.url] });
+    expect(onlyGated.status).toBe(409);
+    expect(onlyGated.json.error).toMatch(/without read access to your DMs/);
+    const both = await nip98Fetch(generateSecretKey(), `${base}/v1/subscriptions`, 'POST', { subscription: device(3), profile: 'convenience', relays: [gated.url, open.url] });
+    expect(both.status).toBe(201);
+    expect(both.json).toMatchObject({ relays: [open.url], unwatched: [gated.url] });
+  });
+
+  it('a relay that stops being observable stops counting, and a registration left without relays goes', async () => {
+    expect(gw.size).toBeGreaterThan(0);
+    await open.stop();
+    const found = await gw.probeRelays(1000);
+    expect(found.find((o) => o.relay === open.url)!.observable).toBe(false);
+    expect(gw.size).toBe(0);
   });
 });

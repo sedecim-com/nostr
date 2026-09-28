@@ -13,3 +13,5 @@ configMapGenerator:
       - NOTIFY_PUBLIC_URL=http://notification-gateway:8086
       - NOTIFY_VAPID_SUBJECT=mailto:admin@localhost
       - NOTIFY_MAX_SUBSCRIPTIONS=10000
+      # OPS-06: how often (ms) the canary re-checks which relays the gateway can watch without reading DMs.
+      - NOTIFY_PROBE_INTERVAL_MS=21600000

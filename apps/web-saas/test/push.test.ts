@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateSecretKey, getPublicKey, nip98 } from '@sedecim/nostr-core';
 import { preset } from '@sedecim/profiles';
 import { LocalSigner } from '@sedecim/signer';
-import { disablePush, enablePush, pushAvailability, pushScope, type PushEnv } from '../src/lib/push';
+import { disablePush, enablePush, pushAvailability, pushScope, watchableRelays, type PushEnv } from '../src/lib/push';
 
 const GW = 'https://push.example.org';
 const VAPID = Buffer.from(Uint8Array.from({ length: 65 }, (_, i) => (i === 0 ? 4 : i))).toString('base64url');
@@ -117,5 +117,35 @@ describe('push registration', () => {
     const del = ok.calls.find((c) => c.method === 'DELETE')!;
     expect(JSON.parse(del.body!)).toEqual({ endpoint });
     expect(registrations.get(pushScope('p1'))).toMatchObject({ subscribed: undefined, unregistered: true });
+  });
+});
+
+describe('relays the gateway can watch (OPS-06)', () => {
+  it('splits the persona relays by what the gateway found with its canary, matching normalized URLs', async () => {
+    const calls: string[] = [];
+    const f = (async (url: string) => {
+      calls.push(url);
+      return new Response(
+        JSON.stringify({
+          relays: [
+            { relay: 'wss://open.example.org', observable: true, checkedAt: 1 },
+            { relay: 'wss://gated.example.org', observable: false, checkedAt: 1 },
+            { relay: 'wss://new.example.org', observable: false, checkedAt: 0 },
+          ],
+        }),
+      );
+    }) as unknown as typeof fetch;
+    expect(await watchableRelays(GW, ['wss://Open.example.org/', 'wss://gated.example.org', 'wss://new.example.org', 'wss://elsewhere.example.org', 'not a relay'], f)).toEqual({
+      watchable: ['wss://Open.example.org/'],
+      pending: ['wss://new.example.org'],
+      unobservable: ['wss://gated.example.org'],
+      unserved: ['wss://elsewhere.example.org', 'not a relay'],
+    });
+    // A GET without credentials: asking says nothing about who is asking.
+    expect(calls).toEqual([`${GW}/v1/relays`]);
+  });
+
+  it('fails when the gateway does not answer, so the control does not claim anything', async () => {
+    await expect(watchableRelays(GW, ['wss://open.example.org'], (async () => new Response('', { status: 502 })) as unknown as typeof fetch)).rejects.toThrow(/502/);
   });
 });
