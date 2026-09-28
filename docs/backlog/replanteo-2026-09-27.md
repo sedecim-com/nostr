@@ -1,7 +1,7 @@
 # Replanteo de sprints desde el corte del 27 de septiembre de 2026
 
 > Base: `main@5f39e73` (revisión del backlog contra el código) y `main@d479bc5` (tras las PR #216 y #217), los issues del backlog a 2026-09-27, *Scope_Plataforma_Nostr_Soberana_SaaS_v0.1* (25/09/2026) y el *PRD de cierre de brechas y preparación para release* v0.3 (27/09/2026).
-> `backlog.json`, `README.md` y `backlog.csv` se generan desde GitHub Issues; este documento explica el replanteo que llevan. La sección *Cómo se aplica* describe cómo pasa a los issues.
+> `backlog.json`, `README.md` y `backlog.csv` se generan desde GitHub Issues; este documento explica el replanteo que llevan. La sección *Cómo se aplicó* describe cómo pasó a los issues.
 
 ## Resumen
 
@@ -430,10 +430,10 @@ La epic **VAULT · Encrypted Continuity Vault** es nueva: agrupa los requisitos 
 | Instancia Nitro en AWS | FR005-05 (Preview); no bloquea v1.0.0 | Ops de Sedecim | S14 |
 | Versiones estables de ts-mls y marmot-ts | FR025-08; bloquean la etiqueta de alta seguridad de los grupos, no v1.0.0 | Upstream | Después de v1.0 |
 
-## Cómo se aplica
+## Cómo se aplicó
 
-1. **docs/backlog**: una PR añade S9–S16 a `meta.sprints`, renombra `Diferido` a «Después de v1.0: fuera del programa de cierre», actualiza `meta.baseline`, `meta.version` y `meta.source`, crea las 82 tareas nuevas y aplica los cambios a las 21 existentes que cambian (milestone, prioridad, SP, criterio y dependencias) y a las 2 reabiertas. `meta` no se regenera desde los issues y, sin esos sprints, el validador rechazaría los milestones nuevos.
-2. **Siembra**: al fusionar, `backlog-sync` corre `seed` porque cambia `scripts/backlog-github.mjs`. Crea los milestones «S9 · …» … «S16 · …» con `due_on`, renombra el milestone de Diferido, crea la epic `[Epic] VAULT · Encrypted Continuity Vault` y los 82 issues con labels, campos, sub-issues y «blocked by».
-3. **Issues existentes**: se actualizan las 21 existentes (milestone, prioridad y cuerpo) y se reabren FR024-03 (#169) y DEC-10 (#45) con `status:parcial`. FR020-02 no cambia. El orden de las ediciones mantiene válido el backlog en cada paso.
-4. **Relaciones**: `seed` ajusta los «blocked by» de cada issue abierto a su sección *Depende de*. Una ejecución manual de `backlog-sync` con `seed` retira los enlaces que sobran (REL-01 ← SEC-01 y SEC-02; SEC-01 ← FR025-08).
-5. **Sincronización**: `backlog-sync` regenera `backlog.json`, `README.md` y `backlog.csv` desde los issues. El resultado debe ser el de la PR más los números de issue de las tareas nuevas.
+1. **docs/backlog** (PR #218): añadió S9–S16 a `meta.sprints`, renombró `Diferido` a «Después de v1.0: fuera del programa de cierre», actualizó `meta.baseline`, `meta.version` y `meta.source`, creó las 82 tareas nuevas y aplicó los cambios a las 21 existentes (milestone, prioridad, SP, criterio y dependencias) y a las 2 reabiertas.
+2. **Siembra** (28/09/2026): al fusionar #218, `backlog-sync` corrió `seed`. Creó los milestones #11–#18 (S9–S16), renombró el #10 (Diferido), creó la epic #219 (`[Epic] VAULT · Encrypted Continuity Vault`) y los issues #220–#301 con labels, campos, sub-issues y 182 relaciones.
+3. **Issues existentes**: se actualizaron las 21 existentes (milestone, prioridad, cuerpo y campos) y se reabrieron DEC-10 (#45) y FR024-03 (#169) con `status:parcial`. FR020-02 no cambió. El orden de las ediciones mantuvo válido el backlog en cada paso. El criterio de NFR001-01 dice «Stage desplegado con terraform apply…» porque la herramienta que editó el issue alteraba una línea que empezaba por el comando.
+4. **Pendiente**: lanzar `backlog-sync` con `seed` (*Actions → Run workflow*) para alinear los «blocked by» de los issues existentes con su sección *Depende de*: 17 enlaces por añadir y 3 por retirar (REL-01 ← SEC-01 y SEC-02; SEC-01 ← FR025-08). La integración con la que se aplicó el replanteo no puede disparar workflows. El backlog ya es correcto, porque el validador lee *Depende de*.
+5. **Sincronización**: la PR #302 trae a `docs/backlog` los números de issue que dejó la sincronización; con ella, `backlog.json` coincide con GitHub Issues.
