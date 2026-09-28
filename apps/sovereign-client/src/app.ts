@@ -139,13 +139,14 @@ export class SovereignClient {
       .map((i) => i.message);
   }
 
-  async createPersona(input: { label: string; relays: string[]; tor?: boolean; highRisk?: boolean }): Promise<PersonaConfig> {
+  async createPersona(input: { label: string; relays: string[]; tor?: boolean; highRisk?: boolean; onionOnly?: boolean }): Promise<PersonaConfig> {
     const mgr = await this.identities();
     const persona = await mgr.createPersona({
       label: input.label,
       relays: input.relays,
       compartment: input.highRisk ? 'high-risk' : 'standard',
-      network: input.tor || input.highRisk ? 'tor-only' : 'direct',
+      network: input.tor || input.highRisk || input.onionOnly ? 'tor-only' : 'direct',
+      onionOnly: input.onionOnly,
       keyPassphrase: this.opts.passphrase,
       scryptLogN: this.opts.scryptLogN,
     });
@@ -159,9 +160,9 @@ export class SovereignClient {
    * FR002-03: create a persona from a key backup file (offline generator or web download). The
    * ncryptsec must decrypt to the declared npub; the key is re-sealed under the local passphrase.
    */
-  async importBackup(json: unknown, backupPassword: string, input: { label: string; relays: string[]; tor?: boolean; highRisk?: boolean }): Promise<PersonaConfig> {
+  async importBackup(json: unknown, backupPassword: string, input: { label: string; relays: string[]; tor?: boolean; highRisk?: boolean; onionOnly?: boolean }): Promise<PersonaConfig> {
     const mgr = await this.identities();
-    const network = input.tor || input.highRisk ? 'tor-only' : 'direct';
+    const network = input.tor || input.highRisk || input.onionOnly ? 'tor-only' : 'direct';
     const issues = validateConfig(this.profileFor({ relays: input.relays, network } as PersonaConfig), 'cli').filter((i) => i.severity === 'error');
     if (issues.length) throw new Error(issues.map((i) => i.message).join('; '));
     const persona = await mgr.importKeyBackup(json, backupPassword, this.opts.passphrase, {
@@ -169,6 +170,7 @@ export class SovereignClient {
       relays: input.relays,
       compartment: input.highRisk ? 'high-risk' : 'standard',
       network,
+      onionOnly: input.onionOnly,
       scryptLogN: this.opts.scryptLogN,
     });
     await mgr.saveConfig(persona.id, this.profileFor(persona));
@@ -227,6 +229,7 @@ export class SovereignClient {
     const dmDiscovery = [...new Set([...persona.relays, ...(this.opts.discoveryRelays ?? [])])];
     const guard = new NetworkGuard({
       mode: persona.network,
+      ...(persona.onionOnly ? { onionOnly: true } : {}),
       socksHost: this.opts.socksHost,
       socksPort: this.opts.socksPort,
       isolationKey: persona.id,

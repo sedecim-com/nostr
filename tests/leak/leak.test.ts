@@ -42,6 +42,14 @@ describe('real captures of the sovereign CLI (tcpdump fixtures)', () => {
     expect(networkAllowlist(persona!, SOCKS)).toEqual([SOCKS]);
     expect(checkSocksRequests(requests, persona!)).toEqual([]);
   });
+
+  it('FR006-06: with isolation required, every CONNECT must carry the persona id as SOCKS username', () => {
+    const [persona] = parsePersonaList(fixture('tor-personas.txt').toString());
+    const [first] = fixture('tor-socks.jsonl').toString().trim().split('\n').map((l) => JSON.parse(l) as SocksRequest);
+    expect(checkSocksRequests([{ ...first!, username: persona!.id }], persona!, { requireIsolation: true })).toEqual([]);
+    expect(checkSocksRequests([{ ...first!, username: 'otra-persona' }], persona!, { requireIsolation: true })[0]).toMatch(/without the persona isolation credentials \(username otra-persona/);
+    expect(checkSocksRequests([first!], persona!, { requireIsolation: true })[0]).toMatch(/username none/);
+  });
 });
 
 describe('leak analysis (synthetic packets)', () => {

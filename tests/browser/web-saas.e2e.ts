@@ -155,6 +155,7 @@ try {
   await page.getByRole('button', { name: 'Crear persona' }).click();
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
   assert(true, 'banner "Enviando como…" names the active persona (FR006-02)');
+  assert((await page.textContent('#sending-as'))?.endsWith('· Llave local (navegador) · red directa · sin vínculo'), 'the banner also says custody, network and link level (FR007-05)');
   assert((await page.textContent('#custody-facts'))?.includes('NO puede firmar'), 'custody facts are disclosed');
   assert((await page.locator('#cloud-backup').count()) === 0, 'no cloud backup is offered when the deployment does not configure backupVault (FR027-03)');
   const webPub = getPublicKey(knownSk);
@@ -456,6 +457,15 @@ try {
   const personasOf = await identityRepo.personasOf(acct);
   const links = await identityRepo.linksOf(personasOf.map((p) => p.personaId));
   assert(personasOf.length === 2 && links.length === 1 && links[0]!.visibility === 'selective' && links[0]!.audience[0] === getPublicKey(bobKey), 'identity service registered both personas (with proof of key control) and a selective link');
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.endsWith('· vínculo selectivo'));
+  assert(true, 'after linking, the banner shows the link level (FR007-05)');
+  await page.locator('#persona-select').click();
+  await page.getByRole('option', { name: /^Personal/ }).click();
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Personal'));
+  assert((await page.textContent('#sending-as'))?.endsWith('· vínculo selectivo'), 'the other persona of the link shows it too (FR007-05)');
+  await page.locator('#persona-select').click();
+  await page.getByRole('option', { name: /Trabajo/ }).click();
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
 
   // --- panel: per-dimension indicators backed by statements (PANEL-04)
   await tab(page, 'Soberanía y privacidad');

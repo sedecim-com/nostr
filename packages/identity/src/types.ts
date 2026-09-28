@@ -12,6 +12,8 @@ export interface PersonaConfig {
   compartment: Compartment;
   relays: string[];
   network: 'direct' | 'tor-only';
+  /** FR021-03: Tor-only and nothing but .onion relays (strictest Sovereign Tor profile). */
+  onionOnly?: boolean;
   /** bunker:// pointer when custody is external (no secret material) */
   bunker?: string;
   /** managed key id when custody is managed */

@@ -162,6 +162,8 @@ export class RelayConnection {
         throw err;
       }
       this.ws = ws;
+      // A block raised while the socket connects (e.g. by a Tor SOCKS agent, FR021-03) stays a block.
+      let blocked: NetworkBlockedError | undefined;
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           reject(new Error(`connect timeout: ${this.url}`));
@@ -184,12 +186,15 @@ export class RelayConnection {
         };
         ws.onerror = (ev) => {
           this.lastError = String((ev as { message?: string })?.message ?? 'websocket error');
+          const cause = (ev as { error?: unknown })?.error;
+          if (cause instanceof NetworkBlockedError) blocked = cause;
         };
         ws.onclose = () => {
           clearTimeout(timer);
           const wasConnected = this.status === 'connected';
+          if (!wasConnected && blocked) this.status = 'blocked';
           this.onSocketClosed();
-          if (!wasConnected) reject(new Error(`connection failed: ${this.url}${this.lastError ? ` (${this.lastError})` : ''}`));
+          if (!wasConnected) reject(blocked ?? new Error(`connection failed: ${this.url}${this.lastError ? ` (${this.lastError})` : ''}`));
         };
         ws.onmessage = (ev) => this.onMessage(ev.data);
       });

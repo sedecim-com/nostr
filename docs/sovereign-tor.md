@@ -35,9 +35,29 @@ Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-c
 - Con Tor caído, **no** se abre ninguna conexión: el mensaje queda en outbox con
   "No enviado: red de privacidad no disponible" y se reenvía (mismo event id) en cuanto cualquier comando
   vuelve a abrir la persona, o con `sovereign resume` (FR011-04).
+- **Un solo mensaje de fallo (FR021-03).** Cualquier fallo en la capa SOCKS es el mismo fallo retenido,
+  "No enviado: red de privacidad no disponible":
+  - el proxy caído o que rechaza la conexión;
+  - un circuito que no se construye;
+  - un `.onion` inalcanzable.
+
+  El mensaje espera en el outbox en lugar de fallar, y el error del proxy (que puede nombrar direcciones) no
+  llega al registro.
 - Resolución DNS dentro de Tor (`socks5h`): ningún `dns.lookup` local de destinos.
-- Cada persona usa credenciales SOCKS distintas → circuitos separados (`IsolateSOCKSAuth`).
-- Solo se permiten los hosts de relay configurados para la persona; `onionOnly` bloquea clearnet.
+- Cada persona usa credenciales SOCKS distintas → circuitos separados (`IsolateSOCKSAuth`). FR006-06 lo
+  comprueba de dos formas:
+  - contra un servidor SOCKS que exige usuario y contraseña y registra el usuario de cada CONNECT;
+  - en el arnés de fugas, donde cada CONNECT del CLI real debe llevar el id de su persona.
+- Solo se permiten los hosts de relay configurados para la persona.
+- **`--onion-only` (FR021-03)** en `persona create` o `persona import`:
+  - la persona sale por Tor y solo acepta relays `.onion`: crearla con uno clearnet falla;
+  - el guard bloquea cualquier destino clearnet, también los relays de DM que publique un destinatario.
+- **Sin IPs en los logs (FR021-03).** Lo que el CLI registra sobre la red no lleva IPs: errores, estado de
+  entrega por relay (`outbox`) y resultados de `history sync`. Una IP se muestra como `ip-<8 hex>`, estable,
+  así que dos relays se siguen distinguiendo. Los nombres de host y los `.onion` se mantienen; el contenido de
+  los mensajes y la configuración propia (`persona list`) no se tocan.
+- **Antes de cada envío (FR007-05),** el CLI muestra quién envía: identidad, custodia, red y nivel de vínculo
+  (también con `sovereign whoami`).
 - Telemetría `none`: cero llamadas externas.
 
 ## Tests de fugas con captura de red real (FR020-03, FR022-02)
