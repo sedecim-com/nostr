@@ -19,6 +19,12 @@ export interface DeploymentConfig {
    * the pinned Buzz rejects. Unset: groups use the persona relays.
    */
   secureRelays?: string[];
+  /**
+   * FR010-03: extra relays where the recipients' DM relay lists (kinds 10050 and 10002) are looked up, besides the
+   * persona's own relays, e.g. an indexer that collects relay lists. Unset: only the persona's relays. Each lookup
+   * tells those relays which npub you are about to write to.
+   */
+  discoveryRelays?: string[];
   /** Blossom server of the Buzz relay: plain, sanitized channel images (FR018-04). */
   buzzMedia?: string;
   /** Client-encrypted blobs (DM attachments). */

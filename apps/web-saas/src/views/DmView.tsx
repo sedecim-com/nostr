@@ -39,7 +39,8 @@ export function DmView() {
       const recipient = normalizePubkey(to.trim());
       let msg;
       // FR010-02: each wrap goes to the recipient's DM relays (10050), else their NIP-65 read relays, else ours.
-      const route = { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, quorum: config.quorum };
+      // FR010-03: discovery also asks the deployment's discovery relays; a retry re-resolves the route (engine router).
+      const route = { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, quorum: config.quorum };
       if (file) {
         // DM attachments are always encrypted client-side. FR018-05: they go to the user's Blossom servers
         // (kind 10063, primary first) except image-only ones (relay media), else to the deployment blob-store.

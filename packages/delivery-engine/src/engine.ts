@@ -2,6 +2,12 @@ import { bytesToHex, randomBytes, type EventTemplate, type NostrEvent, type Sign
 import { normalizeRelayUrl } from '@sedecim/relay-pool';
 import { classifyFailure, stateRank, type AttemptEvent, type DeliveryState, type OutboxStats, type EventLookup, type OutboxRecord, type Publisher, type RecordStore, type RelayAttempt, type RetryPolicy } from './types';
 
+/** Relays for a record that depend on when it is published (see DeliveryEngineOptions.router). */
+export interface RouteUpdate {
+  relays: string[];
+  meta?: Record<string, string>;
+}
+
 export interface DeliveryEngineOptions {
   store: RecordStore;
   publisher: Publisher;
@@ -11,6 +17,12 @@ export interface DeliveryEngineOptions {
   now?: () => number;
   random?: () => number;
   onChange?: (record: OutboxRecord) => void;
+  /**
+   * FR010-03: relays that depend on when a record is published, e.g. a DM wrap whose recipient's DM relays could
+   * not be found when it was written (messaging's dmRouter). Asked before every retry of a record that no relay has
+   * accepted yet; a different answer replaces its relays and keeps the quorum asked for.
+   */
+  router?: (rec: OutboxRecord) => Promise<RouteUpdate | undefined>;
 }
 
 export interface SubmitOptions {
@@ -179,6 +191,8 @@ export class DeliveryEngine {
     if (!rec) throw new Error(`unknown operation ${opId}`);
     if (rec.state === 'FAILED' || this.stopped) return rec;
     if (!rec.event) await this.prepare(rec);
+    // FR010-03: a retry goes where the route points now. The first round keeps the route the record was written with.
+    if (this.opts.router && this.accepted(rec) === 0 && Object.values(rec.relayStatus).some((s) => s.attemptCount > 0)) await this.reroute(rec);
     const pending = Object.values(rec.relayStatus).filter((s) => !s.acceptedAt && !s.permanent);
     if (pending.length === 0) return rec;
     if (stateRank(rec.state) < stateRank('PUBLISHING')) this.transition(rec, 'PUBLISHING');
@@ -235,6 +249,25 @@ export class DeliveryEngine {
     } else delete rec.nextAttemptAt;
     await this.save(rec);
     return rec;
+  }
+
+  private async reroute(rec: OutboxRecord) {
+    let next: RouteUpdate | undefined;
+    try {
+      next = await this.opts.router!(structuredClone(rec));
+    } catch {
+      return; // no answer: keep the current relays
+    }
+    const relays = [...new Set((next?.relays ?? []).map(normalizeRelayUrl))];
+    if (relays.length === 0) return;
+    if (next!.meta) rec.meta = { ...rec.meta, ...next!.meta };
+    if (relays.length === rec.relays.length && relays.every((r) => rec.relays.includes(r))) return;
+    rec.relays = relays;
+    rec.relayStatus = Object.fromEntries(relays.map((r) => [r, rec.relayStatus[r] ?? ({ relay: r, attemptCount: 0 } satisfies RelayAttempt)]));
+    const requested = rec.requestedQuorum ?? rec.quorum;
+    rec.quorum = Math.min(requested, relays.length);
+    if (requested > rec.quorum) rec.requestedQuorum = requested;
+    else delete rec.requestedQuorum;
   }
 
   private schedule(opId: string, delayMs: number) {

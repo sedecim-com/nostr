@@ -3,7 +3,7 @@ import { RelayPool } from '@sedecim/relay-pool';
 import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS, type AccessTokenProvider } from '@sedecim/signer';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { publishDmRelayList } from '@sedecim/messaging';
+import { dmRouter, publishDmRelayList } from '@sedecim/messaging';
 import { preset, type PresetName } from '@sedecim/profiles';
 import type { PersonaBook, PersonaRecord } from './vault';
 
@@ -18,6 +18,8 @@ export interface PersonaSession {
   pubkey: string;
   pool: RelayPool;
   engine: DeliveryEngine;
+  /** FR010-03: where recipients' DM relay lists are looked up (the persona's relays plus the deployment's). */
+  dmDiscovery: string[];
   close(): void;
 }
 
@@ -113,7 +115,7 @@ export interface ManagedEnv {
   token?: AccessTokenProvider;
 }
 
-export async function openPersona(book: PersonaBook, persona: PersonaRecord, managed: ManagedEnv = {}): Promise<PersonaSession> {
+export async function openPersona(book: PersonaBook, persona: PersonaRecord, managed: ManagedEnv = {}, routing: { discoveryRelays?: string[] } = {}): Promise<PersonaSession> {
   let signer: Signer;
   if (persona.custody === 'local') {
     const sk = hexToBytes(persona.secretHex!);
@@ -137,7 +139,10 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
     }
   }
   const pool = new RelayPool({ signer, authMode: 'on-demand' });
-  const engine = new DeliveryEngine({ store: book.store.collection<OutboxRecord>(`outbox-${persona.id}`), publisher: pool, signer, retry: { baseMs: 2000, maxMs: 60_000 } });
+  const dmDiscovery = [...new Set([...persona.relays, ...(routing.discoveryRelays ?? [])])];
+  // FR010-03: a DM wrap that could not be routed when it was written (offline) goes to the recipient's DM relays on retry.
+  const router = dmRouter(pool, { discoveryRelays: dmDiscovery, fallback: persona.relays });
+  const engine = new DeliveryEngine({ store: book.store.collection<OutboxRecord>(`outbox-${persona.id}`), publisher: pool, signer, retry: { baseMs: 2000, maxMs: 60_000 }, router });
   void engine.resume();
   // FR011-02: a relay coming back resumes pending deliveries (the window 'online' event does too).
   const offReconnect = pool.onReconnect(() => void engine.resume());
@@ -147,6 +152,7 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
     pubkey: await signer.getPublicKey(),
     pool,
     engine,
+    dmDiscovery,
     close: () => {
       offReconnect();
       pool.close();

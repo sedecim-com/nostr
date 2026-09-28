@@ -69,6 +69,10 @@ La web lee `config.json` (compose monta `infra/web/config.json`; otro archivo co
 - `"mode": "saas"`: exige entrar con la cuenta de **Acceso** (Cognito) antes de abrir identidades. Ver
   `infra/web/config.saas.example.json` y [ADR 0008](docs/adr/0008-login-acceso-en-saas.md). El
   identity-service verifica los tokens con `COGNITO_REGION`, `COGNITO_USER_POOL_ID` y `COGNITO_CLIENT_ID`.
+- `"discoveryRelays"` (opcional): relays donde también se buscan las listas de relays de DM de los destinatarios
+  (kinds 10050 y 10002), además de los de la persona. Cada búsqueda les dice a qué npub vas a escribir. Si al
+  escribir un DM no se encuentra la lista (por ejemplo, sin red), cada reintento la vuelve a buscar antes de
+  publicar: el mensaje no se queda en tus relays (FR010-03).
 
 Las llaves viven en un vault de IndexedDB cifrado con tu contraseña. Solo el perfil convenience puede
 usar una llave del dispositivo sin contraseña ([ADR 0007](docs/adr/0007-almacenamiento-local-cifrado.md)).

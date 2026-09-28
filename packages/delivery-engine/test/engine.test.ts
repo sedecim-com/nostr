@@ -115,6 +115,38 @@ describe('DeliveryEngine', () => {
     expect(met).not.toHaveProperty('requestedQuorum');
   });
 
+  it('retries go where the router points now, until a relay accepts (FR010-03)', async () => {
+    const [fallback, inbox] = [await relay(), await relay()];
+    fallback.faults.offline = true;
+    const asked: string[][] = [];
+    let found = false;
+    const engine = new DeliveryEngine({
+      store: memStore(),
+      publisher: pool(),
+      signer,
+      retry: fast,
+      router: async (rec) => {
+        asked.push(rec.relays);
+        return found ? { relays: [inbox.url], meta: { dmRelaySource: 'dm-relays' } } : { relays: [fallback.url], meta: { dmRelaySource: 'fallback' } };
+      },
+    });
+    cleanups.push(() => engine.stop());
+    const rec = await engine.submit({ template: { kind: 1, content: 'ruta' } }, { relays: [fallback.url], quorum: 2, meta: { recipient: 'x', dmRelaySource: 'fallback' }, wait: true });
+    expect(rec.state).toBe('QUEUED');
+    expect(asked).toEqual([]); // the first round keeps the route the record was written with
+    await until(async () => asked.length > 0);
+    found = true;
+    await until(async () => (await engine.get(rec.opId))!.state === 'REPLICATED');
+    const done = (await engine.get(rec.opId))!;
+    expect(done).toMatchObject({ relays: [inbox.url], quorum: 1, requestedQuorum: 2, meta: { recipient: 'x', dmRelaySource: 'dm-relays' } });
+    expect(Object.keys(done.relayStatus)).toEqual([inbox.url]);
+    expect(inbox.events.has(done.event!.id)).toBe(true);
+    expect(done.event!.id).toBe(rec.event!.id); // same signed event, only the relays change
+    const calls = asked.length;
+    await engine.resume();
+    expect(asked.length).toBe(calls); // accepted: never rerouted again
+  });
+
   it('keeps an offline message in the outbox and publishes the same event when connectivity returns (FR-011)', async () => {
     const r = await relay();
     r.faults.offline = true;
