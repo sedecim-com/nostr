@@ -24,7 +24,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
-| Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md) | 🟡 servicio, formato y cliente (VAULT-01); faltan la llave en los backups y su uso desde la web y el CLI (VAULT-02), la restauración con relays vacíos (VAULT-03) y el compose (VAULT-06) |
+| Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md), [threat model](docs/threat-models/continuity-vault.md) | 🟡 servicio y sobres (VAULT-01); la llave de archivo viaja en los backups de la web y del CLI, y ambos sellan y guardan el ledger de entrega (VAULT-02); faltan los eventos y la restauración con relays vacíos (VAULT-03), el estado en el envío (VAULT-04) y el compose (VAULT-06) |
 | Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma y NIP-44 en el servidor autorizados con el token de Acceso o una sesión de dispositivo, consentimiento registrado con su versión) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
 | Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (Postgres, tablas `policy_*`; sin `DATABASE_URL`, en memoria) |
 | Consola de administración web (NIP-98; personas, recursos, dispositivos y passkeys, rotaciones, directorio, retención, auditoría) | `apps/admin-console`, [docs/admin-console.md](docs/admin-console.md) | ✅ servida por la imagen web en `/admin/` |
@@ -75,6 +75,10 @@ La web lee `config.json` (compose monta `infra/web/config.json`; otro archivo co
   ([borrador](docs/legal/custodia-managed.md), pendiente de legal). La aceptación enlaza esos términos y el
   managed-signer guarda su versión con la llave (FR005-08). Sin ella, la web avisa de que no están publicados y
   lo registra así.
+- `"continuityVault"` (opcional): URL de `services/continuity-vault` ([ADR 0011](docs/adr/0011-continuity-vault.md)). La
+  tarjeta «Continuity Vault» explica qué ve el operador, sella el ledger de entrega en el navegador con la llave de
+  archivo de la persona y comprueba que se abre. La llave viaja en el backup de la persona (v2), también cuando su
+  llave vive en un signer.
 - `"discoveryRelays"` (opcional): relays donde también se buscan las listas de relays de DM de los destinatarios
   (kinds 10050 y 10002), además de los de la persona. Cada búsqueda les dice a qué npub vas a escribir. Si al
   escribir un DM no se encuentra la lista (por ejemplo, sin red), cada reintento la vuelve a buscar antes de
@@ -105,6 +109,7 @@ npm run sovereign -- persona create --label Personal --relay ws://localhost:3000
 npm run sovereign -- channel send --persona <id> --group <h> "hola"
 npm run sovereign -- outbox --persona <id>      # estado por relay: aceptado ≠ recibido ≠ leído
 npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
+npm run sovereign -- vault push --persona <id> --vault URL   # sella el ledger aquí y lo guarda en el Continuity Vault
 ```
 
 ## Pruebas

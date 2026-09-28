@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { generateSecretKey, getPublicKey, nip19, nip49, verifyEvent, bytesToHex } from '@sedecim/nostr-core';
+import { bech32 } from '@scure/base';
+import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
+import { generateSecretKey, getPublicKey, nip19, nip49, randomBytes, utf8ToBytes, verifyEvent, bytesToHex } from '@sedecim/nostr-core';
+import { archiveKeyId, generateArchiveKey } from '@sedecim/continuity';
 import { EncryptedStore, MemoryBackend } from '@sedecim/encrypted-store';
 import { preset } from '@sedecim/profiles';
-import { backupFile, generateKey } from '../../../apps/key-generator/src/generate';
-import { ConsentRequiredError, IdentityManager, KeyBackupError, openKeyBackup, parseKeyBackup } from '../src/index';
+import { backupFile, generateKey, MAX_LOG_N } from '../../../apps/key-generator/src/generate';
+import { ConsentRequiredError, IdentityManager, KeyBackupError, MAX_BACKUP_LOG_N, openArchiveKeyBackup, openKeyBackup, parseKeyBackup, validateBackupEnvelope, type BackupPackageV2 } from '../src/index';
 
 function setup() {
   const backends = new Map<string, MemoryBackend>();
@@ -15,6 +18,14 @@ function setup() {
   return { mgr: new IdentityManager(account, open), backends, open };
 }
 const LOGN = 4;
+
+/** The same ncryptsec declaring another scrypt cost (its ciphertext no longer opens; the cost check comes first). */
+function withLogN(ncryptsec: string, logN: number): string {
+  const { words } = bech32.decode(ncryptsec as `ncryptsec1${string}`, 5000);
+  const bytes = new Uint8Array(bech32.fromWords(words));
+  bytes[1] = logN;
+  return bech32.encode('ncryptsec', bech32.toWords(bytes), 5000);
+}
 
 describe('IdentityManager', () => {
   it('creates a local identity that signs and verifies (FR-001)', async () => {
@@ -138,7 +149,7 @@ describe('IdentityManager', () => {
     const k = generateKey({ password: 'contraseña larga', logN: LOGN });
     const offline = backupFile(k, LOGN);
     const parsed = parseKeyBackup(JSON.stringify(offline));
-    expect(parsed).toEqual({ format: 'sedecim-offline-key', npub: k.npub, pubkey: k.pubkeyHex, ncryptsec: k.ncryptsec });
+    expect(parsed).toEqual({ format: 'sedecim-offline-key', version: 1, npub: k.npub, pubkey: k.pubkeyHex, ncryptsec: k.ncryptsec });
     const opened = await openKeyBackup(offline, 'contraseña larga');
     expect(opened.pubkey).toBe(k.pubkeyHex);
     expect(getPublicKey(opened.secretKey)).toBe(k.pubkeyHex);
@@ -153,7 +164,7 @@ describe('IdentityManager', () => {
     const mismatch = { ...web, npub: k.npub };
     await expect(openKeyBackup(mismatch, 'pw')).rejects.toBeInstanceOf(KeyBackupError);
     await expect(openKeyBackup(mismatch, 'pw')).rejects.toThrow(/does not match/);
-    for (const bad of [null, '[]', '{', { ...web, format: 'other' }, { ...web, version: 2 }, { ...web, npub: 'npub1xyz' }, { ...web, ncryptsec: 'nsec1abc' }, { ...web, npub: nip19.nsecEncode(sk) }])
+    for (const bad of [null, '[]', '{', { ...web, format: 'other' }, { ...web, version: 3 }, { ...web, archiveKey: web.ncryptsec }, { ...web, version: 2, ncryptsec: undefined }, { ...web, npub: 'npub1xyz' }, { ...web, ncryptsec: 'nsec1abc' }, { ...web, npub: nip19.nsecEncode(sk) }])
       expect(() => parseKeyBackup(bad)).toThrow(KeyBackupError);
 
     const { mgr } = setup();
@@ -163,6 +174,96 @@ describe('IdentityManager', () => {
     expect(p).toMatchObject({ pubkey: k.pubkeyHex, custody: 'local', label: 'Offline' });
     expect(await (await mgr.unlock(p.id, 'kp')).getPublicKey()).toBe(k.pubkeyHex);
     await expect(mgr.importKeyBackup(offline, 'contraseña larga', 'kp', { label: 'dup', relays: [] })).rejects.toThrow(/already exists/);
+  });
+
+  it('keeps an archive key per persona that is not the nsec and travels in the backup (VAULT-02)', async () => {
+    const one = setup();
+    const p = await one.mgr.createPersona({ label: 'Resiliente', relays: ['wss://r'], keyPassphrase: 'pp', scryptLogN: LOGN });
+    const key = await one.mgr.archiveKey(p.id);
+    expect(key).toHaveLength(32);
+    expect(await one.mgr.archiveKey(p.id)).toEqual(key);
+    const pkg = await one.mgr.exportBackup(p.id, 'backup-pw', { keyPassphrase: 'pp', scryptLogN: LOGN });
+    // The archive key is inside the sealed payload, never in clear in the package.
+    expect(JSON.stringify(pkg)).not.toContain(bytesToHex(key));
+    expect((await one.mgr.readBackup(pkg, 'backup-pw')).archiveKey).toBe(bytesToHex(key));
+    const two = setup();
+    await two.mgr.restoreBackup(pkg, 'backup-pw', 'new-pp', { scryptLogN: LOGN });
+    expect(archiveKeyId(await two.mgr.archiveKey(p.id))).toBe(archiveKeyId(key));
+
+    // A persona of an older version gets its key on first use; an external one too.
+    const ext = await one.mgr.importPersona({ bunker: `bunker://${'ab'.repeat(32)}?relay=wss://r`, pubkey: getPublicKey(generateSecretKey()) }, { label: 'signer', relays: ['wss://r'] });
+    const extKey = await one.mgr.archiveKey(ext.id);
+    const extPkg = await one.mgr.exportBackup(ext.id, 'backup-pw', { scryptLogN: LOGN });
+    expect(extPkg.ncryptsec).toBeUndefined();
+    const three = setup();
+    await three.mgr.restoreBackup(extPkg, 'backup-pw', 'x');
+    expect(await three.mgr.archiveKey(ext.id)).toEqual(extKey);
+
+    // A crafted backup whose archive key is the nsec is refused.
+    const sk = generateSecretKey();
+    const four = setup();
+    const own = await four.mgr.importPersona({ secretKey: new Uint8Array(sk), keyPassphrase: 'pp' }, { label: 'x', relays: [], scryptLogN: LOGN });
+    const honest = await four.mgr.exportBackup(own.id, 'pw', { keyPassphrase: 'pp', scryptLogN: LOGN });
+    const contents = await four.mgr.readBackup(honest, 'pw');
+    expect(contents.archiveKey).not.toBe(bytesToHex(sk));
+    const contentKey = generateArchiveKey();
+    const nonce = randomBytes(24);
+    const sealed = xchacha20poly1305(contentKey, nonce, utf8ToBytes('sedecim-identity-backup-v2')).encrypt(utf8ToBytes(JSON.stringify({ ...contents, archiveKey: bytesToHex(sk) })));
+    const crafted: BackupPackageV2 = { ...honest, contentKey: nip49.encryptKey(contentKey, 'pw', LOGN, 0x01), sealed: Buffer.from([...nonce, ...sealed]).toString('base64') };
+    await expect(setup().mgr.restoreBackup(crafted, 'pw', 'kp', { scryptLogN: LOGN })).rejects.toThrow(/must not be the nsec/);
+  });
+
+  it('opens web key backups v2: persona key plus archive key, or the archive key alone (VAULT-02)', async () => {
+    const sk = generateSecretKey();
+    const npub = nip19.npubEncode(getPublicKey(sk));
+    const ak = generateArchiveKey();
+    const both = { format: 'acceso-nostr-key-backup', version: 2, npub, ncryptsec: nip49.encryptKey(sk, 'pw', LOGN, 0x01), archiveKey: nip49.encryptKey(ak, 'pw', LOGN, 0x01) };
+    expect(parseKeyBackup(both)).toMatchObject({ version: 2, archiveKey: both.archiveKey });
+    const opened = await openKeyBackup(both, 'pw');
+    expect(opened.archiveKey).toEqual(ak);
+    expect(validateBackupEnvelope(JSON.stringify(both))).toMatchObject({ format: 'acceso-nostr-key-backup', formatVersion: 2, npub });
+
+    const { mgr } = setup();
+    const p = await mgr.importKeyBackup(both, 'pw', 'kp', { label: 'web', relays: ['wss://r'], scryptLogN: LOGN });
+    expect(await mgr.archiveKey(p.id)).toEqual(ak);
+
+    // A persona whose key lives in a signer backs up only its archive key.
+    const only = { format: 'acceso-nostr-key-backup', version: 2, npub, archiveKey: both.archiveKey };
+    expect(validateBackupEnvelope(JSON.stringify(only)).formatVersion).toBe(2);
+    await expect(openKeyBackup(only, 'pw')).rejects.toThrow(/only carries the archive key/);
+    expect(await openArchiveKeyBackup(only, 'pw', getPublicKey(sk))).toEqual(ak);
+    await expect(openArchiveKeyBackup(only, 'pw', getPublicKey(generateSecretKey()))).rejects.toThrow(/not to this persona/);
+    await expect(openArchiveKeyBackup(only, 'otra', getPublicKey(sk))).rejects.toThrow(/wrong passphrase/);
+
+    // The archive key can never be the persona key.
+    const same = { ...both, archiveKey: nip49.encryptKey(sk, 'pw', LOGN, 0x01) };
+    await expect(openKeyBackup(same, 'pw')).rejects.toThrow(/is the persona key/);
+    expect(() => validateBackupEnvelope(JSON.stringify({ format: 'acceso-nostr-key-backup', version: 2, npub }))).toThrow(/neither/);
+    expect(() => validateBackupEnvelope(JSON.stringify({ ...only, archiveKey: 'ncryptsec1nope' }))).toThrow(/archiveKey/);
+  });
+
+  it('refuses to restore a backup that asks for an excessive scrypt cost, before running scrypt (VAULT-02)', async () => {
+    expect(MAX_BACKUP_LOG_N).toBe(20);
+    // The offline generator never writes a backup that a restore would refuse.
+    expect(MAX_LOG_N).toBe(MAX_BACKUP_LOG_N);
+    expect(() => generateKey({ password: 'contraseña larga', logN: 21 })).toThrow(/from 1 to 20/);
+    const sk = generateSecretKey();
+    const npub = nip19.npubEncode(getPublicKey(sk));
+    const costly = withLogN(nip49.encryptKey(sk, 'pw', LOGN), 30);
+    expect(nip49.ncryptsecLogN(costly)).toBe(30);
+    const started = Date.now();
+    expect(() => parseKeyBackup({ format: 'acceso-nostr-key-backup', version: 1, npub, ncryptsec: costly })).toThrow(/2\^30; the maximum is 2\^20/);
+    await expect(openKeyBackup({ format: 'acceso-nostr-key-backup', version: 2, npub, ncryptsec: nip49.encryptKey(sk, 'pw', LOGN), archiveKey: withLogN(nip49.encryptKey(generateArchiveKey(), 'pw', LOGN), 21) }, 'pw')).rejects.toThrow(/archive key asks for a scrypt cost of 2\^21/);
+
+    const { mgr } = setup();
+    const p = await mgr.createPersona({ label: 'x', relays: [], keyPassphrase: 'pp', scryptLogN: LOGN });
+    const pkg = await mgr.exportBackup(p.id, 'pw', { keyPassphrase: 'pp', scryptLogN: LOGN });
+    await expect(mgr.readBackup({ ...pkg, contentKey: withLogN(pkg.contentKey, 30) } as BackupPackageV2, 'pw')).rejects.toThrow(/exceeds the allowed maximum 20/);
+    await expect(setup().mgr.restoreBackup({ ...pkg, ncryptsec: withLogN(pkg.ncryptsec!, 25) }, 'pw', 'kp')).rejects.toThrow(/exceeds the allowed maximum 20/);
+    // 2^30 would need a terabyte of scrypt memory: every refusal above came before any scrypt ran.
+    expect(Date.now() - started).toBeLessThan(5000);
+    // And no tool writes a backup that cannot be restored.
+    await expect(mgr.exportBackup(p.id, 'pw', { keyPassphrase: 'pp', scryptLogN: 21 })).rejects.toThrow(/above the maximum/);
   });
 
   it('migrates managed custody to local only with a matching key (FR-026)', async () => {

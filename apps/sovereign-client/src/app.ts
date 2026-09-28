@@ -29,6 +29,7 @@ import {
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
 import { downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
+import { ArchiveVaultClient, archiveId, openArchive, sealArchive, type ArchiveMeta } from '@sedecim/continuity';
 
 export interface SovereignOptions {
   dataDir: string;
@@ -459,6 +460,70 @@ export class SovereignClient {
     const out: Array<{ groupId: string; status: 'joined' | 'pending' }> = [];
     for (const id of ids) out.push({ groupId: id, status: (await gs.rejoin(id, s.persona.relays)).status });
     return out;
+  }
+
+  /**
+   * VAULT-02: the persona's Continuity Vault (ADR 0011). Requests are signed (NIP-98) with the key derived
+   * from its archive key, never with the persona key, and go through its network guard (Tor for Tor-only).
+   */
+  private async vault(personaId: string, url: string): Promise<{ client: ArchiveVaultClient; key: Uint8Array; session: Session }> {
+    const s = await this.session(personaId);
+    const guard = new NetworkGuard({
+      mode: s.persona.network,
+      socksHost: this.opts.socksHost,
+      socksPort: this.opts.socksPort,
+      isolationKey: s.persona.id,
+      allowedHosts: [...new Set([...s.persona.relays, url].map((u) => new URL(u).hostname))],
+    });
+    const key = await (await this.identities()).archiveKey(personaId);
+    return { client: new ArchiveVaultClient({ baseUrl: url, auth: { archiveKey: key }, fetch: guard.fetchApi() }), key, session: s };
+  }
+
+  /**
+   * VAULT-02: seals the persona's delivery ledger (every outbox operation with its signed event and state per
+   * relay) on this device and stores it in the vault, replacing the previous copy. The vault only receives
+   * the sealed envelope.
+   */
+  async vaultPush(personaId: string, url: string): Promise<{ archive: ArchiveMeta; operations: number }> {
+    const { client, key, session: s } = await this.vault(personaId, url);
+    try {
+      const outbox = await s.store.collection<OutboxRecord>('outbox').all();
+      const id = archiveId(key, 'ledger');
+      const plaintext = JSON.stringify({ type: 'ledger', version: 1, pubkey: s.persona.pubkey, at: Date.now(), outbox });
+      const { archive } = await client.put(id, sealArchive(key, id, plaintext));
+      return { archive, operations: outbox.length };
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  async vaultList(personaId: string, url: string): Promise<ArchiveMeta[]> {
+    const { client, key } = await this.vault(personaId, url);
+    try {
+      return await client.listAll();
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  /** Downloads every archive and opens it here: shows that this device's archive key opens what the vault keeps. */
+  async vaultVerify(personaId: string, url: string): Promise<{ archives: number; opened: number }> {
+    const { client, key } = await this.vault(personaId, url);
+    try {
+      const all = await client.listAll();
+      let opened = 0;
+      for (const meta of all) {
+        try {
+          openArchive(key, meta.id, (await client.get(meta.id)).envelope).fill(0);
+          opened++;
+        } catch {
+          // Counted as not opened: another archive key (e.g. before a restore) or a damaged envelope.
+        }
+      }
+      return { archives: all.length, opened };
+    } finally {
+      key.fill(0);
+    }
   }
 
   /** HTTP through a guard with the persona's network policy, allowing only these extra hosts. */

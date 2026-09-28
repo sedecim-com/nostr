@@ -20,6 +20,10 @@
  *   sovereign history export --persona ID --out FILE [--since UNIX]  (JSONL, one signed NIP-01 event per line)
  *   sovereign history import --persona ID FILE [--dry-run]           (verify signatures, republish valid events)
  *   sovereign disclose --persona ID      (what each setting implies)
+ *   sovereign vault push --persona ID [--vault URL]    (seal the delivery ledger here and store it in the
+ *                                        Continuity Vault; the operator sees account, size and time, never content)
+ *   sovereign vault list --persona ID [--vault URL]    (archives of this persona's vault account)
+ *   sovereign vault verify --persona ID [--vault URL]  (download every archive and open it with this device's key)
  *   sovereign group keypackage --persona ID            (publish MLS key package so others can add you)
  *   sovereign group create --persona ID --name NAME     (Marmot/MLS: forward secrecy + PCS)
  *   sovereign group invite --persona ID --group GID --to NPUB
@@ -47,6 +51,7 @@
  * Env: SOVEREIGN_DATA_DIR (default ./.data/sovereign), SOVEREIGN_PASSPHRASE, TOR_SOCKS (127.0.0.1:9050),
  *      SOVEREIGN_BACKUP_PASSWORD (backup files, when --password-file is not given),
  *      SOVEREIGN_BLOB_STORE (fallback Blossom/blob-store URL for encrypted group media),
+ *      SOVEREIGN_VAULT_URL (Continuity Vault URL, when --vault is not given),
  *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present),
  *      SOVEREIGN_POLICY_BEARER (optional service bearer for POST /v1/rotations/:id/done and GET /v1/revocations;
  *        NIP-98 otherwise),
@@ -55,6 +60,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags } from '@sedecim/messaging';
+import { CONTINUITY_VAULT_TEXTS } from '@sedecim/profiles';
 import { SovereignClient } from './app';
 
 function relayAdapter() {
@@ -241,6 +247,23 @@ async function main() {
         }
       }
       else throw new Error(`unknown group command: ${b}`);
+    } else if (a === 'vault') {
+      const url = opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL;
+      if (!url) throw new Error('--vault URL or SOVEREIGN_VAULT_URL required');
+      if (b === 'push') {
+        // VAULT-07: what the operator can and cannot see, every time something is uploaded.
+        for (const t of [CONTINUITY_VAULT_TEXTS.sealed, CONTINUITY_VAULT_TEXTS.metadata]) console.error(`aviso: ${t}`);
+        const r = await client.vaultPush(need(), url);
+        console.log(`estado de entrega sellado y guardado en el vault: ${r.operations} operaciones, ${r.archive.size} bytes (archivo ${r.archive.id.slice(0, 12)}…)`);
+      } else if (b === 'list') {
+        const all = await client.vaultList(need(), url);
+        for (const m of all) console.log(`${m.id.slice(0, 16)}…  ${String(m.size).padStart(8)} B  ${m.updated_at}`);
+        console.log(`${all.length} archivos`);
+      } else if (b === 'verify') {
+        const r = await client.vaultVerify(need(), url);
+        console.log(`${r.opened} de ${r.archives} archivos se abren con la llave de archivo de este dispositivo`);
+        if (r.opened < r.archives) process.exitCode = 1;
+      } else throw new Error('usage: sovereign vault push|list|verify --persona ID [--vault URL]');
     } else if (a === 'disclose') {
       for (const d of await client.disclosures(need())) console.log(`• [${d.control}=${d.option}] ${d.statement}`);
     } else {

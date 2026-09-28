@@ -22,6 +22,7 @@ import { createManagedSignerApi, ManagedSigner, MemoryVault } from '@sedecim/man
 import { backupFile, generateKey } from '@sedecim/key-generator';
 import { managedConsentVersion } from '@sedecim/profiles';
 import { createNotificationApi, generateVapidKeys, NotificationGateway, createWebPushSender } from '@sedecim/notification-gateway';
+import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '@sedecim/continuity-vault';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -104,7 +105,12 @@ const vapid = generateVapidKeys();
 const gatewayCore = new NotificationGateway({ pool: new RelayPool({ webSocketFactory: factory }), sender: createWebPushSender({ vapid, subject: 'mailto:e2e@example.org' }), relays: [{ public: relay.url }] });
 const gateway = createNotificationApi(gatewayCore, { name: 'notification-e2e', corsOrigins: [base], vapid });
 const gatewayUrl = await gateway.listen();
-const selfHosted = { mode: 'self-hosted', relays: [relay.url], buzzMedia: media.url, blobStore: blobs.url, identityService: identityUrl, notificationGateway: gatewayUrl };
+// VAULT-02: the Continuity Vault, with its storage in reach of the test to check what the operator holds.
+const vaultRepo = new MemoryArchiveRepository();
+const vaultObjects = new MemoryObjectStore();
+const continuity = createContinuityVaultApi(vaultRepo, vaultObjects, { name: 'vault-e2e', corsOrigins: [base] });
+const continuityUrl = await continuity.listen();
+const selfHosted = { mode: 'self-hosted', relays: [relay.url], buzzMedia: media.url, blobStore: blobs.url, identityService: identityUrl, notificationGateway: gatewayUrl, continuityVault: continuityUrl };
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const context = await browser.newContext();
@@ -303,6 +309,21 @@ try {
   }
   assert(receipts.includes('delivered') && !receipts.includes('read'), `delivered receipt sent, read receipt not sent (${receipts.join(',')})`);
 
+  // --- VAULT-02/07: the Continuity Vault card says what the operator sees, seals the delivery ledger in this
+  // browser with the persona's archive key and opens it again; the vault holds no text, event or npub.
+  await tab(page, 'Personas');
+  assert((await page.textContent('#vault-facts'))?.includes('El operador sí ve tu cuenta del vault'), 'the vault card says what its operator sees before anything is uploaded (VAULT-07)');
+  assert((await page.textContent('#backup-facts'))?.includes('llave de archivo del Continuity Vault'), 'the backup says it carries the archive key (VAULT-02)');
+  await page.locator('#vault-push').click();
+  await page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.includes('operaciones'), undefined, { timeout: 15_000 });
+  let vaultHeld = JSON.stringify(vaultRepo.rows());
+  for await (const k of vaultObjects.list()) vaultHeld += new TextDecoder().decode((await vaultObjects.get(k))!);
+  assert(vaultRepo.rows().length === 1 && !vaultRepo.rows()[0]!.owner.includes(webPub), 'one archive, under a vault account that is not the npub');
+  assert(!['dm desde la web', 'mensaje lento', webPub, 'REPLICATED', relay.url].some((t) => vaultHeld.includes(t)), 'the vault holds no text, event, npub or relay of the ledger (sealed in the browser)');
+  await page.locator('#vault-verify').click();
+  await page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.includes('1 de 1 archivos se abren'), undefined, { timeout: 15_000 });
+  assert(true, 'the archive opens again with the archive key of this browser');
+
   // --- panel applies and persists per persona (PANEL-02/03)
   await tab(page, 'Soberanía y privacidad');
   // PANEL-05: custody is a fact of the persona, shown but not chosen, and the panel explains stripFileMetadata.
@@ -364,7 +385,7 @@ try {
   await tab(page, 'Personas');
   await fill(page, 'persona-label', 'Offline');
   await page.getByLabel('Importar archivo de backup (generador offline o esta web)').check();
-  await page.locator('input[type=file][accept="application/json,.json"]').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backupFile(offline, 14))) });
+  await page.locator('#backup-file').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backupFile(offline, 14))) });
   assert((await page.textContent('#backup-npub'))?.includes(offline.npub), 'the backup npub is shown before asking for the password');
   await fill(page, 'import-backup-pass', 'incorrecta');
   await page.getByRole('button', { name: 'Crear persona' }).click();
@@ -643,6 +664,7 @@ try {
   await managed.close();
   gatewayCore.stop();
   await gateway.close();
+  await continuity.close();
   await media.stop();
   await blobs.stop();
   await userBlobs.stop();

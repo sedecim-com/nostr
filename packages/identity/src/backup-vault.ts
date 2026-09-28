@@ -40,9 +40,13 @@ const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$
 const NSEC = /nsec1[023456789acdefghjklmnpqrstuvwxyz]{58}/i;
 // Any run of >= 64 hex digits (a key glued to other hex digits must not slip through: found by SEC-03 fuzz).
 const HEX64 = /[0-9a-f]{64}/i;
-const FIELDS: Record<string, { version: number; required: string[]; optional: string[] }> = {
-  'sedecim-identity-backup': { version: 2, required: ['format', 'version', 'contentKey', 'sealed', 'createdAt'], optional: ['ncryptsec'] },
-  'acceso-nostr-key-backup': { version: 1, required: ['format', 'version', 'npub', 'ncryptsec'], optional: [] },
+const FIELDS: Record<string, Record<number, { required: string[]; optional: string[] }>> = {
+  'sedecim-identity-backup': { 2: { required: ['format', 'version', 'contentKey', 'sealed', 'createdAt'], optional: ['ncryptsec'] } },
+  'acceso-nostr-key-backup': {
+    1: { required: ['format', 'version', 'npub', 'ncryptsec'], optional: [] },
+    // VAULT-02: the archive key; the persona key is absent for a persona whose key lives in a signer.
+    2: { required: ['format', 'version', 'npub'], optional: ['ncryptsec', 'archiveKey'] },
+  },
 };
 
 /**
@@ -63,12 +67,15 @@ export function validateBackupEnvelope(text: string, maxBytes = MAX_VAULT_BACKUP
   }
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw new BackupEnvelopeError('backup must be a JSON object');
   const o = v as Record<string, unknown>;
-  const spec = typeof o.format === 'string' ? FIELDS[o.format] : undefined;
-  if (!spec) throw new BackupEnvelopeError('unsupported backup format (only encrypted backups are accepted)');
-  if (o.version !== spec.version) throw new BackupEnvelopeError(`unsupported ${String(o.format)} version`);
+  const specs = typeof o.format === 'string' && Object.hasOwn(FIELDS, o.format) ? FIELDS[o.format] : undefined;
+  if (!specs) throw new BackupEnvelopeError('unsupported backup format (only encrypted backups are accepted)');
+  const spec = typeof o.version === 'number' && Object.hasOwn(specs, o.version) ? specs[o.version] : undefined;
+  if (!spec) throw new BackupEnvelopeError(`unsupported ${String(o.format)} version`);
   for (const k of Object.keys(o)) if (!spec.required.includes(k) && !spec.optional.includes(k)) throw new BackupEnvelopeError(`field "${k}" not allowed in an encrypted backup`);
   for (const k of spec.required) if (o[k] === undefined) throw new BackupEnvelopeError(`missing field: ${k}`);
   if (o.ncryptsec !== undefined && (typeof o.ncryptsec !== 'string' || !NCRYPTSEC.test(o.ncryptsec))) throw new BackupEnvelopeError('ncryptsec is not a NIP-49 string');
+  if (o.archiveKey !== undefined && (typeof o.archiveKey !== 'string' || !NCRYPTSEC.test(o.archiveKey))) throw new BackupEnvelopeError('archiveKey is not a NIP-49 string');
+  if (o.format === 'acceso-nostr-key-backup' && o.ncryptsec === undefined && o.archiveKey === undefined) throw new BackupEnvelopeError('backup has neither a key nor an archive key');
   let npub: string | undefined;
   if (o.format === 'sedecim-identity-backup') {
     if (typeof o.contentKey !== 'string' || !NCRYPTSEC.test(o.contentKey)) throw new BackupEnvelopeError('contentKey is not a NIP-49 string');
@@ -84,7 +91,7 @@ export function validateBackupEnvelope(text: string, maxBytes = MAX_VAULT_BACKUP
       throw new BackupEnvelopeError('npub is not a valid npub');
     }
   }
-  return { format: o.format as VaultBackupFormat, formatVersion: spec.version, size, ...(npub ? { npub } : {}) };
+  return { format: o.format as VaultBackupFormat, formatVersion: o.version as number, size, ...(npub ? { npub } : {}) };
 }
 
 /** How the client proves who owns the backups: its Nostr key (NIP-98) or an Acceso token (SaaS). */

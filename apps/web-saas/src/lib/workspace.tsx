@@ -19,6 +19,8 @@ export interface Workspace {
   reloadPersonas(): Promise<void>;
   /** Persist the active persona's configuration in the vault (PANEL-03). */
   saveConfig(c: SovereigntyConfig): Promise<void>;
+  /** The active persona's record changed in the vault (e.g. its archive key, VAULT-02): refresh the open session. */
+  updatePersona(p: PersonaRecord): Promise<void>;
   /** Onboarding: publish the active persona's DM relay list (kind 10050). */
   publishDmRelays(): Promise<void>;
   /** How managed personas reach the managed-signer (SaaS with an Acceso session only). */

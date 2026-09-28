@@ -5,6 +5,7 @@ import {
   concatBytes,
   generateSecretKey,
   getPublicKey,
+  hexToBytes,
   isHex,
   nip19,
   nip49,
@@ -15,15 +16,19 @@ import {
   wipe,
   type Signer,
 } from '@sedecim/nostr-core';
+import { assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
 import type { Collection, EncryptedStore } from '@sedecim/encrypted-store';
 import type { SovereigntyConfig } from '@sedecim/profiles';
 import { LocalSigner } from '@sedecim/signer';
-import { openKeyBackup } from './key-backup';
+import { MAX_BACKUP_LOG_N, openKeyBackup } from './key-backup';
 import type { AuditEntry, BackupContents, BackupPackage, BackupPackageV2, Compartment, IdentityLink, LinkVisibility, PersonaConfig } from './types';
 
 const BACKUP_AAD = utf8ToBytes('sedecim-identity-backup-v2');
 /** Persona-store collection used by the delivery engine's outbox (see apps/sovereign-client). */
 export const OUTBOX_COLLECTION = 'outbox';
+/** VAULT-02: persona-store collection holding the archive key of the Continuity Vault (ADR 0011). */
+const ARCHIVE_COLLECTION = 'archive';
+const HEX32 = /^[0-9a-f]{64}$/;
 
 function toBase64(bytes: Uint8Array): string {
   let s = '';
@@ -113,6 +118,25 @@ export class IdentityManager {
     await store.collection<string>('key').put('ncryptsec', await nip49.encryptKeyAsync(secretKey, passphrase, logN ?? 16, 0x01));
   }
 
+  private async putArchiveKey(personaId: string, key: Uint8Array) {
+    await (await this.openPersonaStore(personaId)).collection<string>(ARCHIVE_COLLECTION).put('key', bytesToHex(key));
+  }
+
+  /**
+   * VAULT-02: the persona's archive key for the Continuity Vault: 32 random bytes, never the nsec, kept in the
+   * persona's encrypted store and carried by every backup. Created on first use for older personas.
+   */
+  async archiveKey(personaId: string): Promise<Uint8Array> {
+    await this.get(personaId);
+    const col = (await this.openPersonaStore(personaId)).collection<string>(ARCHIVE_COLLECTION);
+    const hex = await col.get('key');
+    if (hex) return hexToBytes(hex);
+    const key = generateArchiveKey();
+    await col.put('key', bytesToHex(key));
+    await this.log({ action: 'archive_key.created', subject: personaId });
+    return key;
+  }
+
   /** FR-001: generate a key locally; the nsec never leaves the device. */
   async createPersona(input: CreatePersonaInput): Promise<PersonaConfig> {
     const sk = generateSecretKey();
@@ -130,6 +154,7 @@ export class IdentityManager {
         createdAt: this.now(),
       };
       await this.storeKey(persona.id, sk, input.keyPassphrase, input.scryptLogN);
+      await this.putArchiveKey(persona.id, generateArchiveKey());
       await this.personas.put(persona.id, persona);
       await this.log({ action: 'persona.created', subject: persona.id, details: { custody: 'local', compartment: persona.compartment } });
       return persona;
@@ -191,11 +216,15 @@ export class IdentityManager {
    * `acceso-nostr-key-backup`). The ncryptsec must decrypt to the declared npub or nothing is created.
    */
   async importKeyBackup(json: unknown, backupPassword: string, keyPassphrase: string, meta: ImportMeta): Promise<PersonaConfig> {
-    const { secretKey, pubkey } = await openKeyBackup(json, backupPassword);
+    const { secretKey, pubkey, archiveKey } = await openKeyBackup(json, backupPassword);
     try {
-      return await this.importPersona({ secretKey, keyPassphrase, expectedPubkey: pubkey }, meta);
+      const persona = await this.importPersona({ secretKey, keyPassphrase, expectedPubkey: pubkey }, meta);
+      // VAULT-02: a v2 web backup brings the persona's archive key, so its vault archives open here too.
+      if (archiveKey) await this.putArchiveKey(persona.id, archiveKey);
+      return persona;
     } finally {
       wipe(secretKey);
+      if (archiveKey) wipe(archiveKey);
     }
   }
 
@@ -297,6 +326,8 @@ export class IdentityManager {
   ): Promise<BackupPackageV2> {
     const persona = await this.get(personaId);
     const logN = opts.scryptLogN ?? 18;
+    // A backup nobody could restore is worse than none (restores refuse costs above MAX_BACKUP_LOG_N).
+    if (logN > MAX_BACKUP_LOG_N) throw new Error(`backup scrypt cost 2^${logN} is above the maximum 2^${MAX_BACKUP_LOG_N} that restores accept`);
     const store = await this.openPersonaStore(personaId);
     let ncryptsec: string | undefined;
     if (persona.custody === 'local' || persona.custody === 'offline') {
@@ -310,7 +341,9 @@ export class IdentityManager {
         wipe(secretKey);
       }
     }
-    const contents: BackupContents = { persona };
+    const archiveKey = await this.archiveKey(personaId);
+    const contents: BackupContents = { persona, archiveKey: bytesToHex(archiveKey) };
+    wipe(archiveKey);
     const config = opts.config ?? (await this.getConfig(personaId));
     if (config) contents.config = config;
     if (opts.includeMls ?? true) {
@@ -346,12 +379,14 @@ export class IdentityManager {
     if (pkg?.format !== 'sedecim-identity-backup') throw new Error('unsupported backup format');
     if (pkg.version === 1) return { persona: pkg.persona };
     if (pkg.version !== 2) throw new Error('unsupported backup format');
-    const { secretKey: contentKey } = await nip49.decryptKeyAsync(pkg.contentKey, backupPassword);
+    // VAULT-02: the cost comes from the file; above the maximum it is refused before scrypt runs.
+    const { secretKey: contentKey } = await nip49.decryptKeyAsync(pkg.contentKey, backupPassword, { maxLogN: MAX_BACKUP_LOG_N });
     try {
       const raw = fromBase64(pkg.sealed);
       const pt = xchacha20poly1305(contentKey, raw.subarray(0, 24), BACKUP_AAD).decrypt(raw.subarray(24));
       const contents = JSON.parse(bytesToUtf8(pt)) as BackupContents;
       if (!contents?.persona?.id || !isHex(contents.persona.pubkey, 32)) throw new Error('malformed backup contents');
+      if (contents.archiveKey !== undefined && (typeof contents.archiveKey !== 'string' || !HEX32.test(contents.archiveKey))) throw new Error('malformed archive key in backup');
       return contents;
     } finally {
       wipe(contentKey);
@@ -362,14 +397,21 @@ export class IdentityManager {
   async restoreBackup(pkg: BackupPackage, backupPassword: string, keyPassphrase: string, opts: { scryptLogN?: number } = {}): Promise<PersonaConfig> {
     const contents = await this.readBackup(pkg, backupPassword);
     const { persona } = contents;
+    const archiveKey = contents.archiveKey ? hexToBytes(contents.archiveKey) : undefined;
     if (pkg.ncryptsec) {
-      const { secretKey } = await nip49.decryptKeyAsync(pkg.ncryptsec, backupPassword);
+      const { secretKey } = await nip49.decryptKeyAsync(pkg.ncryptsec, backupPassword, { maxLogN: MAX_BACKUP_LOG_N });
       try {
         if (!selfTestKey(secretKey, persona.pubkey).ok) throw new Error('backup key does not match persona pubkey');
+        if (archiveKey) assertDistinctFromNsec(archiveKey, secretKey);
         await this.storeKey(persona.id, secretKey, keyPassphrase, opts.scryptLogN);
       } finally {
         wipe(secretKey);
       }
+    }
+    // VAULT-02: the restored device opens the vault archives with the key the backup carries.
+    if (archiveKey) {
+      await this.putArchiveKey(persona.id, archiveKey);
+      wipe(archiveKey);
     }
     const store = await this.openPersonaStore(persona.id);
     if (contents.config) await store.collection<SovereigntyConfig>('settings').put('sovereignty', contents.config);
