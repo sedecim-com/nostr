@@ -1,7 +1,8 @@
 name: backlog-sync
 
 # GitHub Issues are the source of truth of the backlog (docs/backlog/GITHUB.md). This workflow rebuilds
-# docs/backlog/{backlog.json,README.md,backlog.csv} from the issues and opens/updates one PR with the result.
+# docs/backlog/{backlog.json,README.md,backlog.csv} from the issues and opens/updates one PR with the result;
+# once main already matches the issues, it closes that PR and deletes its branch.
 # A closed issue only becomes Hecho when its evidence cites a commit of main (OPS-17, docs/backlog/GITHUB.md).
 # `seed` (create on GitHub whatever backlog.json has and the issues don't; rename milestones after meta.sprints
 # and align "blocked by" links with each issue's "Depende de") runs when this workflow or the sync script change
@@ -59,10 +60,19 @@ jobs:
         run: |
           node scripts/backlog-github.mjs pull --write
           node scripts/backlog.mjs
-      - name: Open or update the sync PR
+      - name: Open, update or close the sync PR
         run: |
+          base="${{ github.event.repository.default_branch }}"
           if git diff --quiet -- docs/backlog; then
             echo "docs/backlog already matches GitHub Issues"
+            # Usually another PR brought this sync to main (docs/backlog/GITHUB.md): merging the open sync PR would
+            # change nothing or conflict, and its branch is stale. The next diff recreates both from main.
+            pr="$(gh pr list --head "$BRANCH" --base "$base" --state open --json number --jq '.[].number')"
+            if [ -n "$pr" ]; then
+              # shellcheck disable=SC2016
+              gh pr close "$pr" --delete-branch \
+                --comment '`main` ya coincide con GitHub Issues: esta sincronización ya no hace falta. La próxima diferencia volverá a crear la rama `backlog-sync` y abrirá una PR nueva.'
+            fi
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -71,7 +81,6 @@ jobs:
           git add docs/backlog
           git commit -m "backlog: sync desde GitHub Issues"
           git push --force origin "$BRANCH"
-          base="${{ github.event.repository.default_branch }}"
           if [ -n "$(gh pr list --head "$BRANCH" --base "$base" --state open --json number --jq '.[].number')" ]; then
             echo "sync PR updated"
             exit 0

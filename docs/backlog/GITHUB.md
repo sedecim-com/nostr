@@ -73,9 +73,13 @@ La regla que aplica la sincronización (`pull`):
 1. Se ejecuta con cada cambio en un issue `backlog`/`epic`, una vez al día y a mano.
 2. Lanza `node scripts/backlog-github.mjs pull --write`, después `node scripts/backlog.mjs` (valida y regenera),
    y abre o actualiza la PR **"backlog: sync desde GitHub Issues"** en la rama `backlog-sync`.
-3. Si el validador falla (p. ej. una tarea cerrada que depende de otra abierta, o una dependencia hacia un sprint
+3. Si `main` ya coincide con los issues (p. ej. porque otra PR trajo la salida de `backlog-sync`, ver arriba),
+   cierra con un comentario la PR de sincronización que siga abierta y borra la rama. Fusionar esa PR no
+   cambiaría nada o chocaría con líneas que `main` ya movió, y una rama vieja se podría traer por error a otra PR.
+   La siguiente ejecución con diferencias vuelve a crear la rama desde `main` y abre una PR nueva.
+4. Si el validador falla (p. ej. una tarea cerrada que depende de otra abierta, o una dependencia hacia un sprint
    posterior), la ejecución queda en rojo con el error. Se corrige en los issues.
-4. Las PR que abre `GITHUB_TOKEN` no lanzan `ci`: la sync solo toca `docs/backlog`, y el validador ya corrió en
+5. Las PR que abre `GITHUB_TOKEN` no lanzan `ci`: la sync solo toca `docs/backlog`, y el validador ya corrió en
    el workflow.
 
 `pull` solo escribe en GitHub para poner `evidencia:merged` (ver arriba).
