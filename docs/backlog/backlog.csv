@@ -205,7 +205,22 @@
 
 - `WEB_SIGNED_KINDS` (packages/signer/src/nip46.ts) lista los kinds que la web firma con la llave de la persona, y `WEB_NIP46_PERMISSIONS` sale de esa lista. Suma 10063, 30078 y 30443 y ya no pide 5 ni 7.
 - Test: apps/web-saas/test/nip46-permissions.test.ts pasa todos los caminos de firma de la web por un signer que registra lo que firma y contrasta la lista en los dos sentidos.","https://github.com/sedecim-com/nostr/issues/232"
-"PANEL-05","PANEL · Panel de soberanía y privacidad","§9.1, FR-028","Panel veraz: perfil validado al crear persona, Tor-only sin clearnet en la web, declaraciones desde la custodia real","isValid al crear persona; con tor-only la web no lee relays ni publica 10050; disclosures según la custodia real (también en el CLI Tor); texto para stripFileMetadata; se retiran «Marmot fijada y auditada» y las promesas de tracing y crash reports; se añaden los avisos de alto riesgo que faltan en --high-risk y en los presets soberanos","Dev","P1","3","PANEL-04 FR028-01","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/233"
+"PANEL-05","PANEL · Panel de soberanía y privacidad","§9.1, FR-028","Panel veraz: perfil validado al crear persona, Tor-only sin clearnet en la web, declaraciones desde la custodia real","isValid al crear persona; con tor-only la web no lee relays ni publica 10050; disclosures según la custodia real (también en el CLI Tor); texto para stripFileMetadata; se retiran «Marmot fijada y auditada» y las promesas de tracing y crash reports; se añaden los avisos de alto riesgo que faltan en --high-risk y en los presets soberanos","Dev","P1","3","PANEL-04 FR028-01","S9","2026-10-09","Hecho","Commit 44c3284 (PR #308):
+
+- **Al crear persona:** la web valida el perfil antes de crear nada.
+- **Tor-only:** la web no abre ninguna conexión a relays (apps/web-saas/test/tor-only.test.ts).
+- **Custodia real** en la web (config.custody desde la llave o el signer; el panel la muestra sin dejar cambiarla) y en el CLI (`local`).
+- **Disclosures 1.2.0:**
+  - sin «Marmot fijada y auditada»;
+  - telemetría y crash reports dicen que esta versión no envía ninguno;
+  - los presets ya no eligen crash reports;
+  - texto para stripFileMetadata.
+- **Avisos de riesgos residuales:** para Tor-only (`--high-risk`, sovereign-tor) y, sin Tor, sobre la IP. El CLI los imprime al crear o importar.
+- **Tests:**
+  - packages/profiles/test/profiles.test.ts
+  - apps/sovereign-client/test/sovereign.test.ts
+  - apps/sovereign-client/test/cli-warnings.test.ts
+  - tests/browser/web-saas.e2e.ts","https://github.com/sedecim-com/nostr/issues/233"
 "FR005-08","FR · Identidad, llaves y custodia","FR-005, FR-028","Textos de la custodia gestionada listos para la revisión legal","Login sin «tu llave no sale del navegador» en managed; aviso de descifrado NIP-44 en servidor; enlace a los términos; consentimiento registrado con su versión","Dev","P1","3","FR005-07","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/234"
 "OPS-11","OPS · Despliegue y DevSecOps","Apéndice D, PRD GC-F05","Corregir la deriva documental","README, notas v0.1.0, architecture.md, ADR 0002/0009, buzz-integration.md, institutional.md, threat-model.md, SECURITY.md y baseline del backlog coinciden con main; internal-review refleja la PR #216","Doc","P1","2","","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/235"
 "BUZZ-07","BUZZ · Early release sobre Buzz","§6.3","Adoptar el pin de Buzz ac4521f3e464 (issue #201) tras revisar el changelog","PR del pin fusionada con el gate de interoperabilidad en verde; ADR 0003 seguido","Infra","P2","1","BUZZ-05","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/236"
