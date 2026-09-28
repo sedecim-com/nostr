@@ -1,11 +1,11 @@
 import { bytesToHex, hexToBytes, nip19, nip49, generateSecretKey, getPublicKey, npubEncode, selfTestKey, wipe, CUSTODY_FACTS, type Signer } from '@sedecim/nostr-core';
-import { RelayPool } from '@sedecim/relay-pool';
+import { NetworkBlockedError, RelayPool, type WebSocketFactory } from '@sedecim/relay-pool';
 import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS, type AccessTokenProvider } from '@sedecim/signer';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
 import { dmRouter, publishDmRelayList } from '@sedecim/messaging';
-import { preset, type PresetName } from '@sedecim/profiles';
-import type { PersonaBook, PersonaRecord } from './vault';
+import { preset, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
+import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
 
 /**
  * One open persona (FR006-02). The SaaS web app is a first-class Nostr client (spec §15): it signs
@@ -34,12 +34,40 @@ export type NewPersona =
   /** Already connected through a client-initiated nostrconnect:// offer (FR004-03). */
   | { kind: 'nip46-connected'; signer: Nip46Signer; clientSecretKey: Uint8Array };
 
+/**
+ * PANEL-05: a browser cannot guarantee Tor-only, so the web never opens a relay connection for a Tor-only persona
+ * (no reads, no kind 10050, no DM discovery). Sends were already blocked; now nothing leaves over clearnet.
+ */
+const torOnlyBlocked: WebSocketFactory = (url) => {
+  throw new NetworkBlockedError('Tor-only: el navegador no conecta con relays por clearnet; usa el cliente soberano.', url);
+};
+
 /** Pool for NIP-46 traffic: NIP-42 on the signer relays authenticates the ephemeral client key only. */
-const nip46Pool = (clientKey: Uint8Array) => new RelayPool({ signer: new LocalSigner(clientKey), authMode: 'on-demand' });
+const nip46Pool = (clientKey: Uint8Array, webSocketFactory?: WebSocketFactory) => new RelayPool({ signer: new LocalSigner(clientKey), authMode: 'on-demand', webSocketFactory });
+
+const CUSTODY_OF_INPUT: Record<NewPersona['kind'], PersonaCustody> = { create: 'local', import: 'local', secret: 'local', nip07: 'nip07', nip46: 'nip46', 'nip46-connected': 'nip46', managed: 'managed' };
+
+/**
+ * PANEL-05: the custody a persona really has, whatever its preset says: the panel and its disclosures describe
+ * facts. A key in this browser is 'local', a NIP-07/NIP-46 signer 'external' and the managed-signer 'managed'.
+ */
+export function realCustody(custody: PersonaCustody): SovereigntyConfig['custody'] {
+  return custody === 'local' ? 'local' : custody === 'managed' ? 'managed' : 'external';
+}
+
+/** The panel configuration of a persona with its real custody (older personas stored the preset's). */
+export function personaConfig(p: PersonaRecord): SovereigntyConfig {
+  return { ...p.config, custody: realCustody(p.custody) };
+}
 
 const newId = () => bytesToHex(crypto.getRandomValues(new Uint8Array(8)));
 
 export async function createPersona(book: PersonaBook, input: NewPersona, opts: { label: string; relays: string[]; preset: PresetName; deviceKey?: boolean }): Promise<PersonaRecord> {
+  // PANEL-05: validated before anything is created (a managed key, a signer connection): e.g. Tor-only is refused
+  // in a browser and a quorum above the relays is refused.
+  const config = { ...preset(opts.preset), custody: realCustody(CUSTODY_OF_INPUT[input.kind]), ...(opts.deviceKey ? { localProtection: 'device' as const } : {}) };
+  const errors = validateConfig(config, 'web', { relays: opts.relays.length }).filter((i) => i.severity === 'error');
+  if (errors.length) throw new Error(`El perfil ${opts.preset} no es válido para esta persona: ${errors.map((i) => i.message).join(' ')}`);
   let custody: PersonaRecord['custody'];
   let pubkey: string;
   let secretHex: string | undefined;
@@ -103,7 +131,6 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
   }
   const existing = (await book.list()).find((p) => p.pubkey === pubkey!);
   if (existing) throw new Error(`esa llave ya es la persona "${existing.label}"`);
-  const config = { ...preset(opts.preset), ...(opts.deviceKey ? { localProtection: 'device' as const } : {}), ...(custody! === 'managed' ? { custody: 'managed' as const } : {}) };
   const persona: PersonaRecord = { id: newId(), label: opts.label, pubkey: pubkey!, custody: custody!, relays: opts.relays, preset: opts.preset, config, createdAt: Date.now(), ...(secretHex ? { secretHex } : {}), ...(bunker ? { bunker } : {}), ...(nip46ClientSecretHex ? { nip46ClientSecretHex } : {}), ...(managedKeyId ? { managedKeyId } : {}) };
   await book.save(persona);
   return persona;
@@ -117,6 +144,7 @@ export interface ManagedEnv {
 
 export async function openPersona(book: PersonaBook, persona: PersonaRecord, managed: ManagedEnv = {}, routing: { discoveryRelays?: string[] } = {}): Promise<PersonaSession> {
   let signer: Signer;
+  const blocked = persona.config.network === 'tor-only' ? torOnlyBlocked : undefined;
   if (persona.custody === 'local') {
     const sk = hexToBytes(persona.secretHex!);
     signer = new LocalSigner(sk, 'local');
@@ -129,16 +157,16 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
     const opts = { permissions: WEB_NIP46_PERMISSIONS, onAuthUrl: raiseSignerAuthUrl };
     if (persona.nip46ClientSecretHex) {
       const clientKey = hexToBytes(persona.nip46ClientSecretHex);
-      signer = new Nip46Signer(parseBunkerUrl(persona.bunker!), { ...opts, pool: nip46Pool(clientKey), clientSecretKey: clientKey });
+      signer = new Nip46Signer(parseBunkerUrl(persona.bunker!), { ...opts, pool: nip46Pool(clientKey, blocked), clientSecretKey: clientKey });
     } else {
       // Personas created before the client key was stored: connect with the bunker URL as before.
       const clientKey = generateSecretKey();
-      const remote = new Nip46Signer(parseBunkerUrl(persona.bunker!), { ...opts, pool: nip46Pool(clientKey), clientSecretKey: clientKey });
+      const remote = new Nip46Signer(parseBunkerUrl(persona.bunker!), { ...opts, pool: nip46Pool(clientKey, blocked), clientSecretKey: clientKey });
       await remote.connect();
       signer = remote;
     }
   }
-  const pool = new RelayPool({ signer, authMode: 'on-demand' });
+  const pool = new RelayPool({ signer, authMode: 'on-demand', webSocketFactory: blocked });
   const dmDiscovery = [...new Set([...persona.relays, ...(routing.discoveryRelays ?? [])])];
   // FR010-03: a DM wrap that could not be routed when it was written (offline) goes to the recipient's DM relays on retry.
   const router = dmRouter(pool, { discoveryRelays: dmDiscovery, fallback: persona.relays });

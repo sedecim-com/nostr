@@ -103,11 +103,13 @@ async function main() {
     if (a === 'persona' && b === 'create') {
       const p = await client.createPersona({ label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk') });
       console.log(JSON.stringify(p, null, 2));
+      for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
     } else if (a === 'persona' && b === 'import') {
       const file = opt('--backup');
       if (!file) throw new Error('--backup FILE required (JSON from keygen or from the web)');
       const p = await client.importBackup(readFileSync(file, 'utf8'), backupPassword(), { label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk') });
       console.log(JSON.stringify(p, null, 2));
+      for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
     } else if (a === 'backup' && b === 'export') {
       const out = opt('--out');
       if (!out) throw new Error('--out FILE required');

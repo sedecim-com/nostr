@@ -47,6 +47,9 @@ const canaryText = (who: string) =>
 
 const relay = new TestRelay({ requireAuth: true, pGatedKinds: [1059], host: '127.0.0.1' });
 await relay.start();
+// private-resilient asks for a quorum of 2, and a persona is only created with that many relays (PANEL-05).
+const second = new TestRelay({ requireAuth: true, pGatedKinds: [1059], host: '127.0.0.1' });
+await second.start();
 const media = new TestBlossomServer();
 media.cors = true;
 await media.start();
@@ -134,7 +137,7 @@ async function scenario(presetName: PresetName) {
   await page.getByLabel('Importar nsec / ncryptsec').check();
   await page.fill('#persona-label', `Sensible ${presetName}`);
   await page.fill('#secret-input', nip19.nsecEncode(sk));
-  await page.fill('#relays', relay.url);
+  await page.fill('#relays', preset(presetName).quorum > 1 ? `${relay.url}\n${second.url}` : relay.url);
   await page.getByRole('button', { name: 'Crear persona' }).click();
   await page.waitForFunction((label) => document.querySelector('#sending-as')?.textContent?.includes(`Enviando como ${label}`), `Sensible ${presetName}`);
   await tab(page, 'Soberanía y privacidad');
@@ -214,5 +217,6 @@ try {
   await media.stop();
   await blobs.stop();
   await relay.stop();
+  await second.stop();
 }
 if (failures) process.exit(1);

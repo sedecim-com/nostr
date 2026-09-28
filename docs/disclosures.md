@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.1.0** · huella `8e60df4e7bddcb9d` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.2.0** · huella `17d3382b506f8e66` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -26,11 +26,11 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | persistence | replicated | Replicado en varios relays / mirror: menor riesgo de pérdida, mayor superficie de confianza. | recuperabilidad | privacidad-operador | Relays y mirror configurados. |
 | persistence | encrypted-cloud | Copia en la nube cifrada en el cliente: el operador guarda ciphertext. | recuperabilidad | — | Gestión de la clave de cifrado por el usuario. |
 | messaging | nip17 | DMs NIP-17 (NIP-44 + gift wrap): el relay no ve el contenido ni el remitente, pero NO hay forward secrecy ni post-compromise security. | privacidad-operador | — | Confidencialidad a largo plazo de tu nsec. |
-| messaging | marmot | Grupos Marmot/MLS: forward secrecy y post-compromise security, con menor compatibilidad con clientes Nostr genéricos. | privacidad-operador | — | Implementación Marmot fijada y auditada. |
+| messaging | marmot | Grupos Marmot/MLS: forward secrecy y post-compromise security, con menor compatibilidad con clientes Nostr genéricos. | privacidad-operador | — | La implementación Marmot/MLS (marmot-ts, versión fijada y todavía sin auditoría independiente). |
 | files | relay-plain | Archivos sin cifrar en Blossom: el operador del almacenamiento puede ver el contenido. | — | privacidad-operador | Operador del servidor Blossom. |
 | files | client-encrypted | Archivos cifrados antes de subir: el servidor Blossom solo ve un blob cifrado y su hash. | privacidad-operador | — | — |
-| telemetry | standard | Telemetría estándar (sin nsec ni contenido E2EE): útil para diagnóstico, revela patrones de uso al operador. | — | privacidad-operador | Operador y su stack de observabilidad. |
-| telemetry | minimal | Telemetría mínima: solo salud agregada, sin identificadores de usuario. | — | — | Operador. |
+| telemetry | standard | Telemetría estándar: esta versión no envía trazas ni telemetría de uso desde el cliente. | — | — | — |
+| telemetry | minimal | Telemetría mínima: esta versión no envía telemetría desde el cliente. | — | — | — |
 | telemetry | none | Sin telemetría: no se emite ninguna llamada de analytics ni crash reporting. | privacidad-operador | — | — |
 | notifications | push | Push opaco: el aviso no lleva contenido, remitente ni recuento y sale agrupado con un retardo aleatorio. El servicio push del navegador o del sistema ve cuándo llega un aviso a tu dispositivo; el gateway de notificaciones sabe qué npub vigila para ese dispositivo. | — | privacidad-operador | Servicio push (Apple/Google/Mozilla) y operador del gateway de notificaciones. |
 | notifications | privacy-push | Push de solo aviso de actividad: sin contenido, remitente ni recuento, agrupado con un retardo aleatorio largo que difumina los tiempos. El gateway de notificaciones sigue sabiendo qué npub vigila para tu dispositivo. | — | privacidad-operador | Servicio push (metadatos de tiempo) y operador del gateway de notificaciones. |
@@ -40,15 +40,17 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | cloudBackup | operator-managed | Backup gestionado por el operador: el operador puede restaurar (y por tanto acceder a) los datos. | recuperabilidad, control-institucional | privacidad-operador, soberania | Operador. |
 | localProtection | passphrase | El almacén local se abre con tu contraseña (scrypt): sin ella, nadie con acceso a este dispositivo puede leer tus llaves. | soberania, privacidad-operador | recuperabilidad | Fortaleza de tu contraseña local. |
 | localProtection | device | Desbloqueo sin contraseña con una llave del dispositivo (WebCrypto, no exportable): cualquiera con acceso a este perfil del navegador puede abrir tus llaves. | — | soberania, privacidad-operador | Seguridad física y de la sesión de este dispositivo. |
-| crashReports | off | Crash reporting deshabilitado. | privacidad-operador | — | — |
-| crashReports | manual-export | Los informes de fallo quedan en local y solo salen si los exportas manualmente. | privacidad-operador | — | — |
-| crashReports | opt-in | Informes de fallo opt-in con limpieza de datos sensibles. | — | privacidad-operador | Operador. |
+| crashReports | off | Sin informes de fallo: esta versión no los genera. | privacidad-operador | — | — |
+| crashReports | manual-export | Informes de fallo exportables a mano: todavía no existen; esta versión no genera ninguno. | — | — | — |
+| crashReports | opt-in | Informes de fallo opt-in: todavía no existen; esta versión no envía ninguno. | — | — | — |
 | remotePreviews | true | Las previews remotas se cargan automáticamente: el servidor de origen ve tu IP. | — | privacidad-operador | — |
 | remotePreviews | false | Previews remotas bloqueadas: ningún enlace se carga sin tu acción. | privacidad-operador | — | — |
 | deliveryReceipts | true | Confirmaciones de entrega activadas (cifradas con gift wrap): tus contactos saben cuándo recibe tu dispositivo sus mensajes. | — | privacidad-operador | — |
 | deliveryReceipts | false | Confirmaciones de entrega desactivadas. | — | — | — |
 | readReceipts | true | Confirmaciones de lectura activadas (cifradas): tus contactos sabrán cuándo lees. | — | privacidad-operador | — |
 | readReceipts | false | Confirmaciones de lectura desactivadas. | — | — | — |
+| stripFileMetadata | true | Se quitan los metadatos (EXIF, ubicación, datos del dispositivo) de las imágenes JPEG, PNG y WebP antes de enviarlas; las imágenes que no se pueden limpiar (HEIC, TIFF/RAW) se rechazan. Los demás archivos salen tal cual. | privacidad-operador | — | — |
+| stripFileMetadata | false | Los archivos salen con sus metadatos: una foto puede revelar dónde y con qué dispositivo se tomó. | — | privacidad-operador | — |
 | quorum | 2 | Un mensaje se considera replicado cuando 2 relay(s) lo aceptan. "Aceptado por relay" no significa "recibido" ni "leído". | recuperabilidad | — | — |
 
 ## Aprobación

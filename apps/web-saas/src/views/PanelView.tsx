@@ -40,7 +40,7 @@ export function PanelView() {
       <Card>
         <CardContent>
           <Stack spacing={2}>
-            <TextField select id="preset" label="Partir de un perfil" value="" onChange={(e) => setDraft(preset(e.target.value as PresetName))}>
+            <TextField select id="preset" label="Partir de un perfil" value="" onChange={(e) => setDraft({ ...preset(e.target.value as PresetName), custody: ws.config!.custody })}>
               {Object.keys(PRESETS).map((n) => (
                 <MenuItem key={n} value={n}>
                   {n}
@@ -48,8 +48,9 @@ export function PanelView() {
               ))}
             </TextField>
             <Box id="panel-form" sx={{ display: 'grid', gridTemplateColumns: { sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 2 }}>
+              {/* PANEL-05: custody is a fact of the persona (its key or signer), not a setting: shown, not chosen. */}
               {Object.entries(OPTIONS).map(([key, opts]) => (
-                <TextField key={key} select id={`cfg-${key}`} label={key} value={(draft as unknown as Record<string, string>)[key]} onChange={(e) => set({ [key]: e.target.value } as Partial<SovereigntyConfig>)}>
+                <TextField key={key} select id={`cfg-${key}`} label={key} value={(draft as unknown as Record<string, string>)[key]} disabled={key === 'custody'} helperText={key === 'custody' ? 'La de esta persona: no se cambia desde el panel' : undefined} slotProps={{ formHelperText: { sx: { '&.Mui-disabled': { color: 'text.secondary' } } } }} onChange={(e) => set({ [key]: e.target.value } as Partial<SovereigntyConfig>)}>
                   {opts.map((o) => (
                     <MenuItem key={o} value={o}>
                       {o}
