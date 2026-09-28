@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateSecretKey } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
-import { TestBlossomServer } from '@sedecim/test-relay';
-import { BlossomClient, BlobIntegrityError, UnsanitizableFileError, prepareBlob, sanitizeMetadata, neutralFileName } from '../src/index';
+import { heicWithGps, TestBlossomServer } from '@sedecim/test-relay';
+import { BlossomClient, BlobIntegrityError, UnsanitizableFileError, prepareBlob, refusesUnsanitized, sanitizeMetadata, neutralFileName } from '../src/index';
 
 function jpegWithExif(): Uint8Array {
   const exif = [0xff, 0xe1, 0x00, 0x11, ...Buffer.from('Exif\0\0GPS:40.4N')];
@@ -94,6 +94,24 @@ describe('metadata sanitizer (FR-019)', () => {
       expect(prepareBlob(file, { mimeType: 'image/heic' }).removedMetadata).toEqual([]);
     }
     expect(sanitizeMetadata(ftyp('isom', 'mp41')).format).toBe('unknown');
+  });
+
+  it("requireSanitizable 'images' refuses only images whose metadata cannot be removed (FR019-03)", () => {
+    const tiff = (order: 'II' | 'MM') => new Uint8Array([...Buffer.from(order), ...(order === 'II' ? [0x2a, 0] : [0, 0x2a]), 0, 0, 0, 8, ...Buffer.from('GPSLatitude')]);
+    expect(sanitizeMetadata(tiff('MM'))).toMatchObject({ format: 'tiff', unsanitized: true, reason: expect.stringMatching(/^TIFF\/RAW/) });
+    // Images it recognises but cannot clean (HEIC with GPS, TIFF/RAW): refused whatever type they are declared as.
+    for (const file of [heicWithGps(), tiff('II'), tiff('MM')]) {
+      expect(() => prepareBlob(file, { requireSanitizable: 'images', mimeType: 'application/octet-stream', encrypt: true })).toThrow(UnsanitizableFileError);
+    }
+    // An image format it does not know is refused too; any other document passes as it is.
+    expect(() => prepareBlob(new TextEncoder().encode('GIF89a…'), { requireSanitizable: 'images', mimeType: 'image/gif' })).toThrow(/cannot be sanitized \(unknown/);
+    const doc = new TextEncoder().encode('%PDF-1.7 informe');
+    expect(Buffer.from(prepareBlob(doc, { requireSanitizable: 'images', mimeType: 'application/pdf' }).data).equals(Buffer.from(doc))).toBe(true);
+    // Images it can clean still go, without their metadata.
+    expect(prepareBlob(jpegWithExif(), { requireSanitizable: 'images', mimeType: 'image/jpeg' }).removedMetadata).toContain('APP1 (EXIF/XMP)');
+    // `true` keeps refusing every format it cannot clean (public channel images); no requirement refuses nothing.
+    expect(() => prepareBlob(doc, { requireSanitizable: true, mimeType: 'application/pdf' })).toThrow(UnsanitizableFileError);
+    expect(refusesUnsanitized(sanitizeMetadata(heicWithGps()), false, 'image/heic')).toBe(false);
   });
 
   it('neutralizes file names', () => {

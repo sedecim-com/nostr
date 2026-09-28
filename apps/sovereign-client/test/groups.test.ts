@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TestBlossomServer, TestRelay, TestSocksServer } from '@sedecim/test-relay';
-import { publishServerList } from '@sedecim/blossom-client';
+import { heicWithGps, TestBlossomServer, TestRelay, TestSocksServer, tinyPng } from '@sedecim/test-relay';
+import { publishServerList, UnsanitizableFileError } from '@sedecim/blossom-client';
 import { MediaKeyUnavailableError, type ExtendedGroupSession } from '@sedecim/marmot-adapter';
 import { SovereignClient } from '../src/index';
 
@@ -186,15 +186,21 @@ describe('sovereign client — Marmot/MLS high-security groups (FR-025)', () => 
       await media.groupAccept(gus.id);
       await media.groupAccept(hugo.id);
 
-      const photo = new TextEncoder().encode('PNG… acta de la asamblea');
+      // A PNG with a tEXt chunk: its metadata is removed before encrypting (FR-019).
+      const photo = tinyPng('acta de la asamblea');
       const sent = await media.groupSendFile(fran.id, g.groupId, { data: photo, filename: 'acta.png', mimeType: 'image/png', caption: 'el acta' });
       expect(sent.attachment.url!.startsWith(blossom.url)).toBe(true); // the user's server list comes first
       const [msg] = await media.groupSync(gus.id, g.groupId);
       expect(msg!.content).toBe('el acta');
       expect(msg!.media![0]).toMatchObject({ filename: 'acta.png', type: 'image/png', version: 'mip04-v2' });
       const got = await media.groupFetchFile(gus.id, g.groupId, msg!.media![0]!.sha256);
-      expect(new TextDecoder().decode(got.data)).toBe('PNG… acta de la asamblea');
-      for (const b of blossom.blobs.values()) expect(Buffer.from(b.data).includes(Buffer.from('asamblea'))).toBe(false);
+      expect(Buffer.from(got.data).equals(Buffer.from(tinyPng()))).toBe(true);
+      for (const b of blossom.blobs.values()) expect(Buffer.from(b.data).includes(Buffer.from(tinyPng().subarray(8)))).toBe(false);
+
+      // FR019-03: a HEIC with GPS cannot be cleaned, so it is refused before any upload, whatever its declared type.
+      const stored = blossom.blobs.size + blobStore.blobs.size;
+      await expect(media.groupSendFile(fran.id, g.groupId, { data: heicWithGps(), filename: 'IMG_0042.HEIC', mimeType: 'application/octet-stream' })).rejects.toBeInstanceOf(UnsanitizableFileError);
+      expect(blossom.blobs.size + blobStore.blobs.size).toBe(stored);
 
       // Hugo is removed; the next file uses an epoch he never reaches. Gus has no list: blob-store fallback.
       await media.groupSync(hugo.id, g.groupId);

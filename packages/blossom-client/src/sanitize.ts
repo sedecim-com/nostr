@@ -1,11 +1,12 @@
 /**
  * Metadata sanitizer (spec §13.1): strips EXIF/XMP/IPTC/comments from JPEG, text/time/EXIF chunks
  * from PNG and EXIF/XMP/ICC chunks from WebP before a file leaves the device. HEIC/HEIF/AVIF (ISO
- * BMFF) and unknown formats are reported as unsanitized so policy can decide (requireSanitizable).
+ * BMFF), TIFF with the camera RAW formats built on it, and unknown formats are reported as
+ * unsanitized so policy can decide (requireSanitizable).
  */
 export interface SanitizeResult {
   data: Uint8Array;
-  format: 'jpeg' | 'png' | 'webp' | 'heif' | 'unknown';
+  format: 'jpeg' | 'png' | 'webp' | 'heif' | 'tiff' | 'unknown';
   removed: string[];
   /** true when the format is not understood and metadata could remain */
   unsanitized: boolean;
@@ -154,12 +155,37 @@ function isHeif(d: Uint8Array) {
 export const HEIF_UNSANITIZED_REASON =
   'HEIC/HEIF/AVIF: EXIF and XMP live in items referenced from the iloc box and removing them safely requires a full ISO BMFF rewrite; convert the image to JPEG, PNG or WebP before sharing it';
 
+/** TIFF (classic or BigTIFF) and the camera RAW formats built on it, such as DNG, CR2, NEF and ARW. */
+function isTiff(d: Uint8Array) {
+  if (d.length < 4) return false;
+  if (d[0] === 0x49 && d[1] === 0x49) return (d[2] === 0x2a || d[2] === 0x2b) && d[3] === 0;
+  return d[0] === 0x4d && d[1] === 0x4d && d[2] === 0 && (d[3] === 0x2a || d[3] === 0x2b);
+}
+
+export const TIFF_UNSANITIZED_REASON =
+  'TIFF/RAW: the image and its EXIF, GPS and camera tags share the same directories (IFDs), so they cannot be removed without re-encoding; convert the image to JPEG, PNG or WebP before sharing it';
+
 export function sanitizeMetadata(data: Uint8Array): SanitizeResult {
   if (isJpeg(data)) return sanitizeJpeg(data);
   if (isPng(data)) return sanitizePng(data);
   if (isWebp(data)) return sanitizeWebp(data);
   if (isHeif(data)) return { data, format: 'heif', removed: [], unsanitized: true, reason: HEIF_UNSANITIZED_REASON };
+  if (isTiff(data)) return { data, format: 'tiff', removed: [], unsanitized: true, reason: TIFF_UNSANITIZED_REASON };
   return { data, format: 'unknown', removed: [], unsanitized: true, reason: 'unrecognised file format' };
+}
+
+/**
+ * Which files a profile refuses when their metadata cannot be removed (requireSanitizable):
+ * - `true`: any of them, including formats the sanitizer does not know (public channel images).
+ * - `'images'`: only images (FR019-03, attachments that may be documents). That covers a format recognised as an
+ *   image that cannot be cleaned (HEIC/HEIF/AVIF, TIFF/RAW, whatever the declared type) and a file declared as
+ *   `image/*` in a format the sanitizer does not understand. Any other document (PDF, text…) passes as it is.
+ */
+export type SanitizeRequirement = boolean | 'images';
+
+export function refusesUnsanitized(result: SanitizeResult, requirement: SanitizeRequirement | undefined, mimeType = ''): boolean {
+  if (!result.unsanitized || !requirement) return false;
+  return requirement === true || result.format !== 'unknown' || /^image\//i.test(mimeType.trim());
 }
 
 /** Replace a user file name with a neutral one (keeps only a safe extension). */

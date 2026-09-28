@@ -191,7 +191,8 @@ Versión `mip04-v2`, la que implementa marmot-ts 0.5.1 (se usan sus primitivas A
   `media_secret` de cada época (cifrado en `mls-mediakeys`, retención 128 épocas) y las referencias recibidas
   (`mls-mediarefs`). Un miembro expulsado no tiene el secreto de las épocas posteriores y no descifra la media
   nueva (`MediaKeyUnavailableError`, probado); los miembros restantes siguen descifrando media antigua.
-- Cliente soberano (`group send-file` / `group fetch-file`): EXIF saneado antes de cifrar → subida del
+- Cliente soberano (`group send-file` / `group fetch-file`): EXIF saneado antes de cifrar; una imagen que no se
+  puede sanear (HEIC, TIFF/RAW, un formato de imagen desconocido) se rechaza antes de subir nada → subida del
   ciphertext a la lista Blossom del usuario (kind `10063`, con espejo) o, sin lista, al blob-store
   (`SOVEREIGN_BLOB_STORE`) → mensaje kind 9 con `imeta`. La descarga prueba la URL compartida y luego los
   servidores de la lista del emisor, verifica el hash del blob antes de descifrar y pasa por la política de

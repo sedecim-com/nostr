@@ -14,7 +14,7 @@ import WebSocket from 'ws';
 import { bytesToHex, finalizeEvent, generateSecretKey, getPublicKey, getTagValue, nip19, npubEncode, toUnsigned } from '@sedecim/nostr-core';
 import { LocalSigner, Nip46Bunker } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
-import { TestBlossomServer, TestRelay, tinyPng } from '@sedecim/test-relay';
+import { heicWithGps, TestBlossomServer, TestRelay, tinyPng } from '@sedecim/test-relay';
 import { APP_RECEIPT_KIND, chatMessage, createDirectMessage, createReceipt, dmInboxFilter, FILE_MESSAGE_KIND, openDirectMessage, unwrap } from '@sedecim/messaging';
 import { BlossomClient } from '@sedecim/blossom-client';
 import { CognitoVerifier, createIdentityApi, MemoryIdentityRepository } from '@sedecim/identity-service';
@@ -239,6 +239,16 @@ try {
   assert(fileRumor && ![...blobs.blobs.values()].some((b) => Buffer.from(b.data).includes(secretDoc)), 'DM attachment stored encrypted in the blob-store');
   const plain = await new BlossomClient(blobs.url, bob).download(getTagValue(fileRumor!, 'x')!, { url: fileRumor!.content, decrypt: { keyHex: getTagValue(fileRumor!, 'decryption-key')!, nonceHex: getTagValue(fileRumor!, 'decryption-nonce')! } });
   assert(Buffer.from(plain).equals(secretDoc), 'recipient decrypts the attachment after hash verification (kind 15)');
+
+  // --- FR019-03: the profile strips file metadata, so a HEIC with GPS attached to a DM is refused before any upload
+  const storedBlobs = () => blobs.blobs.size + userBlobs.blobs.size + media.blobs.size;
+  const storedBeforeHeic = storedBlobs();
+  await page.locator('#dm-send input[type=file]').setInputFiles({ name: 'IMG_0042.HEIC', mimeType: 'image/heic', buffer: Buffer.from(heicWithGps()) });
+  await page.locator('#dm-send').getByRole('button', { name: 'Enviar' }).click();
+  const heicRefusal = page.locator('.MuiAlert-message', { hasText: 'HEIC/HEIF/AVIF' });
+  await heicRefusal.waitFor({ timeout: 10_000 });
+  assert(storedBlobs() === storedBeforeHeic, 'a HEIC with GPS attached to a DM is refused before any upload (FR019-03)');
+  assert((await heicRefusal.textContent())?.includes('JPEG, PNG o WebP'), 'the refusal tells the user how to share the image');
 
   // --- FR018-05: the user's Blossom server list (kind 10063) drives uploads; ciphertext skips image-only media
   await tab(page, 'Personas');
