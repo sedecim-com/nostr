@@ -24,6 +24,11 @@ import {
 } from './index';
 
 const env = process.env;
+// FR005-12: the legacy mode (a service token acting for the account in x-account-id) was removed. Refuse to start
+// rather than ignore a configuration that still expects it.
+for (const legacy of ['MANAGED_SIGNER_SERVICE_TOKENS', 'MANAGED_SIGNER_TOKENS']) {
+  if (env[legacy]) throw new Error(`${legacy}: the legacy service mode was removed (FR005-12); callers sign with the user's Acceso token or a device session`);
+}
 const list = (v: string | undefined) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const retentionDays = Number(env.MANAGED_SIGNER_RETENTION_DAYS ?? 30);
 const region = env.AWS_REGION || DEFAULT_AWS_REGION;
@@ -57,17 +62,15 @@ if (env.DATABASE_URL) {
   devices = new MemoryDeviceStore();
 }
 
-// Authorization (FR005-04): Acceso end users; the service-token mode only when explicitly enabled.
-if (env.MANAGED_SIGNER_TOKENS) throw new Error('MANAGED_SIGNER_TOKENS was renamed to MANAGED_SIGNER_SERVICE_TOKENS (legacy service mode, opt-in)');
+// Authorization (FR005-04): Acceso end users, directly or through device sessions.
 const cognito =
   env.COGNITO_USER_POOL_ID && env.COGNITO_CLIENT_ID
     ? new CognitoVerifier({ region: env.COGNITO_REGION || region, userPoolId: env.COGNITO_USER_POOL_ID, clientId: env.COGNITO_CLIENT_ID, ...(env.COGNITO_JWKS_URL ? { jwksUrl: env.COGNITO_JWKS_URL } : {}) })
     : undefined;
 const pairs = (v: string | undefined) => Object.fromEntries(list(v).map((p) => p.split(':') as [string, string]));
-const serviceTokens = pairs(env.MANAGED_SIGNER_SERVICE_TOKENS);
 // FR024-03: who may revoke devices (policy side / rotation worker), token:principal.
 const revocationTokens = pairs(env.MANAGED_SIGNER_REVOCATION_TOKENS);
-if (!cognito && !Object.keys(serviceTokens).length) throw new Error('configure COGNITO_USER_POOL_ID + COGNITO_CLIENT_ID (Acceso users) or MANAGED_SIGNER_SERVICE_TOKENS');
+if (!cognito) throw new Error('configure COGNITO_USER_POOL_ID + COGNITO_CLIENT_ID (Acceso users)');
 
 // FR005-06: per-key and per-kind token buckets (per minute). MANAGED_SIGNER_RATE_LIMITS=off disables them.
 const perMin = (v: string | undefined, d: number) => (v ? Number(v) : d);
@@ -113,8 +116,7 @@ const core = new ManagedSigner(vault, {
 const api = createManagedSignerApi(core, {
   name: 'managed-signer',
   corsOrigins: list(env.CORS_ORIGINS),
-  ...(cognito ? { cognito } : {}),
-  ...(Object.keys(serviceTokens).length ? { serviceTokens } : {}),
+  cognito,
   ...(Object.keys(revocationTokens).length ? { revocationTokens } : {}),
   requireDeviceSession: env.MANAGED_SIGNER_REQUIRE_DEVICE_SESSION === 'true',
   // IR-2026-09-05: per-IP buckets (RATE_LIMIT_* env); the per-key signing limits above stay separate.

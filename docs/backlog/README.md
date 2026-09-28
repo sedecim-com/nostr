@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **246 tareas** · 134 hechas · 22 parciales · 84 pendientes · 6 descartadas
-- **350 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **246 tareas** · 138 hechas · 22 parciales · 80 pendientes · 6 descartadas
+- **339 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -53,16 +53,16 @@
 | FR-013 | 6 | 4 | VAULT-01 (S10), VAULT-03 (S11) |
 | FR-014 | 5 | 3 | FR014-05 (S10), FR014-04 (Diferido) |
 | FR-015 | 3 | 3 | — |
-| FR-016 | 2 | 1 | FR025-11 (S9) |
+| FR-016 | 2 | 2 | — |
 | FR-017 | 6 | 5 | FR017-06 (S10) |
 | FR-018 | 5 | 5 | — |
 | FR-019 | 4 | 3 | FR019-03 (S9) |
 | FR-020 | 6 | 2 | FR020-02 (Diferido), FR025-12 (S12), FR020-05 (S13), FR020-06 (Diferido) |
 | FR-021 | 2 | 2 | — |
 | FR-022 | 2 | 2 | — |
-| FR-023 | 9 | 6 | FR023-09 (S9), FR023-10 (S11), FR023-13 (S12) |
-| FR-024 | 5 | 2 | FR024-03 (S12), FR024-04 (S9), FR024-05 (S12) |
-| FR-025 | 12 | 9 | FR025-08 (Diferido), FR025-11 (S9), FR025-14 (Diferido) |
+| FR-023 | 9 | 7 | FR023-10 (S11), FR023-13 (S12) |
+| FR-024 | 5 | 3 | FR024-03 (S12), FR024-05 (S12) |
+| FR-025 | 12 | 10 | FR025-08 (Diferido), FR025-14 (Diferido) |
 | FR-026 | 5 | 3 | FR026-04 (S11), FR005-09 (Diferido) |
 | FR-027 | 6 | 3 | VAULT-01 (S10), VAULT-02 (S10), VAULT-03 (S11) |
 | FR-028 | 8 | 2 | FR028-02 (S13), PANEL-05 (S9), FR005-08 (S9), VAULT-07 (S10), PANEL-07 (S12), NFR007-03 (Diferido) |
@@ -211,13 +211,13 @@
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| [FR023-09](https://github.com/sedecim-com/nostr/issues/226) | P0 | B1: editar una persona revocada no la reactiva; reactivar es explícito y auditado | FR-023 | Seguridad | 1 | FR023-03 | Pendiente | PUT /v1/subjects conserva suspended; ruta de reactivación con entrada de auditoría; test de regresión |
-| [FR024-04](https://github.com/sedecim-com/nostr/issues/227) | P0 | B2: el propagador de revocaciones no pierde eventos | FR-024 | Dev | 2 | FR024-01 | Pendiente | Cursor persistido sobre la auditoría o endpoint /v1/revocations; test con más de 100 entradas entre revocación y propagación sin pérdidas |
-| [FR025-11](https://github.com/sedecim-com/nostr/issues/224) | P0 | G1: las invitaciones a grupos seguros llegan con el secure relay real | FR-025, FR-016 | Dev | 5 | FR025-07, FR016-01 | Pendiente | AUTH NIP-42 temprano en relays con nip42_dms (hoy nostr-rs-relay descarta en silencio los kind 1059 sin AUTH y los clientes solo se autentican bajo demanda); E2E de grupos en web y CLI contra nostr-rs-relay real en CI; relay_url correcto para el .onion |
+| [FR023-09](https://github.com/sedecim-com/nostr/issues/226) | P0 | B1: editar una persona revocada no la reactiva; reactivar es explícito y auditado | FR-023 | Seguridad | 1 | FR023-03 | Hecho | PUT /v1/subjects conserva suspended; ruta de reactivación con entrada de auditoría; test de regresión |
+| [FR024-04](https://github.com/sedecim-com/nostr/issues/227) | P0 | B2: el propagador de revocaciones no pierde eventos | FR-024 | Dev | 2 | FR024-01 | Hecho | Cursor persistido sobre la auditoría o endpoint /v1/revocations; test con más de 100 entradas entre revocación y propagación sin pérdidas |
+| [FR025-11](https://github.com/sedecim-com/nostr/issues/224) | P0 | G1: las invitaciones a grupos seguros llegan con el secure relay real | FR-025, FR-016 | Dev | 5 | FR025-07, FR016-01 | Hecho | AUTH NIP-42 temprano en relays con nip42_dms (hoy nostr-rs-relay descarta en silencio los kind 1059 sin AUTH y los clientes solo se autentican bajo demanda); E2E de grupos en web y CLI contra nostr-rs-relay real en CI; relay_url correcto para el .onion |
 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) | P0 | Firma de releases y provenance (SLSA/cosign) | NFR-010, §21.2, PRD GC-E02 | Seguridad | 3 | OPS-08 | Parcial | v0.1.0 publicada con imágenes y artefactos firmados con cosign keyless, provenance SLSA, SHA256SUMS y SBOM; verify-release.sh pasa desde fuera |
 | [OPS-08](https://github.com/sedecim-com/nostr/issues/59) | P0 | Separación de funciones en releases (quién construye vs quién publica) | §21.2, PRD GC-E01 | Infra | 1 | OPS-12 | Parcial | Entorno release con aprobadores distintos al autor, «Prevent self-review», sin bypass de admin y protección de tags v* |
 | [OPS-12](https://github.com/sedecim-com/nostr/issues/220) | P0 | Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | §21.2 | Infra | 1 | — | Pendiente | main exige 1 aprobación y los checks de CI, CodeQL y dependency-review; private vulnerability reporting activo; una segunda persona puede aprobar PRs y entornos |
-| [OPS-17](https://github.com/sedecim-com/nostr/issues/221) | P0 | Estados de evidencia y nada «Hecho» desde una rama | PRD GC-F01, GC-F02 | Infra | 3 | — | Pendiente | Estados Proposed, In PR, Merged, CI Verified, Stage Verified, Externally Audited y Production Enabled documentados en GITHUB.md y visibles en los issues; backlog-sync solo acepta Hecho si la evidencia cita un SHA ancestro de main y avisa del resto |
+| [OPS-17](https://github.com/sedecim-com/nostr/issues/221) | P0 | Estados de evidencia y nada «Hecho» desde una rama | PRD GC-F01, GC-F02 | Infra | 3 | — | Hecho | Estados Proposed, In PR, Merged, CI Verified, Stage Verified, Externally Audited y Production Enabled documentados en GITHUB.md y visibles en los issues; backlog-sync solo acepta Hecho si la evidencia cita un SHA ancestro de main y avisa del resto |
 | [REL-01](https://github.com/sedecim-com/nostr/issues/196) | P0 | Checklist de Definition of Done automatizado en el pipeline de release | Apéndice D, PRD GC-E03 | Infra | 3 | NFR010-02, NFR003-02, FR020-03, DEC-10, OPS-08 | Parcial | El primer tag ejecuta el gate completo (CI, interop, restore, fugas, evidencia de auditoría o waiver, SBOM y firma) y además comprueba threat models aprobados, alertas de CodeQL y Dependabot, la aprobación del waiver y --prerelease en -rc |
 | [REL-02](https://github.com/sedecim-com/nostr/issues/197) | P0 | Release notes con los cambios de trust model por release | Apéndice D, PRD GC-E04 | Doc | 1 | REL-01 | Parcial | Notas de v0.1.0 corregidas y publicadas como cuerpo del GitHub Release, con los cambios de confianza y privacidad explícitos |
 | [SEC-06](https://github.com/sedecim-com/nostr/issues/222) | P0 | IR-15: ligar el payload sellado del mirror a su event_id con AAD versionado | §20.3, PRD GC-A02 | Seguridad | 3 | — | Pendiente | Intercambiar ciphertext entre filas falla la autenticación; migración compatible hacia atrás probada; internal-review actualizado (IR-04, IR-05, IR-16, IR-19 e IR-20 ya se corrigieron en la PR #216) |

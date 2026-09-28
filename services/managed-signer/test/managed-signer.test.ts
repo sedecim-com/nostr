@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { bytesToHex, generateSecretKey, getPublicKey, nip19, nip49, verifyEvent, finalizeEvent, toUnsigned } from '@sedecim/nostr-core';
 import { createTestCognito } from '@sedecim/service-kit';
 import { ManagedSignerClient, LocalSigner } from '@sedecim/signer';
@@ -87,7 +89,7 @@ describe('managed-signer (FR-005, FR-026)', () => {
       expect((await call(path, method, body, tokenB())).status, `${method} ${path}`).toBe(403);
     }
     expect((await call('/v1/keys', 'GET', undefined, tokenB())).json.keys).toEqual([]);
-    // Naming the victim as account is refused outright for end users.
+    // Naming the victim as account is refused outright (FR005-12: for everyone).
     expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, tokenB(), { 'x-account-id': ownerA })).status).toBe(403);
     expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, tokenA(), { 'x-account-id': ownerA })).status).toBe(403);
     // Tokens that are not valid Acceso tokens for this pool/client.
@@ -95,7 +97,7 @@ describe('managed-signer (FR-005, FR-026)', () => {
     expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, forged)).status).toBe(401);
     expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, acceso.token({ sub: 'user-a', exp: Math.floor(Date.now() / 1000) - 5 }))).status).toBe(401);
     expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, acceso.token({ sub: 'user-a', aud: 'other-client' }))).status).toBe(401);
-    expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, 'service-token-0123456789', { 'x-account-id': ownerA })).status).toBe(401);
+    expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, 'service-token-0123456789')).status).toBe(401);
     expect((await fetch(`${base}/v1/keys/${k.keyId}`)).status).toBe(401);
     // The owner still can.
     expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl)).status).toBe(200);
@@ -128,23 +130,25 @@ describe('managed-signer (FR-005, FR-026)', () => {
     expect((await call(`/v1/keys/${k.keyId}`)).status).toBe(404);
   });
 
-  it('keeps the legacy service-token mode only when enabled, with x-account-id', async () => {
-    const SERVICE = 'service-token-0123456789';
-    const svcApi = createManagedSignerApi(new ManagedSigner(new MemoryVault()), { name: 'managed-signer-legacy', logger: createLogger({ write: () => {} }), serviceTokens: { [SERVICE]: 'saas-backend' }, cognito: acceso.verifier() });
-    const svcBase = await svcApi.listen();
-    try {
-      const req = (path: string, method: string, headers: Record<string, string>, body?: unknown) =>
-        fetch(`${svcBase}${path}`, { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) }).then(async (r) => ({ status: r.status, json: await r.json() }));
-      const created = await req('/v1/keys', 'POST', { authorization: `Bearer ${SERVICE}`, 'x-account-id': 'acct-1' }, {});
-      expect(created.status).toBe(201);
-      expect(created.json.owner).toBe('acct-1');
-      expect((await req('/v1/keys', 'POST', { authorization: `Bearer ${SERVICE}` }, {})).status).toBe(400);
-      expect((await req(`/v1/keys/${created.json.keyId}`, 'GET', { authorization: `Bearer ${SERVICE}`, 'x-account-id': 'acct-2' })).status).toBe(403);
-      // An Acceso user whose sub equals the account id still cannot reach it: owners are issuer-scoped.
-      expect((await req(`/v1/keys/${created.json.keyId}`, 'GET', { authorization: `Bearer ${acceso.token({ sub: 'acct-1' })}` })).status).toBe(403);
-    } finally {
-      await svcApi.close();
-    }
+  it('refuses the retired service-token mode: no x-account-id, and a service token is not a credential (FR005-12)', async () => {
+    const tpl = { template: { kind: 1, content: 'hola' } };
+    const k = (await call('/v1/keys', 'POST', {}, tokenA())).json;
+    // x-account-id is refused before anything else, whatever the credential.
+    expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, 'service-token-0123456789', { 'x-account-id': ownerA })).status).toBe(403);
+    expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, tokenA(), { 'x-account-id': ownerA })).status).toBe(403);
+    const session = (await call('/v1/device-sessions', 'POST', { device_id: 'phone-legacy' }, tokenA())).json.token as string;
+    expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, session, { 'x-account-id': ownerA })).status).toBe(403);
+    // Without it, a would-be service token is just an invalid bearer; the user's own credentials still sign.
+    expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, 'service-token-0123456789')).status).toBe(401);
+    expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, session)).status).toBe(200);
+    // The service does not start with the old configuration instead of silently ignoring it.
+    const run = spawnSync(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('../src/main.ts', import.meta.url))], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, MANAGED_SIGNER_SERVICE_TOKENS: 'service-token-0123456789:saas-backend' },
+      timeout: 60_000,
+    });
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain('MANAGED_SIGNER_SERVICE_TOKENS: the legacy service mode was removed (FR005-12)');
   });
 });
 
