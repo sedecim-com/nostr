@@ -2,8 +2,9 @@
  * FR013-03 E2E: reinstall on a clean device. Device A creates an identity, joins NIP-29 channels, sends
  * channel messages and DMs and has a pending outbox item; it exports the v2 backup. Device B (empty data
  * dir) restores the backup, syncs history (NIP-77 on one relay, REQ fallback on the other) and ends
- * with the same channels, DMs and outbox/delivery states as A. NFR008-02: the history exports as JSONL
- * that nostr-tools verifies and another persona can import.
+ * with the same channels, DMs and outbox/delivery states as A, except that the pending item is delivered
+ * as soon as B opens the persona (FR011-04). NFR008-02: the history exports as JSONL that nostr-tools
+ * verifies and another persona can import.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -100,16 +101,17 @@ describe('reinstall and rebuild history on a clean device (FR013-03)', () => {
     expect(r.strategies).toEqual({ [r1.url]: 'nip77-negentropy', [r2.url]: 'req-window' });
     expect(r1.negStats.open).toBeGreaterThan(0);
     expect(Object.keys(r.channels).sort()).toEqual(['general', 'random']); // discovered from Alice's own events
-    expect({ general: r.channels.general!.map((e) => e.id).sort(), random: r.channels.random!.map((e) => e.id).sort() }).toEqual(aChannels);
+    // A's channels, plus the pending message B delivered on opening the persona (FR011-04).
+    expect({ general: r.channels.general!.map((e) => e.id).sort(), random: r.channels.random!.map((e) => e.id).sort() }).toEqual({ ...aChannels, general: [...aChannels.general, pending.event!.id].sort() });
     expect(r.channels.general!.map((e) => e.content)).toContain('hola Alice, soy Bob');
     expect(dmView(r.dms)).toEqual(aDms);
-    expect(ledger(r.outbox)).toEqual(aLedger);
-    expect(r.outbox.find((o) => o.opId === pending.opId)!.state).toBe('QUEUED');
-
-    // The pending message is delivered from device B with the same signed event (no duplicate).
-    const resumed = (await deviceB.resume(restored.id)).find((o) => o.opId === pending.opId)!;
-    expect(resumed.state).toBe('REPLICATED');
-    expect(resumed.event!.id).toBe(pending.event!.id);
+    // Same ledger as A, except the pending message: opening the persona on B already retried it (FR011-04) and,
+    // with the relays back, it went out with the same signed event (no duplicate). Nobody ran `resume`.
+    const others = (l: ReturnType<typeof ledger>) => l.filter((x) => x.opId !== pending.opId);
+    expect(others(ledger(r.outbox))).toEqual(others(aLedger));
+    const delivered = r.outbox.find((o) => o.opId === pending.opId)!;
+    expect(delivered.state).toBe('REPLICATED');
+    expect(delivered.event!.id).toBe(pending.event!.id);
     expect(r1.events.has(pending.event!.id) && r2.events.has(pending.event!.id)).toBe(true);
     const again = await deviceB.syncHistory(restored.id);
     expect(again.channels.general!.filter((e) => e.content === 'mensaje pendiente')).toHaveLength(1);

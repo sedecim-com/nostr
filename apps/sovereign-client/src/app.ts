@@ -238,6 +238,8 @@ export class SovereignClient {
    */
   async syncHistory(personaId: string, opts: { since?: number; channels?: string[] } = {}): Promise<HistorySyncResult> {
     const s = await this.session(personaId);
+    // FR011-04: reconcile after the retry of what was pending (started when the persona opened), not during it.
+    await s.resumed;
     const now = Math.floor(Date.now() / 1000);
     const since = opts.since ?? 0;
     // Full rebuild: one paginated window; incremental: weekly windows back to `since`. The NIP-11
