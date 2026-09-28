@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // GitHub Issues are the source of truth of the backlog; docs/backlog/backlog.json is derived from them.
 //   node scripts/backlog-github.mjs seed           create what is missing on GitHub from backlog.json; also keeps
-//                                                  milestone titles in line with meta.sprints and "blocked by" links
-//                                                  in line with each issue's "Depende de" (never edits an issue)
+//                                                  milestones in line with meta.sprints (title, description, closed)
+//                                                  and "blocked by" links in line with each issue's "Depende de"
+//                                                  (never edits an issue)
 //   node scripts/backlog-github.mjs pull [--write] rebuild backlog.json tasks from the issues
 // Env: GITHUB_TOKEN, GITHUB_REPOSITORY (owner/repo), GITHUB_API_URL (optional, tests).
 //
@@ -128,19 +129,20 @@ export async function seed(api, backlog) {
     ...[...new Set(tasks.map((t) => t.epic))].map((e) => [epicLabel(e), 'd4c5f9', e.slice(0, 100)]),
   ];
   for (const [name, color, description] of wanted) if (!existingLabels.has(name)) await api.request('POST', `/repos/${api.repo}/labels`, { name, color, description });
-  // milestones = sprints. meta.sprints is not rebuilt from GitHub, so it owns the sprint names: a renamed sprint
-  // renames its milestone. Due dates are only set on creation (GitHub normalises them).
+  // milestones = sprints. meta.sprints is not rebuilt from GitHub, so it owns the sprint metadata: a renamed sprint
+  // renames its milestone and a sprint marked `closed` closes it (an open sprint never reopens a milestone someone
+  // closed by hand). Due dates are only set on creation (GitHub normalises them).
   const milestones = new Map((await api.all(`/repos/${api.repo}/milestones?state=all`)).map((m) => [sprintOfMilestone(m.title), m]));
-  let renamed = 0;
+  let updated = 0;
   for (const s of meta.sprints) {
-    const want = { title: milestoneTitle(s), description: milestoneDescription(s) };
+    const want = { title: milestoneTitle(s), description: milestoneDescription(s), ...(s.closed ? { state: 'closed' } : {}) };
     const m = milestones.get(s.id);
     if (!m) {
-      milestones.set(s.id, await api.request('POST', `/repos/${api.repo}/milestones`, { ...want, ...(s.end ? { due_on: `${s.end}T23:59:59Z` } : {}), ...(s.id === 'v0.1' ? { state: 'closed' } : {}) }));
-    } else if (m.title !== want.title || (m.description ?? '') !== want.description) {
-      log(`milestone "${m.title}" → "${want.title}"`);
+      milestones.set(s.id, await api.request('POST', `/repos/${api.repo}/milestones`, { ...want, ...(s.end ? { due_on: `${s.end}T23:59:59Z` } : {}) }));
+    } else if (m.title !== want.title || (m.description ?? '') !== want.description || (s.closed && m.state !== 'closed')) {
+      log(`milestone "${m.title}" → "${want.title}"${s.closed && m.state !== 'closed' ? ' (cerrado)' : ''}`);
       milestones.set(s.id, await api.request('PATCH', `/repos/${api.repo}/milestones/${m.number}`, want));
-      renamed++;
+      updated++;
     }
   }
   // issues
@@ -233,7 +235,7 @@ export async function seed(api, backlog) {
       }
     }
   }
-  return { created, linked, unlinked, renamed, labels: wanted.length, milestones: milestones.size, epics: epics.size };
+  return { created, linked, unlinked, updated, labels: wanted.length, milestones: milestones.size, epics: epics.size };
 }
 
 export async function pull(api, backlog) {
@@ -294,7 +296,7 @@ if (isMain) {
   const api = createClient({ token, repo, ...(baseUrl ? { baseUrl } : {}) });
   if (cmd === 'seed') {
     const r = await seed(api, backlog);
-    console.log(`seed: ${r.created.length} tareas creadas, ${r.linked} relaciones nuevas y ${r.unlinked} retiradas; ${r.epics} epics, ${r.milestones} milestones (${r.renamed} renombrados)`);
+    console.log(`seed: ${r.created.length} tareas creadas, ${r.linked} relaciones nuevas y ${r.unlinked} retiradas; ${r.epics} epics, ${r.milestones} milestones (${r.updated} actualizados)`);
   } else if (cmd === 'pull') {
     const { backlog: next, warnings } = await pull(api, backlog);
     for (const w of warnings) console.log(`::warning::${w}`);

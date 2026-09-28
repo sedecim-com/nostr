@@ -18,6 +18,7 @@ sincronización los sobrescribe.
 | Requisito, criterio de hecho, evidencia | Secciones del cuerpo (mismo formato que el formulario *Tarea del backlog*) |
 | Dependencias | Sección *Depende de* (fuente para el validador) y enlaces nativos **blocked by** |
 | Estado | Abierto = Pendiente · abierto con `status:parcial` = Parcial · cerrado *completed* = Hecho · cerrado *not planned* = Descartado |
+| En pausa | Label `pausado`: el equipo decidió no trabajarla por ahora. Solo se ve en GitHub; no cambia el sprint ni el estado del backlog |
 
 Si hay diferencias, mandan los labels y el cuerpo: los campos de la organización son un espejo para las vistas
 de GitHub Projects.
@@ -30,7 +31,8 @@ de GitHub Projects.
 - **Avance:** añade `status:parcial` y actualiza *Evidencia*. Para terminar, cierra el issue como *completed*,
   o con `Closes #N` en la PR. La evidencia es obligatoria para cerrar o marcar como parcial.
 - **Descartar:** cierra el issue como *not planned* y cita el ADR en *Evidencia*.
-- **Cambiar de sprint:** cambia el milestone.
+- **Cambiar de sprint:** cambia el milestone. Los sprints cerrados (`"closed": true` en `meta.sprints`) no admiten
+  tareas abiertas: el validador lo rechaza.
 
 ## Sincronización (`.github/workflows/backlog-sync.yml`)
 
@@ -46,7 +48,7 @@ de GitHub Projects.
 labels, milestones, epics, tareas, estados y relaciones. Nunca edita un issue. Solo ajusta dos cosas derivadas:
 
 - el título y la descripción de cada milestone siguen a `meta.sprints`, que no se regenera desde los issues (así
-  se renombra un sprint);
+  se renombra un sprint), y un sprint con `"closed": true` cierra su milestone (nunca reabre uno cerrado a mano);
 - los enlaces «blocked by» siguen a la sección *Depende de* de cada issue: añade los que faltan y, en los issues
   abiertos, retira los que apuntan a tareas que la sección ya no cita. No toca enlaces a otros issues.
 

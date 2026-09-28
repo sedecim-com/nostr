@@ -16,63 +16,72 @@
     "name": "Entregado",
     "phase": "—",
     "start": null,
-    "end": "2026-09-26"
+    "end": "2026-09-26",
+    "closed": true
    },
    {
     "id": "S1",
     "name": "Cierre F0 y gate de interoperabilidad",
     "phase": "F0",
     "start": "2026-09-28",
-    "end": "2026-10-09"
+    "end": "2026-10-09",
+    "closed": true
    },
    {
     "id": "S2",
     "name": "Web SaaS como cliente completo",
     "phase": "F0.5",
     "start": "2026-10-12",
-    "end": "2026-10-23"
+    "end": "2026-10-23",
+    "closed": true
    },
    {
     "id": "S3",
     "name": "Identidad, llaves y custodia",
     "phase": "F1",
     "start": "2026-10-26",
-    "end": "2026-11-06"
+    "end": "2026-11-06",
+    "closed": true
    },
    {
     "id": "S4",
     "name": "OSS soberano, sync y operación",
     "phase": "F2",
     "start": "2026-11-09",
-    "end": "2026-11-20"
+    "end": "2026-11-20",
+    "closed": true
    },
    {
     "id": "S5",
     "name": "Privacidad, Tor y observabilidad",
     "phase": "F3",
     "start": "2026-11-23",
-    "end": "2026-12-04"
+    "end": "2026-12-04",
+    "closed": true
    },
    {
     "id": "S6",
     "name": "Grupos high-security",
     "phase": "F4",
     "start": "2026-12-07",
-    "end": "2026-12-18"
+    "end": "2026-12-18",
+    "closed": true
    },
    {
     "id": "S7",
     "name": "Modo institucional",
     "phase": "F5",
     "start": "2027-01-04",
-    "end": "2027-01-15"
+    "end": "2027-01-15",
+    "closed": true
    },
    {
     "id": "S8",
     "name": "Hardening, escalabilidad y release",
     "phase": "Release",
     "start": "2027-01-18",
-    "end": "2027-01-29"
+    "end": "2027-01-29",
+    "closed": true
    },
    {
     "id": "S9",

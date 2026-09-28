@@ -11,6 +11,7 @@ const { meta, tasks } = JSON.parse(readFileSync(new URL('backlog.json', dir), 'u
 const errors = [];
 const byId = new Map();
 const sprintOrder = new Map(meta.sprints.map((s, i) => [s.id, i]));
+const closedSprints = new Set(meta.sprints.filter((s) => s.closed).map((s) => s.id));
 const REQUIRED = [...Array.from({ length: 28 }, (_, i) => `FR-${String(i + 1).padStart(3, '0')}`), ...Array.from({ length: 10 }, (_, i) => `NFR-${String(i + 1).padStart(3, '0')}`)];
 
 for (const t of tasks) {
@@ -20,6 +21,7 @@ for (const t of tasks) {
   if (!sprintOrder.has(t.sprint)) errors.push(`${t.id}: unknown sprint ${t.sprint}`);
   if (!['Hecho', 'Parcial', 'Pendiente', 'Descartado'].includes(t.status)) errors.push(`${t.id}: unknown status ${t.status}`);
   if (t.sprint === 'v0.1' && t.status !== 'Hecho') errors.push(`${t.id}: only done tasks belong to v0.1`);
+  if (closedSprints.has(t.sprint) && (t.status === 'Parcial' || t.status === 'Pendiente')) errors.push(`${t.id}: sprint ${t.sprint} is closed; move the open task to an open sprint`);
   if (t.status !== 'Pendiente' && !t.evidence) errors.push(`${t.id}: ${t.status} requires evidence`);
   if (![1, 2, 3, 5, 8].includes(t.sp)) errors.push(`${t.id}: story points must be 1,2,3,5,8`);
   if (t.issue !== undefined && !(Number.isInteger(t.issue) && t.issue > 0)) errors.push(`${t.id}: issue must be a GitHub issue number`);
@@ -79,7 +81,7 @@ lines.push('## Plan de sprints', '');
 lines.push('| Sprint | Fechas | Fase | Objetivo | Tareas | SP | P0 |', '|---|---|---|---|---:|---:|---:|');
 for (const s of meta.sprints) {
   const ts = tasks.filter((t) => t.sprint === s.id);
-  lines.push(`| ${s.id} | ${dates(s)} | ${s.phase} | ${s.name} | ${active(ts).length} | ${sum(active(ts))} | ${active(ts).filter((t) => t.priority === 'P0').length} |`);
+  lines.push(`| ${s.id}${s.closed ? ' (cerrado)' : ''} | ${dates(s)} | ${s.phase} | ${s.name} | ${active(ts).length} | ${sum(active(ts))} | ${active(ts).filter((t) => t.priority === 'P0').length} |`);
 }
 lines.push('', '## Cobertura de requisitos', '');
 lines.push('| Requisito | Tareas | Hechas | Pendientes (sprint) |', '|---|---:|---:|---|');

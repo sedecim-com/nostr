@@ -15,15 +15,15 @@
 
 | Sprint | Fechas | Fase | Objetivo | Tareas | SP | P0 |
 |---|---|---|---|---:|---:|---:|
-| v0.1 | hasta 2026-09-26 | — | Entregado | 50 | 116 | 31 |
-| S1 | 2026-09-28 → 2026-10-09 | F0 | Cierre F0 y gate de interoperabilidad | 11 | 19 | 5 |
-| S2 | 2026-10-12 → 2026-10-23 | F0.5 | Web SaaS como cliente completo | 17 | 47 | 0 |
-| S3 | 2026-10-26 → 2026-11-06 | F1 | Identidad, llaves y custodia | 18 | 43 | 1 |
-| S4 | 2026-11-09 → 2026-11-20 | F2 | OSS soberano, sync y operación | 12 | 30 | 0 |
-| S5 | 2026-11-23 → 2026-12-04 | F3 | Privacidad, Tor y observabilidad | 9 | 24 | 1 |
-| S6 | 2026-12-07 → 2026-12-18 | F4 | Grupos high-security | 5 | 23 | 0 |
-| S7 | 2027-01-04 → 2027-01-15 | F5 | Modo institucional | 10 | 38 | 1 |
-| S8 | 2027-01-18 → 2027-01-29 | Release | Hardening, escalabilidad y release | 2 | 8 | 0 |
+| v0.1 (cerrado) | hasta 2026-09-26 | — | Entregado | 50 | 116 | 31 |
+| S1 (cerrado) | 2026-09-28 → 2026-10-09 | F0 | Cierre F0 y gate de interoperabilidad | 11 | 19 | 5 |
+| S2 (cerrado) | 2026-10-12 → 2026-10-23 | F0.5 | Web SaaS como cliente completo | 17 | 47 | 0 |
+| S3 (cerrado) | 2026-10-26 → 2026-11-06 | F1 | Identidad, llaves y custodia | 18 | 43 | 1 |
+| S4 (cerrado) | 2026-11-09 → 2026-11-20 | F2 | OSS soberano, sync y operación | 12 | 30 | 0 |
+| S5 (cerrado) | 2026-11-23 → 2026-12-04 | F3 | Privacidad, Tor y observabilidad | 9 | 24 | 1 |
+| S6 (cerrado) | 2026-12-07 → 2026-12-18 | F4 | Grupos high-security | 5 | 23 | 0 |
+| S7 (cerrado) | 2027-01-04 → 2027-01-15 | F5 | Modo institucional | 10 | 38 | 1 |
+| S8 (cerrado) | 2027-01-18 → 2027-01-29 | Release | Hardening, escalabilidad y release | 2 | 8 | 0 |
 | S9 | 2026-09-28 → 2026-10-09 | G0 | Main endurecido y v0.1.0 firmada | 25 | 51 | 10 |
 | S10 | 2026-10-12 → 2026-10-23 | G1–G2 | Continuity Vault y stage en AWS | 14 | 47 | 6 |
 | S11 | 2026-10-26 → 2026-11-06 | G1–G2 | Restauración sin relays y operación real | 12 | 51 | 7 |
