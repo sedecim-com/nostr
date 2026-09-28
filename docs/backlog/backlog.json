@@ -3267,8 +3267,8 @@
     "FR017-04"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit a7f268a (PR #314):\n\n- `SovereignClient.sendDm` usa `DirectMessenger`, como la web:\n  - el wrap del destinatario va a sus relays 10050 (si no, a sus relays de lectura NIP-65, y si tampoco, a los de la persona como fallback declarado en `meta.dmRelaySource`);\n  - la copia del emisor va a los relays de la persona;\n  - el engine usa `dmRouter`, así que un reintento vuelve a resolver la ruta (FR010-03).\n- Descubrimiento en los relays de la persona más `SOVEREIGN_DISCOVERY_RELAYS`. `NetworkGuard.allowHosts` deja llegar a los relays de DM del destinatario sin saltarse las reglas de esquema ni de onion.\n- `persona create` y `persona import` publican el 10050 de la persona; `sovereign dm relays` lo vuelve a publicar. `dm send` avisa si el destinatario no publicó relays de DM.\n- Tests:\n  - `tests/e2e/web-cli-dm.test.ts`: interoperabilidad web ↔ CLI, cada uno en su relay con NIP-42 y gift wraps restringidos al destinatario. Cada DM llega solo a los relays de DM del destinatario y lo lee el otro cliente; el fallback queda marcado.\n  - `packages/tor-network/test/tor.test.ts` (`allowHosts`).\n  - `apps/sovereign-client/test/vault.test.ts` (el proceso real del CLI publica su 10050).",
    "issue": 241
   },
   {

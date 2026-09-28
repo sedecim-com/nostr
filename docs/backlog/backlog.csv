@@ -282,7 +282,18 @@
 
 Falta que el threat model lo apruebe alguien distinto del autor, como los de DEC-10 (en pausa).","https://github.com/sedecim-com/nostr/issues/239"
 "FR009-03","FR · Mensajería, entrega y resiliencia","FR-009, §15.1","Acuses que llegan al emisor y DMs recibidos en segundo plano","Los acuses se publican en los 10050 del emisor y llevan la operación a RECIPIENT_ACKED; suscripción de fondo a los 10050 propios","Dev","P1","3","FR009-02","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/240"
-"FR017-06","FR · Mensajería, entrega y resiliencia","FR-017, FR-010","El cliente soberano enruta DMs por 10050 y publica el suyo","CLI con el mismo ruteo que la web y test de interoperabilidad web ↔ CLI","Dev","P1","2","FR017-04","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/241"
+"FR017-06","FR · Mensajería, entrega y resiliencia","FR-017, FR-010","El cliente soberano enruta DMs por 10050 y publica el suyo","CLI con el mismo ruteo que la web y test de interoperabilidad web ↔ CLI","Dev","P1","2","FR017-04","S10","2026-10-23","Hecho","Commit a7f268a (PR #314):
+
+- `SovereignClient.sendDm` usa `DirectMessenger`, como la web:
+  - el wrap del destinatario va a sus relays 10050 (si no, a sus relays de lectura NIP-65, y si tampoco, a los de la persona como fallback declarado en `meta.dmRelaySource`);
+  - la copia del emisor va a los relays de la persona;
+  - el engine usa `dmRouter`, así que un reintento vuelve a resolver la ruta (FR010-03).
+- Descubrimiento en los relays de la persona más `SOVEREIGN_DISCOVERY_RELAYS`. `NetworkGuard.allowHosts` deja llegar a los relays de DM del destinatario sin saltarse las reglas de esquema ni de onion.
+- `persona create` y `persona import` publican el 10050 de la persona; `sovereign dm relays` lo vuelve a publicar. `dm send` avisa si el destinatario no publicó relays de DM.
+- Tests:
+  - `tests/e2e/web-cli-dm.test.ts`: interoperabilidad web ↔ CLI, cada uno en su relay con NIP-42 y gift wraps restringidos al destinatario. Cada DM llega solo a los relays de DM del destinatario y lo lee el otro cliente; el fallback queda marcado.
+  - `packages/tor-network/test/tor.test.ts` (`allowHosts`).
+  - `apps/sovereign-client/test/vault.test.ts` (el proceso real del CLI publica su 10050).","https://github.com/sedecim-com/nostr/issues/241"
 "FR014-05","FR · Mensajería, entrega y resiliencia","FR-014, §10.1","El mirror comprueba la membresía NIP-29 y respeta la moderación","Lecturas y búsqueda solo sobre canales de los que eres miembro; tombstone para kind 9005","Dev","P1","3","FR014-03","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/242"
 "FR006-06","FR · Privacidad y Sovereign Tor","§14.1","Test de aislamiento de circuitos Tor por persona","Credenciales SOCKS distintas por persona verificadas contra un servidor SOCKS con autenticación","QA","P2","1","FR006-03","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/243"
 "FR021-03","FR · Privacidad y Sovereign Tor","§14, §18.1","Endurecimiento del modo Tor","Opción onion-only en el cliente soberano, mensaje de fallo unificado «No enviado: red de privacidad no disponible» y relays sin IPs en los logs de los perfiles soberanos","Dev","P2","2","FR020-01","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/244"
