@@ -19,6 +19,7 @@ sincronización los sobrescribe.
 | Dependencias | Sección *Depende de* (fuente para el validador) y enlaces nativos **blocked by** |
 | Estado | Abierto = Pendiente · abierto con `status:parcial` = Parcial · cerrado *completed* = Hecho · cerrado *not planned* = Descartado |
 | En pausa | Label `pausado`: el equipo decidió no trabajarla por ahora. Solo se ve en GitHub; no cambia el sprint ni el estado del backlog |
+| Estado de la evidencia | Label `evidencia:…` (ver abajo). Solo se ve en GitHub |
 
 Si hay diferencias, mandan los labels y el cuerpo: los campos de la organización son un espejo para las vistas
 de GitHub Projects.
@@ -30,9 +31,37 @@ de GitHub Projects.
   la sincronización lo deja como aviso.
 - **Avance:** añade `status:parcial` y actualiza *Evidencia*. Para terminar, cierra el issue como *completed*,
   o con `Closes #N` en la PR. La evidencia es obligatoria para cerrar o marcar como parcial.
+- **Terminar:** para que la tarea pase a Hecho, *Evidencia* debe citar el SHA de un commit de `main` (7 o más
+  caracteres). Sirve el de un commit de la PR que la cierra, porque las PR se fusionan con commit de merge.
+  Rellénala antes de fusionar. Nada pasa a Hecho desde una rama (OPS-17).
 - **Descartar:** cierra el issue como *not planned* y cita el ADR en *Evidencia*.
 - **Cambiar de sprint:** cambia el milestone. Los sprints cerrados (`"closed": true` en `meta.sprints`) no admiten
   tareas abiertas: el validador lo rechaza.
+
+## Estados de la evidencia (OPS-17)
+
+Una tarea «hecha» puede estar más o menos probada. Cada issue lleva como mucho un label `evidencia:…`: el estado
+más alto que alcanzó. Al subir de estado se cambia el label y se añade la prueba a *Evidencia*.
+
+| Estado | Label | Cuándo | Quién lo pone |
+|---|---|---|---|
+| Proposed | `evidencia:proposed` | Abierta, sin PR | Opcional: GitHub ya lo muestra (issue abierto, sin PR en *Development*) |
+| In PR | `evidencia:in-pr` | Una PR abierta la implementa | Opcional: GitHub enlaza la PR que dice `Closes #N` |
+| Merged | `evidencia:merged` | *Evidencia* cita un commit de `main` | La sincronización, al aceptarla como Hecho |
+| CI Verified | `evidencia:ci-verified` | El CI de `main` pasa con ese commit | Quien lo comprueba (enlace a la ejecución) |
+| Stage Verified | `evidencia:stage-verified` | Verificada en stage | Quien la verifica (enlace o registro del smoke) |
+| Externally Audited | `evidencia:externally-audited` | Cubierta por la auditoría externa | Quien recibe el informe |
+| Production Enabled | `evidencia:production-enabled` | Activa en producción | Quien la activa |
+
+La regla que aplica la sincronización (`pull`):
+
+- **Un issue cerrado como *completed* pasa a Hecho solo si *Evidencia* cita un commit de `main`**, es decir,
+  el propio `main` o uno de sus ancestros. Lo comprueba con la API de comparación de GitHub.
+- Si no lo cita, la tarea mantiene su estado anterior y la ejecución deja un aviso con el issue. Se corrige
+  añadiendo el SHA a *Evidencia*; la siguiente sincronización la acepta.
+- Al aceptarla, si el issue no tiene ningún label `evidencia:…`, le pone `evidencia:merged`.
+- Las tareas que ya estaban hechas antes de esta regla se mantienen. La ejecución resume en un aviso las que
+  no citan ningún commit.
 
 ## Sincronización (`.github/workflows/backlog-sync.yml`)
 
@@ -44,8 +73,11 @@ de GitHub Projects.
 4. Las PR que abre `GITHUB_TOKEN` no lanzan `ci`: la sync solo toca `docs/backlog`, y el validador ya corrió en
    el workflow.
 
+`pull` solo escribe en GitHub para poner `evidencia:merged` (ver arriba).
+
 `node scripts/backlog-github.mjs seed` crea en GitHub lo que tiene `backlog.json` y falta en los issues:
-labels, milestones, epics, tareas, estados y relaciones. Nunca edita un issue. Solo ajusta dos cosas derivadas:
+labels (también los `evidencia:…`), milestones, epics, tareas, estados y relaciones. Nunca edita un issue.
+Solo ajusta dos cosas derivadas:
 
 - el título y la descripción de cada milestone siguen a `meta.sprints`, que no se regenera desde los issues (así
   se renombra un sprint), y un sprint con `"closed": true` cierra su milestone (nunca reabre uno cerrado a mano);

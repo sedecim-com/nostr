@@ -16,6 +16,10 @@ class FakeGitHub {
   server?: Server;
   url = '';
   fields = true;
+  /** Commits reachable from main, and commits only on other branches (OPS-17). */
+  mainCommits = new Set<string>();
+  branchCommits = new Set<string>();
+  compares = 0;
   async start() {
     this.server = createServer((req, res) => {
       let raw = '';
@@ -44,6 +48,19 @@ class FakeGitHub {
       return this.fields
         ? { status: 200, body: { data: { repository: { issueFields: { nodes: [{ __typename: 'IssueFieldSingleSelect', fullDatabaseId: '1', name: 'Priority' }, { __typename: 'IssueFieldSingleSelect', fullDatabaseId: '2', name: 'Effort' }, { __typename: 'IssueFieldDate', fullDatabaseId: '3', name: 'Start date' }, { __typename: 'IssueFieldDate', fullDatabaseId: '4', name: 'Target date' }] } } } } }
         : { status: 200, body: { errors: [{ message: 'no fields' }] } };
+    if (path === '' && method === 'GET') return { status: 200, body: { default_branch: 'main' } };
+    const cmp = /^\/compare\/([^.]+)\.\.\.main$/.exec(path);
+    if (cmp && method === 'GET') {
+      this.compares++;
+      const known = (set: Set<string>) => [...set].some((sha) => sha.startsWith(cmp[1]!));
+      return known(this.mainCommits) ? { status: 200, body: { status: 'ahead' } } : known(this.branchCommits) ? { status: 200, body: { status: 'diverged' } } : { status: 404, body: { message: 'No commit found' } };
+    }
+    const lbl = /^\/issues\/(\d+)\/labels$/.exec(path);
+    if (lbl && method === 'POST') {
+      const i = this.issues[Number(lbl[1]) - 1]!;
+      for (const name of body.labels as string[]) if (!i.labels.some((l) => l.name === name)) i.labels.push({ name });
+      return { status: 200, body: i.labels };
+    }
     if (path === '/labels' && method === 'GET') return { status: 200, body: this.page(this.labels, u.searchParams) };
     if (path === '/labels' && method === 'POST' && (body.name.includes(',') || body.name.length > 50)) return { status: 422, body: { message: 'Validation Failed', errors: [{ field: 'name', code: 'invalid' }] } };
     if (path === '/labels' && method === 'POST') return this.labels.push({ name: body.name }), { status: 201, body: {} };
@@ -228,6 +245,59 @@ describe('backlog ⇄ GitHub Issues (GitHub is the source)', () => {
     const { backlog: next, warnings } = await pull(api, backlog);
     expect(next.tasks.find((t: { id: string }) => t.id === id)).toMatchObject({ priority: 'P3', status: 'Parcial', sprint: 'S8', evidence: 'hecho en #99' });
     expect(warnings).toEqual([expect.stringContaining('#999')]);
+  });
+
+  it('seed creates the evidence-state labels (OPS-17)', () => {
+    expect(gh.labels.map((l) => l.name)).toEqual(expect.arrayContaining(['evidencia:proposed', 'evidencia:in-pr', 'evidencia:merged', 'evidencia:ci-verified', 'evidencia:stage-verified', 'evidencia:externally-audited', 'evidencia:production-enabled']));
+  });
+
+  it('pull only accepts a new Hecho whose evidence cites a commit of main, and labels it (OPS-17)', async () => {
+    const gh7 = new FakeGitHub();
+    await gh7.start();
+    const api7 = createClient({ token: 't', repo: 'o/r', baseUrl: gh7.url, writeDelayMs: 0, log: () => undefined });
+    const all = backlog.tasks as Array<{ id: string; status: string; deps: string[]; evidence: string }>;
+    const open = all.filter((t) => t.status === 'Pendiente' && t.deps.length === 0).slice(0, 2);
+    const done = all.find((t) => t.status === 'Hecho' && t.deps.length === 0 && !/\b[0-9a-f]{7,40}\b/.test(t.evidence))!;
+    const small = { meta: backlog.meta, tasks: [...open, done] };
+    await seed(api7, small);
+    gh7.mainCommits.add('7dd1ff3a9c0b1d2e3f405162738495a6b7c8d9e0');
+    gh7.branchCommits.add('c0ffee1234567890abcdef1234567890abcdef12');
+    const issueOf = (id: string) => gh7.issues.find((i) => i.title.startsWith(`[${id}]`))!;
+    const close = (id: string, evidence: string) => {
+      const i = issueOf(id);
+      Object.assign(i, { state: 'closed', state_reason: 'completed', body: i.body.replace(/### Evidencia\n\n.*$/s, `### Evidencia\n\n${evidence}`) });
+    };
+    const statusOf = async (id: string, opts = {}) => {
+      const r = await pull(api7, small, opts);
+      return { status: r.backlog.tasks.find((t: { id: string }) => t.id === id).status, r };
+    };
+
+    // Closed with evidence that only cites a commit on another branch, or no commit at all: not Hecho.
+    close(open[0]!.id, 'Hecho en la rama feature (c0ffee1).');
+    close(open[1]!.id, 'Probado a mano.');
+    const first = await pull(api7, small, { labelMerged: true });
+    expect(first.backlog.tasks.filter((t: { id: string }) => open.some((o) => o.id === t.id)).map((t: { status: string }) => t.status)).toEqual(['Pendiente', 'Pendiente']);
+    expect(first.warnings).toEqual(open.map((o) => expect.stringContaining(`${o.id}: cerrada como completada, pero su evidencia no cita un commit de main`)));
+    expect(issueOf(open[0]!.id).labels.map((l) => l.name)).not.toContain('evidencia:merged');
+
+    // Citing a commit of main (abbreviated) makes it Hecho, and the issue gets evidencia:merged once.
+    close(open[0]!.id, 'Commit 7dd1ff3 en main (PR #304); tests en verde.');
+    expect((await statusOf(open[0]!.id)).status).toBe('Hecho');
+    expect(issueOf(open[0]!.id).labels.map((l) => l.name)).not.toContain('evidencia:merged');
+    expect((await statusOf(open[0]!.id, { labelMerged: true })).status).toBe('Hecho');
+    expect(issueOf(open[0]!.id).labels.map((l) => l.name)).toContain('evidencia:merged');
+    const writes = gh7.writes;
+    await pull(api7, small, { labelMerged: true });
+    expect(gh7.writes).toBe(writes);
+
+    // A task that was already Hecho is kept without asking GitHub; citing no commit it is only reported.
+    const compares = gh7.compares;
+    const kept = await statusOf(done.id);
+    expect(kept.status).toBe('Hecho');
+    expect(kept.r.unverified).toEqual([done.id]);
+    // Only the new closure that cites a SHA (7dd1ff3) is checked again; the Hecho task and the one citing none are not.
+    expect(gh7.compares - compares).toBe(1);
+    gh7.stop();
   });
 
   it('works without org issue fields (labels remain the source of priority)', async () => {

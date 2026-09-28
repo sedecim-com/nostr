@@ -4,14 +4,16 @@
 //                                                  milestones in line with meta.sprints (title, description, closed)
 //                                                  and "blocked by" links in line with each issue's "Depende de"
 //                                                  (never edits an issue)
-//   node scripts/backlog-github.mjs pull [--write] rebuild backlog.json tasks from the issues
+//   node scripts/backlog-github.mjs pull [--write] rebuild backlog.json tasks from the issues; a task only becomes
+//                                                  Hecho when its evidence cites a commit of main (OPS-17), and
+//                                                  with --write its issue gets the label evidencia:merged
 // Env: GITHUB_TOKEN, GITHUB_REPOSITORY (owner/repo), GITHUB_API_URL (optional, tests).
 //
 // Mapping (docs/backlog/GITHUB.md): one issue per task titled "[ID] title" with label `backlog`; sprint =
 // milestone "S3 · …"; priority = label P0–P3 (mirrored to the org field Priority); SP in the body (mirrored
 // to Effort); epic = label "epic:…" and parent issue; state: open = Pendiente (label status:parcial =
 // Parcial), closed completed = Hecho, closed not planned = Descartado; dependencies in the body and as
-// native "blocked by" links.
+// native "blocked by" links; evidence state = label "evidencia:…" (OPS-17).
 import { readFileSync, writeFileSync } from 'node:fs';
 
 export const TASK_LABEL = 'backlog';
@@ -22,6 +24,23 @@ const effortOf = (sp) => (sp <= 2 ? 'Low' : sp === 3 ? 'Medium' : 'High');
 const NONE = '_Sin información_';
 const SECTIONS = ['Requisito', 'Tipo', 'Story points', 'Depende de', 'Criterio de hecho', 'Evidencia'];
 const ID_RE = /\b[A-Z]{2,6}\d{0,3}-\d{2}\b/g;
+const SHA_RE = /\b[0-9a-f]{7,40}\b/g;
+
+/**
+ * OPS-17 (PRD GC-F01, GC-F02): evidence states, one label per issue for the highest state reached. Proposed and
+ * In PR are also what GitHub shows (an open issue, with or without a linked PR); the sync applies Merged when it
+ * accepts a task as Hecho; the rest are set by whoever verifies them, with the proof in the Evidencia section.
+ */
+export const EVIDENCE_STATES = [
+  ['proposed', 'Proposed', 'Abierta, sin PR'],
+  ['in-pr', 'In PR', 'Una PR abierta la implementa'],
+  ['merged', 'Merged', 'La evidencia cita un commit de main (lo pone la sincronización)'],
+  ['ci-verified', 'CI Verified', 'El CI de main pasa con ese commit'],
+  ['stage-verified', 'Stage Verified', 'Verificada en stage (enlace en la evidencia)'],
+  ['externally-audited', 'Externally Audited', 'Cubierta por la auditoría externa (informe en la evidencia)'],
+  ['production-enabled', 'Production Enabled', 'Activa en producción'],
+];
+export const evidenceLabel = (slug) => `evidencia:${slug}`;
 
 export function createClient({ token, repo, baseUrl = 'https://api.github.com', writeDelayMs = 1000, log = console.log }) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -127,6 +146,7 @@ export async function seed(api, backlog) {
     ['P3', 'c5def5', meta.priorities.P3],
     ...[...new Set(tasks.map((t) => t.type))].map((ty) => [`tipo:${ty}`, 'bfdadc', `Tipo de tarea: ${ty}`]),
     ...[...new Set(tasks.map((t) => t.epic))].map((e) => [epicLabel(e), 'd4c5f9', e.slice(0, 100)]),
+    ...EVIDENCE_STATES.map(([slug, name, what], i) => [evidenceLabel(slug), ['ededed', 'c2e0c6', '0e8a16', '1d76db', '5319e7', 'b60205', '000000'][i], `${name}: ${what}`]),
   ];
   for (const [name, color, description] of wanted) if (!existingLabels.has(name)) await api.request('POST', `/repos/${api.repo}/labels`, { name, color, description });
   // milestones = sprints. meta.sprints is not rebuilt from GitHub, so it owns the sprint metadata: a renamed sprint
@@ -238,11 +258,36 @@ export async function seed(api, backlog) {
   return { created, linked, unlinked, updated, labels: wanted.length, milestones: milestones.size, epics: epics.size };
 }
 
-export async function pull(api, backlog) {
+/**
+ * Rebuilds the tasks from the issues. OPS-17: nothing becomes Hecho from a branch. An issue closed as completed
+ * is accepted as Hecho only when its Evidencia cites a SHA (7-40 hex) that is main or one of its ancestors;
+ * otherwise the task keeps its previous status and a warning says why. Tasks already Hecho in `backlog` are
+ * kept (they predate the rule); those whose evidence cites no SHA at all are listed in `unverified`. With
+ * `labelMerged`, an accepted issue without an evidencia:* label gets evidencia:merged.
+ */
+export async function pull(api, backlog, opts = {}) {
   const issues = (await api.all(`/repos/${api.repo}/issues?state=all&labels=${TASK_LABEL}`)).filter((i) => !i.pull_request);
   const order = new Map(backlog.tasks.map((t, i) => [t.id, i]));
+  const before = new Map(backlog.tasks.map((t) => [t.id, t.status]));
   const warnings = [];
+  const unverified = [];
   const tasks = [];
+  let branch;
+  const known = new Map();
+  const inMain = async (sha) => {
+    if (!known.has(sha)) {
+      branch ??= (await api.request('GET', `/repos/${api.repo}`)).default_branch;
+      let ok = false;
+      try {
+        // BASE...HEAD: `ahead` or `identical` means the commit is main or one of its ancestors.
+        ok = ['ahead', 'identical'].includes((await api.request('GET', `/repos/${api.repo}/compare/${sha}...${branch}?per_page=1`)).status);
+      } catch (e) {
+        if (e.status !== 404 && e.status !== 422) throw e; // unknown commit
+      }
+      known.set(sha, ok);
+    }
+    return known.get(sha);
+  };
   for (const i of issues) {
     const p = parseTitle(i.title);
     if (!p) {
@@ -256,11 +301,30 @@ export async function pull(api, backlog) {
     const epicLbl = labels.find((l) => l.startsWith('epic:'));
     const epic = epicLbl && (backlog.tasks.find((t) => epicLabel(t.epic) === epicLbl)?.epic ?? epicLbl.slice(5));
     const sprint = sprintOfMilestone(i.milestone?.title);
-    const status = i.state === 'closed' ? (i.state_reason === 'not_planned' ? 'Descartado' : 'Hecho') : labels.includes(PARTIAL_LABEL) ? 'Parcial' : 'Pendiente';
+    let status = i.state === 'closed' ? (i.state_reason === 'not_planned' ? 'Descartado' : 'Hecho') : labels.includes(PARTIAL_LABEL) ? 'Parcial' : 'Pendiente';
     const problems = [!priority && 'sin label de prioridad (P0–P3)', !epic && 'sin label epic:…', !sprint && 'sin milestone (sprint)'].filter(Boolean);
     if (problems.length) {
       warnings.push(`#${i.number} ${p.id}: ${problems.join(', ')}`);
       continue;
+    }
+    if (status === 'Hecho') {
+      const shas = [...new Set((b.Evidencia ?? '').match(SHA_RE) ?? [])];
+      if (before.get(p.id) === 'Hecho') {
+        if (shas.length === 0) unverified.push(p.id);
+      } else {
+        let merged = false;
+        for (const sha of shas) if ((merged = await inMain(sha))) break;
+        if (!merged) {
+          status = before.get(p.id) ?? 'Pendiente';
+          warnings.push(`#${i.number} ${p.id}: cerrada como completada, pero su evidencia no cita un commit de main; sigue como ${status} (OPS-17)`);
+        } else if (opts.labelMerged && !labels.some((l) => l.startsWith('evidencia:'))) {
+          try {
+            await api.request('POST', `/repos/${api.repo}/issues/${i.number}/labels`, { labels: [evidenceLabel('merged')] });
+          } catch (e) {
+            warnings.push(`#${i.number} ${p.id}: no se pudo poner ${evidenceLabel('merged')} (${e.message})`);
+          }
+        }
+      }
     }
     tasks.push({
       id: p.id,
@@ -279,7 +343,7 @@ export async function pull(api, backlog) {
     });
   }
   tasks.sort((a, b) => (order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9) || a.id.localeCompare(b.id));
-  return { backlog: { meta: { ...backlog.meta, github: api.repo }, tasks }, warnings };
+  return { backlog: { meta: { ...backlog.meta, github: api.repo }, tasks }, warnings, unverified };
 }
 
 // ---- CLI
@@ -298,13 +362,15 @@ if (isMain) {
     const r = await seed(api, backlog);
     console.log(`seed: ${r.created.length} tareas creadas, ${r.linked} relaciones nuevas y ${r.unlinked} retiradas; ${r.epics} epics, ${r.milestones} milestones (${r.updated} actualizados)`);
   } else if (cmd === 'pull') {
-    const { backlog: next, warnings } = await pull(api, backlog);
+    const write = process.argv.includes('--write');
+    const { backlog: next, warnings, unverified } = await pull(api, backlog, { labelMerged: write });
     for (const w of warnings) console.log(`::warning::${w}`);
+    if (unverified.length) console.log(`::notice::${unverified.length} tareas Hecho, anteriores a OPS-17, no citan ningún commit en su evidencia: ${unverified.join(', ')}`);
     if (next.tasks.length === 0) {
       console.error('no backlog issues found on GitHub: run seed first');
       process.exit(1);
     }
-    if (process.argv.includes('--write')) writeFileSync(path, JSON.stringify(next, null, 1));
+    if (write) writeFileSync(path, JSON.stringify(next, null, 1));
     console.log(`pull: ${next.tasks.length} tareas desde GitHub Issues${warnings.length ? ` (${warnings.length} avisos)` : ''}`);
   } else {
     console.error('usage: backlog-github.mjs seed | pull [--write]');
