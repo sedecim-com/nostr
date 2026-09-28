@@ -33,7 +33,8 @@ puertos en el host.
 
 Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-client/test`, `scripts/leak-test.sh`):
 - Con Tor caído, **no** se abre ninguna conexión: el mensaje queda en outbox con
-  "No enviado: red de privacidad no disponible" y se reenvía (mismo event id) con `sovereign resume`.
+  "No enviado: red de privacidad no disponible" y se reenvía (mismo event id) en cuanto cualquier comando
+  vuelve a abrir la persona, o con `sovereign resume` (FR011-04).
 - Resolución DNS dentro de Tor (`socks5h`): ningún `dns.lookup` local de destinos.
 - Cada persona usa credenciales SOCKS distintas → circuitos separados (`IsolateSOCKSAuth`).
 - Solo se permiten los hosts de relay configurados para la persona; `onionOnly` bloquea clearnet.

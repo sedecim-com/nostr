@@ -78,6 +78,8 @@ interface Session {
   guard: NetworkGuard;
   store: EncryptedStore;
   groups?: Promise<GroupSession>;
+  /** FR011-04: the retry of what earlier runs left pending, started when the persona was opened. */
+  resumed: Promise<unknown>;
 }
 
 /**
@@ -210,7 +212,10 @@ export class SovereignClient {
     const engine = new DeliveryEngine({ store: store.collection<OutboxRecord>('outbox'), publisher: pool, signer, retry: this.opts.retry });
     // FR-011: when a relay comes back (after a drop or a failed attempt) the whole outbox is re-driven.
     pool.onReconnect(() => void engine.resume().catch(() => undefined));
-    const s: Session = { persona, signer, pool, engine, guard, store };
+    // FR011-04: what an earlier run left pending (sent without network, cut off) goes out as soon as the
+    // persona is opened again, whatever the command. In the background: the command does not wait for it.
+    const resumed = engine.resume().catch(() => undefined);
+    const s: Session = { persona, signer, pool, engine, guard, store, resumed };
     this.sessions.set(personaId, s);
     return s;
   }
@@ -233,6 +238,8 @@ export class SovereignClient {
    */
   async syncHistory(personaId: string, opts: { since?: number; channels?: string[] } = {}): Promise<HistorySyncResult> {
     const s = await this.session(personaId);
+    // FR011-04: reconcile after the retry of what was pending (started when the persona opened), not during it.
+    await s.resumed;
     const now = Math.floor(Date.now() / 1000);
     const since = opts.since ?? 0;
     // Full rebuild: one paginated window; incremental: weekly windows back to `since`. The NIP-11
@@ -295,6 +302,18 @@ export class SovereignClient {
       }
     }
     return out.sort((a, b) => a.rumor.created_at - b.rumor.created_at);
+  }
+
+  /**
+   * FR011-04: waits, at most `timeoutMs`, for the retries started when the personas were opened, so that a
+   * short-lived CLI command does not exit in the middle of delivering what an earlier run left pending.
+   */
+  async settle(timeoutMs = 20_000): Promise<void> {
+    const pending = [...this.sessions.values()].map((s) => s.resumed);
+    if (pending.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([Promise.all(pending), new Promise<void>((r) => (timer = setTimeout(r, timeoutMs)))]);
+    clearTimeout(timer);
   }
 
   async outbox(personaId: string): Promise<OutboxRecord[]> {
