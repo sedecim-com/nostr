@@ -12,7 +12,7 @@ describe('load tool (NFR005-02)', () => {
   it('drives authenticated publishers/subscribers against the test relay and measures indexer lag with 2 replicas', async () => {
     const stack = await startLocalStack({ indexers: 2 });
     try {
-      const r = await runLoad({ relay: stack.relay, indexers: stack.indexers, clients: 3, rate: 3, durationS: 3, drainS: 10, channels: 2, lagSample: 1, mix: { 9: 70, 1059: 20, 1: 10 }, label: 'test' });
+      const r = await runLoad({ relay: stack.relay, indexers: stack.indexers, groupKey: stack.groupKey, clients: 3, rate: 3, durationS: 3, drainS: 10, channels: 2, lagSample: 1, mix: { 9: 70, 1059: 20, 1: 10 }, label: 'test' });
       expect(r.setup.connectedClients).toBe(3);
       expect(r.publish.ok).toBeGreaterThan(10);
       expect(r.publish.failed).toBe(0);

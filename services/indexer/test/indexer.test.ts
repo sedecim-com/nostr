@@ -8,10 +8,16 @@ import { TestRelay } from '@sedecim/test-relay';
 import { LocalSigner } from '@sedecim/signer';
 import { createDirectMessage } from '@sedecim/messaging';
 import { createPgPool, migrate, nip98Fetch, resetScope } from '@sedecim/service-kit';
-import { createIndexerApi, enforceRetention, Indexer, MemoryEventRepository, PgEventRepository, sealedCodec, type EventRepository } from '../src/index';
+import { createIndexerApi, enforceRetention, GroupAuthorities, Indexer, MemoryEventRepository, PgEventRepository, sealedCodec, type EventRepository } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
-const INDEXER_TABLES = ['read_cursors', 'event_sources', 'events', 'indexer_checkpoints', 'indexer_jobs', 'indexer_replicas'];
+const INDEXER_TABLES = ['read_cursors', 'event_sources', 'events', 'indexer_checkpoints', 'indexer_jobs', 'indexer_replicas', 'moderation_deletions'];
+
+// FR014-05: the relay key that signs NIP-29 group state, and a member list (kind 39002) signed with it.
+const relaySk = generateSecretKey();
+const groups = new GroupAuthorities([getPublicKey(relaySk)]);
+const memberList = (h: string, members: Uint8Array[]) =>
+  finalizeEvent(toUnsigned({ kind: 39002, content: '', tags: [['d', h], ...members.map((sk) => ['p', getPublicKey(sk), '', 'member'])], created_at: Math.floor(Date.now() / 1000) }, getPublicKey(relaySk)), relaySk);
 
 async function rawPublish(url: string, evt: NostrEvent) {
   const ws = new WebSocket(url);
@@ -92,12 +98,15 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
     });
 
     it('serves derived views and restricts gift wraps to their recipient', async () => {
-      const api = createIndexerApi(repo, { name: 'indexer-test' });
+      const readerSk = generateSecretKey();
+      await indexer.ingest(memberList('general', [readerSk]), relay.url);
+      const api = createIndexerApi(repo, { name: 'indexer-test', groups });
       const base = await api.listen();
       try {
-        const res = await fetch(`${base}/v1/events?kinds=9&h=general`);
-        const body = await res.json();
-        expect(body.events.map((e: NostrEvent) => e.content)).toContain('desde otro cliente');
+        const res = await nip98Fetch(readerSk, `${base}/v1/events?kinds=9&h=general`);
+        expect(res.json.events.map((e: NostrEvent) => e.content)).toContain('desde otro cliente');
+        // FR014-05: channel content only for its members.
+        expect((await (await fetch(`${base}/v1/events?kinds=9&h=general`)).json()).events).toEqual([]);
         expect((await fetch(`${base}/v1/events?kinds=1059`)).status).toBe(401);
         const bobSk = generateSecretKey();
         const bobPk = getPublicKey(bobSk);
@@ -108,8 +117,9 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
         expect(mine.json.events).toHaveLength(1);
         const other = await nip98Fetch(generateSecretKey(), `${base}/v1/events?kinds=1059&p=${bobPk}`);
         expect(other.status).toBe(403);
-        const summary = await (await fetch(`${base}/v1/channels/general/summary`)).json();
-        expect(summary.messages).toBeGreaterThanOrEqual(1);
+        const summary = await nip98Fetch(readerSk, `${base}/v1/channels/general/summary`);
+        expect(summary.json.messages).toBeGreaterThanOrEqual(1);
+        expect((await fetch(`${base}/v1/channels/general/summary`)).status).toBe(403);
         // Malformed numeric parameters are a 400, never a database error (500).
         for (const q of ['kinds=abc', 'kinds=9&limit=-1', 'kinds=9&since=x', 'kinds=9&until=1.5', 'kinds=-3', 'kinds=9&limit='])
           expect((await fetch(`${base}/v1/events?${q}`)).status, q).toBe(400);
@@ -135,8 +145,10 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
       const dm = await createDirectMessage(new LocalSigner(aliceSk), { recipients: [getPublicKey(bobSk)], content: 'aguja cifrada' });
       const wrap = dm.wraps[0]!.event;
       await indexer.ingest(wrap, relay.url);
+      // Both read the two channels (FR014-05).
+      for (const h of [channel, other]) await indexer.ingest(memberList(h, [aliceSk, bobSk]), relay.url);
 
-      const api = createIndexerApi(repo, { name: 'indexer-test' });
+      const api = createIndexerApi(repo, { name: 'indexer-test', groups });
       const base = await api.listen();
       try {
         expect((await fetch(`${base}/v1/unread?h=${channel}`)).status).toBe(401);
@@ -153,18 +165,21 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
         expect((await nip98Fetch(aliceSk, `${base}/v1/unread?h=${channel}`)).json.unread).toEqual({ [channel]: 1 });
         expect((await nip98Fetch(bobSk, `${base}/v1/read-cursor`, 'PUT', { h: channel, until: 'ayer' })).status).toBe(400);
 
-        const search = await (await fetch(`${base}/v1/search?q=aguja&h=${channel}`)).json();
+        const search = (await nip98Fetch(bobSk, `${base}/v1/search?q=aguja&h=${channel}`)).json;
         expect(search.events.map((e: NostrEvent) => e.content)).toEqual(['mi propia aguja', 'hilo sobre agujas', 'Una AGUJA en el pajar']);
-        const everywhere = await (await fetch(`${base}/v1/search?q=aguja`)).json();
+        const everywhere = (await nip98Fetch(bobSk, `${base}/v1/search?q=aguja`)).json;
         expect(everywhere.events.map((e: NostrEvent) => e.content)).toContain('aguja en otro canal');
         expect(everywhere.events.map((e: NostrEvent) => e.content)).not.toContain('nota pública con aguja');
         // never over gift wraps, even when the query matches their (ciphertext) content
-        const cipher = await (await fetch(`${base}/v1/search?q=${encodeURIComponent(wrap.content.slice(10, 40))}`)).json();
+        const cipher = (await nip98Fetch(bobSk, `${base}/v1/search?q=${encodeURIComponent(wrap.content.slice(10, 40))}`)).json;
         expect(cipher.events).toEqual([]);
         expect((await repo.search({ text: 'aguja', kinds: [1059, 1] })).length).toBe(0);
         expect((await fetch(`${base}/v1/search?q=a`)).status).toBe(400);
         // LIKE wildcards are literal
-        expect((await (await fetch(`${base}/v1/search?q=${encodeURIComponent('%_')}&h=${channel}`)).json()).events).toEqual([]);
+        expect((await nip98Fetch(bobSk, `${base}/v1/search?q=${encodeURIComponent('%_')}&h=${channel}`)).json.events).toEqual([]);
+        // FR014-05: nothing for someone outside both channels, also without naming one.
+        expect((await (await fetch(`${base}/v1/search?q=aguja`)).json()).events).toEqual([]);
+        expect((await nip98Fetch(generateSecretKey(), `${base}/v1/search?q=aguja&h=${channel}`)).json.events).toEqual([]);
       } finally {
         await api.close();
       }

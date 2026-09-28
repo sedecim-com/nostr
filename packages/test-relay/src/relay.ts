@@ -46,6 +46,8 @@ export interface TestRelayOptions {
   authNoticeOnReq?: boolean;
   /** Buzz fan-out: live events carrying an `h` tag only reach subscriptions that filter by `#h`. */
   channelScopedFanout?: boolean;
+  /** NIP-11 `self`: the relay's own signing key (hex), as Buzz advertises the key that signs NIP-29 group state. */
+  self?: string;
 }
 
 export interface FaultInjection {
@@ -91,7 +93,7 @@ export class TestRelay {
   async start(): Promise<string> {
     // Plain HTTP answers NIP-11 (relay information document); upgrades go to the WebSocket server.
     this.http = createServer((req, res) => {
-      const info = { name: 'sedecim test relay', software: '@sedecim/test-relay', supported_nips: [1, 9, 11, 42, 59, ...(this.opts.supportsNegentropy ? [77] : [])] };
+      const info = { name: 'sedecim test relay', software: '@sedecim/test-relay', supported_nips: [1, 9, 11, 42, 59, ...(this.opts.supportsNegentropy ? [77] : [])], ...(this.opts.self ? { self: this.opts.self } : {}) };
       res.writeHead(200, { 'content-type': 'application/nostr+json', 'access-control-allow-origin': '*' });
       res.end(JSON.stringify(info));
     });

@@ -29,7 +29,7 @@ async function eventually<T>(fn: () => Promise<T | undefined>, ms: number): Prom
   return undefined;
 }
 
-describe.skipIf(!RELAY || !INDEXER)('stack: mirror follows Buzz (FR-014)', () => {
+describe.skipIf(!RELAY || !INDEXER)('stack: mirror follows Buzz (FR-014, FR014-05)', () => {
   const sk = generateSecretKey();
   const signer = new LocalSigner(sk);
   const pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'auto', authTimeoutMs: 1500 });
@@ -48,7 +48,20 @@ describe.skipIf(!RELAY || !INDEXER)('stack: mirror follows Buzz (FR-014)', () =>
     }, 90_000);
     expect(found, 'indexer did not mirror the message').toBeDefined();
     expect(found.meta.find((m: { id: string }) => m.id === msg.id).sensitivity).toBe('channel');
-  }, 120_000);
+
+    // FR014-05: the mirror follows Buzz's own NIP-29 lists (signed with the key in its NIP-11 `self`): someone
+    // outside the channel reads nothing of it, and a deletion (kind 9005) accepted by Buzz hides the message.
+    const outsider = await nip98Fetch(generateSecretKey(), `${INDEXER}/v1/events?kinds=9&h=${meta!.id}`);
+    expect(outsider.status).toBe(200);
+    expect(outsider.json.events).toEqual([]);
+    const del = await signer.signEvent({ kind: 9005, content: '', tags: [['h', meta!.id], ['e', msg.id]] });
+    expect((await pool.publishTo(del, RELAY!)).ok).toBe(true);
+    const gone = await eventually(async () => {
+      const res = await nip98Fetch(sk, `${INDEXER}/v1/events?kinds=9&h=${meta!.id}`);
+      return res.status === 200 && !res.json.events.some((e: { id: string }) => e.id === msg.id) ? true : undefined;
+    }, 60_000);
+    expect(gone, 'the mirror still serves a message deleted with kind 9005').toBe(true);
+  }, 200_000);
 
   it('the mirror API requires NIP-98 in the deployed configuration', async () => {
     expect((await fetch(`${INDEXER}/v1/events?kinds=9`)).status).toBe(401);

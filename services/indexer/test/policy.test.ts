@@ -2,9 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as nt from 'nostr-tools';
 import { finalizeEvent, generateSecretKey, getPublicKey, nip98, toUnsigned, type NostrEvent } from '@sedecim/nostr-core';
 import { nip98Fetch } from '@sedecim/service-kit';
-import { createIndexerApi, MemoryEventRepository, POLICY_DEVICE_HEADER, type IndexerPolicy } from '../src/index';
+import { createIndexerApi, GroupAuthorities, MemoryEventRepository, POLICY_DEVICE_HEADER, type IndexerPolicy } from '../src/index';
 
-/** FR023-05: in institutional mode every mirror read goes through the policy-engine (default deny). */
+/**
+ * FR023-05: in institutional mode every mirror read goes through the policy-engine (default deny), on top of the
+ * NIP-29 membership every channel read needs (FR014-05).
+ */
 describe('indexer institutional mode (policy-engine enforcement)', () => {
   const reader = generateSecretKey();
   const readerPk = getPublicKey(reader);
@@ -16,16 +19,20 @@ describe('indexer institutional mode (policy-engine enforcement)', () => {
     async evaluate(i) {
       calls.push({ resourceId: i.resourceId, ...(i.deviceId ? { deviceId: i.deviceId } : {}) });
       if (i.resourceId === 'flaky') throw new Error('engine down');
-      const allow = i.pubkey === readerPk && (['general', 'acme'].includes(i.resourceId) || (i.resourceId === 'secret' && i.deviceId === 'dev-1'));
+      const allow = i.pubkey === readerPk && (['general', 'acme', 'lobby'].includes(i.resourceId) || (i.resourceId === 'secret' && i.deviceId === 'dev-1'));
       return { allow, reasons: [] };
     },
   };
+  // The reader is a member of every channel but 'lobby' (relay-signed kind 39002 lists).
+  const relaySk = generateSecretKey();
+  const groups = new GroupAuthorities([getPublicKey(relaySk)]);
+  const memberList = (h: string) => finalizeEvent(toUnsigned({ kind: 39002, content: '', tags: [['d', h], ['p', readerPk, '', 'member']], created_at: Math.floor(Date.now() / 1000) }, getPublicKey(relaySk)), relaySk);
   const repo = new MemoryEventRepository();
-  const api = createIndexerApi(repo, { name: 'indexer-policy-test', policy });
+  const api = createIndexerApi(repo, { name: 'indexer-policy-test', policy, groups });
   let base: string;
   const now = Math.floor(Date.now() / 1000);
   const msg = (h: string | undefined, content: string, kind = 9) => nt.finalizeEvent({ kind, content, tags: h ? [['h', h]] : [], created_at: now }, author) as NostrEvent;
-  const ev = { general: msg('general', 'hola general'), secret: msg('secret', 'hola secreto'), other: msg('other', 'hola otro'), flaky: msg('flaky', 'hola flaky'), note: msg(undefined, 'hola nota', 1) };
+  const ev = { general: msg('general', 'hola general'), secret: msg('secret', 'hola secreto'), other: msg('other', 'hola otro'), flaky: msg('flaky', 'hola flaky'), lobby: msg('lobby', 'hola lobby'), note: msg(undefined, 'hola nota', 1) };
 
   /** NIP-98 GET with an extra header. */
   async function getWithDevice(url: string, device: string) {
@@ -36,7 +43,7 @@ describe('indexer institutional mode (policy-engine enforcement)', () => {
   const ids = (r: { events: NostrEvent[] }) => r.events.map((e) => e.id).sort();
 
   beforeAll(async () => {
-    for (const e of Object.values(ev)) await repo.upsert(e, 'ws://relay');
+    for (const e of [...Object.values(ev), ...['general', 'secret', 'other', 'flaky'].map(memberList)]) await repo.upsert(e, 'ws://relay');
     base = await api.listen();
   });
   afterAll(() => api.close());
@@ -72,6 +79,12 @@ describe('indexer institutional mode (policy-engine enforcement)', () => {
     expect((await nip98Fetch(reader, `${base}/v1/read-cursor`, 'PUT', { h: 'other', until: now })).status).toBe(403);
     expect((await nip98Fetch(reader, `${base}/v1/read-cursor`, 'PUT', { h: 'general', until: now - 10 })).status).toBe(200);
     expect((await nip98Fetch(reader, `${base}/v1/unread?h=general,other`)).json.unread).toEqual({ general: 1 });
+  });
+
+  it('the policy is not enough: a channel the reader is not a member of stays closed (FR014-05)', async () => {
+    expect((await nip98Fetch(reader, `${base}/v1/events/${ev.lobby.id}`)).status).toBe(404);
+    expect((await nip98Fetch(reader, `${base}/v1/channels/lobby/summary`)).status).toBe(403);
+    expect((await nip98Fetch(reader, `${base}/v1/search?q=hola&h=lobby`)).json.events).toEqual([]);
   });
 
   it('search only returns readable channels', async () => {

@@ -8,7 +8,7 @@ import { generateSecretKey, getPublicKey, type NostrEvent } from '@sedecim/nostr
 import { bearer, PolicyEngineClient } from '@sedecim/policy-client';
 import { nip98Fetch } from '@sedecim/service-kit';
 import { createPolicyApi, PolicyEngine } from '@sedecim/policy-engine';
-import { createIndexerApi, enforceRetention, MemoryEventRepository } from '@sedecim/indexer';
+import { createIndexerApi, enforceRetention, GroupAuthorities, MemoryEventRepository } from '@sedecim/indexer';
 
 describe('institutional mode: policy-engine + indexer', () => {
   const adminSk = generateSecretKey();
@@ -27,11 +27,14 @@ describe('institutional mode: policy-engine + indexer', () => {
   const now = Math.floor(Date.now() / 1000);
   const msg = (h: string, daysAgo: number) => nt.finalizeEvent({ kind: 9, content: `en ${h}`, tags: [['h', h]], created_at: now - daysAgo * 86_400 }, author) as NostrEvent;
   const ev = { legal: msg('legal', 0), legalOld: msg('legal', 45), lobby: msg('lobby', 0), lobbyOld: msg('lobby', 45) };
+  // FR014-05: both are members of both channels (relay-signed kind 39002), so the policy is what tells them apart.
+  const relaySk = generateSecretKey();
+  const members = (h: string) => nt.finalizeEvent({ kind: 39002, content: '', tags: [['d', h], ['p', analyst, '', 'member'], ['p', getPublicKey(guestSk), '', 'member']], created_at: now }, relaySk) as NostrEvent;
 
   beforeAll(async () => {
     policyBase = await policyApi.listen();
     client = new PolicyEngineClient(policyBase, bearer('indexer-token-1234'));
-    indexerApi = createIndexerApi(repo, { name: 'indexer-e2e', policy: { evaluate: (i) => client.evaluate(i) } });
+    indexerApi = createIndexerApi(repo, { name: 'indexer-e2e', policy: { evaluate: (i) => client.evaluate(i) }, groups: new GroupAuthorities([getPublicKey(relaySk)]) });
     indexerBase = await indexerApi.listen();
     const admin98 = (path: string, method: string, body: unknown) => nip98Fetch(adminSk, `${policyBase}${path}`, method, body);
     await admin98(`/v1/subjects/${analyst}`, 'PUT', { roles: ['analyst'], attributes: {} });
@@ -40,7 +43,7 @@ describe('institutional mode: policy-engine + indexer', () => {
     await admin98('/v1/resources/lobby', 'PUT', { kind: 'channel', sensitivity: 'public', rules: [{ actions: ['read'], anyRole: ['analyst', 'guest'] }] });
     await admin98('/v1/retention/legal', 'PUT', { days: 30, legalHold: true });
     await admin98('/v1/retention/lobby', 'PUT', { days: 30, legalHold: false });
-    for (const e of Object.values(ev)) await repo.upsert(e, 'ws://relay');
+    for (const e of [...Object.values(ev), members('legal'), members('lobby')]) await repo.upsert(e, 'ws://relay');
   });
   afterAll(async () => {
     await indexerApi.close();

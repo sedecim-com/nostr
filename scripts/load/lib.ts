@@ -4,7 +4,7 @@
 // until an acked event is returned by the mirror API).
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import WebSocket from 'ws';
-import { bytesToHex, generateSecretKey, getPublicKey, randomBytes, type NostrEvent } from '@sedecim/nostr-core';
+import { bytesToHex, generateSecretKey, getPublicKey, hexToBytes, randomBytes, type NostrEvent } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { chatMessage, createDirectMessage, createGroup, joinRequest, parseGroupMetadata } from '@sedecim/messaging';
@@ -28,6 +28,12 @@ export interface LoadOptions {
   /** Seconds to wait after publishing for deliveries and the indexer. */
   drainS: number;
   maxInflight: number;
+  /**
+   * Relays without NIP-29 (the local test relay): hex secret that signs the channel state in place of the relay,
+   * the metadata (39000) and a member list (39002) naming the load's admin. The local mirror trusts it as the
+   * relay key (FR014-05). Default: the admin's own key.
+   */
+  groupKey?: string;
   label?: string;
   log?: (msg: string) => void;
 }
@@ -110,8 +116,9 @@ interface Client {
 }
 
 /**
- * Creates the channels: NIP-29 create-group (relays such as Buzz assign the id and publish kind 39000);
- * relays without NIP-29 (test relay) get the 39000 metadata published directly.
+ * Creates the channels: NIP-29 create-group (relays such as Buzz assign the id, publish kind 39000 and make the
+ * creator owner); relays without NIP-29 (test relay) get the 39000 metadata and a 39002 member list naming the
+ * admin published directly, signed with `groupKey`. Either way the admin is a member: it reads the mirror.
  */
 async function setupChannels(opts: LoadOptions, admin: Client): Promise<{ ids: string[]; mode: 'nip29' | 'metadata' }> {
   const run = bytesToHex(randomBytes(4));
@@ -127,7 +134,11 @@ async function setupChannels(opts: LoadOptions, admin: Client): Promise<{ ids: s
     await sleep(500);
   }
   const ids = names.map((n) => n);
-  for (const id of ids) await admin.pool.publishTo(await admin.signer.signEvent({ kind: 39000, content: '', tags: [['d', id], ['name', id]] }), opts.relay);
+  const group = opts.groupKey ? new LocalSigner(hexToBytes(opts.groupKey)) : admin.signer;
+  for (const id of ids) {
+    await admin.pool.publishTo(await group.signEvent({ kind: 39000, content: '', tags: [['d', id], ['name', id]] }), opts.relay);
+    await admin.pool.publishTo(await group.signEvent({ kind: 39002, content: '', tags: [['d', id], ['p', admin.pk, '', 'member']] }), opts.relay);
+  }
   return { ids, mode: 'metadata' };
 }
 
@@ -190,7 +201,8 @@ export async function runLoad(input: Partial<LoadOptions> & Pick<LoadOptions, 'r
         await admin.pool.publishTo(evt, opts.relay);
         return evt.id;
       }));
-      const reader = generateSecretKey();
+      // FR014-05: the mirror serves a channel only to its members; the admin created them.
+      const reader = admin.sk;
       const end = Date.now() + 120_000;
       let seen = 0;
       while (Date.now() < end) {
@@ -209,7 +221,7 @@ export async function runLoad(input: Partial<LoadOptions> & Pick<LoadOptions, 'r
     let pollErrors = 0;
     let polling = opts.indexers.length > 0;
     const poller = (async () => {
-      const reader = generateSecretKey();
+      const reader = admin.sk;
       let rr = 0;
       while (polling || lagPending.size) {
         const ids = [...lagPending.keys()].slice(0, 50);
