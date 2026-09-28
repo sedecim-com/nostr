@@ -1,9 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import { downloadFromServers, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
 import { getTagValue, normalizePubkey } from '@sedecim/nostr-core';
-import { APP_RECEIPT_KIND, BUZZ_PINNED_ADAPTER, createFileMessage, createReceipt, dmInboxFilter, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, openDirectMessage, parseReceipt, unwrap, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
-import { receiptPolicy } from '@sedecim/profiles';
+import { BUZZ_PINNED_ADAPTER, createFileMessage, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
 import { cappedQuorumNotice } from '../lib/outbox';
 import { shortNpub } from '../lib/session';
@@ -16,19 +15,26 @@ export function DmView() {
   const config = ws.config!;
   const flags = ws.flags;
   const gateRejected = flags ? !flags.nip17.enabled : false;
-  const [nip17, setNip17] = useState(flags?.nip17.enabled ?? false);
+  const { nip17, setNip17 } = ws;
   const [to, setTo] = useState('');
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | undefined>();
-  const [inbox, setInbox] = useState<DirectMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const blocked = sendBlockedReason(config);
   const wrapOpts = wrapOptionsFromFlags(flags, BUZZ_PINNED_ADAPTER.wrap);
   const messenger = () => new DirectMessenger(s.signer, { nip17, readReceipts: config.readReceipts }, wrapOpts);
-  const receipts = receiptPolicy(config);
-  const sentReceipts = ws.book.store.collection<boolean>(`receipts-${s.persona.id}`);
+  const { inbox, messages, background } = ws.dm;
 
-  useEffect(() => setNip17(flags?.nip17.enabled ?? false), [flags]);
+  // ADR 0005: a message shown here counts as read. The inbox sends the read receipt only if the panel allows it,
+  // at most once per message; "delivered" receipts go when a message arrives, even in the background (FR009-03).
+  const shown = useRef(new Set<string>());
+  useEffect(() => {
+    for (const m of messages) {
+      if (shown.current.has(m.rumor.id)) continue;
+      shown.current.add(m.rumor.id);
+      void inbox?.markRead(m);
+    }
+  }, [messages, inbox]);
 
   const send = async (e: FormEvent) => {
     e.preventDefault();
@@ -66,36 +72,16 @@ export function DmView() {
     }
   };
 
+  // FR009-03: reads the persona's DM relays again (with NIP-07, the only way messages are read).
   const refresh = async () => {
-    const wraps = await s.pool.query(s.persona.relays, [dmInboxFilter(s.pubkey)], 8000);
-    const opened: DirectMessage[] = [];
-    for (const w of wraps) {
-      try {
-        if (!nip17) throw new FeatureDisabledError('nip17');
-        const u = await unwrap(s.signer, w);
-        // FR009-02: receipts from the actual recipient advance our outbox to RECIPIENT_ACKED / READ.
-        if (u.rumor.kind === APP_RECEIPT_KIND) {
-          const r = parseReceipt(u);
-          if (r && r.from !== s.pubkey) await s.engine.applyReceipt(r);
-          continue;
-        }
-        if (u.rumor.kind === 14 || u.rumor.kind === FILE_MESSAGE_KIND) opened.push(await openDirectMessage(s.signer, w));
-      } catch {
-        /* not for us, or not a message */
-      }
-    }
-    opened.sort((a, b) => a.rumor.created_at - b.rumor.created_at);
-    const unique = [...new Map(opened.map((m) => [m.rumor.id, m])).values()];
-    setInbox(unique);
-    // ADR 0005: gift-wrapped receipts, only as the profile allows and at most once per message.
-    for (const m of unique) {
-      if (m.sender === s.pubkey) continue;
-      for (const type of ['delivered', 'read'] as const) {
-        if (!receipts[type] || (await sentReceipts.get(`${type}:${m.rumor.id}`))) continue;
-        const r = await createReceipt(s.signer, m.sender, m.rumor.id, type, wrapOpts);
-        await s.engine.submit({ event: r.event }, { relays: s.persona.relays, quorum: 1 });
-        await sentReceipts.put(`${type}:${m.rumor.id}`, true);
-      }
+    if (!inbox) return ws.notify('NIP-17 está deshabilitado (feature flag).', 'error');
+    setBusy(true);
+    try {
+      await inbox.sync();
+    } catch (err) {
+      ws.notify((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -131,12 +117,19 @@ export function DmView() {
             <Typography variant="h6" component="h2">
               Recibidos
             </Typography>
-            <Button id="dm-refresh" onClick={() => void refresh()}>
+            <Button id="dm-refresh" onClick={() => void refresh()} disabled={busy}>
               Actualizar
             </Button>
           </Stack>
+          {inbox && (
+            <Typography id="dm-inbox-mode" variant="body2" color="text.secondary">
+              {background
+                ? 'Los mensajes y los acuses llegan en segundo plano a tus relays de DM (kind 10050), aunque estés en otra sección.'
+                : 'Con NIP-07 los mensajes se leen al pulsar «Actualizar»: tu extensión puede pedir permiso para cada descifrado.'}
+            </Typography>
+          )}
           <List id="dm-log" aria-live="polite">
-            {inbox.map((m) => (
+            {messages.map((m) => (
               <ListItem key={m.rumor.id} alignItems="flex-start">
                 <ListItemText primary={m.kind === FILE_MESSAGE_KIND ? <EncryptedAttachment message={m} /> : m.rumor.content} secondary={`${m.sender === s.pubkey ? 'tú' : shortNpub(m.sender)} · ${new Date(m.rumor.created_at * 1000).toLocaleString()}`} />
               </ListItem>

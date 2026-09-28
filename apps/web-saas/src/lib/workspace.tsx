@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
-import type { DeploymentFlags } from '@sedecim/messaging';
+import type { OutboxRecord } from '@sedecim/delivery-engine';
+import type { DeploymentFlags, DirectMessage, DmInbox } from '@sedecim/messaging';
 import type { SovereigntyConfig } from '@sedecim/profiles';
 import type { AccesoUser } from './acceso';
 import type { DeploymentConfig } from './config';
@@ -23,6 +24,14 @@ export interface Workspace {
   updatePersona(p: PersonaRecord): Promise<void>;
   /** Onboarding: publish the active persona's DM relay list (kind 10050). */
   publishDmRelays(): Promise<void>;
+  /** FR-017: NIP-17 is on for this session (the interop gate's flag; without flags.json, the user's choice). */
+  nip17: boolean;
+  setNip17(on: boolean): void;
+  /**
+   * FR009-03: the active persona's DM inbox while NIP-17 is on. `background`: it reads as messages arrive (not with
+   * NIP-07, whose extension may ask to approve each decryption: then it reads on «Actualizar»).
+   */
+  dm: { inbox?: DmInbox<OutboxRecord>; messages: DirectMessage[]; background: boolean };
   /** How managed personas reach the managed-signer (SaaS with an Acceso session only). */
   managedEnv: ManagedEnv;
   notify(message: string, severity?: 'success' | 'info' | 'warning' | 'error'): void;

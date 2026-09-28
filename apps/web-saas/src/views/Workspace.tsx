@@ -1,12 +1,13 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppBar, Box, Button, Chip, Container, MenuItem, Snackbar, Tab, Tabs, TextField, Toolbar, Typography } from '@mui/material';
-import type { DeploymentFlags } from '@sedecim/messaging';
-import type { SovereigntyConfig } from '@sedecim/profiles';
+import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type DmInbox } from '@sedecim/messaging';
+import type { OutboxRecord } from '@sedecim/delivery-engine';
+import { receiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
 import type { AccesoUser } from '../lib/acceso';
 import type { DeploymentConfig } from '../lib/config';
-import { custodyLabel, openPersona, personaConfig, publishDmRelays, shortNpub, type ManagedEnv, type PersonaSession } from '../lib/session';
+import { custodyLabel, openDmInbox, openPersona, personaConfig, publishDmRelays, shortNpub, type ManagedEnv, type PersonaSession } from '../lib/session';
 import type { PersonaBook, PersonaRecord } from '../lib/vault';
-import { WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
+import { sendBlockedReason, WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
 import { onSignerAuthUrl } from '../lib/authUrl';
 import { BRAND } from '../theme';
 import { ChannelsView } from './ChannelsView';
@@ -45,6 +46,13 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
   const current = useRef<PersonaSession | undefined>(undefined);
   const [authUrl, setAuthUrl] = useState<string | undefined>();
   useEffect(() => onSignerAuthUrl(setAuthUrl), []);
+  const [nip17, setNip17] = useState(flags?.nip17.enabled ?? false);
+  useEffect(() => setNip17(flags?.nip17.enabled ?? false), [flags]);
+  const [dmInbox, setDmInbox] = useState<DmInbox<OutboxRecord> | undefined>();
+  const [dmMessages, setDmMessages] = useState<DirectMessage[]>([]);
+  const [dmUnseen, setDmUnseen] = useState(0);
+  const tabNow = useRef<TabId>(tab);
+  tabNow.current = tab;
 
   // Managed personas authorize each signature with the Acceso access token (FR005-04); Amplify loads lazily.
   const managedEnv = useMemo<ManagedEnv>(
@@ -74,6 +82,31 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
     })();
     return () => current.current?.close();
   }, [book, selectPersona]);
+
+  // FR009-03: while NIP-17 is on, the persona's DM inbox reads its own DM relays in the background. Receipts for its
+  // DMs move them to RECIPIENT_ACKED from any view; messages that arrive while the user is elsewhere are counted on
+  // the tab. Keyed on the pool: a panel change keeps the same inbox (the receipt policy is read for each message).
+  const pool = session?.pool;
+  useEffect(() => {
+    const s = current.current;
+    if (!s || s.pool !== pool || !nip17 || sendBlockedReason(personaConfig(s.persona))) return;
+    const inbox = openDmInbox(book, s, {
+      policy: () => receiptPolicy(personaConfig((current.current ?? s).persona)),
+      wrapOptions: wrapOptionsFromFlags(flags, BUZZ_PINNED_ADAPTER.wrap),
+      onMessage: (m, live) => {
+        setDmMessages(inbox.list());
+        if (live && m.sender !== s.pubkey && tabNow.current !== 'dm') setDmUnseen((n) => n + 1);
+      },
+    });
+    setDmInbox(inbox);
+    if (s.persona.custody !== 'nip07') void inbox.start().catch(() => undefined);
+    return () => {
+      inbox.close();
+      setDmInbox(undefined);
+      setDmMessages([]);
+      setDmUnseen(0);
+    };
+  }, [pool, nip17, book, flags]);
 
   // FR011-02: resume the outbox as soon as the browser is back online.
   useEffect(() => {
@@ -107,8 +140,26 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
   );
 
   const ws = useMemo<Ws>(
-    () => ({ cfg, flags, book, user, personas, session, config: session ? personaConfig(session.persona) : undefined, selectPersona, reloadPersonas, saveConfig, updatePersona, publishDmRelays: async () => current.current && publishDmRelays(current.current), managedEnv, notify: (message, severity = 'info') => setToast({ message, severity }) }),
-    [cfg, flags, book, user, personas, session, selectPersona, reloadPersonas, saveConfig, updatePersona, managedEnv],
+    () => ({
+      cfg,
+      flags,
+      book,
+      user,
+      personas,
+      session,
+      config: session ? personaConfig(session.persona) : undefined,
+      selectPersona,
+      reloadPersonas,
+      saveConfig,
+      updatePersona,
+      publishDmRelays: async () => current.current && publishDmRelays(current.current),
+      nip17,
+      setNip17,
+      dm: { inbox: dmInbox, messages: dmMessages, background: !!dmInbox && session?.persona.custody !== 'nip07' },
+      managedEnv,
+      notify: (message, severity = 'info') => setToast({ message, severity }),
+    }),
+    [cfg, flags, book, user, personas, session, selectPersona, reloadPersonas, saveConfig, updatePersona, nip17, dmInbox, dmMessages, managedEnv],
   );
 
   const sendingAs = session ? `Enviando como ${session.persona.label} · ${shortNpub(session.pubkey)} · ${custodyLabel(session.persona)} · ${session.persona.config.network === 'tor-only' ? 'Tor-only' : 'red directa'}` : 'Sin identidad activa';
@@ -166,9 +217,17 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
             Tu signer remoto pide aprobar esta acción en {new URL(authUrl).host}.
           </Alert>
         )}
-        <Tabs value={tab} onChange={(_, v: TabId) => setTab(v)} variant="scrollable" aria-label="Secciones">
+        <Tabs
+          value={tab}
+          onChange={(_, v: TabId) => {
+            setTab(v);
+            if (v === 'dm') setDmUnseen(0);
+          }}
+          variant="scrollable"
+          aria-label="Secciones"
+        >
           {TABS.map((t) => (
-            <Tab key={t.id} value={t.id} label={t.label} id={`tab-${t.id}`} aria-controls={`view-${t.id}`} />
+            <Tab key={t.id} value={t.id} label={t.id === 'dm' && dmUnseen > 0 ? `${t.label} · ${dmUnseen} ${dmUnseen === 1 ? 'nuevo' : 'nuevos'}` : t.label} id={`tab-${t.id}`} aria-controls={`view-${t.id}`} />
           ))}
         </Tabs>
       </AppBar>

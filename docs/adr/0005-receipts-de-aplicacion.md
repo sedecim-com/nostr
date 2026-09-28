@@ -33,3 +33,11 @@ lee), así que es un dato sensible.
 - `profiles` añade `deliveryReceipts` a la configuración, con disclosures y validación. Implementado en
   este sprint: `receiptPolicy()`.
 - FR009-02 conecta los receipts entrantes con `RECIPIENT_ACKED`/`READ`.
+- FR009-03: el receipt se enruta como un DM, a los relays de DM (kind 10050) de quien envió el mensaje, y no se queda
+  solo en los relays de quien lo recibió. Cada cliente lee sus propios relays de DM y aplica los receipts:
+  - la web lo hace en segundo plano mientras NIP-17 está activo, salvo con NIP-07, cuya extensión puede pedir
+    permiso para cada descifrado;
+  - el CLI lo hace con `sovereign dm inbox`, o con `sovereign dm watch` mientras escucha.
+
+  El read receipt solo sale cuando el usuario ve el mensaje y el perfil lo permite (`DmInbox` en
+  `packages/messaging/src/inbox.ts`).

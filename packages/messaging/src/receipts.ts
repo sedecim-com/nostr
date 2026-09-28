@@ -12,12 +12,19 @@ export const APP_RECEIPT_KIND = 16_914;
 
 export type ReceiptType = 'delivered' | 'read';
 
+/** An authenticated receipt: `from` is the seal signer, the recipient of the message `rumorId`. */
+export interface Receipt {
+  rumorId: string;
+  type: ReceiptType;
+  from: string;
+}
+
 export async function createReceipt(signer: Signer, to: string, rumorId: string, type: ReceiptType, opts: WrapOptions = {}) {
   const rumor = createRumor({ kind: APP_RECEIPT_KIND, content: '', tags: [['e', rumorId], ['p', to], ['receipt', type]] }, await signer.getPublicKey());
   return { rumor, event: await wrapRumor(signer, rumor, to, opts) };
 }
 
-export function parseReceipt(u: Unwrapped): { rumorId: string; type: ReceiptType; from: string } | undefined {
+export function parseReceipt(u: Unwrapped): Receipt | undefined {
   if (u.rumor.kind !== APP_RECEIPT_KIND) return undefined;
   const rumorId = getTagValue(u.rumor, 'e');
   const type = getTagValue(u.rumor, 'receipt');

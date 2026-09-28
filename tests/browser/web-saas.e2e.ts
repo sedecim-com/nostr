@@ -279,35 +279,45 @@ try {
   for (let i = 0; i < 40 && userBlobs.blobs.size === 0; i++) await new Promise((r) => setTimeout(r, 250));
   assert(userBlobs.blobs.size === 1 && media.blobs.size === mediaBefore, 'with a kind 10063 list the encrypted attachment goes to the user server, never to the image-only media');
 
-  // --- incoming receipt advances the web outbox (FR009-02)
+  // --- FR009-03: the web reads its own DM relays (its kind 10050) in the background, from any view
+  assert((await page.textContent('#dm-inbox-mode'))?.includes('segundo plano'), 'the DM view says messages and receipts arrive in the background (FR009-03)');
   let webDmRumor: string | undefined;
   for (const w of await bobPool.query([bobRelay.url], [dmInboxFilter(getPublicKey(bobKey))], 2000)) {
     const m = await openDirectMessage(bob, w).catch(() => undefined);
     if (m?.rumor.content === 'dm desde la web') webDmRumor = m.rumor.id;
   }
+  // Bob answers on the web persona's DM relay while the user is on another view: nobody clicks «Actualizar».
+  await tab(page, 'Entrega');
   const ack = await createReceipt(bob, webPub, webDmRumor!, 'delivered');
   await bobPool.publishTo(ack.event, relay.url);
-  await page.getByRole('button', { name: 'Actualizar' }).click();
-  await tab(page, 'Entrega');
   await page.locator('#outbox-rows td', { hasText: 'RECIPIENT_ACKED' }).first().waitFor({ timeout: 10_000 });
-  assert(true, 'a delivered receipt from the recipient moves the DM to RECIPIENT_ACKED');
-  await tab(page, 'Mensajes directos');
+  assert(true, 'a delivered receipt reaches the web in the background and moves the DM to RECIPIENT_ACKED (FR009-02, FR009-03)');
 
-  // --- receipts per profile (ADR 0005): convenience sends "delivered", never "read"
+  // --- a DM that arrives while the user is elsewhere is counted on the tab and shown without refreshing
   const toWeb = await createDirectMessage(bob, { recipients: [webPub], content: 'hola web, soy bob' });
   for (const w of toWeb.wraps) await bobPool.publishTo(w.event, relay.url);
-  await page.getByRole('button', { name: 'Actualizar' }).click();
-  await page.locator('#dm-log').getByText('hola web, soy bob').waitFor({ timeout: 10_000 });
+  await page.getByRole('tab', { name: 'Mensajes directos · 1 nuevo' }).waitFor({ timeout: 10_000 });
+  assert(true, 'a DM received in the background is counted on the Mensajes directos tab (FR009-03)');
+  await tab(page, 'Mensajes directos');
+  await page.locator('#dm-log').getByText('hola web, soy bob').waitFor({ timeout: 5_000 });
+  assert(!(await page.getByRole('tab', { name: /nuevo/ }).count()), 'the DM is shown without «Actualizar», and the count clears');
+
+  // --- receipts per profile (ADR 0005): convenience sends "delivered", never "read"; FR009-03: to the sender's DM relays
+  const receiptsFor = async (url: string) => {
+    const out: string[] = [];
+    for (const w of await bobPool.query([url], [dmInboxFilter(getPublicKey(bobKey))], 2000)) {
+      const m = await unwrap(bob, w).catch(() => undefined);
+      if (m?.rumor.kind === APP_RECEIPT_KIND && getTagValue(m.rumor, 'e') === toWeb.rumor.id) out.push(getTagValue(m.rumor, 'receipt')!);
+    }
+    return out;
+  };
   let receipts: string[] = [];
   for (let i = 0; i < 20 && receipts.length === 0; i++) {
     await new Promise((r) => setTimeout(r, 250));
-    receipts = [];
-    for (const w of await bobPool.query([relay.url], [dmInboxFilter(getPublicKey(bobKey))], 2000)) {
-      const m = await unwrap(bob, w).catch(() => undefined);
-      if (m?.rumor.kind === APP_RECEIPT_KIND && getTagValue(m.rumor, 'e') === toWeb.rumor.id) receipts.push(getTagValue(m.rumor, 'receipt')!);
-    }
+    receipts = await receiptsFor(bobRelay.url);
   }
   assert(receipts.includes('delivered') && !receipts.includes('read'), `delivered receipt sent, read receipt not sent (${receipts.join(',')})`);
+  assert((await receiptsFor(relay.url)).length === 0, "the receipt goes to the sender's DM relay (10050), not to the web's own relays (FR009-03)");
 
   // --- VAULT-02/07: the Continuity Vault card says what the operator sees, seals the delivery ledger in this
   // browser with the persona's archive key and opens it again; the vault holds no text, event or npub.
