@@ -26,7 +26,7 @@ function suite(name: string, open: () => Promise<KeyRegistry>) {
       const token = async () => acceso.token({ sub: 'restart-user' });
 
       const first = await start();
-      const created = await ManagedSignerClient.createKey({ baseUrl: first.base, token }, { allowedKinds: [1, 7] });
+      const created = await ManagedSignerClient.createKey({ baseUrl: first.base, token }, { allowedKinds: [1, 7], consentVersion: 'textos test' });
       const before = await new ManagedSignerClient({ baseUrl: first.base, token, keyId: created.keyId }).signEvent({ kind: 1, content: 'antes' });
       await first.api.close();
 
@@ -34,7 +34,8 @@ function suite(name: string, open: () => Promise<KeyRegistry>) {
       try {
         const client = new ManagedSignerClient({ baseUrl: second.base, token, keyId: created.keyId });
         const info = await client.describe();
-        expect(info).toMatchObject({ keyId: created.keyId, pubkey: created.pubkey, owner: `${acceso.issuer}#restart-user`, state: 'active', allowedKinds: [1, 7], retentionDays: 30 });
+        expect(info).toMatchObject({ keyId: created.keyId, pubkey: created.pubkey, owner: `${acceso.issuer}#restart-user`, state: 'active', allowedKinds: [1, 7], retentionDays: 30, consentVersion: 'textos test' });
+        expect(info.consentAt).toBe(created.consentAt); // FR005-08: the recorded consent survives a restart
         expect(info.lastUsed).toBeGreaterThanOrEqual(info.createdAt);
         const after = await client.signEvent({ kind: 1, content: 'después' });
         expect(verifyEvent(after) && after.pubkey === before.pubkey).toBe(true);

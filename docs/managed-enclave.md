@@ -56,7 +56,7 @@ Código en `services/managed-signer/src/enclave/`:
    devuelve `custody: managed-enclave`.
 5. Los tiers no se mezclan. Las llaves creadas con el backend en proceso guardan la nsec (cifrada por el
    vault) y el enclave no las acepta. Pasar una llave existente al tier enclave requiere una migración
-   explícita: exportar e importar con `POST /v1/keys/import`, que en el tier enclave se descifra dentro del
+   explícita: exportar e importar con `POST /v1/keys/import` (con el `consent_version` que el usuario aceptó, FR005-08), que en el tier enclave se descifra dentro del
    enclave.
 
 ### Política KMS (`deploy/terraform/modules/acceso-nostr/enclave.tf`)

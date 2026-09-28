@@ -4,7 +4,7 @@ import { accesoNewPassword, accesoSignIn, type AccesoUser } from '../lib/acceso'
 import { BRAND } from '../theme';
 
 /** SaaS gate (ADR 0008): the same Acceso (Cognito) account used across Sedecim apps. */
-export function AccesoLogin({ onSignedIn }: { onSignedIn: (u: AccesoUser) => void }) {
+export function AccesoLogin({ onSignedIn, managed = false }: { onSignedIn: (u: AccesoUser) => void; managed?: boolean }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -36,7 +36,10 @@ export function AccesoLogin({ onSignedIn }: { onSignedIn: (u: AccesoUser) => voi
               {BRAND}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Entra con tu cuenta de Acceso. Tu llave Nostr no sale de este navegador: Acceso solo autoriza el uso del servicio.
+              {/* FR005-08: with managed custody on offer, the platform can hold the key: never claim it stays here. */}
+              {managed
+                ? 'Entra con tu cuenta de Acceso: solo autoriza el uso del servicio. Con una llave local, tu llave Nostr se queda en este navegador; con un signer externo, en tu signer; con la custodia gestionada (opcional), la guarda la plataforma, que puede firmar como tú.'
+                : 'Entra con tu cuenta de Acceso: solo autoriza el uso del servicio. Tu llave Nostr se queda en este navegador o en tu signer externo.'}
             </Typography>
             {needsNew ? (
               <TextField label="Nueva contraseña de Acceso" type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />

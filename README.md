@@ -69,6 +69,10 @@ La web lee `config.json` (compose monta `infra/web/config.json`; otro archivo co
 - `"mode": "saas"`: exige entrar con la cuenta de **Acceso** (Cognito) antes de abrir identidades. Ver
   `infra/web/config.saas.example.json` y [ADR 0008](docs/adr/0008-login-acceso-en-saas.md). El
   identity-service verifica los tokens con `COGNITO_REGION`, `COGNITO_USER_POOL_ID` y `COGNITO_CLIENT_ID`.
+- `"managedTerms"` (con `managedSigner`): `{ "url", "version" }` de los términos publicados de la custodia gestionada
+  ([borrador](docs/legal/custodia-managed.md), pendiente de legal). La aceptación enlaza esos términos y el
+  managed-signer guarda su versión con la llave (FR005-08). Sin ella, la web avisa de que no están publicados y
+  lo registra así.
 - `"discoveryRelays"` (opcional): relays donde también se buscan las listas de relays de DM de los destinatarios
   (kinds 10050 y 10002), además de los de la persona. Cada búsqueda les dice a qué npub vas a escribir. Si al
   escribir un DM no se encuentra la lista (por ejemplo, sin red), cada reintento la vuelve a buscar antes de

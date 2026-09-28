@@ -67,7 +67,7 @@ export function App() {
   if (boot.cfg.mode === 'saas' && !user)
     return (
       <Suspense fallback={<CircularProgress aria-label="Cargando" />}>
-        <AccesoLogin onSignedIn={setUser} />
+        <AccesoLogin onSignedIn={setUser} managed={!!boot.cfg.managedSigner} />
       </Suspense>
     );
   if (!book) return <VaultGate cfg={boot.cfg} onUnlocked={setBook} />;

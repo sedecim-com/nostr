@@ -38,6 +38,12 @@ export interface DeploymentConfig {
   backupVault?: string;
   /** SaaS only: custodial managed-signer (opt-in, ADR 0009). */
   managedSigner?: string;
+  /**
+   * FR005-08: the published terms of the managed custody (docs/legal/custodia-managed.md once legal approves it),
+   * linked from the opt-in. Their version is recorded with the consent. Unset: the opt-in says they are not
+   * published and records that.
+   */
+  managedTerms?: { url: string; version: string };
   cognito?: CognitoSettings;
   /**
    * ADR 0010: services/notification-gateway base URL. Unset: the "Notificaciones" control is not shown.

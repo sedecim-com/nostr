@@ -42,8 +42,22 @@ describe('managed-signer (FR-005, FR-026)', () => {
   });
   afterAll(() => api.close());
 
+  it('creates or imports a managed key only with the recorded consent of its owner (FR005-08)', async () => {
+    const refused = await call('/v1/keys', 'POST', {});
+    expect(refused.status).toBe(400);
+    expect(refused.json.error).toMatch(/consent_version required/);
+    expect((await call('/v1/keys', 'POST', { consent_version: '<script>' })).status).toBe(400);
+    const password = 'contraseña larga 123';
+    expect((await call('/v1/keys/import', 'POST', { ncryptsec: nip49.encryptKey(generateSecretKey(), password, 4), password })).status).toBe(400);
+    const created = await call('/v1/keys', 'POST', { consent_version: 'textos 1.3.0; términos 2026-10' });
+    expect(created.status).toBe(201);
+    expect(created.json.consentVersion).toBe('textos 1.3.0; términos 2026-10');
+    expect(created.json.consentAt).toBeTypeOf('number');
+    expect(created.json.disclosure).toMatch(/descifra en el servidor sus mensajes directos \(NIP-44\)/);
+  });
+
   it('lets an Acceso user create a custodial key and sign through the SDK client without leaking the secret', async () => {
-    const created = await call('/v1/keys', 'POST', {});
+    const created = await call('/v1/keys', 'POST', { consent_version: 'textos test' });
     expect(created.status).toBe(201);
     expect(created.json.custodial).toBe(true);
     expect(created.json.owner).toBe(ownerA);
@@ -73,7 +87,7 @@ describe('managed-signer (FR-005, FR-026)', () => {
   });
 
   it('rejects impersonation: other users, forged or expired tokens and x-account-id from end users', async () => {
-    const { json: k } = await call('/v1/keys', 'POST', {});
+    const { json: k } = await call('/v1/keys', 'POST', { consent_version: 'textos test' });
     const tpl = { template: { kind: 1, content: 'x' } };
     const peer = getPublicKey(generateSecretKey());
     // Another Acceso user can neither use, describe, export nor delete it.
@@ -114,7 +128,7 @@ describe('managed-signer (FR-005, FR-026)', () => {
   });
 
   it('migrates managed → local with verification before deleting the managed copy', async () => {
-    const { json: k } = await call('/v1/keys', 'POST', {});
+    const { json: k } = await call('/v1/keys', 'POST', { consent_version: 'textos test' });
     expect((await call(`/v1/keys/${k.keyId}`, 'DELETE')).status).toBe(409);
     expect((await call(`/v1/keys/${k.keyId}/export`, 'POST', { password: 'short' })).status).toBe(400);
     const exp = await call(`/v1/keys/${k.keyId}/export`, 'POST', { password: 'una contraseña larga' });
@@ -132,7 +146,7 @@ describe('managed-signer (FR-005, FR-026)', () => {
 
   it('refuses the retired service-token mode: no x-account-id, and a service token is not a credential (FR005-12)', async () => {
     const tpl = { template: { kind: 1, content: 'hola' } };
-    const k = (await call('/v1/keys', 'POST', {}, tokenA())).json;
+    const k = (await call('/v1/keys', 'POST', { consent_version: 'textos test' }, tokenA())).json;
     // x-account-id is refused before anything else, whatever the credential.
     expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, 'service-token-0123456789', { 'x-account-id': ownerA })).status).toBe(403);
     expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', tpl, tokenA(), { 'x-account-id': ownerA })).status).toBe(403);

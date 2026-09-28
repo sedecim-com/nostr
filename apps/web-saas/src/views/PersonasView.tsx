@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardActions, CardContent, Checkbox, FormControlLabel, List, ListItem, ListItemText, MenuItem, Radio, RadioGroup, Stack, TextField, Typography } from '@mui/material';
-import { PRESETS, type PresetName } from '@sedecim/profiles';
+import { managedConsentVersion, PRESETS, type PresetName } from '@sedecim/profiles';
 import { fetchCloudBackup, linkAccesoLogin, saveCloudBackup } from '../lib/identity';
 import { backupJson, createPersona, custodyFacts, custodyLabel, exportBackup, shortNpub, type NewPersona } from '../lib/session';
 import { deviceKeyAllowed, setProtection } from '../lib/vault';
@@ -78,7 +78,7 @@ export function PersonasView() {
             : mode === 'nip07'
               ? { kind: 'nip07' }
               : mode === 'managed'
-                ? { kind: 'managed', baseUrl: ws.managedEnv.baseUrl!, token: ws.managedEnv.token! }
+                ? { kind: 'managed', baseUrl: ws.managedEnv.baseUrl!, token: ws.managedEnv.token!, consentVersion: managedConsentVersion(ws.cfg.managedTerms?.version) }
                 : { kind: 'nip46', bunker: secret };
       if (mode === 'managed' && !managedConsent) throw new Error('La custodia gestionada requiere tu consentimiento explícito.');
       const p = await createPersona(book, input, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device' });
@@ -257,7 +257,7 @@ export function PersonasView() {
                 <TextField id="import-backup-pass" label="Contraseña del archivo de backup" type="password" autoComplete="off" value={ncPass} onChange={(e) => setNcPass(e.target.value)} required />
               </Stack>
             )}
-            {mode === 'managed' && <ManagedOptIn accepted={managedConsent} onChange={setManagedConsent} />}
+            {mode === 'managed' && <ManagedOptIn accepted={managedConsent} onChange={setManagedConsent} terms={ws.cfg.managedTerms} />}
             {mode === 'import' && <TextField id="secret-input" label="nsec o ncryptsec" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} required />}
             {mode === 'nip46' && (
               <RemoteSigner

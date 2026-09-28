@@ -23,6 +23,8 @@ export interface PersonaRecord {
   bunker?: string;
   /** managed custody: key id in the managed-signer (custodial, ADR 0009). */
   managedKeyId?: string;
+  /** FR005-08: the consent given to create the managed key (the managed-signer records the same version). */
+  managedConsent?: { version: string; acceptedAt: number };
   /** nip46: the ephemeral client key the signer authorized, so later sessions skip the bunker secret. */
   nip46ClientSecretHex?: string;
   relays: string[];

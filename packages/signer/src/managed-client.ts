@@ -26,6 +26,9 @@ export interface ManagedKeyInfo {
   allowedKinds?: number[];
   migratedAt?: number;
   retentionDays: number;
+  /** FR005-08: the version of the texts and terms its owner accepted, and when. */
+  consentVersion?: string;
+  consentAt?: number;
   custody: 'managed';
   custodial: true;
   disclosure: string;
@@ -76,8 +79,9 @@ export class ManagedSignerClient implements Signer {
   }
 
   /** Creates a managed key for the caller. Only after an explicit, informed opt-in (FR005-07). */
-  static async createKey(conn: ManagedSignerConnection, opts: { allowedKinds?: number[] } = {}): Promise<ManagedKeyInfo> {
-    return request<ManagedKeyInfo>(conn, 'POST', '', opts.allowedKinds ? { allowed_kinds: opts.allowedKinds } : {});
+  /** FR005-08: `consentVersion` names the texts and terms the user accepted; the managed-signer records it with the key. */
+  static async createKey(conn: ManagedSignerConnection, opts: { allowedKinds?: number[]; consentVersion: string }): Promise<ManagedKeyInfo> {
+    return request<ManagedKeyInfo>(conn, 'POST', '', { ...(opts.allowedKinds ? { allowed_kinds: opts.allowedKinds } : {}), consent_version: opts.consentVersion });
   }
 
   /**

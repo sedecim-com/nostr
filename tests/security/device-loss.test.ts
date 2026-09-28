@@ -89,7 +89,7 @@ describe('device loss end to end (SEC-04, FR-024)', () => {
     expect((await stolenMls.sync(group.groupId)).map((m) => m.content)).toContain('plan antes del robo');
 
     // --- Managed signer: each device has its own session token.
-    const key = await ManagedSignerClient.createKey({ baseUrl: signerBase, token: async () => aliceToken() });
+    const key = await ManagedSignerClient.createKey({ baseUrl: signerBase, token: async () => aliceToken() }, { consentVersion: 'textos test' });
     const phoneSession = await ManagedSignerClient.openDeviceSession({ baseUrl: signerBase, token: async () => aliceToken() }, phone.id);
     const laptopSession = await ManagedSignerClient.openDeviceSession({ baseUrl: signerBase, token: async () => aliceToken() }, laptop.id);
     const phoneSigner = new ManagedSignerClient({ baseUrl: signerBase, keyId: key.keyId, token: async () => phoneSession.token });

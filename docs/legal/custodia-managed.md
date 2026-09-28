@@ -20,8 +20,11 @@ exportando tu llave (migración a custodia local).
 | Llave privada cifrada | Firmar en tu nombre cuando lo pides | Mientras uses el modo; 30 días tras borrarla |
 | Identificador de tu cuenta de Acceso (issuer y sub) | Autorizar que solo tú uses tu llave | Mientras exista la llave |
 | Log de uso (llave, fecha, kind firmado, cliente) | Seguridad, auditoría y atención de incidentes | 12 meses |
+| Versión de los textos y términos que aceptaste, y la fecha | Demostrar tu consentimiento expreso para el modo custodial | Mientras exista la llave |
 
-**No se guardan** el contenido de tus mensajes cifrados ni tu contraseña local.
+**No se guardan** el contenido de tus mensajes cifrados ni tu contraseña local. Pero tus mensajes directos
+(NIP-44) **se cifran y descifran en el servidor de firma** cada vez que los envías o los lees: el servicio ve su
+contenido en claro en memoria mientras lo procesa.
 
 ## 4. Tus derechos (ARCO)
 Puedes acceder, rectificar, cancelar u oponerte al tratamiento escribiendo a [contacto de privacidad de
@@ -37,6 +40,12 @@ terceros con fines distintos.
 2. La aplicación comprueba que la tienes: firma un reto con la llave exportada.
 3. Confirma el borrado.
 4. El material cifrado se destruye a los 30 días.
+
+## Consentimiento
+La aplicación muestra, antes de crear la llave, los textos revisados de `docs/disclosures.md` (custodia managed y
+su consentimiento) y un enlace a estos términos. Aceptarlos es un acto expreso: la llave no se crea sin él. El
+servicio de firma guarda con la llave la versión de lo aceptado (por ejemplo, `textos 1.3.0; términos 2026-10`)
+y la fecha, y rechaza crear o importar una llave sin esa versión.
 
 ## Pendiente de legal
 - Identidad y domicilio del responsable, contacto del departamento de datos personales.

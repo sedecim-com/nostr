@@ -29,8 +29,8 @@ export type NewPersona =
   | { kind: 'secret'; secretKey: Uint8Array }
   | { kind: 'nip07' }
   | { kind: 'nip46'; bunker: string }
-  /** Custodial key created in the managed-signer after an explicit opt-in (FR005-07). */
-  | { kind: 'managed'; baseUrl: string; token: AccessTokenProvider }
+  /** Custodial key created in the managed-signer after an explicit opt-in (FR005-07) whose version is recorded (FR005-08). */
+  | { kind: 'managed'; baseUrl: string; token: AccessTokenProvider; consentVersion: string }
   /** Already connected through a client-initiated nostrconnect:// offer (FR004-03). */
   | { kind: 'nip46-connected'; signer: Nip46Signer; clientSecretKey: Uint8Array };
 
@@ -74,6 +74,7 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
   let bunker: string | undefined;
   let nip46ClientSecretHex: string | undefined;
   let managedKeyId: string | undefined;
+  let managedConsent: PersonaRecord['managedConsent'];
   const local = (sk: Uint8Array) => {
     if (!selfTestKey(sk).ok) throw new Error('la llave no pasó el self-test');
     custody = 'local';
@@ -116,10 +117,11 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
       break;
     }
     case 'managed': {
-      const key = await ManagedSignerClient.createKey({ baseUrl: input.baseUrl, token: input.token });
+      const key = await ManagedSignerClient.createKey({ baseUrl: input.baseUrl, token: input.token }, { consentVersion: input.consentVersion });
       custody = 'managed';
       pubkey = key.pubkey;
       managedKeyId = key.keyId;
+      managedConsent = { version: input.consentVersion, acceptedAt: key.consentAt ?? Date.now() };
       break;
     }
     case 'nip46-connected':
@@ -131,7 +133,7 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
   }
   const existing = (await book.list()).find((p) => p.pubkey === pubkey!);
   if (existing) throw new Error(`esa llave ya es la persona "${existing.label}"`);
-  const persona: PersonaRecord = { id: newId(), label: opts.label, pubkey: pubkey!, custody: custody!, relays: opts.relays, preset: opts.preset, config, createdAt: Date.now(), ...(secretHex ? { secretHex } : {}), ...(bunker ? { bunker } : {}), ...(nip46ClientSecretHex ? { nip46ClientSecretHex } : {}), ...(managedKeyId ? { managedKeyId } : {}) };
+  const persona: PersonaRecord = { id: newId(), label: opts.label, pubkey: pubkey!, custody: custody!, relays: opts.relays, preset: opts.preset, config, createdAt: Date.now(), ...(secretHex ? { secretHex } : {}), ...(bunker ? { bunker } : {}), ...(nip46ClientSecretHex ? { nip46ClientSecretHex } : {}), ...(managedKeyId ? { managedKeyId } : {}), ...(managedConsent ? { managedConsent } : {}) };
   await book.save(persona);
   return persona;
 }
