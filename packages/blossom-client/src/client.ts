@@ -2,7 +2,7 @@ import { gcm } from '@noble/ciphers/aes.js';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes, randomBytes, type Signer } from '@sedecim/nostr-core';
 import { base64 } from '@scure/base';
-import { neutralFileName, sanitizeMetadata } from './sanitize';
+import { neutralFileName, refusesUnsanitized, sanitizeMetadata, type SanitizeRequirement } from './sanitize';
 
 export const BLOSSOM_AUTH_KIND = 24242;
 
@@ -44,8 +44,8 @@ export interface PrepareOptions {
   sanitize?: boolean;
   /** Encrypt client-side before upload (AES-256-GCM, NIP-17 kind 15 compatible). */
   encrypt?: boolean;
-  /** Refuse formats the sanitizer does not understand. */
-  requireSanitizable?: boolean;
+  /** Refuse files whose metadata cannot be removed: every such format (`true`) or only images (`'images'`, see refusesUnsanitized). */
+  requireSanitizable?: SanitizeRequirement;
   fileName?: string;
   mimeType?: string;
 }
@@ -66,7 +66,7 @@ export function prepareBlob(input: Uint8Array, opts: PrepareOptions = {}): Prepa
   let removed: string[] = [];
   if (opts.sanitize ?? true) {
     const s = sanitizeMetadata(input);
-    if (s.unsanitized && opts.requireSanitizable) throw new UnsanitizableFileError(s.format, s.reason);
+    if (refusesUnsanitized(s, opts.requireSanitizable, opts.mimeType)) throw new UnsanitizableFileError(s.format, s.reason);
     data = s.data;
     removed = s.removed;
   }

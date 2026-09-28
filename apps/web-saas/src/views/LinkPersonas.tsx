@@ -40,7 +40,7 @@ export function LinkPersonas() {
     setError('');
     try {
       const other = (await ws.book.get(target))!;
-      const toSession = await openPersona(ws.book, other, ws.managedEnv);
+      const toSession = await openPersona(ws.book, other, ws.managedEnv, { discoveryRelays: ws.cfg.discoveryRelays });
       try {
         const aud = visibility === 'selective' ? audience.split(/[\s,]+/).filter(Boolean).map(normalizePubkey) : [];
         await linkPersonas({ signer: s.signer, custody: CUSTODY[s.persona.custody] }, { signer: toSession.signer, custody: CUSTODY[other.custody] }, ws.cfg.identityService!, visibility, aud);

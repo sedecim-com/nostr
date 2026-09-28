@@ -7,7 +7,7 @@ import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestRelay } from '@sedecim/test-relay';
 import { EncryptedStore, MemoryBackend } from '@sedecim/encrypted-store';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { createReceipt, DirectMessenger, DmRelayCache, openDirectMessage, parseReceipt, publishDmRelayList, resolveDmRelays, unwrap, type RelayQuery } from '../src/index';
+import { createReceipt, DirectMessenger, DmRelayCache, dmRouter, openDirectMessage, parseReceipt, publishDmRelayList, resolveDmRelays, unwrap, type RelayQuery } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
 const flags = { nip17: true, readReceipts: true };
@@ -74,6 +74,26 @@ describe('DM relay lists (FR-010, FR-017)', () => {
     const failing: RelayQuery = { query: async () => Promise.reject(new Error('offline')) };
     expect(await resolveDmRelays(failing, bobPk, opts())).toEqual({ relays: ['wss://own.example'], source: 'fallback' });
   });
+
+  it('never caches finding nothing: offline it looks like a recipient without lists (FR010-03)', async () => {
+    const cache = new DmRelayCache();
+    const offline = fakePool([]);
+    expect((await resolveDmRelays(offline, bobPk, opts(cache))).source).toBe('fallback');
+    expect((await resolveDmRelays(offline, bobPk, opts(cache))).source).toBe('fallback');
+    expect(offline.calls).toBe(2);
+    // With the network back the list is used at once, not after the cache TTL.
+    const online = fakePool([await bob.signEvent({ kind: 10050, content: '', tags: [['relay', 'wss://dm.example']] })]);
+    expect(await resolveDmRelays(online, bobPk, opts(cache))).toEqual({ relays: ['wss://dm.example'], source: 'dm-relays' });
+  });
+
+  it('dmRouter re-resolves the wraps for recipients only, never the sender copy (FR010-03)', async () => {
+    const pool = fakePool([await bob.signEvent({ kind: 10050, content: '', tags: [['relay', 'wss://dm.example']] })]);
+    const route = dmRouter(pool, opts());
+    expect(await route({ meta: { recipient: bobPk, dmRelaySource: 'fallback' } })).toEqual({ relays: ['wss://dm.example'], meta: { dmRelaySource: 'dm-relays' } });
+    const notRouted: Array<Record<string, string> | undefined> = [{ recipient: bobPk, dmRelaySource: 'self' }, { recipient: bobPk }, undefined];
+    for (const meta of notRouted) expect(await route({ meta })).toBeUndefined();
+    expect(pool.calls).toBe(1);
+  });
 });
 
 describe('DirectMessenger.send routing and receipts (FR-010, FR-009)', () => {
@@ -114,6 +134,50 @@ describe('DirectMessenger.send routing and receipts (FR-010, FR-009)', () => {
     expect(shared.events.has(toBob.record.event!.id)).toBe(false);
     expect(shared.events.has(self.record.event!.id)).toBe(true);
   });
+
+  it('a DM written offline goes to the recipient DM relays when the network is back (FR010-03)', async () => {
+    const [own, inbox] = [new TestRelay(), new TestRelay()];
+    await own.start();
+    await inbox.start();
+    const dana = new LocalSigner(generateSecretKey());
+    const danaPk = await dana.getPublicKey();
+    own.inject(await publishDmRelayList(dana, [inbox.url]));
+    const cache = new DmRelayCache();
+    const offlinePool = new RelayPool({ webSocketFactory: factory, signer: aliceSigner });
+    const route = { discoveryRelays: [own.url], fallback: [own.url], cache, timeoutMs: 1000 };
+    const outbox = new DeliveryEngine({
+      store: EncryptedStore.withKey(new MemoryBackend(), new Uint8Array(32).fill(3)).collection<OutboxRecord>('outbox'),
+      publisher: offlinePool,
+      signer: aliceSigner,
+      retry: { baseMs: 100, maxMs: 400 },
+      router: dmRouter(offlinePool, route),
+    });
+    try {
+      own.faults.offline = true;
+      inbox.faults.offline = true;
+      const { deliveries } = await new DirectMessenger(aliceSigner, flags).send({ recipients: [danaPk], content: 'escrito sin red' }, { pool: offlinePool, outbox, ownRelays: [own.url], ...route, wait: true });
+      const queued = deliveries.find((d) => d.recipient === danaPk)!;
+      expect(queued).toMatchObject({ source: 'fallback', relays: [own.url] });
+      expect(queued.record.state).toBe('QUEUED');
+
+      own.faults.offline = false;
+      inbox.faults.offline = false;
+      let rec = queued.record;
+      for (let i = 0; i < 100 && rec.state !== 'REPLICATED'; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        rec = (await outbox.get(rec.opId))!;
+      }
+      expect(rec).toMatchObject({ state: 'REPLICATED', relays: [inbox.url], meta: { recipient: danaPk, dmRelaySource: 'dm-relays' } });
+      expect(inbox.events.has(rec.event!.id)).toBe(true);
+      expect(own.events.has(rec.event!.id)).toBe(false); // never left on the sender relays
+      expect((await openDirectMessage(dana, rec.event!)).rumor.content).toBe('escrito sin red');
+    } finally {
+      outbox.stop();
+      offlinePool.close();
+      await own.stop();
+      await inbox.stop();
+    }
+  }, 30_000);
 
   it('flags recipients without DM relays (source fallback) and stores it on the outbox record', async () => {
     const carolPk = getPublicKey(generateSecretKey());

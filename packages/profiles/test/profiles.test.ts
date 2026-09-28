@@ -36,6 +36,20 @@ describe('sovereignty profiles', () => {
     expect(s.soberania.reducedBy.some((t) => t.includes('CUSTODIAL'))).toBe(true);
   });
 
+  it("refuses a quorum above the persona's relays instead of capping it in silence (FR010-04)", () => {
+    const resilient = preset('private-resilient');
+    expect(resilient.quorum).toBe(2);
+    const refused = validateConfig(resilient, 'web', { relays: 1 }).find((i) => i.code === 'QUORUM_RELAYS');
+    expect(refused).toMatchObject({ severity: 'error', controls: ['quorum'] });
+    expect(refused!.message).toMatch(/quorum \(2\) supera los relays de esta persona \(1\)/);
+    expect(isValid(resilient, 'web', { relays: 1 })).toBe(false);
+    expect(validateConfig(resilient, 'web', { relays: 2 }).filter((i) => i.code.startsWith('QUORUM'))).toEqual([]);
+    // Without the relays (e.g. a preset on its own) only the hint for direct connections remains.
+    const direct = { ...preset('convenience'), quorum: 2 };
+    expect(validateConfig(direct, 'web').map((i) => i.code)).toContain('QUORUM_SINGLE');
+    expect(validateConfig(direct, 'web', { relays: 3 }).filter((i) => i.code.startsWith('QUORUM'))).toEqual([]);
+  });
+
   it('refuses absolute anonymity claims', () => {
     expect(() => assertNoAbsoluteClaims('Modo 100% anónimo')).toThrow();
   });

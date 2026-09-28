@@ -1,4 +1,4 @@
-import type { Platform, SovereigntyConfig, ValidationIssue } from './types';
+import type { Platform, SovereigntyConfig, ValidationContext, ValidationIssue } from './types';
 
 const BANNED_CLAIMS = [/100\s*%\s*an[oó]nim/i, /totalmente an[oó]nim/i, /imposible de rastrear/i, /untraceable/i];
 
@@ -7,7 +7,7 @@ export function assertNoAbsoluteClaims(text: string): void {
   for (const re of BANNED_CLAIMS) if (re.test(text)) throw new Error(`absolute privacy claim not allowed: "${text}"`);
 }
 
-export function validateConfig(c: SovereigntyConfig, platform: Platform = 'desktop'): ValidationIssue[] {
+export function validateConfig(c: SovereigntyConfig, platform: Platform = 'desktop', ctx: ValidationContext = {}): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const err = (code: string, message: string, controls: Array<keyof SovereigntyConfig>) => issues.push({ severity: 'error', code, message, controls });
   const warn = (code: string, message: string, controls: Array<keyof SovereigntyConfig>) => issues.push({ severity: 'warning', code, message, controls });
@@ -35,13 +35,16 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
   if (!c.stripFileMetadata) warn('FILES_METADATA', 'Las imágenes pueden contener ubicación (EXIF) y datos del dispositivo.', ['stripFileMetadata']);
   if (c.custody === 'managed' || c.custody === 'managed-enclave') warn('CUSTODIAL', 'Modo custodial: la plataforma puede firmar como el usuario. Requiere opt-in explícito.', ['custody']);
   if (c.quorum < 1) err('QUORUM', 'El quorum debe ser al menos 1.', ['quorum']);
-  if (c.network === 'direct' && c.quorum > 1) warn('QUORUM_SINGLE', 'Quorum > 1 requiere varios relays configurados.', ['quorum', 'network']);
+  // FR010-04: with the persona's relays known, a quorum above them is refused instead of being capped in silence.
+  if (ctx.relays !== undefined) {
+    if (c.quorum > ctx.relays) err('QUORUM_RELAYS', `El quorum (${c.quorum}) supera los relays de esta persona (${ctx.relays}): lo que publiques en ellos nunca tendría ${c.quorum} aceptaciones. Baja el quorum o añade relays.`, ['quorum']);
+  } else if (c.network === 'direct' && c.quorum > 1) warn('QUORUM_SINGLE', 'Quorum > 1 requiere varios relays configurados.', ['quorum', 'network']);
   if (c.persistence === 'device' && c.cloudBackup === 'off' && c.custody !== 'offline') warn('LOSS_RISK', 'Sin backup ni replicación: perder el dispositivo implica perder historial y, posiblemente, la identidad.', ['persistence', 'cloudBackup']);
   return issues;
 }
 
-export function isValid(c: SovereigntyConfig, platform?: Platform): boolean {
-  return !validateConfig(c, platform).some((i) => i.severity === 'error');
+export function isValid(c: SovereigntyConfig, platform?: Platform, ctx?: ValidationContext): boolean {
+  return !validateConfig(c, platform, ctx).some((i) => i.severity === 'error');
 }
 
 export interface ReceiptPolicy {

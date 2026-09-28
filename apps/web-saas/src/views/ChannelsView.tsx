@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Chip, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
-import { BlossomClient, prepareBlob, uploadToServers } from '@sedecim/blossom-client';
-import { blossomServersOf, uploadTargets } from '../lib/blossom';
+import { BlossomClient, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
+import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
+import { cappedQuorumNotice } from '../lib/outbox';
 import type { NostrEvent } from '@sedecim/nostr-core';
 import { channelFilter, chatMessage, createGroup, joinRequest, NIP29, parseGroupMetadata, type GroupMetadata } from '@sedecim/messaging';
 import { shortNpub } from '../lib/session';
@@ -101,11 +102,13 @@ export function ChannelsView() {
         tmpl.content = [text, desc.url].filter(Boolean).join('\n');
         (tmpl.tags ??= []).push(['imeta', `url ${desc.url}`, `m ${prepared.mimeType}`, `x ${prepared.sha256}`]);
       }
-      await s.engine.submit({ template: tmpl }, { relays: s.persona.relays, quorum: config.quorum });
+      const rec = await s.engine.submit({ template: tmpl }, { relays: s.persona.relays, quorum: config.quorum });
+      const capped = cappedQuorumNotice(rec);
+      if (capped) ws.notify(capped, 'warning');
       setText('');
       setFile(undefined);
     } catch (err) {
-      ws.notify((err as Error).message, 'error');
+      ws.notify(err instanceof UnsanitizableFileError ? unsanitizableMessage(err) : (err as Error).message, 'error');
     } finally {
       setBusy(false);
     }

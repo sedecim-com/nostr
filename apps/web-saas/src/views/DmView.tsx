@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
-import { downloadFromServers, prepareBlob, uploadToServers } from '@sedecim/blossom-client';
+import { downloadFromServers, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
 import { getTagValue, normalizePubkey } from '@sedecim/nostr-core';
 import { APP_RECEIPT_KIND, BUZZ_PINNED_ADAPTER, createFileMessage, createReceipt, dmInboxFilter, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, openDirectMessage, parseReceipt, unwrap, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
 import { receiptPolicy } from '@sedecim/profiles';
-import { blossomServersOf, uploadTargets } from '../lib/blossom';
+import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
+import { cappedQuorumNotice } from '../lib/outbox';
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 
@@ -38,23 +39,28 @@ export function DmView() {
       const recipient = normalizePubkey(to.trim());
       let msg;
       // FR010-02: each wrap goes to the recipient's DM relays (10050), else their NIP-65 read relays, else ours.
-      const route = { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, quorum: config.quorum };
+      // FR010-03: discovery also asks the deployment's discovery relays; a retry re-resolves the route (engine router).
+      const route = { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, quorum: config.quorum };
       if (file) {
         // DM attachments are always encrypted client-side. FR018-05: they go to the user's Blossom servers
         // (kind 10063, primary first) except image-only ones (relay media), else to the deployment blob-store.
+        // FR019-03: with stripFileMetadata, an image whose metadata cannot be removed (HEIC, TIFF/RAW, an image
+        // format the sanitizer does not know) is refused before anything is uploaded; other documents go as they are.
+        const prepared = prepareBlob(new Uint8Array(await file.arrayBuffer()), { sanitize: true, requireSanitizable: config.stripFileMetadata && 'images', encrypt: true, mimeType: file.type || 'application/octet-stream', fileName: file.name });
         const targets = uploadTargets(ws.cfg, await blossomServersOf(s), true);
         if (targets.length === 0) throw new Error('No hay servidor Blossom para adjuntos cifrados: publica tu lista de servidores o configura el blob-store.');
-        const prepared = prepareBlob(new Uint8Array(await file.arrayBuffer()), { sanitize: true, encrypt: true, mimeType: file.type || 'application/octet-stream', fileName: file.name });
         const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
         msg = await createFileMessage(s.signer, { recipients: [recipient], url: desc.url, mimeType: prepared.mimeType, sha256: prepared.sha256, originalSha256: prepared.originalSha256, size: prepared.data.length, encryption: prepared.encryption! }, wrapOpts);
       }
       const { deliveries } = file ? await messenger().deliver(msg!, route) : await messenger().send({ recipients: [recipient], content: text }, route);
       const unrouted = deliveries.find((d) => d.recipient === recipient && d.source !== 'dm-relays');
-      if (unrouted) ws.notify(`Destinatario sin relays de DM: se envió a ${unrouted.source === 'nip65-read' ? 'sus relays de lectura (NIP-65)' : 'tus relays'}; la entrega es incierta.`, 'warning');
+      const capped = deliveries.map((d) => cappedQuorumNotice(d.record)).find(Boolean);
+      const notices = [unrouted && `Destinatario sin relays de DM: se envió a ${unrouted.source === 'nip65-read' ? 'sus relays de lectura (NIP-65)' : 'tus relays'}; la entrega es incierta.`, capped].filter(Boolean);
+      if (notices.length) ws.notify(notices.join(' '), 'warning');
       setText('');
       setFile(undefined);
     } catch (err) {
-      ws.notify(err instanceof FeatureDisabledError ? 'NIP-17 está deshabilitado (feature flag).' : (err as Error).message, 'error');
+      ws.notify(err instanceof FeatureDisabledError ? 'NIP-17 está deshabilitado (feature flag).' : err instanceof UnsanitizableFileError ? unsanitizableMessage(err) : (err as Error).message, 'error');
     } finally {
       setBusy(false);
     }

@@ -59,11 +59,11 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
       const p = await book.get(id);
       if (!p) return;
       current.current?.close();
-      const s = await openPersona(book, p, managedEnv);
+      const s = await openPersona(book, p, managedEnv, { discoveryRelays: cfg.discoveryRelays });
       current.current = s;
       setSession(s);
     },
-    [book, managedEnv],
+    [book, managedEnv, cfg],
   );
 
   useEffect(() => {

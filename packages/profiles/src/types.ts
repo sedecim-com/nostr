@@ -50,6 +50,12 @@ export interface Disclosure {
   trustAssumptions: string[];
 }
 
+/** What validateConfig can check beyond the configuration itself. */
+export interface ValidationContext {
+  /** Relays of the persona the configuration applies to. */
+  relays?: number;
+}
+
 export interface ValidationIssue {
   severity: 'error' | 'warning';
   code: string;

@@ -29,7 +29,8 @@ export function PanelView() {
   const ws = useWorkspace();
   const [draft, setDraft] = useState<SovereigntyConfig>(ws.config!);
   useEffect(() => setDraft(ws.config!), [ws.config]);
-  const issues = validateConfig(draft, 'web');
+  // FR010-04: the quorum is checked against this persona's relays, so it is refused rather than capped in silence.
+  const issues = validateConfig(draft, 'web', { relays: ws.session?.persona.relays.length });
   const blocking = issues.some((i) => i.severity === 'error');
   const dirty = JSON.stringify(draft) !== JSON.stringify(ws.config);
   const set = (patch: Partial<SovereigntyConfig>) => setDraft((d) => ({ ...d, ...patch }));

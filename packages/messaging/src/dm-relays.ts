@@ -62,12 +62,15 @@ export function parseNip65ReadRelays(evt: NostrEvent): string[] {
   return relayUrls(evt.tags.filter((t) => t[0] === 'r' && (t[2] === undefined || t[2] === '' || t[2] === 'read')).map((t) => t[1]));
 }
 
-/** Short-lived per-recipient cache of what discovery found (`null`: the recipient publishes no list). */
+/**
+ * Short-lived per-recipient cache of the relay lists discovery found. Finding nothing is never cached (FR010-03):
+ * offline it looks just like a recipient without lists, and caching it would send their DMs to the fallback.
+ */
 export class DmRelayCache {
-  private readonly entries = new Map<string, { at: number; value: ResolvedDmRelays | null }>();
+  private readonly entries = new Map<string, { at: number; value: ResolvedDmRelays }>();
   constructor(readonly ttlMs = 5 * 60_000, private readonly now: () => number = Date.now) {}
 
-  get(key: string): ResolvedDmRelays | null | undefined {
+  get(key: string): ResolvedDmRelays | undefined {
     const e = this.entries.get(key);
     if (!e) return undefined;
     if (this.now() - e.at > this.ttlMs) {
@@ -77,7 +80,7 @@ export class DmRelayCache {
     return e.value;
   }
 
-  set(key: string, value: ResolvedDmRelays | null): void {
+  set(key: string, value: ResolvedDmRelays): void {
     this.entries.set(key, { at: this.now(), value });
   }
 
@@ -104,18 +107,40 @@ export async function resolveDmRelays(pool: RelayQuery, recipientPubkey: string,
   const cache = opts.cache ?? defaultDmRelayCache;
   const key = `${recipientPubkey}|${[...opts.discoveryRelays].sort().join(',')}`;
   let found = cache.get(key);
-  if (found === undefined) {
+  if (!found) {
     try {
       const events = await pool.query(opts.discoveryRelays, [{ kinds: [DM_RELAY_LIST_KIND, RELAY_LIST_KIND], authors: [recipientPubkey] }], opts.timeoutMs ?? 5000);
       const dm = newest(events, DM_RELAY_LIST_KIND, recipientPubkey);
       const nip65 = newest(events, RELAY_LIST_KIND, recipientPubkey);
       const dmRelays = dm ? parseDmRelayList(dm) : [];
       const readRelays = nip65 ? parseNip65ReadRelays(nip65) : [];
-      found = dmRelays.length ? { relays: dmRelays, source: 'dm-relays' } : readRelays.length ? { relays: readRelays, source: 'nip65-read' } : null;
-      cache.set(key, found);
+      found = dmRelays.length ? { relays: dmRelays, source: 'dm-relays' } : readRelays.length ? { relays: readRelays, source: 'nip65-read' } : undefined;
+      if (found) cache.set(key, found);
     } catch {
-      found = null; // discovery failed: fall back, and ask again next time
+      /* discovery failed: fall back, and ask again next time */
     }
   }
   return found ?? { relays: relayUrls(opts.fallback), source: 'fallback' };
+}
+
+/** New relays for an outbox record, from the delivery engine's router (FR010-03). */
+export interface DmRoute {
+  relays: string[];
+  meta: Record<string, string>;
+}
+
+/**
+ * FR010-03: resolves a DM wrap's relays when it is published, not only when it was written. The delivery engine
+ * asks before each retry of a wrap for a recipient (`meta.recipient` with a `meta.dmRelaySource` other than
+ * 'self', as DirectMessenger queues them) until a relay accepts it. A wrap written offline, when discovery found
+ * nothing and it was queued for the fallback, goes to the recipient's DM relays as soon as they can be found.
+ */
+export function dmRouter(pool: RelayQuery, opts: ResolveDmRelaysOptions): (rec: { meta?: Record<string, string> }) => Promise<DmRoute | undefined> {
+  return async (rec) => {
+    const recipient = rec.meta?.recipient;
+    const source = rec.meta?.dmRelaySource;
+    if (!recipient || !source || source === 'self') return undefined;
+    const route = await resolveDmRelays(pool, recipient, opts);
+    return { relays: route.relays, meta: { dmRelaySource: route.source } };
+  };
 }

@@ -24,7 +24,7 @@ cuenta↔npub en el identity-service, backup cifrado.
 | Lectura de DMs por el operador | NIP-44 + gift wrap NIP-59; el relay no ve contenido ni remitente | `packages/messaging/test` |
 | Suplantación en DMs | El unwrap verifica que el firmante del seal coincide con el autor del rumor | `messaging.test.ts` (impersonation) |
 | Pérdida de mensajes | Outbox cifrada, persistida antes de transmitir; reintentos | `packages/delivery-engine/test` |
-| Metadatos EXIF en imágenes | Saneamiento por defecto (`stripFileMetadata`) | `packages/blossom-client/test` |
+| Metadatos EXIF en imágenes | Saneamiento por defecto (`stripFileMetadata`); las imágenes que no se pueden sanear (HEIC, TIFF/RAW) se rechazan, también en DMs | `packages/blossom-client/test`, `tests/browser/web-saas.e2e.ts` |
 
 ## Riesgos residuales
 | Riesgo | Nivel | Nota |

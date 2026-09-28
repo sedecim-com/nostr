@@ -28,7 +28,7 @@ import {
   type GroupSession,
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
-import { downloadFromServers, fetchServerList, sanitizeMetadata, selectUploadServers, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
+import { downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
 
 export interface SovereignOptions {
   dataDir: string;
@@ -465,6 +465,8 @@ export class SovereignClient {
   /**
    * MIP-04: sanitize → encrypt with a key derived from the MLS exporter of the current epoch → upload the
    * ciphertext to the persona's Blossom servers (kind 10063; blob-store fallback) → kind 9 with `imeta`.
+   * FR019-03: every sovereign profile has stripFileMetadata, so an image whose metadata cannot be removed
+   * (HEIC, TIFF/RAW, an image format the sanitizer does not know) is refused before anything is uploaded.
    */
   async groupSendFile(
     personaId: string,
@@ -473,12 +475,17 @@ export class SovereignClient {
     opts: { servers?: string[]; sanitize?: boolean } = {},
   ): Promise<GroupMediaReference> {
     const s = await this.session(personaId);
+    let data = file.data;
+    if (opts.sanitize ?? true) {
+      const clean = sanitizeMetadata(file.data);
+      if (refusesUnsanitized(clean, this.profileFor(s.persona).stripFileMetadata && 'images', file.mimeType)) throw new UnsanitizableFileError(clean.format, clean.reason);
+      data = clean.data;
+    }
     const gs = await this.extended(personaId);
     const userServers = opts.servers ?? (await fetchServerList(s.pool, s.persona.relays, s.persona.pubkey).catch(() => []));
     const servers = selectUploadServers({ userServers, encrypted: true, ...(this.opts.blobStore ? { fallback: this.opts.blobStore } : {}) });
     if (!servers.length) throw new Error('sin servidor Blossom: publica tu lista (kind 10063) o configura el blob-store');
     const http = await this.blobHttp(personaId, servers);
-    const data = (opts.sanitize ?? true) ? sanitizeMetadata(file.data).data : file.data;
     return gs.sendMedia(
       groupId,
       { data, filename: file.filename, type: file.mimeType },
