@@ -68,7 +68,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.3.0';
+export const DISCLOSURE_VERSION = '1.4.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.
@@ -79,6 +79,18 @@ export const MANAGED_CONSENT_TEXTS = {
   decryption: 'Tus mensajes directos (NIP-44) se cifran y descifran en el servidor de firma: el servicio ve su contenido en claro mientras lo procesa, aunque no lo guarda.',
   storage: 'La llave se guarda cifrada con AWS KMS en us-east-1 (LFPDPPP). Puedes migrarla a custodia local cuando quieras; tras borrarla se destruye a los 30 días.',
   accept: 'Entiendo que la plataforma puede firmar como yo y descifrar mis mensajes directos, y acepto la custodia gestionada',
+} as const;
+
+/**
+ * VAULT-07 (ADR 0011): what the Continuity Vault keeps and what its operator can see, shown by the web and the
+ * CLI wherever the vault is used. Part of the reviewed copy (disclosureCatalog, docs/disclosures.md).
+ */
+export const CONTINUITY_VAULT_TEXTS = {
+  what: 'El Continuity Vault guarda una copia cifrada de tu historial y de tu estado de entrega, aparte de los relays: si todos los relays pierden tus eventos, puedes recuperarlos desde el vault.',
+  sealed: 'Cada archivo se cifra en tu dispositivo con tu llave de archivo, que es distinta de tu nsec. El operador del vault no tiene esa llave: no puede leer el contenido ni saber con quién hablas ni qué eventos guardas.',
+  metadata: 'El operador sí ve tu cuenta del vault, cuántos archivos guardas, su tamaño aproximado y cuándo los subes, reemplazas, lees o borras, además de la dirección IP de cada conexión. Si entras con Acceso, también sabe qué usuario de Acceso eres.',
+  key: 'La llave de archivo solo viaja dentro de tu backup, cifrada con la contraseña del backup. Si pierdes el backup y este dispositivo, no hay forma de recuperarla: el operador tampoco la tiene.',
+  deletion: 'Borrar quita del servidor los archivos y sus metadatos en el momento; las copias de seguridad del operador pueden conservar los archivos, cifrados, y sus metadatos hasta que caduquen.',
 } as const;
 
 /** The version recorded with a managed key's consent: the reviewed copy and the terms that were shown. */
@@ -98,6 +110,7 @@ export function disclosureCatalog(): Disclosure[] {
   }
   out.push(disclose({ ...base, quorum: 2 }).find((x) => x.control === 'quorum')!);
   for (const [key, statement] of Object.entries(MANAGED_CONSENT_TEXTS)) out.push({ control: 'custody', option: `managed (consentimiento: ${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+  for (const [key, statement] of Object.entries(CONTINUITY_VAULT_TEXTS)) out.push({ control: 'cloudBackup', option: `continuity-vault (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   return out;
 }
 

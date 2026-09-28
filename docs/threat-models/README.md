@@ -13,5 +13,11 @@
 | sovereign | Operador soberano sin dependencia del SaaS | [sovereign.md](sovereign.md) |
 | sovereign-tor | Periodista, fuente, alto riesgo | [sovereign-tor.md](sovereign-tor.md) |
 
+Servicios que cruzan perfiles:
+
+| Servicio | Qué protege | Documento |
+|---|---|---|
+| Continuity Vault (ADR 0011) | Copia del historial independiente de los relays, sellada en el cliente | [continuity-vault.md](continuity-vault.md) |
+
 Escala de riesgo residual: **Alto** (explotable por un adversario del perfil sin controles adicionales) ·
 **Medio** (requiere un error del usuario o capacidades superiores) · **Bajo** (mitigado y probado).

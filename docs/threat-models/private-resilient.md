@@ -32,6 +32,7 @@ adjuntos cifrados.
 | Signer remoto malicioso | Medio | Mitigado con permisos mínimos: la web pide solo los kinds que firma y los lista antes de conectar (FR004-04, FR004-06) |
 | Push opaco: revela tiempos de actividad | Medio | El servicio push del navegador ve cuándo hay actividad |
 | Sin forward secrecy en DMs | Medio | Usar Marmot en conversaciones sensibles |
+| Pérdida del historial si todos los relays lo pierden | Alto | El Continuity Vault (ADR 0011) ya guarda sellado el ledger de entrega. Los eventos y la restauración con relays vacíos llegan con VAULT-03 (S11); hasta entonces el perfil no se declara GA ([threat model del vault](continuity-vault.md)) |
 
 ## Supuestos
 Al menos `quorum` relays son honestos en disponibilidad. El signer protege su llave.
