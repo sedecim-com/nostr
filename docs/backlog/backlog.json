@@ -3150,8 +3150,8 @@
     "FR005-07"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit d018c32 (PR #309):\n\n- El login SaaS no promete que la llave no sale del navegador cuando hay custodia gestionada.\n- Disclosures 1.3.0 y opt-in avisan del descifrado NIP-44 en el servidor. Los textos del consentimiento están en docs/disclosures.md.\n- El opt-in enlaza `managedTerms` (config.json).\n- El managed-signer exige y guarda `consent_version` al crear o importar (migración 003), y la persona web guarda el mismo consentimiento.\n- Tests:\n  - services/managed-signer/test/managed-signer.test.ts\n  - services/managed-signer/test/registry.test.ts (Postgres)\n  - packages/profiles/test/profiles.test.ts\n  - tests/browser/web-saas.e2e.ts",
    "issue": 234
   },
   {
@@ -3182,8 +3182,8 @@
     "BUZZ-05"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit cd7ff40 (PR #309):\n\n- Pin de Buzz `ghcr.io/block/buzz@sha256:ac4521f3e464…` (upstream b0d6fb8) en infra/buzz/PIN, compose, kustomize e infra/web/flags.json, con el informe docs/interop/buzz-upstream-ac4521f3e464-report.json.\n- Changelog revisado (ADR 0003): `781d395..b0d6fb8` solo añade docs/nips/NIP-AR.md, sin cambios en el relay. Los adaptadores siguen justificados.\n- El gate pasó contra la candidata (run 36257595164) y de nuevo en el CI de la PR (job stack).",
    "issue": 236
   },
   {
