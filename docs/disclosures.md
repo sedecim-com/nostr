@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.3.0** · huella `c334d30e84ceb453` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.4.0** · huella `26815b67816b9ac2` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -55,6 +55,11 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | custody | managed (consentimiento: decryption) | Tus mensajes directos (NIP-44) se cifran y descifran en el servidor de firma: el servicio ve su contenido en claro mientras lo procesa, aunque no lo guarda. | — | — | — |
 | custody | managed (consentimiento: storage) | La llave se guarda cifrada con AWS KMS en us-east-1 (LFPDPPP). Puedes migrarla a custodia local cuando quieras; tras borrarla se destruye a los 30 días. | — | — | — |
 | custody | managed (consentimiento: accept) | Entiendo que la plataforma puede firmar como yo y descifrar mis mensajes directos, y acepto la custodia gestionada | — | — | — |
+| cloudBackup | continuity-vault (what) | El Continuity Vault guarda una copia cifrada de tu historial y de tu estado de entrega, aparte de los relays: si todos los relays pierden tus eventos, puedes recuperarlos desde el vault. | — | — | — |
+| cloudBackup | continuity-vault (sealed) | Cada archivo se cifra en tu dispositivo con tu llave de archivo, que es distinta de tu nsec. El operador del vault no tiene esa llave: no puede leer el contenido ni saber con quién hablas ni qué eventos guardas. | — | — | — |
+| cloudBackup | continuity-vault (metadata) | El operador sí ve tu cuenta del vault, cuántos archivos guardas, su tamaño aproximado y cuándo los subes, reemplazas, lees o borras, además de la dirección IP de cada conexión. Si entras con Acceso, también sabe qué usuario de Acceso eres. | — | — | — |
+| cloudBackup | continuity-vault (key) | La llave de archivo solo viaja dentro de tu backup, cifrada con la contraseña del backup. Si pierdes el backup y este dispositivo, no hay forma de recuperarla: el operador tampoco la tiene. | — | — | — |
+| cloudBackup | continuity-vault (deletion) | Borrar quita del servidor los archivos y sus metadatos en el momento; las copias de seguridad del operador pueden conservar los archivos, cifrados, y sus metadatos hasta que caduquen. | — | — | — |
 
 ## Aprobación
 

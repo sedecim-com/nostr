@@ -36,6 +36,12 @@ export interface DeploymentConfig {
    * password is uploaded.
    */
   backupVault?: string;
+  /**
+   * VAULT-02 (ADR 0011): services/continuity-vault base URL. Unset: the Continuity Vault card is not shown. Only
+   * envelopes sealed in the browser with the persona's archive key are uploaded; the operator sees the account,
+   * how many archives, their size and when they change.
+   */
+  continuityVault?: string;
   /** SaaS only: custodial managed-signer (opt-in, ADR 0009). */
   managedSigner?: string;
   /**

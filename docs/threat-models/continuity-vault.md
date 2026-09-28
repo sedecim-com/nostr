@@ -1,0 +1,61 @@
+# Threat model · Continuity Vault (v0.1)
+
+- **Estado:** Propuesto. Pendiente de la revisión de seguridad y de la aprobación de alguien distinto del
+  autor, como los threat models por perfil (DEC-10).
+- **Tareas:** VAULT-01, VAULT-02, VAULT-07 · **Decisión:** [ADR 0011](../adr/0011-continuity-vault.md) ·
+  **Fecha:** 2026-09-28
+
+**Qué es.** `services/continuity-vault` guarda sobres de archivo sellados en el cliente para que el historial no
+dependa solo de los relays.
+- **Hoy.** La web y el CLI guardan el ledger de entrega de cada persona: cada operación con su evento firmado y
+  su estado por relay.
+- **VAULT-03 (S11).** Añade los eventos canónicos (NIP-29, copia propia de NIP-17, Marmot) y la restauración con
+  relays vacíos.
+- **VAULT-04 (S11).** Añade el estado `CONTINUITY_BACKED_UP` en el envío.
+
+## Activos
+- **El contenido de los archivos.** Hoy, el ledger de entrega; con VAULT-03, el historial de conversaciones.
+- **La llave de archivo de cada persona.** Abre todos sus archivos.
+- **Los metadatos:** qué cuenta guarda archivos, cuántos y cuándo.
+- **La disponibilidad del historial,** que es la razón de ser del vault.
+
+## Adversarios relevantes
+| Adversario | Capacidad supuesta |
+|---|---|
+| Operador del vault curioso | Lee la base, el object store y los logs; ve cada petición y su IP |
+| Operador malicioso | Borra, reemplaza o sirve sobres antiguos |
+| Quien roba la base o el object store | Copia offline de todo lo guardado |
+| Quien obtiene un token de Acceso vinculado | Actúa como esa cuenta del vault (lista, descarga, borra) |
+| Cliente con errores | Sube texto plano por equivocación |
+| Abusador | Crea cuentas NIP-98 para ocupar espacio |
+
+## Mitigaciones
+| Riesgo | Mitigación | Evidencia |
+|---|---|---|
+| El operador lee el contenido | Sellado XChaCha20-Poly1305 en el cliente con una llave aleatoria de 256 bits que el servidor nunca recibe. La llave solo viaja dentro del backup de identidad, cifrada con la contraseña del usuario | `services/continuity-vault/test`: ni la base, ni el object store, ni los logs contienen el texto, el evento, su id, la npub, la nsec ni las etiquetas. Lo mismo en `apps/sovereign-client/test/vault.test.ts`, `apps/web-saas/test/continuity.test.ts` y `tests/browser/web-saas.e2e.ts` |
+| Un cliente sube texto plano por error | El validador compartido rechaza campos de más, una nsec o 64 dígitos hex, sobres cortos o sin relleno y un «ciphertext» legible. El servidor lo aplica venga del cliente que venga | `packages/continuity/test/continuity.test.ts`; `continuity-vault.test.ts` (peticiones directas) |
+| Ligar la cuenta del vault a la persona | NIP-98 con una llave derivada de la llave de archivo, no con la de la persona; ids opacos (HMAC de una etiqueta) | Tests: la cuenta es `nostr:<llave derivada>`, distinta de la npub; ninguna etiqueta llega al servidor |
+| Servir un archivo en lugar de otro | El AAD liga cada sobre a su `key_id` y a su id | Tests de intercambio de ids y de bytes alterados |
+| Tamaño exacto de cada mensaje | Relleno al estilo NIP-44 con un mínimo de 256 bytes | Tests de relleno; el servidor rechaza sobres sin relleno |
+| La llave de archivo es la nsec | Se rechaza al crearla y al restaurarla (web, CLI, backups) | `identity.test.ts`, `continuity.test.ts` de la web |
+| Un backup con un coste scrypt enorme agota el dispositivo que lo restaura | Se rechaza un logN mayor que 20 antes de ejecutar scrypt; el generador offline no escribe más | `identity.test.ts` |
+| Una persona Tor-only sale por clearnet | El CLI habla con el vault a través del guard de la persona: Tor o nada. La web no admite Tor-only | `apps/sovereign-client/test/vault.test.ts` |
+| Abuso del almacenamiento | Cuotas por cuenta comprobadas con la fila bloqueada, límites de tasa y política NIP-98 `allowlist` u `off` | `continuity-vault.test.ts` (cuotas, 12 subidas simultáneas) |
+| Inconsistencia entre la base y los objetos | Primero el objeto, después la fila. Un fallo deja objetos huérfanos, nunca filas sin objeto. Al descargar se comprueba el sha256 | `continuity-vault.test.ts` (reinicio, reemplazo sin huérfanos) |
+
+## Riesgos residuales
+| Riesgo | Nivel | Nota |
+|---|---|---|
+| Metadatos visibles al operador | Medio | Ve la cuenta, el número de archivos y su tamaño aproximado, las horas de subida, lectura y borrado, y la IP de cada conexión. Se declara en los textos del vault (VAULT-07, `docs/disclosures.md`) |
+| Con Acceso, la cuenta es el usuario de Acceso | Medio | El operador liga los archivos a esa identidad; la cuenta NIP-98 derivada no lo hace |
+| Versión antigua o borrado por el operador | Medio | El AEAD no detecta que se sirva una versión anterior del mismo id, ni un borrado. VAULT-03 comparará con el estado local y con una secuencia dentro del contenido sellado |
+| Pérdida de la llave de archivo | Alto para la continuidad | Sin el backup y sin el dispositivo no hay forma de recuperarla; el operador tampoco puede. Se declara |
+| Robo del backup de identidad | Medio | Fuerza bruta offline de NIP-49 (scrypt) contra la contraseña del backup; depende de su fortaleza |
+| Cuentas NIP-98 ilimitadas con la política `open` | Bajo en self-hosted, Medio en SaaS | El SaaS usa `allowlist` u `off` |
+| Copias de seguridad del operador | Bajo | Conservan metadatos y sobres cifrados hasta que caducan; la retención se documenta en VAULT-05 |
+| El vault aún no guarda eventos ni participa en el envío | — | VAULT-03 y VAULT-04 (S11). Hasta entonces private-resilient no se declara GA |
+
+## Supuestos
+- XChaCha20-Poly1305, HKDF-SHA256, HMAC-SHA256 y scrypt (NIP-49) de `@noble` son correctos.
+- El dispositivo del usuario no está comprometido: quien controla el cliente tiene la llave de archivo.
+- La contraseña del backup es fuerte.

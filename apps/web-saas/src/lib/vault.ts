@@ -27,6 +27,11 @@ export interface PersonaRecord {
   managedConsent?: { version: string; acceptedAt: number };
   /** nip46: the ephemeral client key the signer authorized, so later sessions skip the bunker secret. */
   nip46ClientSecretHex?: string;
+  /**
+   * VAULT-02: archive key of the Continuity Vault (ADR 0011), for every custody: 32 random bytes, never the nsec,
+   * inside the sealed vault and in the persona's backup file. Older personas get one on first use.
+   */
+  archiveKeyHex?: string;
   relays: string[];
   preset: PresetName | 'custom';
   config: SovereigntyConfig;

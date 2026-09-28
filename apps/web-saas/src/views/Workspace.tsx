@@ -95,9 +95,20 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
     [book, session, reloadPersonas],
   );
 
+  const updatePersona = useCallback(
+    async (persona: PersonaRecord) => {
+      if (!current.current || current.current.persona.id !== persona.id) return reloadPersonas();
+      const s = { ...current.current, persona };
+      current.current = s;
+      setSession(s);
+      await reloadPersonas();
+    },
+    [reloadPersonas],
+  );
+
   const ws = useMemo<Ws>(
-    () => ({ cfg, flags, book, user, personas, session, config: session ? personaConfig(session.persona) : undefined, selectPersona, reloadPersonas, saveConfig, publishDmRelays: async () => current.current && publishDmRelays(current.current), managedEnv, notify: (message, severity = 'info') => setToast({ message, severity }) }),
-    [cfg, flags, book, user, personas, session, selectPersona, reloadPersonas, saveConfig, managedEnv],
+    () => ({ cfg, flags, book, user, personas, session, config: session ? personaConfig(session.persona) : undefined, selectPersona, reloadPersonas, saveConfig, updatePersona, publishDmRelays: async () => current.current && publishDmRelays(current.current), managedEnv, notify: (message, severity = 'info') => setToast({ message, severity }) }),
+    [cfg, flags, book, user, personas, session, selectPersona, reloadPersonas, saveConfig, updatePersona, managedEnv],
   );
 
   const sendingAs = session ? `Enviando como ${session.persona.label} · ${shortNpub(session.pubkey)} · ${custodyLabel(session.persona)} · ${session.persona.config.network === 'tor-only' ? 'Tor-only' : 'red directa'}` : 'Sin identidad activa';

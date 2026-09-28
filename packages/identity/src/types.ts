@@ -32,7 +32,7 @@ export interface IdentityLink {
 
 export interface AuditEntry {
   at: number;
-  action: 'persona.created' | 'persona.imported' | 'persona.deleted' | 'link.created' | 'link.removed' | 'backup.exported' | 'backup.restored' | 'custody.migrated';
+  action: 'persona.created' | 'persona.imported' | 'persona.deleted' | 'link.created' | 'link.removed' | 'backup.exported' | 'backup.restored' | 'custody.migrated' | 'archive_key.created';
   subject: string;
   details?: Record<string, string>;
 }
@@ -77,4 +77,6 @@ export interface BackupContents {
    * signed event and per-relay state, so a restored device can resume or reconcile them instead of losing them.
    */
   outbox?: Array<{ id: string; value: unknown }>;
+  /** VAULT-02: the persona's archive key for the Continuity Vault (hex), never the nsec (ADR 0011). */
+  archiveKey?: string;
 }

@@ -15,8 +15,9 @@
   },
   "dependencies": {
     "@noble/ciphers": "2.4.0",
-    "@sedecim/nostr-core": "0.1.0",
+    "@sedecim/continuity": "0.1.0",
     "@sedecim/encrypted-store": "0.1.0",
+    "@sedecim/nostr-core": "0.1.0",
     "@sedecim/profiles": "0.1.0",
     "@sedecim/signer": "0.1.0"
   }

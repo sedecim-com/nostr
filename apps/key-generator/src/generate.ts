@@ -26,6 +26,18 @@ export interface GenerateOptions {
   revealNsec?: boolean;
 }
 
+/**
+ * Highest scrypt cost this generator writes. Restores refuse anything above it (MAX_BACKUP_LOG_N in
+ * packages/identity, VAULT-02), so a backup made here can always be opened. The generator keeps no
+ * dependency on that package: it runs air-gapped.
+ */
+export const MAX_LOG_N = 20;
+
+function checkLogN(logN: number): number {
+  if (!Number.isInteger(logN) || logN < 1 || logN > MAX_LOG_N) throw new RangeError(`scrypt cost (logN) must be an integer from 1 to ${MAX_LOG_N}: restores refuse higher costs`);
+  return logN;
+}
+
 /** Generates a key with the OS CSPRNG, verifies derivation + BIP-340 signature, then wipes memory. */
 export function generateKey(opts: GenerateOptions = {}): GeneratedKey {
   const sk = generateSecretKey();
@@ -36,7 +48,7 @@ export function generateKey(opts: GenerateOptions = {}): GeneratedKey {
       npub: nip19.npubEncode(selfTest.pubkey),
       pubkeyHex: selfTest.pubkey,
       ...(opts.revealNsec ? { nsec: nip19.nsecEncode(sk) } : {}),
-      ...(opts.password ? { ncryptsec: nip49.encryptKey(sk, opts.password, opts.logN ?? 18, 0x01) } : {}),
+      ...(opts.password ? { ncryptsec: nip49.encryptKey(sk, opts.password, checkLogN(opts.logN ?? 18), 0x01) } : {}),
       selfTest,
       createdAt: new Date().toISOString(),
     };
@@ -58,7 +70,7 @@ export async function generateKeyAsync(opts: GenerateOptions = {}): Promise<Gene
       npub: nip19.npubEncode(selfTest.pubkey),
       pubkeyHex: selfTest.pubkey,
       ...(opts.revealNsec ? { nsec: nip19.nsecEncode(sk) } : {}),
-      ...(opts.password ? { ncryptsec: await nip49.encryptKeyAsync(sk, opts.password, opts.logN ?? 18, 0x01) } : {}),
+      ...(opts.password ? { ncryptsec: await nip49.encryptKeyAsync(sk, opts.password, checkLogN(opts.logN ?? 18), 0x01) } : {}),
       selfTest,
       createdAt: new Date().toISOString(),
     };

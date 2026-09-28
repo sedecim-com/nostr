@@ -5,6 +5,7 @@ import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
 import { dmRouter, publishDmRelayList } from '@sedecim/messaging';
 import { preset, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
+import { assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
 
 /**
@@ -26,7 +27,8 @@ export interface PersonaSession {
 export type NewPersona =
   | { kind: 'create' }
   | { kind: 'import'; secret: string; ncryptsecPass?: string }
-  | { kind: 'secret'; secretKey: Uint8Array }
+  /** A decrypted key backup; a v2 backup also brings the persona's archive key (VAULT-02). */
+  | { kind: 'secret'; secretKey: Uint8Array; archiveKey?: Uint8Array }
   | { kind: 'nip07' }
   | { kind: 'nip46'; bunker: string }
   /** Custodial key created in the managed-signer after an explicit opt-in (FR005-07) whose version is recorded (FR005-08). */
@@ -87,6 +89,7 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
       local(generateSecretKey());
       break;
     case 'secret':
+      if (input.archiveKey) assertDistinctFromNsec(input.archiveKey, input.secretKey);
       local(input.secretKey);
       break;
     case 'import': {
@@ -133,9 +136,39 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
   }
   const existing = (await book.list()).find((p) => p.pubkey === pubkey!);
   if (existing) throw new Error(`esa llave ya es la persona "${existing.label}"`);
-  const persona: PersonaRecord = { id: newId(), label: opts.label, pubkey: pubkey!, custody: custody!, relays: opts.relays, preset: opts.preset, config, createdAt: Date.now(), ...(secretHex ? { secretHex } : {}), ...(bunker ? { bunker } : {}), ...(nip46ClientSecretHex ? { nip46ClientSecretHex } : {}), ...(managedKeyId ? { managedKeyId } : {}), ...(managedConsent ? { managedConsent } : {}) };
+  // VAULT-02: every persona has its own archive key; a restored one keeps the key its backup carries.
+  const archiveKey = input.kind === 'secret' && input.archiveKey ? input.archiveKey : generateArchiveKey();
+  const archiveKeyHex = bytesToHex(archiveKey);
+  wipe(archiveKey);
+  const persona: PersonaRecord = { id: newId(), label: opts.label, pubkey: pubkey!, custody: custody!, relays: opts.relays, preset: opts.preset, config, createdAt: Date.now(), archiveKeyHex, ...(secretHex ? { secretHex } : {}), ...(bunker ? { bunker } : {}), ...(nip46ClientSecretHex ? { nip46ClientSecretHex } : {}), ...(managedKeyId ? { managedKeyId } : {}), ...(managedConsent ? { managedConsent } : {}) };
   await book.save(persona);
   return persona;
+}
+
+/** VAULT-02: the persona with its archive key, creating one for a persona made before the vault existed. */
+export async function ensureArchiveKey(book: PersonaBook, persona: PersonaRecord): Promise<PersonaRecord> {
+  if (persona.archiveKeyHex) return persona;
+  const key = generateArchiveKey();
+  const next = { ...persona, archiveKeyHex: bytesToHex(key) };
+  wipe(key);
+  await book.save(next);
+  return next;
+}
+
+/** VAULT-02: installs the archive key restored from a backup of this persona (never its nsec). */
+export async function setArchiveKey(book: PersonaBook, persona: PersonaRecord, key: Uint8Array): Promise<PersonaRecord> {
+  if (key.length !== 32) throw new Error('la llave de archivo debe tener 32 bytes');
+  if (persona.secretHex) {
+    const sk = hexToBytes(persona.secretHex);
+    try {
+      assertDistinctFromNsec(key, sk);
+    } finally {
+      wipe(sk);
+    }
+  }
+  const next = { ...persona, archiveKeyHex: bytesToHex(key) };
+  await book.save(next);
+  return next;
 }
 
 /** What a managed persona needs to reach its signer; the token proves the Acceso user on each call. */
@@ -195,14 +228,24 @@ export async function publishDmRelays(s: PersonaSession): Promise<void> {
   await s.engine.submit({ event: await publishDmRelayList(s.signer, s.persona.relays) }, { relays: s.persona.relays, quorum: 1 });
 }
 
-/** NIP-49 backup (JSON text) protected by a password the user picks now (never the vault password by default). */
+/**
+ * NIP-49 backup (JSON text) protected by a password the user picks now (never the vault password by default).
+ * Version 2 (VAULT-02): the persona key when it lives in this browser, and always the archive key, so a persona
+ * whose key is in a signer (NIP-07, NIP-46, managed) can still recover its Continuity Vault archives.
+ */
 export async function backupJson(persona: PersonaRecord, backupPassword: string): Promise<string> {
-  if (persona.custody !== 'local' || !persona.secretHex) throw new Error('solo las llaves locales se pueden exportar');
   if (backupPassword.length < 8) throw new Error('la contraseña del backup debe tener al menos 8 caracteres');
-  const sk = hexToBytes(persona.secretHex);
-  const ncryptsec = await nip49.encryptKeyAsync(sk, backupPassword, 16, 0x01);
-  wipe(sk);
-  return JSON.stringify({ format: 'acceso-nostr-key-backup', version: 1, npub: npubEncode(persona.pubkey), ncryptsec }, null, 2);
+  if (!persona.archiveKeyHex) throw new Error('esta persona aún no tiene llave de archivo');
+  const ak = hexToBytes(persona.archiveKeyHex);
+  const archiveKey = await nip49.encryptKeyAsync(ak, backupPassword, 16, 0x01);
+  wipe(ak);
+  let ncryptsec: string | undefined;
+  if (persona.custody === 'local' && persona.secretHex) {
+    const sk = hexToBytes(persona.secretHex);
+    ncryptsec = await nip49.encryptKeyAsync(sk, backupPassword, 16, 0x01);
+    wipe(sk);
+  }
+  return JSON.stringify({ format: 'acceso-nostr-key-backup', version: 2, npub: npubEncode(persona.pubkey), ...(ncryptsec ? { ncryptsec } : {}), archiveKey }, null, 2);
 }
 
 export async function exportBackup(persona: PersonaRecord, backupPassword: string): Promise<Blob> {

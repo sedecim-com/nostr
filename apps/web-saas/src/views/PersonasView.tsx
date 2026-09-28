@@ -2,11 +2,12 @@ import { useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardActions, CardContent, Checkbox, FormControlLabel, List, ListItem, ListItemText, MenuItem, Radio, RadioGroup, Stack, TextField, Typography } from '@mui/material';
 import { managedConsentVersion, PRESETS, type PresetName } from '@sedecim/profiles';
 import { fetchCloudBackup, linkAccesoLogin, saveCloudBackup } from '../lib/identity';
-import { backupJson, createPersona, custodyFacts, custodyLabel, exportBackup, shortNpub, type NewPersona } from '../lib/session';
+import { backupJson, createPersona, custodyFacts, custodyLabel, ensureArchiveKey, exportBackup, realCustody, shortNpub, type NewPersona } from '../lib/session';
 import { deviceKeyAllowed, setProtection } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
 import { LinkPersonas } from './LinkPersonas';
 import { BlossomServers } from './BlossomServers';
+import { ContinuityVault } from './ContinuityVault';
 import { RemoteSigner } from './RemoteSigner';
 import { ManagedOptIn, MigrationWizard } from './ManagedCustody';
 import { QrCode } from './QrCode';
@@ -59,8 +60,10 @@ export function PersonasView() {
       // FR002-03: a backup from the offline generator (or this web) must decrypt to the npub it declares.
       if (mode === 'backup') {
         if (!backupFile) throw new Error('Elige un archivo de backup.');
-        const { secretKey } = await openKeyBackup(backupFile.json, ncPass);
-        const p = await createPersona(book, { kind: 'secret', secretKey }, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device' });
+        if (!backupFile.parsed.ncryptsec) throw new Error('Este backup solo trae la llave de archivo: abre la persona con su signer y restáurala en la tarjeta «Continuity Vault».');
+        // VAULT-02: a v2 backup also brings the persona's archive key, so its vault archives open here.
+        const { secretKey, archiveKey } = await openKeyBackup(backupFile.json, ncPass);
+        const p = await createPersona(book, { kind: 'secret', secretKey, ...(archiveKey ? { archiveKey } : {}) }, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device' });
         setNcPass('');
         setBackupFile(undefined);
         await ws.reloadPersonas();
@@ -91,9 +94,15 @@ export function PersonasView() {
     });
   };
 
+  // VAULT-02: every backup carries the archive key; personas made before the vault get theirs now.
+  const withArchiveKey = async () => {
+    const p = await ensureArchiveKey(book, session!.persona);
+    if (p !== session!.persona) await ws.updatePersona(p);
+    return p;
+  };
   const download = () =>
     void run(async () => {
-      const blob = await exportBackup(session!.persona, backupPass);
+      const blob = await exportBackup(await withArchiveKey(), backupPass);
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `acceso-nostr-backup-${session!.persona.label}.json`;
@@ -107,7 +116,8 @@ export function PersonasView() {
   const cloudAllowed = !!cloudVault && session?.persona.config?.cloudBackup !== 'off';
   const saveToCloud = () =>
     void run(async () => {
-      await saveCloudBackup(session!.signer, cloudVault!, await backupJson(session!.persona, backupPass), 'local');
+      const p = await withArchiveKey();
+      await saveCloudBackup(session!.signer, cloudVault!, await backupJson(p, backupPass), realCustody(p.custody));
       setBackupPass('');
       ws.notify('Copia cifrada guardada en la nube. Sin la contraseña del backup no se puede descifrar: guárdala aparte.', 'success');
     });
@@ -165,21 +175,24 @@ export function PersonasView() {
             <Button onClick={() => void run(async () => (await ws.publishDmRelays(), ws.notify('Relays de DM publicados (kind 10050)', 'success')))} disabled={busy}>
               Publicar mis relays de DM
             </Button>
-            {session.persona.custody === 'local' && (
-              <>
-                <TextField size="small" id="backup-pass" label="Contraseña del backup" type="password" autoComplete="new-password" value={backupPass} onChange={(e) => setBackupPass(e.target.value)} />
-                <Button id="export-backup" onClick={download} disabled={busy || backupPass.length < 8}>
-                  Descargar backup cifrado (NIP-49)
-                </Button>
-                {cloudAllowed && (
-                  <Button id="cloud-backup" onClick={saveToCloud} disabled={busy || backupPass.length < 8}>
-                    Guardar copia cifrada en la nube
-                  </Button>
-                )}
-              </>
+            <TextField size="small" id="backup-pass" label="Contraseña del backup" type="password" autoComplete="new-password" value={backupPass} onChange={(e) => setBackupPass(e.target.value)} />
+            <Button id="export-backup" onClick={download} disabled={busy || backupPass.length < 8}>
+              {session.persona.custody === 'local' ? 'Descargar backup cifrado (NIP-49)' : 'Descargar la llave de archivo cifrada (NIP-49)'}
+            </Button>
+            {cloudAllowed && (
+              <Button id="cloud-backup" onClick={saveToCloud} disabled={busy || backupPass.length < 8}>
+                Guardar copia cifrada en la nube
+              </Button>
             )}
           </CardActions>
-          {session.persona.custody === 'local' && cloudAllowed && (
+          <CardContent sx={{ pt: 0 }}>
+            <Typography variant="body2" color="text.secondary" id="backup-facts">
+              {session.persona.custody === 'local'
+                ? 'El backup lleva tu llave y la llave de archivo del Continuity Vault, cifradas con la contraseña del backup.'
+                : 'Tu llave vive en tu signer, así que este backup solo lleva la llave de archivo del Continuity Vault, cifrada con la contraseña del backup.'}
+            </Typography>
+          </CardContent>
+          {cloudAllowed && (
             <CardContent sx={{ pt: 0 }}>
               <Typography variant="body2" color="text.secondary" id="cloud-backup-facts">
                 La copia en la nube se cifra en este navegador con la contraseña del backup (NIP-49). El servidor guarda el texto cifrado y tu npub, pero no recibe la contraseña: si la olvidas, el operador no puede recuperar la copia.
@@ -199,6 +212,7 @@ export function PersonasView() {
 
       {session && <LinkPersonas />}
       {session && <BlossomServers key={session.persona.id} />}
+      {session && cfg.continuityVault && <ContinuityVault key={session.persona.id} url={cfg.continuityVault} />}
       {session?.persona.managedKeyId && managedAvailable && <MigrationWizard key={session.persona.id} />}
 
       <Card component="form" onSubmit={create}>
@@ -231,6 +245,7 @@ export function PersonasView() {
                 <Button component="label" variant="outlined">
                   Elegir archivo .json
                   <input
+                    id="backup-file"
                     hidden
                     type="file"
                     accept="application/json,.json"
@@ -253,7 +268,12 @@ export function PersonasView() {
                     Restaurar desde la nube
                   </Button>
                 )}
-                {backupFile && <Alert severity="info" id="backup-npub">Backup de {backupFile.parsed.npub} ({backupFile.parsed.format}). Se comprobará al descifrarlo.</Alert>}
+                {backupFile && (
+                  <Alert severity="info" id="backup-npub">
+                    Backup de {backupFile.parsed.npub} ({backupFile.parsed.format}
+                    {backupFile.parsed.archiveKey ? ', con la llave de archivo del Continuity Vault' : ''}). Se comprobará al descifrarlo.
+                  </Alert>
+                )}
                 <TextField id="import-backup-pass" label="Contraseña del archivo de backup" type="password" autoComplete="off" value={ncPass} onChange={(e) => setNcPass(e.target.value)} required />
               </Stack>
             )}
