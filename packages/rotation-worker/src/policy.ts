@@ -17,12 +17,22 @@ export interface RotationSource {
   markDone(id: string): Promise<void>;
 }
 
-/** Entry of the policy-engine audit log (only the fields used here). */
-export interface PolicyAuditEntry {
+/** One device revocation of the policy-engine's `GET /v1/revocations` feed (FR024-04). */
+export interface DeviceRevocation {
+  /** Audit id of the revocation: monotonic, pass the last one handled as `after`. */
+  cursor: number;
   at: number;
-  action: string;
-  target: string;
-  details?: Record<string, unknown>;
+  deviceId: string;
+  reason?: string;
+}
+
+/** A page of `GET /v1/revocations`, oldest first. */
+export interface RevocationPage {
+  revocations: DeviceRevocation[];
+  /** Cursor of the newest revocation in the policy-engine (0 if none). */
+  latest: number;
+  /** Policy-engine clock (epoch ms), the one that stamped `at`. */
+  now: number;
 }
 
 export class PolicyHttpError extends Error {
@@ -46,8 +56,8 @@ export async function nip98Header(signer: Signer, url: string, method: string, b
 }
 
 /**
- * Policy-engine client for the rotation contract: `GET /v1/rotations?status=pending` (admin NIP-98) and
- * `POST /v1/rotations/:id/done` (admin NIP-98 or bearer).
+ * Policy-engine client for the rotation contract: `GET /v1/rotations?status=pending` (admin NIP-98),
+ * `POST /v1/rotations/:id/done` and `GET /v1/revocations` (admin NIP-98 or bearer).
  */
 export class HttpPolicySource implements RotationSource {
   private readonly base: string;
@@ -74,8 +84,15 @@ export class HttpPolicySource implements RotationSource {
     await this.call('POST', `/v1/rotations/${encodeURIComponent(id)}/done`, true);
   }
 
-  /** Audit log (admin NIP-98), used to propagate device revocations. */
-  async audit(): Promise<PolicyAuditEntry[]> {
-    return (await this.call<{ audit?: PolicyAuditEntry[] }>('GET', '/v1/audit')).audit ?? [];
+  /** FR024-04: device revocations after `after`, oldest first, used to propagate them to the signers. */
+  async revocations(after: number, limit: number): Promise<RevocationPage> {
+    const page = await this.call<Partial<RevocationPage>>('GET', `/v1/revocations?after=${after}&limit=${limit}`, true);
+    const valid = (r: Partial<DeviceRevocation>) => Number.isSafeInteger(r.cursor) && typeof r.at === 'number' && typeof r.deviceId === 'string' && r.deviceId !== '';
+    // Never skip what cannot be read: a malformed page fails the run, and the cursor stays where it is.
+    if (!Array.isArray(page.revocations) || !page.revocations.every(valid) || typeof page.latest !== 'number' || typeof page.now !== 'number') {
+      throw new PolicyHttpError(502, 'policy-engine GET /v1/revocations: malformed response');
+    }
+    const revocations = (page.revocations as DeviceRevocation[]).filter((r) => r.cursor > after).sort((a, b) => a.cursor - b.cursor);
+    return { revocations, latest: page.latest, now: page.now };
   }
 }

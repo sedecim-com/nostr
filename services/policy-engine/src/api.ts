@@ -10,6 +10,15 @@ const optText = (v: unknown, field: string): string | undefined => {
   return v;
 };
 
+/** Optional integer query parameter of at least `min`. */
+const intParam = (req: Req, k: string, min: number): number | undefined => {
+  const v = req.query.get(k);
+  if (v === null || v === '') return undefined;
+  const n = Number(v);
+  if (!Number.isSafeInteger(n) || n < min) throw new HttpError(400, min === 1 ? `${k} must be a positive integer` : `${k} must be an integer of at least ${min}`);
+  return n;
+};
+
 /** Maps engine errors to HTTP statuses. */
 async function run<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -136,15 +145,13 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
 
   svc.get('/v1/audit', async (req) => {
     admin(req.pubkey);
-    const int = (k: string) => {
-      const v = req.query.get(k);
-      if (v === null || v === '') return undefined;
-      const n = Number(v);
-      if (!Number.isSafeInteger(n) || n < 1) throw new HttpError(400, `${k} must be a positive integer`);
-      return n;
-    };
-    return { audit: await engine.listAudit({ limit: int('limit'), before: int('before') }) };
+    return { audit: await engine.listAudit({ limit: intParam(req, 'limit', 1), before: intParam(req, 'before', 1) }) };
   }, 'nip98');
+  // FR024-04: feed of the revocation propagator (an admin, or the rotation worker's service token).
+  svc.get('/v1/revocations', async (req) => {
+    adminOrService(req);
+    return engine.listRevocations({ after: intParam(req, 'after', 0), limit: intParam(req, 'limit', 1) });
+  }, 'nip98-or-token');
 
   svc.get('/v1/directory', async (req) => (admin(req.pubkey), { entries: await engine.listDirectory() }), 'nip98');
   svc.put('/v1/directory/:pubkey', async (req) => {

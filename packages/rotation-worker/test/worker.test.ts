@@ -3,7 +3,7 @@ import { generateSecretKey, type NostrEvent } from '@sedecim/nostr-core';
 import { MarmotTsProvider, MemoryGroupNetwork, VolatileGroupStorage, type ExtendedGroupSession, type GroupNetwork } from '@sedecim/marmot-adapter';
 import { LocalSigner } from '@sedecim/signer';
 import { createLogger, type LogRecord } from '@sedecim/telemetry-policy';
-import { HttpPolicySource, PolicyHttpError, RevocationPropagator, RotationWorker } from '../src/index';
+import { HttpPolicySource, PolicyHttpError, RevocationPropagator, RotationWorker, type DeviceRevocation } from '../src/index';
 import { StubPolicyApi, type RotationFeedItem } from '../src/testing';
 
 const RELAYS = ['wss://relay.invalid'];
@@ -162,30 +162,117 @@ describe('rotation worker (FR024-02)', () => {
   });
 });
 
-describe('device revocation propagation (FR024-03)', () => {
-  it('propagates each device.revoke to every sink, retrying the ones that failed', async () => {
-    const audit = [
-      { at: 1, action: 'device.register', target: 'd1' },
-      { at: 2, action: 'device.revoke', target: 'd1', details: { reason: 'lost phone' } },
-      { at: 3, action: 'device.revoke', target: 'd2' },
-    ];
+describe('device revocation propagation (FR024-03, FR024-04)', () => {
+  const quiet = createLogger({ write: () => {} });
+  const stubs: StubPolicyApi[] = [];
+  afterEach(async () => {
+    await Promise.all(stubs.splice(0).map((s) => s.close()));
+  });
+  const revocation = (cursor: number, at = 0, reason?: string): DeviceRevocation => ({ cursor, at, deviceId: `d${cursor}`, ...(reason ? { reason } : {}) });
+  /** In-memory feed with the engine's contract: oldest first, `after` exclusive, `latest`, `now`. */
+  const memoryFeed = (entries: DeviceRevocation[], clock = { now: 1_000_000 }) => ({
+    reads: 0,
+    async revocations(after: number, limit: number) {
+      this.reads++;
+      return { revocations: entries.filter((e) => e.cursor > after).slice(0, limit), latest: entries.at(-1)?.cursor ?? 0, now: clock.now };
+    },
+  });
+  const memoryCursor = () => {
+    const box: { value?: number; saves: number } = { saves: 0 };
+    return { box, store: { load: async () => box.value, save: async (c: number) => void ((box.value = c), box.saves++) } };
+  };
+
+  it('propagates each revocation to every sink, retrying the ones that failed', async () => {
     const calls: string[] = [];
-    let failD2 = true;
+    let failD3 = true;
     const p = new RevocationPropagator({
-      audit: async () => audit,
-      logger: createLogger({ write: () => {} }),
+      feed: memoryFeed([revocation(2, 0, 'lost phone'), revocation(3)]),
+      logger: quiet,
       sinks: [
         async (id, reason) => void calls.push(`signer:${id}:${reason ?? ''}`),
         async (id) => {
-          if (id === 'd2' && failD2) throw new Error('bunker offline');
+          if (id === 'd3' && failD3) throw new Error('bunker offline');
           calls.push(`bunker:${id}`);
         },
       ],
     });
-    expect(await p.runOnce()).toEqual(['d1']);
-    failD2 = false;
     expect(await p.runOnce()).toEqual(['d2']);
+    failD3 = false;
+    expect(await p.runOnce()).toEqual(['d3']);
     expect(await p.runOnce()).toEqual([]);
-    expect(calls).toEqual(['signer:d1:lost phone', 'bunker:d1', 'signer:d2:', 'signer:d2:', 'bunker:d2']);
+    expect(calls).toEqual(['signer:d2:lost phone', 'bunker:d2', 'signer:d3:', 'signer:d3:', 'bunker:d3']);
+  });
+
+  it('pages through the feed over HTTP: 250 revocations, none lost, each propagated once (B2)', async () => {
+    const admin = new LocalSigner(generateSecretKey());
+    const entries = Array.from({ length: 250 }, (_, i) => revocation(3 * i + 7));
+    const stub = new StubPolicyApi({ adminPubkeys: [await admin.getPublicKey()], bearerTokens: { 'worker-bearer-0123456789': 'rotation-worker' }, feed: () => [], revocations: () => entries });
+    stubs.push(stub);
+    const base = await stub.listen();
+    const sent: string[] = [];
+    const p = new RevocationPropagator({ feed: new HttpPolicySource({ baseUrl: base, signer: admin, bearer: 'worker-bearer-0123456789' }), pageSize: 100, logger: quiet, sinks: [async (id) => void sent.push(id)] });
+    expect(await p.runOnce()).toHaveLength(250);
+    expect(sent).toEqual(entries.map((e) => e.deviceId));
+    expect(stub.revocationReads).toBe(3);
+    expect(await p.runOnce()).toEqual([]);
+    expect(sent).toHaveLength(250);
+    // Admin NIP-98 works too; anyone else is refused.
+    expect((await new HttpPolicySource({ baseUrl: base, signer: admin }).revocations(700, 100)).revocations).toEqual(entries.filter((e) => e.cursor > 700));
+    await expect(new HttpPolicySource({ baseUrl: base, signer: new LocalSigner(generateSecretKey()) }).revocations(0, 10)).rejects.toThrow(/403/);
+  });
+
+  it('keeps the cursor behind a failure and behind unsettled revocations, and resumes from the saved one', async () => {
+    const clock = { now: 1_000_000 };
+    const entries = [revocation(10), revocation(20), revocation(30), revocation(40, clock.now - 10_000)];
+    const feed = memoryFeed(entries, clock);
+    const { box, store } = memoryCursor();
+    const sent: string[] = [];
+    let failD20 = true;
+    const sink = async (id: string) => {
+      if (id === 'd20' && failD20) throw new Error('managed-signer 503');
+      sent.push(id);
+    };
+    const p = new RevocationPropagator({ feed, cursor: store, logger: quiet, sinks: [sink] });
+    // d20 fails: d30 and d40 still go out, and the cursor stops before d20.
+    expect(await p.runOnce()).toEqual(['d10', 'd30', 'd40']);
+    expect(box.value).toBe(10);
+    // Only d20 is retried. d40 was propagated but is younger than 60 s, so the cursor stops at d30.
+    failD20 = false;
+    expect(await p.runOnce()).toEqual(['d20']);
+    expect(box.value).toBe(30);
+    // An id below one already seen whose row commits late is still picked up: the cursor had not passed it.
+    entries.splice(3, 0, { cursor: 35, at: 0, deviceId: 'late' });
+    expect(await p.runOnce()).toEqual(['late']);
+    expect(box.value).toBe(35);
+    clock.now += 60_000;
+    expect(await p.runOnce()).toEqual([]);
+    expect(box.value).toBe(40);
+    const saves = box.saves;
+    expect(await p.runOnce()).toEqual([]);
+    expect(box.saves).toBe(saves);
+    // A restart resumes from the saved cursor: nothing is sent again, only what is new.
+    entries.push(revocation(50));
+    const restarted = new RevocationPropagator({ feed, cursor: store, logger: quiet, sinks: [sink] });
+    expect(await restarted.runOnce()).toEqual(['d50']);
+    expect(sent).toEqual(['d10', 'd30', 'd40', 'd20', 'late', 'd50']);
+  });
+
+  it('starts over when its cursor is ahead of the policy-engine (another or a rebuilt database)', async () => {
+    const { box, store } = memoryCursor();
+    box.value = 900;
+    const logs: LogRecord[] = [];
+    const sent: string[] = [];
+    const p = new RevocationPropagator({ feed: memoryFeed([revocation(1), revocation(2)]), cursor: store, logger: createLogger({ write: (r) => logs.push(r) }), sinks: [async (id) => void sent.push(id)] });
+    expect(await p.runOnce()).toEqual(['d1', 'd2']);
+    expect(box.value).toBe(2);
+    expect(logs.some((l) => l.level === 'warn' && /starting over/.test(l.msg))).toBe(true);
+  });
+
+  it('fails the run on a malformed page instead of skipping what it cannot read', async () => {
+    const admin = new LocalSigner(generateSecretKey());
+    const stub = new StubPolicyApi({ adminPubkeys: [await admin.getPublicKey()], feed: () => [], revocations: () => [{ cursor: 1, at: 0 } as DeviceRevocation] });
+    stubs.push(stub);
+    const p = new RevocationPropagator({ feed: new HttpPolicySource({ baseUrl: await stub.listen(), signer: admin }), logger: quiet, sinks: [async () => {}] });
+    await expect(p.runOnce()).rejects.toThrow(/malformed/);
   });
 });

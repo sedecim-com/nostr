@@ -491,7 +491,8 @@ export class SovereignClient {
   /**
    * FR024-02/03 revocation worker run by this persona, which must be an admin of the groups (MIP-03) and a
    * policy-engine admin (NIP-98). Use a dedicated device/persona: it syncs the groups and discards what it
-   * decrypts. HTTP goes through the persona's network policy (Tor-only / allowlist + these hosts).
+   * decrypts. HTTP goes through the persona's network policy (Tor-only / allowlist + these hosts). The
+   * revocation cursor (FR024-04) is kept per policy-engine in the persona's encrypted store.
    */
   async revocationWorker(
     personaId: string,
@@ -509,8 +510,13 @@ export class SovereignClient {
     const f = guard.fetchApi();
     const source = new HttpPolicySource({ baseUrl: opts.policyUrl, signer: s.signer, fetch: f, ...(opts.policyBearer ? { bearer: opts.policyBearer } : {}) });
     const worker = new RotationWorker({ source, session: await this.groupSession(personaId), ...(opts.backoff ? { backoff: opts.backoff } : {}) });
+    const cursors = s.store.collection<{ cursor: number }>('revocation-cursors');
     const propagator = opts.managedSigner
-      ? new RevocationPropagator({ audit: () => source.audit(), sinks: [managedSignerSink({ baseUrl: opts.managedSigner.url, token: opts.managedSigner.token, fetch: f })] })
+      ? new RevocationPropagator({
+          feed: source,
+          sinks: [managedSignerSink({ baseUrl: opts.managedSigner.url, token: opts.managedSigner.token, fetch: f })],
+          cursor: { load: async () => (await cursors.get(opts.policyUrl))?.cursor, save: (cursor) => cursors.put(opts.policyUrl, { cursor }) },
+        })
       : undefined;
     return { worker, ...(propagator ? { propagator } : {}) };
   }

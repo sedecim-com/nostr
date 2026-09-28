@@ -7,6 +7,7 @@ import {
   type DirectoryEntry,
   type PolicyAuditEntry,
   type Resource,
+  type RevocationPage,
   type RetentionPolicy,
   type Rotation,
   type Subject,
@@ -155,6 +156,20 @@ export class PolicyEngine {
     for (const r of await this.repo.listResources()) if (r.members?.includes(pubkey)) await this.repo.putResource({ ...r, members: r.members.filter((m) => m !== pubkey) });
     await this.log(actor, 'subject.revoke', pubkey);
     return rots;
+  }
+
+  /**
+   * FR024-04: device revocations after `after` (an audit id), oldest first. They come straight from the
+   * audit, filtered by action, so no amount of other audit traffic can push one out of a page.
+   */
+  async listRevocations(q: { after?: number; limit?: number } = {}): Promise<RevocationPage> {
+    const entries = await this.repo.listAuditByAction({ action: 'device.revoke', after: q.after ?? 0, limit: Math.min(Math.max(q.limit ?? 100, 1), 1000) });
+    return {
+      revocations: entries.map((e) => ({ cursor: e.id, at: e.at, deviceId: e.target, ...(typeof e.details?.reason === 'string' ? { reason: e.details.reason } : {}) })),
+      // Read after the page, so that it is never older than what the page holds.
+      latest: await this.repo.lastAuditId('device.revoke'),
+      now: this.now(),
+    };
   }
 
   async markRotationDone(actor: string, id: string): Promise<Rotation> {

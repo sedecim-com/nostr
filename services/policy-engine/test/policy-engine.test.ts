@@ -193,6 +193,35 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
       await asAdmin('/v1/devices', 'POST', { owner: carol });
       expect(await allowlist()).toContain(carol);
     });
+
+    it('serves device revocations from a cursor, whatever else the audit holds (FR024-04)', async () => {
+      type Revocation = { cursor: number; at: number; deviceId: string; reason?: string };
+      const before = (await asAdmin('/v1/revocations')).json.latest as number;
+      const dave = getPublicKey(generateSecretKey());
+      const devices: string[] = [];
+      for (let i = 0; i < 3; i++) devices.push((await asAdmin('/v1/devices', 'POST', { owner: dave })).json.id);
+      await asAdmin(`/v1/devices/${devices[0]}/revoke`, 'POST', { reason: 'lost phone' });
+      // More than a page of other audit entries after the first revocation (B2).
+      for (let i = 0; i < 150; i++) await engine.evaluate({ pubkey: alice, resourceId: 'legal-room', action: 'read' });
+      await asAdmin(`/v1/devices/${devices[1]}/revoke`, 'POST', {});
+      await asAdmin(`/v1/devices/${devices[2]}/revoke`, 'POST', {});
+      expect((await asAdmin('/v1/audit')).json.audit.some((a: { target: string }) => a.target === devices[0])).toBe(false);
+
+      const page = (await asAdmin(`/v1/revocations?after=${before}`)).json as { revocations: Revocation[]; latest: number; now: number };
+      expect(page.revocations.map((r) => r.deviceId)).toEqual(devices);
+      expect(page.revocations[0]).toMatchObject({ reason: 'lost phone', at: expect.any(Number) });
+      expect(page.revocations[1]!.reason).toBe('revoked');
+      expect(page.latest).toBe(page.revocations[2]!.cursor);
+      expect(page.now).toBeGreaterThanOrEqual(page.revocations[2]!.at);
+      // Pages by `after` and `limit`. A service token may read it; no other identity may.
+      const first = (await bearerFetch(`/v1/revocations?after=${before}&limit=2`).then((r) => r.json())).revocations as Revocation[];
+      expect(first.map((r) => r.deviceId)).toEqual(devices.slice(0, 2));
+      const rest = (await bearerFetch(`/v1/revocations?after=${first[1]!.cursor}&limit=2`).then((r) => r.json())).revocations as Revocation[];
+      expect(rest.map((r) => r.deviceId)).toEqual([devices[2]]);
+      expect((await nip98Fetch(aliceSk, `${base}/v1/revocations`)).status).toBe(403);
+      expect((await asAdmin('/v1/revocations?after=-1')).status).toBe(400);
+      expect((await asAdmin('/v1/revocations?limit=0')).status).toBe(400);
+    });
   });
 }
 

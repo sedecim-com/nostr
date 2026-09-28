@@ -115,10 +115,21 @@ Flujo completo de un dispositivo perdido o robado, probado de punta a punta en
      esta identidad no tiene, intento de expulsarse a sí misma) **nunca** marca la rotación como hecha;
    - **logs** solo con id de rotación, prefijo del grupo, época y resultado; nunca texto de mensajes. Usa un
      dispositivo (o una persona admin) dedicado: el worker sincroniza los grupos y descarta lo que descifra.
-3. **Firmantes** (FR024-03). Con `--managed-signer` el worker también propaga cada `device.revoke` de la
-   auditoría del policy-engine a `POST /v1/devices/:id/revoke` del managed-signer, autenticado con un token de
+3. **Firmantes** (FR024-03). Con `--managed-signer` el worker también propaga cada revocación de dispositivo
+   del policy-engine a `POST /v1/devices/:id/revoke` del managed-signer, autenticado con un token de
    revocación (`MANAGED_SIGNER_REVOCATION_TOKENS`, que no sirve para nada más). Es idempotente y se reintenta
    hasta que todos los destinos lo aceptan.
+   - **Sin pérdidas** (FR024-04). El worker lee `GET /v1/revocations?after=<cursor>`: solo las entradas
+     `device.revoke` de la auditoría, de la más antigua a la más nueva y por páginas. Así, ningún volumen de
+     otras entradas de la auditoría (cada `evaluate` escribe una) desplaza una revocación fuera de la
+     página, como pasaba al leer las últimas 100 de `GET /v1/audit`.
+     - Una revocación que falla no deja pasar el cursor y se reintenta en cada ciclo. Las siguientes se
+       propagan igual.
+     - El cursor tampoco pasa una revocación con menos de 60 s según el reloj del policy-engine. El id de
+       auditoría se asigna antes del commit, así que un id menor puede aparecer después que uno mayor.
+     - El cursor se guarda, por policy-engine, en el almacén cifrado de la persona. Al reiniciar se sigue
+       desde ahí. Si el cursor es mayor que la última revocación (otra base, o una reconstruida), empieza de
+       cero.
    - **Managed-signer**: los clientes abren **sesiones ligadas al dispositivo** (`POST /v1/device-sessions`
      con su token de Acceso → token `sds_…`, 12 h por defecto; solo se guarda su SHA-256). Al revocar el
      dispositivo sus sesiones se borran, no se abren nuevas y cualquier petición con `x-device-id` de ese

@@ -41,6 +41,10 @@ export interface PolicyRepository {
   appendAudit(e: NewAuditEntry): Promise<void>;
   /** Newest first; `before` is an exclusive audit id. */
   listAudit(q: { limit: number; before?: number }): Promise<PolicyAuditEntry[]>;
+  /** Oldest first: the entries of one action whose id is greater than `after`. */
+  listAuditByAction(q: { action: string; after: number; limit: number }): Promise<PolicyAuditEntry[]>;
+  /** Id of the newest entry of one action, 0 if none. */
+  lastAuditId(action: string): Promise<number>;
   listDirectory(): Promise<DirectoryEntry[]>;
   putDirectoryEntry(e: DirectoryEntry): Promise<void>;
   deleteDirectoryEntry(pubkey: string): Promise<boolean>;
@@ -125,6 +129,13 @@ export class MemoryPolicyRepository implements PolicyRepository {
         .reverse(),
     );
   }
+  async listAuditByAction(q: { action: string; after: number; limit: number }) {
+    return clone(this.audit.filter((e) => e.action === q.action && e.id > q.after).slice(0, q.limit));
+  }
+  async lastAuditId(action: string) {
+    for (let i = this.audit.length - 1; i >= 0; i--) if (this.audit[i]!.action === action) return this.audit[i]!.id;
+    return 0;
+  }
   async listDirectory() {
     return clone([...this.directory.values()].sort(byKey((e) => e.pubkey)));
   }
@@ -188,6 +199,14 @@ export class PgPolicyRepository implements PolicyRepository {
     removedPubkey: r.removed_pubkey as string,
     status: r.status as Rotation['status'],
     ...(r.done_at !== null ? { doneAt: Number(r.done_at) } : {}),
+  });
+  private auditEntry = (r: Row): PolicyAuditEntry => ({
+    id: Number(r.id),
+    at: Number(r.at),
+    actor: r.actor as string,
+    action: r.action as string,
+    target: r.target as string,
+    ...(r.details ? { details: r.details as Record<string, unknown> } : {}),
   });
 
   async getSubject(pubkey: string) {
@@ -275,7 +294,15 @@ export class PgPolicyRepository implements PolicyRepository {
       q.before === undefined
         ? await this.pool.query('SELECT * FROM policy_audit ORDER BY id DESC LIMIT $1', [q.limit])
         : await this.pool.query('SELECT * FROM policy_audit WHERE id < $2 ORDER BY id DESC LIMIT $1', [q.limit, q.before]);
-    return rows.map((r) => ({ id: Number(r.id), at: Number(r.at), actor: r.actor, action: r.action, target: r.target, ...(r.details ? { details: r.details } : {}) }));
+    return rows.map(this.auditEntry);
+  }
+  async listAuditByAction(q: { action: string; after: number; limit: number }) {
+    const { rows } = await this.pool.query('SELECT * FROM policy_audit WHERE action = $1 AND id > $2 ORDER BY id LIMIT $3', [q.action, q.after, q.limit]);
+    return rows.map(this.auditEntry);
+  }
+  async lastAuditId(action: string) {
+    const { rows } = await this.pool.query('SELECT coalesce(max(id), 0) AS id FROM policy_audit WHERE action = $1', [action]);
+    return Number(rows[0].id);
   }
   async listDirectory() {
     const { rows } = await this.pool.query('SELECT * FROM policy_directory ORDER BY pubkey');

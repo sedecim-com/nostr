@@ -43,6 +43,7 @@ Todas las rutas son JSON. "Admin" = NIP-98 firmado por una pubkey de `POLICY_ADM
 | `POST /v1/evaluate` · `GET /v1/relay/allowlist` | servicio | `Decision` · `{pubkeys}` |
 | `GET /v1/rotations?status=pending\|done` | admin | `{rotations}` (cada una con `id` y `status`) |
 | `POST /v1/rotations/:id/done` | admin o servicio | `Rotation` |
+| `GET /v1/revocations?after=&limit=` | admin o servicio | `{revocations, latest, now}`: revocaciones de dispositivo (`{cursor, at, deviceId, reason}`, más antigua primero) con `cursor` mayor que `after`; `latest` = cursor de la última (FR024-04) |
 | `GET /v1/audit?limit=&before=` | admin | `{audit}`, más nuevo primero; `before` = `id` de la última entrada recibida |
 | `GET /v1/directory` · `PUT /v1/directory/:pubkey` · `DELETE /v1/directory/:pubkey` | admin | `{entries}` · entrada · `{ok}` |
 | `GET /v1/retention` | admin o servicio | `{policies, notice}` |

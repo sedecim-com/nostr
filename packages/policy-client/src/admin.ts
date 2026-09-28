@@ -20,6 +20,24 @@ export interface PolicyAuditEntry {
   details?: Record<string, unknown>;
 }
 
+/** FR024-04: one device revocation of `GET /v1/revocations`, read from the audit. */
+export interface DeviceRevocation {
+  /** Audit id of the revocation: monotonic, pass the last one handled as `after`. */
+  cursor: number;
+  at: number;
+  deviceId: string;
+  reason?: string;
+}
+
+/** FR024-04: a page of `GET /v1/revocations`, oldest first. */
+export interface RevocationPage {
+  revocations: DeviceRevocation[];
+  /** Cursor of the newest revocation (0 if none): a consumer holding a higher one is on another or a rebuilt database. */
+  latest: number;
+  /** Policy-engine clock (epoch ms), the one that stamped `at`. */
+  now: number;
+}
+
 /** FR023-06: organisational directory entry (admin-only, never published to relays). */
 export interface DirectoryEntry {
   pubkey: string;
