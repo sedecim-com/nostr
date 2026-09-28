@@ -2929,8 +2929,8 @@
    "sp": 3,
    "deps": [],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 1c531c5 (PR #304): backlog-sync solo acepta Hecho si la evidencia cita un commit de main (API compare) y avisa del resto. Labels evidencia:* (de Proposed a Production Enabled): los crea seed y pull pone evidencia:merged. Estados documentados en docs/backlog/GITHUB.md. Tests: tests/scripts/backlog-github.test.ts.",
    "issue": 221
   },
   {
@@ -2979,8 +2979,8 @@
     "FR016-01"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 330d9fa (PR #304): relay-pool se autentica (NIP-42) antes de pedir los kinds 4, 44 y 1059, también en on-demand y al reconectar (packages/relay-pool/test/pool.test.ts). E2E de grupos contra el nostr-rs-relay real en el job stack de CI: web (tests/browser/web-groups.e2e.ts) y CLI (tests/interop/sovereign-secure-relay.interop.test.ts). Perfil tor: secure-relay-onion con relay_url = onion (infra/secure-relay/onion-entrypoint.sh) y un DM leído por ese onion en scripts/tor-profile-check.sh.",
    "issue": 224
   },
   {
@@ -3013,8 +3013,8 @@
     "FR023-03"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit eb0f69b (PR #304): PUT /v1/subjects conserva suspended; POST /v1/subjects/:pubkey/reactivate (404 si no existe, 409 si no está revocada) deja la entrada subject.reactivate en la auditoría, y los dispositivos siguen revocados. Consola: «Reactivar» con confirmación. Tests: services/policy-engine/test/policy-engine.test.ts (memoria y Postgres) y tests/browser/admin-console.e2e.ts.",
    "issue": 226
   },
   {
@@ -3030,8 +3030,8 @@
     "FR024-01"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 0a92758 (PR #304): GET /v1/revocations con cursor sobre la auditoría (migración 002_audit_action_idx) y RevocationPropagator por páginas. El cursor no pasa una revocación fallida ni una de menos de 60 s, y se guarda por policy-engine en el almacén cifrado de la persona. Tests: tests/security/device-loss.test.ts (150 entradas de auditoría entre revocación y propagación), packages/rotation-worker/test/worker.test.ts (250 revocaciones por HTTP), services/policy-engine/test/policy-engine.test.ts y apps/sovereign-client/test/revocations.test.ts.",
    "issue": 227
   },
   {
