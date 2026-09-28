@@ -177,7 +177,7 @@ describe('backlog ⇄ GitHub Issues (GitHub is the source)', () => {
     const sprint = small.meta.sprints.find((s: { id: string }) => s.id === (backlog.tasks.find((t: { id: string }) => t.id === open.id) as { sprint: string }).sprint);
     const renamedMeta = { ...small.meta, sprints: small.meta.sprints.map((s: { id: string; name: string }) => (s === sprint ? { ...s, name: `${s.name} (renombrado)` } : s)) };
     const r = await seed(api5, { meta: renamedMeta, tasks: small.tasks });
-    expect(r).toMatchObject({ created: [], renamed: 1, unlinked: 1, linked: 0 });
+    expect(r).toMatchObject({ created: [], updated: 1, unlinked: 1, linked: 0 });
     expect(issueOf(open.id).blocked_by).toEqual(open.deps.slice(1).map((d) => issueOf(d).id));
     expect(issueOf(closed.id).blocked_by.length).toBe(closed.deps.length);
     expect(gh5.milestones.find((m) => m.title.startsWith(`${sprint.id} · `))!.title).toBe(`${sprint.id} · ${sprint.name} (renombrado)`);
@@ -186,6 +186,28 @@ describe('backlog ⇄ GitHub Issues (GitHub is the source)', () => {
     await seed(api5, { meta: renamedMeta, tasks: small.tasks });
     expect(gh5.writes).toBe(before);
     gh5.stop();
+  });
+
+  it('seed closes the milestone of a sprint marked closed and never reopens one', async () => {
+    const gh6 = new FakeGitHub();
+    await gh6.start();
+    const api6 = createClient({ token: 't', repo: 'o/r', baseUrl: gh6.url, writeDelayMs: 0, log: () => undefined });
+    const open = (s: { closed?: boolean }) => ({ ...s, closed: undefined });
+    const meta = { ...backlog.meta, sprints: backlog.meta.sprints.map(open) };
+    const small = { meta, tasks: backlog.tasks.slice(0, 3) };
+    await seed(api6, small);
+    expect(gh6.milestones.filter((m) => m.state === 'closed')).toEqual([]);
+    const target = meta.sprints.find((s: { id: string }) => s.id === 'S2');
+    const r = await seed(api6, { meta: { ...meta, sprints: meta.sprints.map((s: { id: string }) => (s === target ? { ...s, closed: true } : s)) }, tasks: small.tasks });
+    expect(r.updated).toBe(1);
+    expect(gh6.milestones.filter((m) => m.state === 'closed').map((m) => m.title.split(' · ')[0])).toEqual(['S2']);
+    // a milestone closed by hand stays closed when its sprint is not marked closed
+    gh6.milestones.find((m) => m.title.startsWith('S3 · '))!.state = 'closed';
+    const before = gh6.writes;
+    await seed(api6, small);
+    expect(gh6.writes).toBe(before);
+    expect(gh6.milestones.find((m) => m.title.startsWith('S3 · '))!.state).toBe('closed');
+    gh6.stop();
   });
 
   it('pull rebuilds exactly the same tasks from GitHub', async () => {
