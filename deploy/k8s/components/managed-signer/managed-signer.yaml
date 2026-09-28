@@ -57,12 +57,6 @@ spec:
                 secretKeyRef:
                   name: acceso-nostr-secrets
                   key: MANAGED_SIGNER_AWS_SECRET_ACCESS_KEY
-            - name: MANAGED_SIGNER_SERVICE_TOKENS
-              valueFrom:
-                secretKeyRef:
-                  name: acceso-nostr-secrets
-                  key: MANAGED_SIGNER_SERVICE_TOKENS
-                  optional: true
             # FR024-03: token:principal of the rotation worker, the only caller of POST /v1/devices/:id/revoke.
             - name: MANAGED_SIGNER_REVOCATION_TOKENS
               valueFrom:

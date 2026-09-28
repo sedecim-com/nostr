@@ -6,11 +6,6 @@ export interface ManagedSignerApiOptions extends Omit<ServiceOptions, 'bearerTok
   /** End users authorize with their Acceso (Cognito) token; the key owner is `${issuer}#${sub}` (FR005-04). */
   cognito?: CognitoVerifier;
   /**
-   * Legacy service-to-service mode (token -> principal), off unless configured: these principals act for
-   * the account named in `x-account-id`. End users can never use that header.
-   */
-  serviceTokens?: Record<string, string>;
-  /**
    * FR024-03: tokens (token -> principal, e.g. the policy side / rotation worker) allowed to call
    * `POST /v1/devices/:id/revoke`. They can do nothing else.
    */
@@ -29,11 +24,12 @@ const DEVICE_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 
 /**
  * Managed signer HTTP API. Every call is custodial and audited. Callers authenticate with
- * `Authorization: Bearer <token>`: an Acceso (Cognito) id/access token for end users, who can only reach
- * their own keys, or (if enabled) a service token plus `x-account-id`.
+ * `Authorization: Bearer <token>`: the user's Acceso (Cognito) id/access token or a device session opened with
+ * it, so they only ever reach their own keys. The legacy mode where a service token acted for the account
+ * named in `x-account-id` was removed (FR005-12): that header is refused, never ignored.
  */
 export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerApiOptions) {
-  const { cognito, serviceTokens, revocationTokens, requireDeviceSession, ...serviceOpts } = opts;
+  const { cognito, revocationTokens, requireDeviceSession, ...serviceOpts } = opts;
   const svc = new Service(serviceOpts);
   const log = svc.logger;
 
@@ -53,19 +49,14 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
 
   const authenticate = async (req: Req): Promise<Caller> => {
     const token = bearer(req);
-    const account = req.headers['x-account-id'];
+    // Never let a caller pick the owner: it always comes from the verified token or device session.
+    if (req.headers['x-account-id'] !== undefined) throw new HttpError(403, 'x-account-id is not accepted: the owner is the authenticated user');
     if (token.startsWith(DEVICE_SESSION_PREFIX)) {
-      if (account !== undefined) throw new HttpError(403, 'x-account-id is only accepted from service principals');
       const s = await core.resolveDeviceSession(token);
       return { ...s, viaDeviceSession: true };
     }
     const deviceId = claimedDevice(req);
     await core.assertDeviceUsable(deviceId);
-    const principal = lookupToken(serviceTokens, token);
-    if (principal) {
-      if (typeof account !== 'string' || !account) throw new HttpError(400, 'x-account-id header required');
-      return { owner: account, principal, ...(deviceId ? { deviceId } : {}) };
-    }
     if (!cognito) throw new HttpError(401, 'invalid bearer token');
     let who;
     try {
@@ -74,8 +65,6 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
       if (err instanceof CognitoTokenError) throw new HttpError(401, `invalid Acceso token: ${err.message}`);
       throw err;
     }
-    // Never let an end user pick the owner: it always comes from the verified token.
-    if (account !== undefined) throw new HttpError(403, 'x-account-id is only accepted from service principals');
     const owner = `${who.issuer}#${who.subject}`;
     return { owner, principal: owner, ...(deviceId ? { deviceId } : {}) };
   };
@@ -96,7 +85,7 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
   const route = (fn: (req: Req, caller: Caller) => Promise<unknown>, keyOp = true) => (req: Req) =>
     mapErrors(async () => {
       const caller = await authenticate(req);
-      if (keyOp && requireDeviceSession && !caller.viaDeviceSession && !lookupToken(serviceTokens, bearer(req))) throw new HttpError(403, 'device session required');
+      if (keyOp && requireDeviceSession && !caller.viaDeviceSession) throw new HttpError(403, 'device session required');
       return fn(req, caller);
     });
 

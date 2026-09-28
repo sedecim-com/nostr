@@ -52,7 +52,7 @@ git clone <repo> && cd nostr
 sh scripts/init-env.sh        # genera o completa .env sin sobrescribir valores (tras `npm ci`, llaves del keygen offline)
 docker compose up -d          # relay Buzz, postgres, redis, SeaweedFS (S3), indexer, identity, policy, blob-store, secure-relay, web
 docker compose --profile tor up -d       # + Tor SOCKS y relay .onion
-docker compose --profile managed up -d   # + managed signer (CUSTODIAL, opt-in)
+docker compose --profile managed up -d   # + managed signer (CUSTODIAL, opt-in; requiere Acceso: COGNITO_*)
 ```
 Web: http://localhost:8080 · Consola de administración: http://localhost:8080/admin/ · Relay: ws://localhost:3000 · Indexer: http://localhost:8081
 
