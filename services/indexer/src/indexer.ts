@@ -3,6 +3,7 @@ import type { Filter, NostrEvent } from '@sedecim/nostr-core';
 import { getTagValues } from '@sedecim/nostr-core';
 import { normalizeRelayUrl, type RelayPool } from '@sedecim/relay-pool';
 import type { Logger } from '@sedecim/telemetry-policy';
+import { GROUP_DELETE_EVENT_KIND, type GroupAuthorities } from './groups';
 import type { EventRepository } from './repository';
 import { channelShard, MemoryShardCoordinator, relayShard, shardOwner, type ShardCoordinator } from './sharding';
 
@@ -13,8 +14,11 @@ import { channelShard, MemoryShardCoordinator, relayShard, shardOwner, type Shar
  */
 export const DEFAULT_MIRROR_KINDS = [0, 1, 3, 5, 6, 7, 9, 10, 11, 12, 16, 1111, 9000, 9001, 9002, 9005, 9007, 9008, 9009, 9021, 9022, 10002, 10050, 10063, 30023, 39000, 39001, 39002, 40002, 40003];
 
-/** NIP-29 channel traffic mirrored per channel (Buzz only fans out channel events to `#h` subscriptions). */
-export const CHANNEL_KINDS = [5, 7, 9, 10, 11, 12, 16, 1111, 40002, 40003];
+/**
+ * NIP-29 channel traffic mirrored per channel (Buzz only fans out channel events to `#h` subscriptions), with the
+ * moderation deletions (9005, FR014-05).
+ */
+export const CHANNEL_KINDS = [5, 7, 9, 10, 11, 12, 16, 1111, 9005, 40002, 40003];
 
 export interface IndexerOptions {
   relays: string[];
@@ -42,6 +46,11 @@ export interface IndexerOptions {
    * between relay clients and events whose created_at is slightly in the past. Duplicates are ignored.
    */
   overlapSeconds?: number;
+  /**
+   * FR014-05: the relay keys whose NIP-29 lists count (admins for moderation deletions, and members for the read
+   * API). When not configured, they are learned from each relay's NIP-11 `self` on every channel refresh.
+   */
+  authorities?: GroupAuthorities;
 }
 
 /** One relay subscription covering one or more shards that are checkpointed together. */
@@ -89,6 +98,7 @@ export class Indexer {
   private channelSync: Promise<void> = Promise.resolve();
   private stopped = false;
   private offReconnect?: () => void;
+  private warnedNoAuthorities = false;
 
   constructor(private readonly pool: RelayPool, private readonly repo: EventRepository, private readonly opts: IndexerOptions) {
     this.coord = opts.coordinator ?? new MemoryShardCoordinator();
@@ -102,7 +112,29 @@ export class Indexer {
     const isNew = await this.repo.upsert(evt, relay, this.opts.communityId);
     if (isNew) this.ingested++;
     if (isNew && evt.kind === 5) await this.repo.tombstone(getTagValues(evt, 'e'), evt.pubkey);
+    // The event is stored either way; a deletion that could not be applied stays recorded for the next trigger.
+    if (isNew) await this.moderate(evt).catch((err) => this.opts.logger?.warn('moderation step failed', { error: (err as Error).message }));
     return isNew;
+  }
+
+  /**
+   * FR014-05: NIP-29 moderation, as Buzz applies it. A kind 9005 hides its target (same channel) when its actor is
+   * the target's author or an owner/admin in the channel's relay-signed kind 39001, whichever arrives first: the
+   * deletion, the target or the admin list that authorizes it.
+   */
+  private async moderate(evt: NostrEvent): Promise<void> {
+    const authorities = this.opts.authorities?.list() ?? [];
+    const h = getTagValues(evt, 'h')[0];
+    if (evt.kind === GROUP_DELETE_EVENT_KIND) {
+      if (!h) return;
+      for (const targetId of getTagValues(evt, 'e')) await this.repo.recordModeration({ deletionId: evt.id, targetId, h, actor: evt.pubkey });
+      await this.repo.applyModeration(h, authorities);
+    } else if (evt.kind === 39001 && authorities.includes(evt.pubkey)) {
+      const d = getTagValues(evt, 'd')[0];
+      if (d) await this.repo.applyModeration(d, authorities);
+    } else if (h) {
+      await this.repo.applyModeration(h, authorities, evt.id);
+    }
   }
 
   /** Joins the cluster, opens the owned relay subscriptions and resolves after their backfill and a channel refresh. */
@@ -151,9 +183,18 @@ export class Indexer {
   /** Re-discover channels; resubscribe the owned channel shards when the set changes. */
   async refreshChannels(): Promise<string[]> {
     if ((this.opts.channelRefreshMs ?? 30_000) === 0 || this.stopped) return [];
-    const metas = await this.pool.query(this.opts.relays, [{ kinds: [39000], limit: 1000 }], 8000);
-    for (const m of metas) await this.ingest(m, this.opts.relays[0]!).catch(() => false);
+    const learned = await this.opts.authorities?.discover(this.opts.relays);
+    if (this.opts.authorities && !this.opts.authorities.list().length && !this.warnedNoAuthorities) {
+      this.warnedNoAuthorities = true;
+      this.opts.logger?.warn('no relay key for NIP-29 lists yet: channel reads are denied until a relay publishes NIP-11 self or INDEXER_GROUP_AUTHORITIES is set');
+    }
+    // FR014-05: with the metadata, the admin and member lists (Buzz does not fan them out live either).
+    const state = await this.pool.query(this.opts.relays, [39000, 39001, 39002].map((k) => ({ kinds: [k], limit: 1000 })), 8000);
+    for (const m of state) await this.ingest(m, this.opts.relays[0]!).catch(() => false);
+    const metas = state.filter((m) => m.kind === 39000);
     metas.map((m) => getTagValues(m, 'd')[0]).filter((d): d is string => !!d).forEach((id) => this.channels.add(id));
+    // A relay key learned only now can authorize deletions that were waiting for it.
+    if (learned) for (const h of this.channels) await this.repo.applyModeration(h, this.opts.authorities!.list()).catch(() => 0);
     await this.syncChannels();
     return [...this.channels];
   }

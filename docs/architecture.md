@@ -175,3 +175,38 @@ concurrencia (`services/indexer/test/sharding.test.ts`) levanta 3–4 réplicas 
 indexado exactamente el conjunto publicado, que cada id se inserta una sola vez y que las direcciones
 reemplazables quedan en su última versión. Corre en memoria y, con `TEST_DATABASE_URL`, sobre Postgres
 con un pool por réplica (CI). Las cifras de carga están en [`load-testing.md`](load-testing.md).
+
+## Indexer / mirror: membresía NIP-29 y moderación (FR014-05)
+El espejo no sirve un canal a quien el relay no se lo serviría:
+- **Solo miembros.** Los mensajes de un canal (`h`) y su estado NIP-29 (39000-39003, por su `d`) solo se
+  devuelven a quien aparece en la lista de admins (39001) o de miembros (39002) del canal. Aplica a
+  `/v1/events`, `/v1/events/:id`, el resumen, los no leídos, el cursor de lectura y la búsqueda, también sin
+  nombrar un canal. Sin NIP-98 no se es miembro de nada. En modo institucional, además, decide el policy-engine
+  (FR023-05).
+- **Qué listas cuentan.** Solo las firmadas por la llave del relay que aloja el canal:
+  - `INDEXER_GROUP_AUTHORITIES` (hex o npub, separadas por comas);
+  - o, si está vacía, el campo `self` del NIP-11 de cada relay seguido. Buzz lo publica cuando tiene una llave
+    estable (`BUZZ_RELAY_PRIVATE_KEY`, obligatoria en compose).
+
+  Una lista firmada por otra llave no da acceso. Cuando el relay publica una lista nueva sin alguien, esa
+  persona pierde el acceso. El indexer consulta las listas junto con los 39000 en cada refresco de canales
+  (Buzz no las reparte en vivo).
+- **Moderación.** Un 9005 (borrar un evento del grupo) oculta su objetivo, igual que en Buzz:
+  - quien lo firma debe ser el autor del evento o un owner/admin de la 39001 del canal;
+  - el objetivo debe estar en el mismo canal.
+
+  Los 9005 llegan por la suscripción `#h` de cada canal. Se guardan en `moderation_deletions` hasta que se
+  pueden aplicar, así que da igual qué llega antes: el 9005, su objetivo o la lista de admins que lo autoriza.
+  Los borrados NIP-09 (kind 5) siguen ocultando solo eventos propios.
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `INDEXER_GROUP_AUTHORITIES` | vacía (NIP-11 `self`) | Llaves de relay cuyas listas NIP-29 dan acceso a un canal |
+
+Pruebas en `services/indexer/test/membership.test.ts`, en memoria y en Postgres, en claro y sellado:
+- quién lee qué y qué pasa al salir de un canal;
+- la búsqueda;
+- los 9005 en cualquier orden de llegada;
+- un relay como Buzz que publica `self`.
+
+`tests/interop/stack.interop.test.ts` lo comprueba contra el Buzz fijado.

@@ -13,6 +13,7 @@ import {
   createIndexerApi,
   DEFAULT_MIRROR_KINDS,
   enforceRetention,
+  GroupAuthorities,
   Indexer,
   MemoryEventRepository,
   MemoryShardCoordinator,
@@ -107,8 +108,14 @@ if (env.METRICS_PORT) {
   }
 }
 
+// FR014-05: the relay keys whose NIP-29 lists (admins, members) count for reads and moderation deletions.
+// INDEXER_GROUP_AUTHORITIES (hex or npub, comma separated) or, when unset, each relay's NIP-11 `self`.
+const groups = new GroupAuthorities((env.INDEXER_GROUP_AUTHORITIES ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+logger.info('channel access follows NIP-29 membership', { authorities: groups.configured ? 'configured' : 'NIP-11 self of each relay' });
+
 const indexer = new Indexer(pool, repo, {
   relays,
+  authorities: groups,
   filters: [{ kinds }],
   communityId: env.COMMUNITY_ID,
   logger,
@@ -168,5 +175,6 @@ const api = createIndexerApi(repo, {
   ...(rateLimiter ? { rateLimit: rateLimiter } : {}),
   ...(replayStore ? { replayStore } : {}),
   ...(policy ? { policy } : {}),
+  groups,
 });
 await api.listen(Number(env.PORT ?? 8081), env.HOST ?? '0.0.0.0');

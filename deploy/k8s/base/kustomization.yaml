@@ -44,6 +44,8 @@ configMapGenerator:
       - INDEXER_PUBLIC_URL=http://indexer:8081
       - INDEXER_REQUIRE_AUTH=true
       - INDEXER_CHANNEL_REFRESH_MS=30000
+      # FR014-05: empty = each relay's NIP-11 `self` (Buzz advertises it with BUZZ_RELAY_PRIVATE_KEY).
+      - INDEXER_GROUP_AUTHORITIES=
       - INDEXER_POLICY_ENGINE_URL=
       - IDENTITY_PUBLIC_URL=http://identity-service:8082
       - POLICY_PUBLIC_URL=http://policy-engine:8083

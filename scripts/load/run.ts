@@ -20,12 +20,12 @@ const profile = PROFILES[profileName];
 if (!profile) throw new Error(`unknown profile ${profileName} (${Object.keys(PROFILES).join(', ')})`);
 
 /** Starts scripts/load/local-stack.ts in a child process so the target does not share the generator's CPU. */
-async function localStack(indexers: number, databaseUrl?: string): Promise<{ relay: string; indexers: string[]; child: ChildProcess }> {
+async function localStack(indexers: number, databaseUrl?: string): Promise<{ relay: string; indexers: string[]; groupKey: string; child: ChildProcess }> {
   const script = fileURLToPath(new URL('./local-stack.ts', import.meta.url));
   const child = spawn(process.execPath, ['--import', 'tsx', script, '--indexers', String(indexers), ...(databaseUrl ? ['--database-url', databaseUrl] : [])], { stdio: ['ignore', 'pipe', 'inherit'] });
   const lines = createInterface({ input: child.stdout! });
   for await (const line of lines) {
-    if (line.startsWith('{"relay"')) return { ...(JSON.parse(line) as { relay: string; indexers: string[] }), child };
+    if (line.startsWith('{"relay"')) return { ...(JSON.parse(line) as { relay: string; indexers: string[]; groupKey: string }), child };
   }
   throw new Error('local stack exited before printing its URLs');
 }
@@ -33,9 +33,10 @@ async function localStack(indexers: number, databaseUrl?: string): Promise<{ rel
 let child: ChildProcess | undefined;
 let relay = arg('--relay');
 let indexers = list('--indexer') ?? [];
+let groupKey: string | undefined;
 if (args.includes('--local')) {
   const stack = await localStack(num('--local-indexers') ?? 1, arg('--database-url'));
-  ({ relay, indexers, child } = stack);
+  ({ relay, indexers, child, groupKey } = stack);
 }
 if (!relay) throw new Error('--relay ws://… (or --local) is required');
 
@@ -51,6 +52,7 @@ const base: Partial<LoadOptions> & Pick<LoadOptions, 'relay'> = {
   ...(num('--channels') !== undefined ? { channels: num('--channels') } : {}),
   ...(num('--lag-sample') !== undefined ? { lagSample: num('--lag-sample') } : {}),
   ...(num('--drain') !== undefined ? { drainS: num('--drain') } : {}),
+  ...(groupKey ? { groupKey } : {}),
   log: (m: string) => console.error(`[load] ${m}`),
 };
 

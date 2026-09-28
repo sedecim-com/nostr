@@ -13,8 +13,10 @@ Este informe recoge el throughput y los límites del relay y del mirror/indexer.
 `scripts/load/run.ts` (tsx) lanza N clientes, cada uno con su identidad y su conexión autenticada por
 NIP-42 (`RelayPool` con `authMode: 'auto'`). Todos se suscriben y publican a la vez:
 
-1. **Preparación.** Crea `--channels` canales NIP-29 abiertos (kind 9007). Buzz asigna el id y publica el
-   39000; en un relay sin NIP-29 se publica el 39000 directamente. Cada cliente se une (9021) y abre una
+1. **Preparación.** Crea `--channels` canales NIP-29 abiertos (kind 9007). Buzz asigna el id, publica el
+   39000 y hace owner a quien lo crea. En un relay sin NIP-29 (el stack local) se publican el 39000 y una
+   lista de miembros (39002) con el creador, firmados con la llave que hace de llave del relay (`groupKey`,
+   anunciada en el NIP-11 `self` del relay de prueba). Cada cliente se une (9021) y abre una
    suscripción en vivo (`limit: 0`) a los mensajes de canal (`#h`) y a sus gift wraps (`#p` = él mismo).
    Con indexer, se publica un mensaje por canal y se espera a que el mirror lo devuelva: el
    descubrimiento de canales es periódico y no debe contar como lag.
@@ -31,7 +33,8 @@ NIP-42 (`RelayPool` con `authMode: 'auto'`). Todos se suscriben y publican a la 
      Un mensaje de canal va a todos los clientes (incluido el autor) y un gift wrap solo al destinatario.
      Se mide el porcentaje entregado y la latencia.
    - *Lag del indexer:* para una fracción `--lag-sample` de los eventos 9/1 con OK, el tiempo desde la
-     publicación hasta que `GET /v1/events?ids=…` (NIP-98) los devuelve. Con varias réplicas se consultan
+     publicación hasta que `GET /v1/events?ids=…` (NIP-98) los devuelve. Consulta como el creador de los
+     canales, porque el espejo solo sirve un canal a sus miembros (FR014-05). Con varias réplicas se consultan
      por turnos, y cualquiera sirve las lecturas. Se sondea cada ~100 ms, así que la resolución es de
      unos 100–200 ms.
    - *Generador:* p99 del retardo del event loop del propio generador. Si sube de ~100 ms, el cuello de

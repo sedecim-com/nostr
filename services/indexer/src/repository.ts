@@ -74,7 +74,29 @@ export interface EventRepository {
   search(q: SearchQuery): Promise<MirroredEvent[]>;
   /** Retention (FR023-08): hard-deletes mirrored events older than `before`; returns how many. */
   purge(q: PurgeQuery): Promise<number>;
+  /**
+   * FR014-05: channels whose NIP-29 access lists (39001 admins, 39002 members) signed by one of `authorities`
+   * name `reader`. Only the head of each list is stored, so removing a member revokes the access.
+   */
+  memberChannels(reader: string, authorities: string[]): Promise<string[]>;
+  /** FR014-05: remembers a NIP-29 deletion (kind 9005) until it can be applied. */
+  recordModeration(d: ModerationDeletion): Promise<void>;
+  /**
+   * FR014-05: applies the pending deletions of channel `h` (only those of `targetId` when given) whose target is
+   * already mirrored in the same channel and whose actor is its author or an admin in a 39001 signed by one of
+   * `authorities`. Returns how many targets were hidden.
+   */
+  applyModeration(h: string, authorities: string[], targetId?: string): Promise<number>;
 }
+
+export interface ModerationDeletion {
+  deletionId: string;
+  targetId: string;
+  h: string;
+  actor: string;
+}
+
+const ACCESS_KINDS = [39001, 39002];
 
 /** Events of one channel (`h`) or one community created before `before` (unix seconds), minus the exceptions. */
 export type PurgeQuery = { before: number } & ({ h: string; exceptCommunities: string[] } | { community: string; exceptH: string[] });
@@ -95,6 +117,7 @@ function matches(q: EventQuery, m: MirroredEvent): boolean {
 export class MemoryEventRepository implements EventRepository {
   private readonly rows = new Map<string, MirroredEvent & { stored: ReturnType<EventCodec['encode']>; communityId?: string }>();
   private readonly cursors = new Map<string, number>();
+  private readonly moderation = new Map<string, ModerationDeletion & { applied: boolean }>();
   constructor(private readonly codec: EventCodec = plainCodec) {}
 
   async upsert(evt: NostrEvent, relay: string, communityId?: string): Promise<boolean> {
@@ -178,6 +201,41 @@ export class MemoryEventRepository implements EventRepository {
       (m) => m.sensitivity === 'channel' && (!q.h?.length || q.h.includes(getTagValue(m.event, 'h')!)),
     );
     return candidates.filter((m) => contentMatches(m.event, q.text)).slice(0, q.limit ?? 50);
+  }
+
+  async memberChannels(reader: string, authorities: string[]): Promise<string[]> {
+    const out = new Set<string>();
+    for (const r of this.rows.values()) {
+      const e = r.event;
+      if (r.deleted || !ACCESS_KINDS.includes(e.kind) || !authorities.includes(e.pubkey) || !getTagValues(e, 'p').includes(reader)) continue;
+      const d = getTagValue(e, 'd');
+      if (d) out.add(d);
+    }
+    return [...out];
+  }
+
+  async recordModeration(d: ModerationDeletion): Promise<void> {
+    const key = `${d.deletionId}|${d.targetId}`;
+    if (!this.moderation.has(key)) this.moderation.set(key, { ...d, applied: false });
+  }
+
+  async applyModeration(h: string, authorities: string[], targetId?: string): Promise<number> {
+    const admins = new Set<string>();
+    for (const r of this.rows.values()) {
+      if (!r.deleted && r.event.kind === 39001 && authorities.includes(r.event.pubkey) && getTagValue(r.event, 'd') === h) getTagValues(r.event, 'p').forEach((p) => admins.add(p));
+    }
+    let n = 0;
+    for (const m of this.moderation.values()) {
+      if (m.applied || m.h !== h || (targetId && m.targetId !== targetId)) continue;
+      const t = this.rows.get(m.targetId);
+      if (!t || getTagValue(t.event, 'h') !== h || (t.event.pubkey !== m.actor && !admins.has(m.actor))) continue;
+      m.applied = true;
+      if (!t.deleted) {
+        t.deleted = true;
+        n++;
+      }
+    }
+    return n;
   }
 
   async purge(q: PurgeQuery): Promise<number> {
@@ -355,6 +413,40 @@ export class PgEventRepository implements EventRepository {
       args,
     );
     return rows.map((r) => this.toMirrored(r)).filter((m) => contentMatches(m.event, q.text)).slice(0, limit);
+  }
+
+  async memberChannels(reader: string, authorities: string[]): Promise<string[]> {
+    if (!authorities.length) return [];
+    // Index columns only (kind, pubkey, d_tag, p_tags): works on a sealed mirror.
+    const { rows } = await this.pool.query<{ d_tag: string }>(
+      'SELECT DISTINCT d_tag FROM events WHERE kind = ANY($1) AND pubkey = ANY($2) AND $3 = ANY(p_tags) AND NOT deleted_tombstone AND d_tag IS NOT NULL',
+      [ACCESS_KINDS, authorities, reader],
+    );
+    return rows.map((r) => r.d_tag);
+  }
+
+  async recordModeration(d: ModerationDeletion): Promise<void> {
+    await this.pool.query('INSERT INTO moderation_deletions (deletion_id, target_id, h_tag, actor) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [d.deletionId, d.targetId, d.h, d.actor]);
+  }
+
+  async applyModeration(h: string, authorities: string[], targetId?: string): Promise<number> {
+    // One statement: the admin list, the authorized pending deletions, the tombstones and the applied marks.
+    const { rows } = await this.pool.query<{ hidden: string }>(
+      `WITH admins AS (
+         SELECT DISTINCT unnest(p_tags) AS pk FROM events WHERE kind = 39001 AND d_tag = $1 AND pubkey = ANY($2) AND NOT deleted_tombstone
+       ), ok AS (
+         SELECT m.deletion_id, m.target_id FROM moderation_deletions m JOIN events t ON t.event_id = m.target_id
+         WHERE m.h_tag = $1 AND NOT m.applied AND ($3::text IS NULL OR m.target_id = $3) AND t.h_tag = m.h_tag
+           AND (t.pubkey = m.actor OR m.actor IN (SELECT pk FROM admins))
+       ), hidden AS (
+         UPDATE events SET deleted_tombstone = true WHERE event_id IN (SELECT target_id FROM ok) AND NOT deleted_tombstone RETURNING event_id
+       ), marked AS (
+         UPDATE moderation_deletions m SET applied = true FROM ok WHERE m.deletion_id = ok.deletion_id AND m.target_id = ok.target_id RETURNING m.target_id
+       )
+       SELECT (SELECT count(*) FROM hidden) AS hidden`,
+      [h, authorities, targetId ?? null],
+    );
+    return Number(rows[0]?.hidden ?? 0);
   }
 
   async purge(q: PurgeQuery): Promise<number> {

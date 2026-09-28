@@ -148,6 +148,9 @@ services:
       # NIP-42 service identity of the mirror (Buzz refuses anonymous REQs). Allowlist its npub on private relays.
       INDEXER_NSEC: ${INDEXER_NSEC:-}
       INDEXER_CHANNEL_REFRESH_MS: ${INDEXER_CHANNEL_REFRESH_MS:-30000}
+      # FR014-05: relay keys whose NIP-29 lists grant reading a channel (hex or npub, comma separated). Empty: the
+      # NIP-11 `self` of each relay (Buzz advertises it because BUZZ_RELAY_PRIVATE_KEY is set).
+      INDEXER_GROUP_AUTHORITIES: ${INDEXER_GROUP_AUTHORITIES:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_DB:-sedecim}
       MIRROR_AT_REST_KEY: ${MIRROR_AT_REST_KEY:-}
       INDEXER_REQUIRE_AUTH: ${INDEXER_REQUIRE_AUTH:-true}

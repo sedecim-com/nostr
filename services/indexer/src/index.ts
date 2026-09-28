@@ -4,3 +4,4 @@ export * from './indexer';
 export * from './api';
 export * from './retention';
 export * from './sharding';
+export * from './groups';
