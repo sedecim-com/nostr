@@ -281,7 +281,16 @@
 - La web (tarjeta «Continuity Vault») y el CLI (`sovereign vault push`) muestran esos textos antes de subir nada. Los textos dicen qué ve el operador (cuenta, cuántos archivos, tamaño aproximado, horas, IP y, con Acceso, qué usuario) y que el operador no tiene la llave de archivo.
 
 Falta que el threat model lo apruebe alguien distinto del autor, como los de DEC-10 (en pausa).","https://github.com/sedecim-com/nostr/issues/239"
-"FR009-03","FR · Mensajería, entrega y resiliencia","FR-009, §15.1","Acuses que llegan al emisor y DMs recibidos en segundo plano","Los acuses se publican en los 10050 del emisor y llevan la operación a RECIPIENT_ACKED; suscripción de fondo a los 10050 propios","Dev","P1","3","FR009-02","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/240"
+"FR009-03","FR · Mensajería, entrega y resiliencia","FR-009, §15.1","Acuses que llegan al emisor y DMs recibidos en segundo plano","Los acuses se publican en los 10050 del emisor y llevan la operación a RECIPIENT_ACKED; suscripción de fondo a los 10050 propios","Dev","P1","3","FR009-02","S10","2026-10-23","Hecho","Commit 6e93978 (PR #315):
+
+- `DirectMessenger.receipt` enruta el acuse como un DM, a los 10050 de quien envió el mensaje (si no, NIP-65 o un fallback declarado). El registro lleva `meta.recipient`, `meta.dmRelaySource` y `meta.receipt`, así que un reintento vuelve a resolver la ruta (FR010-03).
+- `DmInbox` (`packages/messaging/src/inbox.ts`) lee los relays de DM propios (los de la persona más los de su 10050), una vez o en segundo plano con una suscripción viva. Aplica los acuses del destinatario al outbox (`RECIPIENT_ACKED`, `READ`) y responde a cada mensaje con los acuses que permite el perfil, como mucho uno de cada tipo.
+- Web: el inbox corre en segundo plano mientras NIP-17 está activo, salvo con NIP-07 (lee al pulsar «Actualizar»). Los acuses se aplican desde cualquier vista y los DMs nuevos se cuentan en la pestaña.
+- CLI: `sovereign dm inbox` aplica los acuses; `sovereign dm watch` los recibe en vivo.
+- Tests:
+  - `packages/messaging/test/inbox.test.ts`;
+  - `tests/e2e/web-cli-dm.test.ts` (web ↔ CLI y `dm watch`);
+  - `tests/browser/web-saas.e2e.ts` (acuse aplicado desde otra vista, DM contado en la pestaña, acuse en el relay de DM del emisor y no en el de la web).","https://github.com/sedecim-com/nostr/issues/240"
 "FR017-06","FR · Mensajería, entrega y resiliencia","FR-017, FR-010","El cliente soberano enruta DMs por 10050 y publica el suyo","CLI con el mismo ruteo que la web y test de interoperabilidad web ↔ CLI","Dev","P1","2","FR017-04","S10","2026-10-23","Hecho","Commit a7f268a (PR #314):
 
 - `SovereignClient.sendDm` usa `DirectMessenger`, como la web:

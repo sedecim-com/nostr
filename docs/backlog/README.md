@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **246 tareas** · 151 hechas · 23 parciales · 66 pendientes · 6 descartadas
-- **307 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **246 tareas** · 152 hechas · 23 parciales · 65 pendientes · 6 descartadas
+- **304 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -46,7 +46,7 @@
 | FR-006 | 4 | 3 | FR006-04 (Diferido) |
 | FR-007 | 5 | 4 | FR007-05 (S10) |
 | FR-008 | 3 | 2 | VAULT-04 (S11) |
-| FR-009 | 3 | 2 | FR009-03 (S10) |
+| FR-009 | 3 | 3 | — |
 | FR-010 | 5 | 5 | — |
 | FR-011 | 8 | 5 | VAULT-04 (S11), FR025-12 (S12), FR011-06 (S13) |
 | FR-012 | 1 | 1 | — |
@@ -247,7 +247,7 @@
 | [VAULT-01](https://github.com/sedecim-com/nostr/issues/237) | P0 | Continuity Vault: contrato y almacenamiento opaco, separado del indexer | PRD GC-B01, FR-013, FR-027 | Dev | 8 | FR027-03 | Hecho | ADR del vault; servicio con API de sobres de archivo opacos por cuenta (subir, listar, bajar y borrar) autenticada con NIP-98 o Acceso, que rechaza texto plano como la bóveda de backup de FR027-03; separado del indexer; tests |
 | [VAULT-02](https://github.com/sedecim-com/nostr/issues/238) | P0 | Sobre de archivo cifrado en el cliente con una backup key separada de la nsec | PRD GC-B02, FR-027 | Seguridad | 5 | VAULT-01 | Hecho | Web y CLI sellan cada sobre en el cliente; la backup key es distinta de la nsec y viaja en el backup de identidad; restaurar con un logN excesivo se rechaza; test que demuestra que ni la base ni el object store contienen texto ni eventos legibles |
 | [VAULT-07](https://github.com/sedecim-com/nostr/issues/239) | P0 | Threat model y disclosure del Continuity Vault | PRD GC-B07, FR-028 | Seguridad | 2 | VAULT-01 | Parcial | Threat model del vault aprobado; la UI explica los metadatos que ve el operador (cuenta, tamaño y frecuencia) y que no tiene la llave de descifrado; textos incluidos en la revisión legal y de UX (FR028-02) |
-| [FR009-03](https://github.com/sedecim-com/nostr/issues/240) | P1 | Acuses que llegan al emisor y DMs recibidos en segundo plano | FR-009, §15.1 | Dev | 3 | FR009-02 | Pendiente | Los acuses se publican en los 10050 del emisor y llevan la operación a RECIPIENT_ACKED; suscripción de fondo a los 10050 propios |
+| [FR009-03](https://github.com/sedecim-com/nostr/issues/240) | P1 | Acuses que llegan al emisor y DMs recibidos en segundo plano | FR-009, §15.1 | Dev | 3 | FR009-02 | Hecho | Los acuses se publican en los 10050 del emisor y llevan la operación a RECIPIENT_ACKED; suscripción de fondo a los 10050 propios |
 | [FR014-05](https://github.com/sedecim-com/nostr/issues/242) | P1 | El mirror comprueba la membresía NIP-29 y respeta la moderación | FR-014, §10.1 | Dev | 3 | FR014-03 | Pendiente | Lecturas y búsqueda solo sobre canales de los que eres miembro; tombstone para kind 9005 |
 | [FR017-06](https://github.com/sedecim-com/nostr/issues/241) | P1 | El cliente soberano enruta DMs por 10050 y publica el suyo | FR-017, FR-010 | Dev | 2 | FR017-04 | Hecho | CLI con el mismo ruteo que la web y test de interoperabilidad web ↔ CLI |
 | [NFR009-02](https://github.com/sedecim-com/nostr/issues/188) | P1 | Corregir los hallazgos de accesibilidad y revisión manual con lector de pantalla | NFR-009 | Dev | 3 | NFR009-01 | Parcial | Informe de la revisión manual y correcciones aplicadas antes de la GA de la web |
