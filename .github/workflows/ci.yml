@@ -288,6 +288,19 @@ jobs:
         run: |
           npm run build:web
           npx tsx tests/browser/web-groups.e2e.ts
+      # OPS-06: the interop gate above shows the notification gateway cannot observe Buzz or the secure relay. Here the
+      # same pinned nostr-rs-relay with nip42_dms off, the kind of relay it can observe: canary seen, DM → opaque push.
+      - name: Notification gateway on nostr-rs-relay without DM gating (OPS-06)
+        env:
+          OPEN_RELAY_URL: ws://localhost:7010
+        run: |
+          sed -e 's/^port = 8080$/port = 7010/' -e 's#^relay_url = .*#relay_url = "ws://localhost:7010/"#' \
+            -e 's/^nip42_auth = true$/nip42_auth = false/' -e 's/^nip42_dms = true$/nip42_dms = false/' \
+            infra/secure-relay/config.toml > "$RUNNER_TEMP/open-relay.toml"
+          grep -q '^port = 7010$' "$RUNNER_TEMP/open-relay.toml" && grep -q '^nip42_dms = false$' "$RUNNER_TEMP/open-relay.toml"
+          docker run -d --name open-relay --network host -v "$RUNNER_TEMP/open-relay.toml:/usr/src/app/config.toml:ro" "$(docker compose config --images secure-relay)"
+          timeout 60 sh -c 'until curl -sf -H "Accept: application/nostr+json" http://localhost:7010 > /dev/null; do sleep 1; done'
+          npx vitest run tests/interop/notification-gateway.interop.test.ts
       - name: Collect logs
         if: always()
         run: docker compose logs --no-color > compose.log 2>&1 || true

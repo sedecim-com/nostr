@@ -100,11 +100,13 @@ const managed = createManagedSignerApi(managedCore, {
   cognito: new CognitoVerifier({ region: cognito.region, userPoolId: cognito.userPoolId, clientId: cognito.userPoolClientId, fetch: (async () => new Response(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'e2e', alg: 'RS256' }] }))) as typeof fetch }),
 });
 const managedUrl = await managed.listen();
-// Opaque push gateway (ADR 0010): the web only offers the opt-in control; nothing registers unless clicked.
+// Opaque push gateway (ADR 0010): the web only offers the opt-in control; nothing registers unless clicked. OPS-06: it
+// authenticates with its own identity, as deployed, and checks with a canary whether it can see activity on the relay.
 const vapid = generateVapidKeys();
-const gatewayCore = new NotificationGateway({ pool: new RelayPool({ webSocketFactory: factory }), sender: createWebPushSender({ vapid, subject: 'mailto:e2e@example.org' }), relays: [{ public: relay.url }] });
+const gatewayCore = new NotificationGateway({ pool: new RelayPool({ webSocketFactory: factory, signer: new LocalSigner(generateSecretKey()), authMode: 'auto' }), sender: createWebPushSender({ vapid, subject: 'mailto:e2e@example.org' }), relays: [{ public: relay.url }] });
 const gateway = createNotificationApi(gatewayCore, { name: 'notification-e2e', corsOrigins: [base], vapid });
 const gatewayUrl = await gateway.listen();
+const gatewayProbe = await gatewayCore.probeRelays(3000);
 // VAULT-02: the Continuity Vault, with its storage in reach of the test to check what the operator holds.
 const vaultRepo = new MemoryArchiveRepository();
 const vaultObjects = new MemoryObjectStore();
@@ -472,15 +474,29 @@ try {
   await page.locator('#dim-privacidad-operador-h').click();
   assert((await page.locator('#dim-privacidad-operador').textContent())?.includes('ver consecuencia'), 'each dimension lists the statements that move it, linked to their disclosure');
 
-  // --- ADR 0010 / OPS-06: opt-in opaque push, never offered to sovereign/Tor personas
-  await page.locator('#notifications-toggle').waitFor();
-  assert(!(await page.isChecked('#notifications-toggle')), 'the Notificaciones control is offered (gateway configured) and off by default (opt-in)');
-  assert((await page.textContent('#notifications-control'))?.includes('no incluye contenido, remitente ni número de mensajes'), 'the control explains that pushes are opaque');
+  // --- ADR 0010 / OPS-06: push only where the gateway sees activity without reading DMs; never for sovereign/Tor personas
+  assert(gatewayProbe.length === 1 && !gatewayProbe[0]!.observable, `the gateway's canary does not reach it on a relay that delivers gift wraps only to their recipient (${gatewayProbe[0]?.reason})`);
+  await page.locator('#notifications-unobservable').waitFor();
+  assert((await page.locator('#notifications-toggle').count()) === 0 && (await page.textContent('#notifications-unobservable'))?.includes('sin acceso a tus DMs'), 'so the web offers no push switch, and says why (OPS-06)');
   await page.locator('#preset').click();
   await page.getByRole('option', { name: 'sovereign', exact: true }).click();
   await page.locator('#panel-save').click();
   await page.locator('#notifications-off').waitFor();
   assert((await page.locator('#notifications-toggle').count()) === 0 && (await page.textContent('#notifications-off'))?.includes('no usa notificaciones push'), 'sovereign persona: no push switch, with an explanation');
+  // Where the gateway can watch the relay (here it says so), the control is offered: opt-in and opaque.
+  const observableRelays = `${gatewayUrl}/v1/relays`;
+  await page.route(observableRelays, (r) => r.fulfill({ contentType: 'application/json', headers: { 'access-control-allow-origin': base }, body: JSON.stringify({ relays: [{ relay: relay.url, observable: true, checkedAt: Date.now() }] }) }));
+  await page.locator('#preset').click();
+  await page.getByRole('option', { name: 'convenience', exact: true }).click();
+  await page.locator('#panel-save').click();
+  await page.locator('#notifications-toggle:not([disabled])').waitFor();
+  assert(!(await page.isChecked('#notifications-toggle')), 'the Notificaciones control is offered where the gateway can watch the relay, and off by default (opt-in)');
+  assert((await page.textContent('#notifications-control'))?.includes('no incluye contenido, remitente ni número de mensajes'), 'the control explains that pushes are opaque');
+  await page.unroute(observableRelays);
+  await page.locator('#preset').click();
+  await page.getByRole('option', { name: 'sovereign', exact: true }).click();
+  await page.locator('#panel-save').click();
+  await page.locator('#notifications-off').waitFor();
   assert(gatewayCore.size === 0, 'nothing was registered with the notification gateway');
   const swScope = await page.evaluate(async () => {
     const r = await navigator.serviceWorker.register('./sw.js', { scope: './push/e2e/' });

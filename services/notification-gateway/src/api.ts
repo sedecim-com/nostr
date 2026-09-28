@@ -1,3 +1,4 @@
+import { normalizeRelayUrl } from '@sedecim/relay-pool';
 import { HttpError, Service, type ServiceOptions } from '@sedecim/service-kit';
 import type { NotificationGateway, RegisterInput } from './gateway';
 import { b64u, type VapidKeys } from './webpush';
@@ -11,11 +12,22 @@ export function createNotificationApi(gateway: NotificationGateway, opts: Servic
   svc.get('/health', () => ({ ok: true }), 'none', { rateClass: 'none' });
   // Browsers need the VAPID public key as `applicationServerKey` to subscribe.
   svc.get('/v1/vapid', () => ({ publicKey: b64u.encode(opts.vapid.publicKey) }));
+  // OPS-06: the relays this gateway can watch without reading anyone's DMs, so clients offer push only where it works.
+  svc.get('/v1/relays', () => ({ relays: gateway.relayObservations().map(({ relay, observable, checkedAt }) => ({ relay, observable, checkedAt })) }));
   svc.post(
     '/v1/subscriptions',
     (req) => {
-      const reg = gateway.register(req.pubkey!, req.json<RegisterInput>());
-      return { status: 201, body: { mode: reg.policy.mode, relays: reg.relays, minDelayMs: reg.policy.minDelayMs, maxDelayMs: reg.policy.maxDelayMs } };
+      const input = req.json<RegisterInput>();
+      const reg = gateway.register(req.pubkey!, input);
+      const watched = new Set(reg.relays);
+      const unwatched = (input.relays ?? []).filter((r) => {
+        try {
+          return !watched.has(normalizeRelayUrl(r));
+        } catch {
+          return true;
+        }
+      });
+      return { status: 201, body: { mode: reg.policy.mode, relays: reg.relays, unwatched, minDelayMs: reg.policy.minDelayMs, maxDelayMs: reg.policy.maxDelayMs } };
     },
     'nip98',
   );

@@ -1,5 +1,6 @@
 import { nip98, type Signer } from '@sedecim/nostr-core';
 import { notificationPolicy, type NotificationPolicy, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
+import { normalizeRelayUrl } from '@sedecim/relay-pool';
 
 /**
  * Opt-in opaque push (ADR 0010). The browser subscribes through its push service with the gateway's VAPID
@@ -43,6 +44,41 @@ export function pushAvailability(gateway: string | undefined, config: Sovereignt
   }
   if (!env.serviceWorker || !env.hasPushManager || !env.hasNotification) return { state: 'unsupported', reason: 'Este navegador no admite notificaciones push web.' };
   return { state: 'available', policy };
+}
+
+/** OPS-06: which of a persona's relays the gateway can watch, from its `GET /v1/relays`. */
+export interface RelayWatch {
+  /** The gateway saw, with a canary, a gift wrap for someone else arrive there: it can tell when there is activity. */
+  watchable: string[];
+  /** The gateway has not checked them yet (it refuses registrations for them until it does). */
+  pending: string[];
+  /** They deliver gift wraps only to their recipient: the gateway cannot see activity there without reading DMs. */
+  unobservable: string[];
+  /** This deployment's gateway does not serve them. */
+  unserved: string[];
+}
+
+/**
+ * OPS-06: the gateway only watches relays where it can see activity without reading access to anyone's DMs. The
+ * browser asks which before offering push, so a persona whose relays deliver gift wraps only to their recipient
+ * (Buzz, the secure relay) is told why there is no push instead of being offered a switch that cannot work.
+ */
+export async function watchableRelays(gateway: string, relays: string[], doFetch: typeof fetch = fetch): Promise<RelayWatch> {
+  const res = await doFetch(`${gateway}/v1/relays`);
+  if (!res.ok) throw new Error(`El gateway de notificaciones no respondió (${res.status})`);
+  const listed = ((await res.json()) as { relays?: Array<{ relay: string; observable: boolean; checkedAt: number }> }).relays ?? [];
+  const known = new Map(listed.map((r) => [r.relay, r]));
+  const out: RelayWatch = { watchable: [], pending: [], unobservable: [], unserved: [] };
+  for (const url of relays) {
+    let r: (typeof listed)[number] | undefined;
+    try {
+      r = known.get(normalizeRelayUrl(url));
+    } catch {
+      r = undefined;
+    }
+    (!r ? out.unserved : r.observable ? out.watchable : r.checkedAt ? out.unobservable : out.pending).push(url);
+  }
+  return out;
 }
 
 export const pushScope = (personaId: string) => `./push/${encodeURIComponent(personaId)}/`;

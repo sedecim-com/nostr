@@ -1,5 +1,5 @@
 import { createECDH, createHmac, randomBytes } from 'node:crypto';
-import type { Filter, NostrEvent } from '@sedecim/nostr-core';
+import { finalizeEvent, generateSecretKey, getPublicKey, toUnsigned, type Filter, type NostrEvent } from '@sedecim/nostr-core';
 import type { PoolSubscribeOptions, PoolSubscription } from '@sedecim/relay-pool';
 import { normalizeRelayUrl } from '@sedecim/relay-pool';
 import { NOTIFICATION_MODES, OPAQUE_PUSH_PAYLOAD, OPAQUE_PUSH_TOPIC, PRESETS, nextPushDelayMs, notificationPolicy, type NotificationPolicy, type PresetName } from '@sedecim/profiles';
@@ -10,9 +10,22 @@ import { b64u, type PushSubscriptionJSON, type WebPushSender } from './webpush';
 /** Kind of NIP-59 gift wraps (NIP-17 DMs, receipts, Marmot welcomes). */
 export const GIFT_WRAP_KIND = 1059;
 
+const getTagP = (evt: NostrEvent) => evt.tags.find((t) => t[0] === 'p')![1]!;
+
 /** What the gateway needs from @sedecim/relay-pool (RelayPool satisfies it). */
 export interface WatchPool {
   subscribe(urls: string[], filters: Filter[], opts: PoolSubscribeOptions): PoolSubscription;
+  /** Publishes the observation canary (OPS-06). */
+  publishTo?(evt: NostrEvent, url: string): Promise<{ ok: boolean; message: string }>;
+}
+
+/** OPS-06: whether, on a relay, the gateway sees a gift wrap arrive for someone who is not itself. */
+export interface RelayObservation {
+  /** Public URL, as clients name it. */
+  relay: string;
+  observable: boolean;
+  checkedAt: number;
+  reason?: string;
 }
 
 export interface RegisterInput {
@@ -53,6 +66,12 @@ export interface GatewayOptions {
   random?: () => number;
   /** Overrides the per-profile delay (tests only). */
   delayFor?: (policy: NotificationPolicy, now: number, lastSentAt: number | undefined) => number;
+  /**
+   * OPS-06 (default true): register only on relays where `probeRelays` saw the gateway observe a gift wrap
+   * addressed to someone else. Relays that deliver gift wraps only to their recipient (Buzz, the secure relay)
+   * never become watchable: that would take read access to users' DMs. Tests of the push logic turn it off.
+   */
+  requireObservation?: boolean;
   logger?: Logger;
 }
 
@@ -76,6 +95,7 @@ export class NotificationGateway {
   private readonly seen = new Set<string>();
   private readonly relayMap: Map<string, string>;
   private readonly logKey = randomBytes(32);
+  private readonly observations = new Map<string, RelayObservation>();
   private readonly logger: Logger;
   readonly stats = { sent: 0, failed: 0, dropped: 0, events: 0 };
 
@@ -101,7 +121,7 @@ export class NotificationGateway {
     this.rateLimit(pubkey);
     const policy = this.resolvePolicy(input);
     const subscription = this.validateSubscription(input.subscription);
-    const relays = this.resolveRelays(input.relays);
+    const relays = this.observed(this.resolveRelays(input.relays));
 
     const existing = [...this.regs.values()].find((r) => r.pubkey === pubkey && r.subscription.endpoint === subscription.endpoint);
     if (existing) this.remove(existing, 'replaced');
@@ -115,6 +135,88 @@ export class NotificationGateway {
     this.logger.info('subscription registered', { ref: this.ref(pubkey + subscription.endpoint), mode: policy.mode, relays: relays.length });
     for (const url of relays) this.rewatch(url);
     return reg;
+  }
+
+  /** OPS-06: what the last probe found on each relay (no entry: not probed yet). */
+  relayObservations(): RelayObservation[] {
+    return [...this.relayMap.keys()].map((relay) => this.observations.get(relay) ?? { relay, observable: false, checkedAt: 0, reason: 'not checked yet' });
+  }
+
+  /**
+   * OPS-06: checks, relay by relay, that a gift wrap addressed to someone else reaches the gateway. It publishes a
+   * canary (kind 1059 from a throwaway key to another throwaway key, expiring in 10 minutes) and waits for it on the
+   * same kind of REQ the registrations use. A relay that closes the REQ, refuses the canary or does not deliver it
+   * cannot be watched without reading access to DMs: registrations there are refused, and dropped if a relay stops
+   * being observable.
+   */
+  async probeRelays(timeoutMs = 8000): Promise<RelayObservation[]> {
+    const found = await Promise.all([...this.relayMap.keys()].map((url) => this.probe(url, timeoutMs)));
+    for (const o of found) {
+      const before = this.observations.get(o.relay);
+      this.observations.set(o.relay, o);
+      if (before?.observable !== o.observable) this.logger.info('relay observation', { relay: o.relay, observable: o.observable, ...(o.reason ? { reason: o.reason } : {}) });
+      if (before?.observable && !o.observable) this.forget(o.relay);
+    }
+    return found;
+  }
+
+  private probe(url: string, timeoutMs: number): Promise<RelayObservation> {
+    const done = (observable: boolean, reason?: string): RelayObservation => ({ relay: url, observable, checkedAt: Date.now(), ...(reason ? { reason } : {}) });
+    const pool = this.opts.pool;
+    if (!pool.publishTo) return Promise.resolve(done(false, 'the gateway cannot publish the canary'));
+    const dial = this.relayMap.get(url) ?? url;
+    const now = Math.floor(Date.now() / 1000);
+    // Throwaway sender and recipient: neither is the gateway, whose own events would prove nothing.
+    const author = generateSecretKey();
+    const canary = finalizeEvent(toUnsigned({ kind: GIFT_WRAP_KIND, content: randomBytes(48).toString('base64'), tags: [['p', getPublicKey(generateSecretKey())], ['expiration', String(now + 600)]] }, getPublicKey(author), now), author);
+    return new Promise((resolve) => {
+      let settled = false;
+      let eosed = false;
+      let sub: PoolSubscription | undefined;
+      const finish = (observable: boolean, reason?: string) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        sub?.close();
+        resolve(done(observable, reason));
+      };
+      const timer = setTimeout(() => finish(false, eosed ? 'a gift wrap for someone else was not delivered to the gateway' : 'no answer from the relay'), timeoutMs);
+      sub = pool.subscribe([dial], [{ kinds: [GIFT_WRAP_KIND], '#p': [getTagP(canary)], limit: 1 }], {
+        onevent: (evt: NostrEvent) => {
+          if (evt.id === canary.id) finish(true);
+        },
+        // The pool also reports EOSE after a CLOSED: publish only on a REQ the relay is still serving, and once.
+        oneose: () => {
+          if (settled || eosed) return;
+          eosed = true;
+          void pool.publishTo!(canary, dial).then(
+            (r) => (r.ok ? undefined : finish(false, `canary refused: ${r.message}`)),
+            (err: Error) => finish(false, `canary not sent: ${err.message}`),
+          );
+        },
+        onclosed: (_relay: string, reason: string) => finish(false, `subscription closed: ${reason}`),
+      });
+      if (settled) sub.close();
+    });
+  }
+
+  /** OPS-06: the relays a registration may watch: those where the gateway was seen to observe activity. */
+  private observed(relays: string[]): string[] {
+    if (this.opts.requireObservation === false) return relays;
+    const ok = relays.filter((r) => this.observations.get(r)?.observable);
+    if (ok.length) return ok;
+    if (relays.some((r) => !this.observations.has(r))) throw new HttpError(503, 'the gateway is still checking whether it can observe these relays: retry shortly');
+    throw new HttpError(409, 'the gateway cannot see activity on these relays without read access to your DMs: they deliver gift wraps only to their recipient (ADR 0010)');
+  }
+
+  /** A relay stopped being observable: registrations stop counting on it, and those left without relays go. */
+  private forget(url: string) {
+    for (const reg of [...this.regs.values()]) {
+      if (!reg.relays.includes(url)) continue;
+      reg.relays = reg.relays.filter((r) => r !== url);
+      if (!reg.relays.length) this.remove(reg, 'relay no longer observable');
+    }
+    this.rewatch(url);
   }
 
   /** Removes every registration of `pubkey` (optionally only the one for `endpoint`). */
@@ -195,9 +297,9 @@ export class NotificationGateway {
     if (pubkeys.length) {
       let eosed = false;
       const watched = new Set(pubkeys);
-      // limit 0: live events only (NIP-59 backdates created_at, so `since` would miss them); anything a
-      // relay replays before EOSE is ignored.
-      const sub = this.opts.pool.subscribe([this.relayMap.get(url) ?? url], [{ kinds: [GIFT_WRAP_KIND], '#p': pubkeys, limit: 0 }], {
+      // Live events only: whatever a relay replays before EOSE is ignored (NIP-59 backdates created_at, so `since`
+      // would miss them). limit 1 rather than 0: nostr-rs-relay never ends a limit-0 REQ with EOSE.
+      const sub = this.opts.pool.subscribe([this.relayMap.get(url) ?? url], [{ kinds: [GIFT_WRAP_KIND], '#p': pubkeys, limit: 1 }], {
         onevent: (evt: NostrEvent) => {
           if (!eosed || evt.kind !== GIFT_WRAP_KIND || !this.firstSeen(evt.id)) return;
           this.stats.events++;
