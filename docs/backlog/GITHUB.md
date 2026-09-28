@@ -43,7 +43,14 @@ de GitHub Projects.
    el workflow.
 
 `node scripts/backlog-github.mjs seed` crea en GitHub lo que tiene `backlog.json` y falta en los issues:
-labels, milestones, epics, tareas, estados y relaciones. Nunca modifica ni borra nada. Además:
+labels, milestones, epics, tareas, estados y relaciones. Nunca edita un issue. Solo ajusta dos cosas derivadas:
+
+- el título y la descripción de cada milestone siguen a `meta.sprints`, que no se regenera desde los issues (así
+  se renombra un sprint);
+- los enlaces «blocked by» siguen a la sección *Depende de* de cada issue: añade los que faltan y, en los issues
+  abiertos, retira los que apuntan a tareas que la sección ya no cita. No toca enlaces a otros issues.
+
+Además:
 
 - Si se interrumpe (límites de la API de GitHub), la siguiente ejecución lo completa.
 - Corre al fusionar en `main` un cambio del script o del workflow; así se sembró el backlog la primera vez.
