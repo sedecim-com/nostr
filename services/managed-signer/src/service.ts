@@ -20,7 +20,13 @@ import { DEFAULT_RATE_LIMITS, DEFAULT_SCRYPT_LIMITS, ScryptGate, SigningRateLimi
 import { SignerMetrics, type SignerOp } from './metrics';
 
 export const MANAGED_DISCLOSURE =
-  'Managed Key activado: la plataforma tiene capacidad técnica de firmar como el usuario. Este modo es CUSTODIAL y nunca debe presentarse como non-custodial.';
+  'Managed Key activado: la plataforma tiene capacidad técnica de firmar como el usuario y descifra en el servidor sus mensajes directos (NIP-44). Este modo es CUSTODIAL y nunca debe presentarse como non-custodial.';
+
+/** FR005-08: the options of a new managed key; `consentVersion` names the texts and terms its owner accepted. */
+export interface NewKeyOptions {
+  allowedKinds?: number[];
+  consentVersion?: string;
+}
 
 export class ManagedSignerError extends Error {
   constructor(readonly status: number, message: string) {
@@ -204,7 +210,7 @@ export class ManagedSigner {
     }
   }
 
-  async create(owner: string, principal: string, opts: { allowedKinds?: number[] } = {}): Promise<KeyRecord> {
+  async create(owner: string, principal: string, opts: NewKeyOptions = {}): Promise<KeyRecord> {
     if (this.opts.sealedKeys) return this.persist(await this.opts.sealedKeys.generate(), owner, principal, 'created', opts);
     const sk = generateSecretKey();
     try {
@@ -215,7 +221,7 @@ export class ManagedSigner {
   }
 
   /** local -> managed migration (explicit, opt-in). */
-  async importEncrypted(owner: string, principal: string, ncryptsec: string, password: string): Promise<KeyRecord> {
+  async importEncrypted(owner: string, principal: string, ncryptsec: string, password: string, opts: NewKeyOptions = {}): Promise<KeyRecord> {
     if (typeof ncryptsec !== 'string' || typeof password !== 'string') throw new ManagedSignerError(400, 'ncryptsec and password must be strings');
     let logN: number;
     try {
@@ -226,7 +232,7 @@ export class ManagedSigner {
     // logN is attacker-chosen: 2^20 would make scrypt allocate 1 GiB per request.
     if (logN > MAX_IMPORT_LOG_N) throw new ManagedSignerError(400, `ncryptsec logN ${logN} is above ${MAX_IMPORT_LOG_N}: re-encrypt it with a lower cost to import`);
     const sealed = this.opts.sealedKeys;
-    if (sealed) return this.persist(await this.scrypt('import', owner, () => sealed.importNcryptsec(ncryptsec, password)), owner, principal, 'imported', {});
+    if (sealed) return this.persist(await this.scrypt('import', owner, () => sealed.importNcryptsec(ncryptsec, password)), owner, principal, 'imported', opts);
     let secretKey: Uint8Array;
     try {
       ({ secretKey } = await this.scrypt('import', owner, () => nip49.decryptKeyAsync(ncryptsec, password, { maxLogN: MAX_IMPORT_LOG_N })));
@@ -235,19 +241,19 @@ export class ManagedSigner {
       throw new ManagedSignerError(400, 'cannot decrypt ncryptsec (wrong password or corrupted payload)');
     }
     try {
-      return await this.store(secretKey, owner, principal, 'imported', {});
+      return await this.store(secretKey, owner, principal, 'imported', opts);
     } finally {
       wipe(secretKey);
     }
   }
 
-  private async store(sk: Uint8Array, owner: string, principal: string, action: 'created' | 'imported', opts: { allowedKinds?: number[] }): Promise<KeyRecord> {
+  private async store(sk: Uint8Array, owner: string, principal: string, action: 'created' | 'imported', opts: NewKeyOptions): Promise<KeyRecord> {
     if (!selfTestKey(sk).ok) throw new ManagedSignerError(500, 'key self-test failed');
     return this.persist({ pubkey: getPublicKey(sk), sealed: sk }, owner, principal, action, opts);
   }
 
   /** Stores the vault material (the secret, or a sealed blob in the enclave tier) and the registry record. */
-  private async persist(key: { pubkey: string; sealed: Uint8Array }, owner: string, principal: string, action: 'created' | 'imported', opts: { allowedKinds?: number[] }): Promise<KeyRecord> {
+  private async persist(key: { pubkey: string; sealed: Uint8Array }, owner: string, principal: string, action: 'created' | 'imported', opts: NewKeyOptions): Promise<KeyRecord> {
     const { pubkey } = key;
     if (await this.registry.liveByPubkey(pubkey)) throw new ManagedSignerError(409, 'key already managed');
     const keyId = randomBytes(16).toString('hex');
@@ -262,6 +268,7 @@ export class ManagedSigner {
       createdAt: this.now(),
       retentionDays: this.opts.retentionDays ?? 0,
       ...(opts.allowedKinds ? { allowedKinds: opts.allowedKinds } : {}),
+      ...(opts.consentVersion ? { consentVersion: opts.consentVersion, consentAt: this.now() } : {}),
     };
     try {
       await this.registry.insert(rec);

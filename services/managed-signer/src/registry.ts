@@ -18,6 +18,9 @@ export interface KeyRecord {
   deletedAt?: number;
   /** Set once the vault material has been destroyed (or its scheduled deletion has elapsed). */
   destroyedAt?: number;
+  /** FR005-08: the version of the texts and terms the owner accepted, and when (keys created before: unset). */
+  consentVersion?: string;
+  consentAt?: number;
 }
 
 export interface UsageRecord {
@@ -116,6 +119,8 @@ type KeyRow = {
   migrated_at: Date | null;
   deleted_at: Date | null;
   destroyed_at: Date | null;
+  consent_version: string | null;
+  consent_at: Date | null;
 };
 
 const ms = (d: Date | null) => d?.getTime();
@@ -138,6 +143,8 @@ function fromRow(r: KeyRow): KeyRecord {
     ...opt('migratedAt', ms(r.migrated_at)),
     ...opt('deletedAt', ms(r.deleted_at)),
     ...opt('destroyedAt', ms(r.destroyed_at)),
+    ...opt('consentVersion', r.consent_version ?? undefined),
+    ...opt('consentAt', ms(r.consent_at)),
   };
 }
 
@@ -148,9 +155,9 @@ export class PgKeyRegistry implements KeyRegistry {
   async insert(k: KeyRecord) {
     try {
       await this.pool.query(
-        `INSERT INTO managed_keys (key_id, owner, pubkey, provider, version, state, allowed_kinds, migration_challenge, retention_days, created_at, last_used_at, migrated_at, deleted_at, destroyed_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-        [k.keyId, k.owner, k.pubkey, k.provider, k.version, k.state, k.allowedKinds ?? null, k.migrationChallenge ?? null, k.retentionDays, ts(k.createdAt), ts(k.lastUsed), ts(k.migratedAt), ts(k.deletedAt), ts(k.destroyedAt)],
+        `INSERT INTO managed_keys (key_id, owner, pubkey, provider, version, state, allowed_kinds, migration_challenge, retention_days, created_at, last_used_at, migrated_at, deleted_at, destroyed_at, consent_version, consent_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        [k.keyId, k.owner, k.pubkey, k.provider, k.version, k.state, k.allowedKinds ?? null, k.migrationChallenge ?? null, k.retentionDays, ts(k.createdAt), ts(k.lastUsed), ts(k.migratedAt), ts(k.deletedAt), ts(k.destroyedAt), k.consentVersion ?? null, ts(k.consentAt)],
       );
     } catch (err) {
       if ((err as { code?: string }).code === '23505') throw new PubkeyAlreadyManagedError();
@@ -170,7 +177,7 @@ export class PgKeyRegistry implements KeyRegistry {
     return rows.map(fromRow);
   }
   async save(k: KeyRecord) {
-    // Identity columns (owner, pubkey, provider, created_at) are immutable.
+    // Identity columns (owner, pubkey, provider, created_at) and the recorded consent are immutable.
     await this.pool.query(
       `UPDATE managed_keys SET version = $2, state = $3, allowed_kinds = $4, migration_challenge = $5, retention_days = $6,
          last_used_at = $7, migrated_at = $8, deleted_at = $9, destroyed_at = $10 WHERE key_id = $1`,

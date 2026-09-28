@@ -151,7 +151,7 @@ describe('managed-signer with MANAGED_SIGNER_BACKEND=enclave (simulated)', () =>
   afterAll(() => api.close());
 
   it('creates, signs, imports and migrates keys through the API while the vault only holds sealed blobs', async () => {
-    const created = await call('/v1/keys', 'POST', {});
+    const created = await call('/v1/keys', 'POST', { consent_version: 'textos test' });
     expect(created.status).toBe(201);
     expect(created.json.custody).toBe('managed-enclave');
     expect(created.json.custodial).toBe(true);
@@ -163,7 +163,7 @@ describe('managed-signer with MANAGED_SIGNER_BACKEND=enclave (simulated)', () =>
     expect(signed.json.event.pubkey).toBe(created.json.pubkey);
 
     const sk = generateSecretKey();
-    const imported = await call('/v1/keys/import', 'POST', { ncryptsec: nip49.encryptKey(sk, 'contraseña larga 123', 4), password: 'contraseña larga 123' });
+    const imported = await call('/v1/keys/import', 'POST', { ncryptsec: nip49.encryptKey(sk, 'contraseña larga 123', 4), password: 'contraseña larga 123', consent_version: 'textos test' });
     expect(imported.status).toBe(201);
     expect(imported.json.pubkey).toBe(getPublicKey(sk));
     for (const p of puts) {
@@ -173,7 +173,7 @@ describe('managed-signer with MANAGED_SIGNER_BACKEND=enclave (simulated)', () =>
   });
 
   it('exports through the enclave and completes the FR-026 migration', async () => {
-    const created = await call('/v1/keys', 'POST', {});
+    const created = await call('/v1/keys', 'POST', { consent_version: 'textos test' });
     const keyId = created.json.keyId as string;
     const exp = await call(`/v1/keys/${keyId}/export`, 'POST', { password: 'contraseña suficientemente larga' });
     expect(exp.status).toBe(200);

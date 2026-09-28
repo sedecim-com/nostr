@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Stack, Step, StepLabel, Stepper, TextField, Typography } from '@mui/material';
-import { disclose, preset } from '@sedecim/profiles';
+import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Link, Stack, Step, StepLabel, Stepper, TextField, Typography } from '@mui/material';
+import { disclose, MANAGED_CONSENT_TEXTS, managedConsentVersion, preset } from '@sedecim/profiles';
 import { ManagedSignerClient } from '@sedecim/signer';
 import { migrateManagedToLocal } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
@@ -8,13 +8,32 @@ import { useWorkspace } from '../lib/workspace';
 /** The exact disclosure the panel shows for managed custody, reused for the opt-in (FR005-07, FR-028). */
 export const MANAGED_DISCLOSURE = disclose({ ...preset('convenience'), custody: 'managed' }).find((d) => d.control === 'custody')!.statement;
 
-/** FR005-07: never by default; the user must acknowledge that the platform can sign as them. */
-export function ManagedOptIn({ accepted, onChange }: { accepted: boolean; onChange(v: boolean): void }) {
+/**
+ * FR005-07: never by default; the user must acknowledge that the platform can sign as them. FR005-08: the texts are
+ * the reviewed ones (docs/disclosures.md), the terms are linked when the deployment publishes them, and the
+ * version of what was accepted is recorded with the key.
+ */
+export function ManagedOptIn({ accepted, onChange, terms }: { accepted: boolean; onChange(v: boolean): void; terms?: { url: string; version: string } }) {
   return (
     <Stack spacing={1}>
       <Alert severity="warning">{MANAGED_DISCLOSURE}</Alert>
-      <Typography variant="body2">La llave se guarda cifrada con AWS KMS en us-east-1 (LFPDPPP). Puedes migrarla a custodia local cuando quieras; tras borrarla se destruye a los 30 días.</Typography>
-      <FormControlLabel control={<Checkbox id="managed-consent" checked={accepted} onChange={(e) => onChange(e.target.checked)} />} label="Entiendo que la plataforma puede firmar como yo y acepto la custodia gestionada" />
+      <Alert severity="warning" id="managed-decryption">
+        {MANAGED_CONSENT_TEXTS.decryption}
+      </Alert>
+      <Typography variant="body2">{MANAGED_CONSENT_TEXTS.storage}</Typography>
+      {terms ? (
+        <Link id="managed-terms" href={terms.url} target="_blank" rel="noopener noreferrer">
+          Términos de la custodia gestionada (versión {terms.version})
+        </Link>
+      ) : (
+        <Alert severity="info" id="managed-terms-missing">
+          Este despliegue todavía no publica los términos de la custodia gestionada: están en revisión legal.
+        </Alert>
+      )}
+      <FormControlLabel control={<Checkbox id="managed-consent" checked={accepted} onChange={(e) => onChange(e.target.checked)} />} label={MANAGED_CONSENT_TEXTS.accept} />
+      <Typography variant="caption" color="text.secondary" id="managed-consent-version">
+        Tu aceptación queda registrada con su versión: {managedConsentVersion(terms?.version)}.
+      </Typography>
     </Stack>
   );
 }

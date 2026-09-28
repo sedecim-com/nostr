@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **246 tareas** · 144 hechas · 22 parciales · 74 pendientes · 6 descartadas
-- **331 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **246 tareas** · 145 hechas · 22 parciales · 73 pendientes · 6 descartadas
+- **328 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -65,7 +65,7 @@
 | FR-025 | 12 | 10 | FR025-08 (Diferido), FR025-14 (Diferido) |
 | FR-026 | 5 | 3 | FR026-04 (S11), FR005-09 (Diferido) |
 | FR-027 | 6 | 3 | VAULT-01 (S10), VAULT-02 (S10), VAULT-03 (S11) |
-| FR-028 | 8 | 2 | FR028-02 (S13), PANEL-05 (S9), FR005-08 (S9), VAULT-07 (S10), PANEL-07 (S12), NFR007-03 (Diferido) |
+| FR-028 | 8 | 3 | FR028-02 (S13), FR005-08 (S9), VAULT-07 (S10), PANEL-07 (S12), NFR007-03 (Diferido) |
 | NFR-001 | 5 | 0 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR001-04 (S11), NFR001-05 (Diferido) |
 | NFR-002 | 3 | 2 | NFR002-03 (S12) |
 | NFR-003 | 5 | 2 | VAULT-06 (S11), NFR003-03 (S11), NFR003-04 (Diferido) |
@@ -232,7 +232,7 @@
 | [FR011-04](https://github.com/sedecim-com/nostr/issues/229) | P1 | D2: el cliente soberano reintenta lo pendiente al abrir sesión | FR-011 | Dev | 1 | FR011-02 | Hecho | resume() al abrir la persona en el CLI; test entre dos procesos |
 | [FR019-03](https://github.com/sedecim-com/nostr/issues/230) | P1 | D3: los adjuntos de DM no conservan metadatos no saneables (HEIC con GPS) | FR-019 | Dev | 1 | FR019-02 | Hecho | requireSanitizable también en DMs cuando stripFileMetadata está activo; E2E con un HEIC con GPS |
 | [OPS-11](https://github.com/sedecim-com/nostr/issues/235) | P1 | Corregir la deriva documental | Apéndice D, PRD GC-F05 | Doc | 2 | — | Pendiente | README, notas v0.1.0, architecture.md, ADR 0002/0009, buzz-integration.md, institutional.md, threat-model.md, SECURITY.md y baseline del backlog coinciden con main; internal-review refleja la PR #216 |
-| [PANEL-05](https://github.com/sedecim-com/nostr/issues/233) | P1 | Panel veraz: perfil validado al crear persona, Tor-only sin clearnet en la web, declaraciones desde la custodia real | §9.1, FR-028 | Dev | 3 | PANEL-04, FR028-01 | Pendiente | isValid al crear persona; con tor-only la web no lee relays ni publica 10050; disclosures según la custodia real (también en el CLI Tor); texto para stripFileMetadata; se retiran «Marmot fijada y auditada» y las promesas de tracing y crash reports; se añaden los avisos de alto riesgo que faltan en --high-risk y en los presets soberanos |
+| [PANEL-05](https://github.com/sedecim-com/nostr/issues/233) | P1 | Panel veraz: perfil validado al crear persona, Tor-only sin clearnet en la web, declaraciones desde la custodia real | §9.1, FR-028 | Dev | 3 | PANEL-04, FR028-01 | Hecho | isValid al crear persona; con tor-only la web no lee relays ni publica 10050; disclosures según la custodia real (también en el CLI Tor); texto para stripFileMetadata; se retiran «Marmot fijada y auditada» y las promesas de tracing y crash reports; se añaden los avisos de alto riesgo que faltan en --high-risk y en los presets soberanos |
 | [SEC-07](https://github.com/sedecim-com/nostr/issues/223) | P1 | Vectores oficiales de NIP-44 y vectores JSON exportables | §20.3, §21.1 | Seguridad | 2 | SEC-03 | Pendiente | nip44.vectors.json oficial corre en CI; vectores de NIP-44, NIP-49 y NIP-59 exportables en JSON para futuros clientes en otros lenguajes (ADR 0004) |
 | [BUZZ-07](https://github.com/sedecim-com/nostr/issues/236) | P2 | Adoptar el pin de Buzz ac4521f3e464 (issue #201) tras revisar el changelog | §6.3 | Infra | 1 | BUZZ-05 | Pendiente | PR del pin fusionada con el gate de interoperabilidad en verde; ADR 0003 seguido |
 | [OPS-10](https://github.com/sedecim-com/nostr/issues/61) | P2 | Backlog vivo en GitHub Issues con sincronización automática a docs/backlog | Proceso, PRD GC-E06 | Infra | 3 | — | Parcial | Cada tarea es un issue (milestone = sprint, labels de prioridad/epic/estado, campos Priority/Effort/fechas, sub-issues del epic y "blocked by"); un workflow regenera docs/backlog desde los issues y abre la PR de sync sin intervención, con Actions autorizado a abrir PRs. No bloquea el RC |

@@ -19,6 +19,7 @@ import {
 const acceso = createTestCognito();
 const silent = createLogger({ write: () => {} });
 const REVOKE = 'revocation-token-0123456789';
+const CONSENT = { consent_version: 'textos test' };
 
 async function start(opts: ManagedSignerOptions = {}, api: Partial<ManagedSignerApiOptions> = {}) {
   const registry = new MemoryKeyRegistry();
@@ -44,7 +45,7 @@ describe('managed-signer device binding and revocation (FR024-03)', () => {
   afterAll(() => t.svc.close());
 
   it('binds sessions to a device and rejects everything from it once it is revoked', async () => {
-    const key = await ManagedSignerClient.createKey({ baseUrl: t.base, token: async () => user() });
+    const key = await ManagedSignerClient.createKey({ baseUrl: t.base, token: async () => user() }, { consentVersion: 'textos test' });
     const phone = await t.call('/v1/device-sessions', 'POST', { device_id: 'dev-phone' }, auth(user()));
     const laptop = await t.call('/v1/device-sessions', 'POST', { device_id: 'dev-laptop', ttl_seconds: 3600 }, auth(user()));
     expect(phone.status).toBe(201);
@@ -95,10 +96,10 @@ describe('managed-signer device binding and revocation (FR024-03)', () => {
     const strict = await start({}, { requireDeviceSession: true });
     try {
       const token = acceso.token({ sub: 'strict-user' });
-      expect((await strict.call('/v1/keys', 'POST', {}, auth(token))).status).toBe(403);
+      expect((await strict.call('/v1/keys', 'POST', CONSENT, auth(token))).status).toBe(403);
       const s = await strict.call('/v1/device-sessions', 'POST', { device_id: 'dev-1' }, auth(token));
       expect(s.status).toBe(201);
-      const created = await strict.call('/v1/keys', 'POST', {}, auth(s.json.token));
+      const created = await strict.call('/v1/keys', 'POST', CONSENT, auth(s.json.token));
       expect(created.status).toBe(201);
       expect((await strict.call(`/v1/keys/${created.json.keyId}/sign`, 'POST', { template: { kind: 1, content: 'x' } }, auth(token))).status).toBe(403);
       expect((await strict.call(`/v1/keys/${created.json.keyId}/sign`, 'POST', { template: { kind: 1, content: 'x' } }, auth(s.json.token))).status).toBe(200);
@@ -124,7 +125,7 @@ describe('managed-signer rate limits and anomalous use (FR005-06)', () => {
     const t = await start({ now: () => now, rateLimits: { perKey: { perMinute: 5 }, perKind: { perMinute: 3 }, kinds: { 22242: { perMinute: 4 } } } });
     try {
       const token = acceso.token({ sub: 'busy-user' });
-      const key = await ManagedSignerClient.createKey({ baseUrl: t.base, token: async () => token });
+      const key = await ManagedSignerClient.createKey({ baseUrl: t.base, token: async () => token }, { consentVersion: 'textos test' });
       const client = new ManagedSignerClient({ baseUrl: t.base, token: async () => token, keyId: key.keyId });
       const sign = (kind: number) => t.call(`/v1/keys/${key.keyId}/sign`, 'POST', { template: { kind, content: 'x' } }, { authorization: `Bearer ${token}` });
       for (let i = 0; i < 3; i++) expect((await sign(1)).status).toBe(200);

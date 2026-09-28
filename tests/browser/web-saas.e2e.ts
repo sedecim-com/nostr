@@ -20,6 +20,7 @@ import { BlossomClient } from '@sedecim/blossom-client';
 import { CognitoVerifier, createIdentityApi, MemoryIdentityRepository } from '@sedecim/identity-service';
 import { createManagedSignerApi, ManagedSigner, MemoryVault } from '@sedecim/managed-signer';
 import { backupFile, generateKey } from '@sedecim/key-generator';
+import { managedConsentVersion } from '@sedecim/profiles';
 import { createNotificationApi, generateVapidKeys, NotificationGateway, createWebPushSender } from '@sedecim/notification-gateway';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
@@ -512,7 +513,8 @@ try {
 
   // --- SaaS mode (ADR 0008): Acceso login first, then optional linking of a persona
   const saasCtx = await browser.newContext();
-  const saasConfig = { ...selfHosted, mode: 'saas', cognito, managedSigner: managedUrl, backupVault: identityUrl };
+  const managedTerms = { url: 'https://legal.example/custodia-gestionada', version: '2026-10' };
+  const saasConfig = { ...selfHosted, mode: 'saas', cognito, managedSigner: managedUrl, managedTerms, backupVault: identityUrl };
   await saasCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(saasConfig) }));
   const cognitoCalls: string[] = [];
   const accesoRoute = async (r: Route) => {
@@ -534,6 +536,9 @@ try {
   await saas.goto(base);
   await saas.getByRole('button', { name: 'Entrar con Acceso' }).waitFor();
   assert(!(await saas.getByText('Crear almacén').isVisible()), 'SaaS mode requires the Acceso login before any identity');
+  // FR005-08: with managed custody on offer, the login never claims that the key stays in this browser.
+  const loginText = (await saas.locator('main').textContent()) ?? '';
+  assert(!loginText.includes('no sale de este navegador') && loginText.includes('con la custodia gestionada (opcional), la guarda la plataforma'), 'the Acceso login does not promise that the key never leaves the browser when managed custody exists (FR005-08)');
   await saas.fill('#acceso-user', 'ana');
   await saas.fill('#acceso-pass', 'mala');
   await saas.getByRole('button', { name: 'Entrar con Acceso' }).click();
@@ -595,12 +600,15 @@ try {
   await saas.getByLabel('Llave gestionada por la plataforma (custodial, opcional)').check();
   assert((await saas.getByRole('alert').filter({ hasText: 'capacidad técnica de firmar' }).count()) > 0, 'managed custody shows the custodial disclosure before creating');
   assert(await saas.getByRole('button', { name: 'Crear persona' }).isDisabled(), 'managed custody is never created without explicit consent');
+  assert((await saas.textContent('#managed-decryption'))?.includes('se cifran y descifran en el servidor de firma'), 'the opt-in warns that DMs are decrypted on the server (FR005-08)');
+  assert((await saas.getAttribute('#managed-terms', 'href')) === managedTerms.url, 'the opt-in links the published terms of the managed custody (FR005-08)');
   await saas.locator('#managed-consent').check();
   await saas.getByRole('button', { name: 'Crear persona' }).click();
   await saas.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Gestionada'), undefined, { timeout: 15_000 });
   const owner = `${iss}#acceso-user-1`;
   const managedKey = (await managedCore.list(owner))[0];
   assert(managedKey && (await saas.textContent('#sending-as'))?.includes('custodial'), 'managed key created for the Acceso user and flagged as custodial');
+  assert(managedKey!.consentVersion === managedConsentVersion(managedTerms.version) && typeof managedKey!.consentAt === 'number', `the managed-signer recorded the consent with its version (${managedKey!.consentVersion}) (FR005-08)`);
   await tab(saas, 'Canales');
   await saas.locator('#channel-list').getByText('General').click();
   await saas.fill('#channel-text', 'firmado por la custodia gestionada');

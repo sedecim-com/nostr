@@ -63,7 +63,7 @@ describe('managed-signer import/export limits', () => {
     afterAll(() => api.close());
 
     it('answers 429 with Retry-After', async () => {
-      const imp = () => fetch(`${base}/v1/keys/import`, { method: 'POST', headers: { authorization: `Bearer ${acceso.token({ sub: 'u1' })}` }, body: JSON.stringify({ ncryptsec: ncryptsec(), password: PASSWORD }) });
+      const imp = () => fetch(`${base}/v1/keys/import`, { method: 'POST', headers: { authorization: `Bearer ${acceso.token({ sub: 'u1' })}` }, body: JSON.stringify({ ncryptsec: ncryptsec(), password: PASSWORD, consent_version: 'textos test' }) });
       expect((await imp()).status).toBe(201);
       const res = await imp();
       expect(res.status).toBe(429);

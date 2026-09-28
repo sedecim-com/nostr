@@ -3133,8 +3133,8 @@
     "FR028-01"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 44c3284 (PR #308):\n\n- **Al crear persona:** la web valida el perfil antes de crear nada.\n- **Tor-only:** la web no abre ninguna conexión a relays (apps/web-saas/test/tor-only.test.ts).\n- **Custodia real** en la web (config.custody desde la llave o el signer; el panel la muestra sin dejar cambiarla) y en el CLI (`local`).\n- **Disclosures 1.2.0:**\n  - sin «Marmot fijada y auditada»;\n  - telemetría y crash reports dicen que esta versión no envía ninguno;\n  - los presets ya no eligen crash reports;\n  - texto para stripFileMetadata.\n- **Avisos de riesgos residuales:** para Tor-only (`--high-risk`, sovereign-tor) y, sin Tor, sobre la IP. El CLI los imprime al crear o importar.\n- **Tests:**\n  - packages/profiles/test/profiles.test.ts\n  - apps/sovereign-client/test/sovereign.test.ts\n  - apps/sovereign-client/test/cli-warnings.test.ts\n  - tests/browser/web-saas.e2e.ts",
    "issue": 233
   },
   {

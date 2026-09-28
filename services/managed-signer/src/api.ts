@@ -23,6 +23,18 @@ interface Caller extends Actor {
 const DEVICE_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 
 /**
+ * FR005-08: a managed (custodial) key is only created or imported with its owner's recorded consent: the version
+ * of the texts and terms they accepted, as the client showed them (e.g. "textos 1.3.0; términos 2026-10").
+ */
+function consentVersion(body: { consent_version?: unknown }): string {
+  const v = body.consent_version;
+  if (typeof v !== 'string' || !/^[\p{L}\p{N} .;:()/_+-]{1,128}$/u.test(v)) {
+    throw new HttpError(400, 'consent_version required: the version of the texts and terms the owner accepted (FR005-08)');
+  }
+  return v;
+}
+
+/**
  * Managed signer HTTP API. Every call is custodial and audited. Callers authenticate with
  * `Authorization: Bearer <token>`: the user's Acceso (Cognito) id/access token or a device session opened with
  * it, so they only ever reach their own keys. The legacy mode where a service token acted for the account
@@ -116,18 +128,18 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
   );
   svc.get('/v1/keys', route(async (_req, c) => ({ keys: await core.list(c.owner) })));
   svc.post('/v1/keys', route(async (req, c) => {
-    const body = req.json<{ allowed_kinds?: number[] }>();
+    const body = req.json<{ allowed_kinds?: number[]; consent_version?: string }>();
     if (body.allowed_kinds !== undefined && (!Array.isArray(body.allowed_kinds) || !body.allowed_kinds.every((k) => Number.isInteger(k) && k >= 0))) {
       throw new HttpError(400, 'invalid allowed_kinds');
     }
-    const k = await core.create(c.owner, c.principal, { allowedKinds: body.allowed_kinds });
+    const k = await core.create(c.owner, c.principal, { allowedKinds: body.allowed_kinds, consentVersion: consentVersion(body) });
     log.info('managed key created', { key_id: k.keyId, pubkey: k.pubkey });
     return { status: 201, body: await core.describe(k.keyId, c.owner) };
   }));
   svc.post('/v1/keys/import', route(async (req, c) => {
-    const body = req.json<{ ncryptsec: string; password: string }>();
+    const body = req.json<{ ncryptsec: string; password: string; consent_version?: string }>();
     requireFields(body, ['ncryptsec', 'password']);
-    const k = await core.importEncrypted(c.owner, c.principal, body.ncryptsec, body.password);
+    const k = await core.importEncrypted(c.owner, c.principal, body.ncryptsec, body.password, { consentVersion: consentVersion(body) });
     return { status: 201, body: await core.describe(k.keyId, c.owner) };
   }));
   svc.get('/v1/keys/:id', route((req, c) => core.describe(req.params.id!, c.owner)));

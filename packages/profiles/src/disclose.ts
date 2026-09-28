@@ -10,7 +10,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
     offline: d('La llave vive fuera de línea (air-gapped/hardware). Nadie más puede firmar; la recuperación es tu responsabilidad.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Custodia física del respaldo.']),
     external: d('Un signer externo (NIP-46/NIP-07) firma por ti; este cliente nunca ve la nsec.', ['soberania', 'privacidad-operador'], [], ['El signer externo y los permisos que le concedas.']),
     'encrypted-backup': d('El operador almacena un backup cifrado con una clave que solo tú controlas: guarda ciphertext, no la clave de descifrado.', ['recuperabilidad'], [], ['Fortaleza de tu contraseña de backup (scrypt).']),
-    managed: d('Managed Key activado: la plataforma tiene capacidad técnica de firmar como tú. Este modo es CUSTODIAL.', ['recuperabilidad', 'control-institucional'], ['soberania', 'privacidad-operador'], ['Operador, su vault (Secrets Manager/KMS) y su personal.']),
+    managed: d('Managed Key activado: la plataforma tiene capacidad técnica de firmar como tú y descifra en su servidor tus mensajes directos (NIP-44). Este modo es CUSTODIAL.', ['recuperabilidad', 'control-institucional'], ['soberania', 'privacidad-operador'], ['Operador, su vault (Secrets Manager/KMS) y su personal.']),
     'managed-enclave': d('Custodia en enclave: el backend general no ve la llave en claro, pero el servicio de firma sí puede firmar como tú. Sigue siendo CUSTODIAL.', ['recuperabilidad', 'control-institucional'], ['soberania'], ['Attestation del enclave y políticas KMS del operador.']),
   },
   network: {
@@ -68,7 +68,23 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.2.0';
+export const DISCLOSURE_VERSION = '1.3.0';
+
+/**
+ * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.
+ * Part of the reviewed copy (disclosureCatalog, docs/disclosures.md): the consent recorded with the key names
+ * DISCLOSURE_VERSION (see managedConsentVersion).
+ */
+export const MANAGED_CONSENT_TEXTS = {
+  decryption: 'Tus mensajes directos (NIP-44) se cifran y descifran en el servidor de firma: el servicio ve su contenido en claro mientras lo procesa, aunque no lo guarda.',
+  storage: 'La llave se guarda cifrada con AWS KMS en us-east-1 (LFPDPPP). Puedes migrarla a custodia local cuando quieras; tras borrarla se destruye a los 30 días.',
+  accept: 'Entiendo que la plataforma puede firmar como yo y descifrar mis mensajes directos, y acepto la custodia gestionada',
+} as const;
+
+/** The version recorded with a managed key's consent: the reviewed copy and the terms that were shown. */
+export function managedConsentVersion(termsVersion?: string): string {
+  return `textos ${DISCLOSURE_VERSION}; términos ${termsVersion ?? 'no publicados'}`;
+}
 
 /** Every statement the panel can show, for review and versioning (not tied to one configuration). */
 export function disclosureCatalog(): Disclosure[] {
@@ -81,6 +97,7 @@ export function disclosureCatalog(): Disclosure[] {
     for (const v of [true, false]) out.push(disclose({ ...base, [flag]: v }).find((x) => x.control === flag)!);
   }
   out.push(disclose({ ...base, quorum: 2 }).find((x) => x.control === 'quorum')!);
+  for (const [key, statement] of Object.entries(MANAGED_CONSENT_TEXTS)) out.push({ control: 'custody', option: `managed (consentimiento: ${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   return out;
 }
 

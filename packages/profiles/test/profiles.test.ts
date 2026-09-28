@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRESETS, preset, disclose, disclosureCatalog, summarize, validateConfig, isValid, assertNoAbsoluteClaims, receiptPolicy, type PresetName, type SovereigntyConfig } from '../src/index';
+import { PRESETS, preset, disclose, disclosureCatalog, summarize, validateConfig, isValid, assertNoAbsoluteClaims, receiptPolicy, DISCLOSURE_VERSION, MANAGED_CONSENT_TEXTS, managedConsentVersion, type PresetName, type SovereigntyConfig } from '../src/index';
 
 describe('sovereignty profiles', () => {
   it('reference presets are valid on their intended platforms', () => {
@@ -69,6 +69,15 @@ describe('sovereignty profiles', () => {
     expect(warnings({ ...preset('sovereign'), custody: 'local' })).toContain('LOSS_RISK'); // a key on this device, no backup
   });
 
+  it('the managed custody consent is reviewed copy with a version (FR005-08)', () => {
+    const custody = disclose({ ...preset('convenience'), custody: 'managed' }).find((d) => d.control === 'custody')!;
+    expect(custody.statement).toMatch(/descifra en su servidor tus mensajes directos \(NIP-44\)/);
+    const reviewed = disclosureCatalog().map((d) => d.statement);
+    for (const text of Object.values(MANAGED_CONSENT_TEXTS)) expect(reviewed).toContain(text);
+    expect(managedConsentVersion('2026-10')).toBe(`textos ${DISCLOSURE_VERSION}; términos 2026-10`);
+    expect(managedConsentVersion()).toBe(`textos ${DISCLOSURE_VERSION}; términos no publicados`);
+  });
+
   it('refuses absolute anonymity claims', () => {
     expect(() => assertNoAbsoluteClaims('Modo 100% anónimo')).toThrow();
   });
@@ -103,7 +112,7 @@ describe('disclosure copy versioning (FR028-02)', () => {
   it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
     const { createHash } = await import('node:crypto');
     const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
-    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66' };
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453' };
     const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
     expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();

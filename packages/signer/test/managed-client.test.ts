@@ -34,8 +34,8 @@ describe('ManagedSignerClient (FR005-04)', () => {
 
     const conn = { baseUrl: 'https://signer.example', token: async () => 'tok', fetch: f };
     expect((await ManagedSignerClient.listKeys(conn)).map((k) => k.keyId)).toEqual(['k1']);
-    expect((await ManagedSignerClient.createKey(conn, { allowedKinds: [1] })).keyId).toBe('k2');
-    expect(seen.at(-1)!.body).toEqual({ allowed_kinds: [1] });
+    expect((await ManagedSignerClient.createKey(conn, { allowedKinds: [1], consentVersion: 'textos test' })).keyId).toBe('k2');
+    expect(seen.at(-1)!.body).toEqual({ allowed_kinds: [1], consent_version: 'textos test' }); // FR005-08
   });
 
   it('surfaces HTTP errors with their status and refuses to call without a session', async () => {
