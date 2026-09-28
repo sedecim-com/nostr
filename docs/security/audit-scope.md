@@ -1,7 +1,7 @@
 # Alcance de las auditorías externas (SEC-01 y SEC-02)
 
 - **Versión:** v0.1 (2026-09-27) · **Estado:** listo para enviar a proveedores (RFP).
-- **Backlog:** SEC-01 (revisión criptográfica independiente) y SEC-02 (pentest), sprint S8, issues #192 y #193.
+- **Backlog:** SEC-01 (revisión criptográfica independiente, sprint S14) y SEC-02 (pentest, sprint S15), issues #192 y #193.
 - **Commit de referencia:** `aac285be38d94ff110adb91a9884c49f9a7aea5c` más los commits de la revisión interna
   previa ([internal-review-2026-09.md](internal-review-2026-09.md)). Antes de firmar hay que fijar el commit
   exacto que se entrega (un tag `audit-2026-XX`) y congelarlo mientras dure el trabajo de campo.

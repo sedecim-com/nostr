@@ -1,7 +1,7 @@
 # Backlog — Acceso Nostr
 
 > Fuente: [GitHub Issues](https://github.com/sedecim-com/nostr/issues?q=label%3Abacklog) (ver [GITHUB.md](GITHUB.md)). `backlog.json`, este archivo y `backlog.csv` se regeneran desde los issues; no editar a mano.
-> Base: Scope_Plataforma_Nostr_Soberana_SaaS_v0.1 (25/09/2026) y PRD de cierre de brechas v0.3 (27/09/2026). Estado del código: `main@d479bc5` (2026-09-27).
+> Base: Scope_Plataforma_Nostr_Soberana_SaaS_v0.1 (25/09/2026) y PRD de cierre de brechas v0.3 (27/09/2026). Estado del código: `main@75a18e5` (2026-09-28).
 
 ## Resumen
 

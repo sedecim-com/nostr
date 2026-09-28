@@ -1,7 +1,7 @@
 {
  "meta": {
-  "version": "2026-09-27",
-  "baseline": "main@d479bc5",
+  "version": "2026-09-28",
+  "baseline": "main@75a18e5",
   "source": "Scope_Plataforma_Nostr_Soberana_SaaS_v0.1 (25/09/2026) y PRD de cierre de brechas v0.3 (27/09/2026)",
   "sprintLengthDays": 14,
   "priorities": {

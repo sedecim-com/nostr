@@ -28,7 +28,8 @@ Sin fork (ADR 0002), actualizar Buzz es cambiar un digest.
 
 **Cómo se adopta**
 - Una PR que cambia a la vez `infra/buzz/PIN` (commit, fecha, digest), el digest por defecto de
-  `docker-compose.yml`, el informe en `docs/interop/` y, si cambian, los flags.
+  `docker-compose.yml` y de `deploy/k8s/base/kustomization.yaml`, el informe en `docs/interop/` y, si cambian,
+  los flags.
 
 **Cambios que necesitemos en el relay**
 - Se proponen upstream (issue o PR). Mientras tanto se resuelven con un adaptador o un servicio aparte.

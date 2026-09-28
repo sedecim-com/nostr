@@ -5,7 +5,8 @@ un mismo protocolo Nostr con grados configurables de soberanía, anonimato, resi
 control institucional. **La centralización es una capa voluntaria de conveniencia, no la base.**
 
 > ⚠️ Early release. No apto para perfiles de alto riesgo hasta una revisión de seguridad independiente
-> (ver [SECURITY.md](SECURITY.md)). NIP-17/NIP-44 no ofrecen forward secrecy; el modo *managed* es custodial.
+> (ver [SECURITY.md](SECURITY.md)). NIP-17/NIP-44 no ofrecen forward secrecy; el modo *managed* es custodial (firma y
+> descifra los DMs en el servidor).
 
 ## Qué incluye
 
@@ -14,8 +15,8 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | SDK Nostr propio (desacoplado de Buzz) | `packages/*` | ✅ |
 | Identidad, personas, custodia (local, offline, NIP-46, NIP-07, managed) | `packages/identity`, `packages/signer` | ✅ |
 | Máquina de estados de entrega + outbox cifrada + quorum multi-relay | `packages/delivery-engine` | ✅ |
-| DMs NIP-17 (NIP-44 + NIP-59) tras feature flag, canales NIP-29 | `packages/messaging` | ✅ gate ejecutado contra Buzz `02c6309` (requiere adaptador de jitter acotado) |
-| Grupos high-security Marmot/MLS | `packages/marmot-adapter`, `docs/marmot.md` | ✅ marmot-ts + ts-mls (alpha upstream; vía relay secundario, Buzz no acepta los kinds) |
+| DMs NIP-17 (NIP-44 + NIP-59) tras feature flag, canales NIP-29 | `packages/messaging` | ✅ gate en cada CI contra el Buzz fijado en `infra/buzz/PIN` (informe `docs/interop/buzz-upstream-ac4521f3e464-report.json`); requiere el adaptador de jitter acotado (300 s) |
+| Grupos high-security Marmot/MLS | `packages/marmot-adapter`, `docs/marmot.md` | ✅ marmot-ts + ts-mls (alpha y RC upstream; vía relay secundario, Buzz no acepta los kinds) |
 | Blossom con saneamiento EXIF y cifrado cliente | `packages/blossom-client`, `services/blob-store` | ✅ (cifrados → blob-store; Buzz `/media` solo imágenes en claro) |
 | Sovereign Tor Mode (fail closed, DNS remoto, circuitos por persona) | `packages/tor-network`, `apps/sovereign-client` | ✅ |
 | Panel de soberanía con consecuencias verificables | `packages/profiles`, `apps/web-saas` | ✅ |
@@ -23,10 +24,10 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
-| Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma autorizada con el token de Acceso) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
-| Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (persistencia en memoria) |
+| Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma y NIP-44 en el servidor autorizados con el token de Acceso o una sesión de dispositivo, consentimiento registrado con su versión) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
+| Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (Postgres, tablas `policy_*`; sin `DATABASE_URL`, en memoria) |
 | Consola de administración web (NIP-98; personas, recursos, dispositivos y passkeys, rotaciones, directorio, retención, auditoría) | `apps/admin-console`, [docs/admin-console.md](docs/admin-console.md) | ✅ servida por la imagen web en `/admin/` |
-| Notificaciones push opacas por perfil (Web Push VAPID + RFC 8291; sin contenido, remitente ni recuento; deshabilitadas en sovereign/Tor) | `services/notification-gateway`, [ADR 0010](docs/adr/0010-notificaciones-push-por-perfil.md) | ✅ opt-in (perfil compose `push`; registros en memoria) |
+| Notificaciones push opacas por perfil (Web Push VAPID + RFC 8291; sin contenido, remitente ni recuento; deshabilitadas en sovereign/Tor) | `services/notification-gateway`, [ADR 0010](docs/adr/0010-notificaciones-push-por-perfil.md) | 🟡 opt-in (perfil compose `push`; registros en memoria): con los relays fijados el gateway no ve los gift wraps y el aviso no llega (ADR 0010, OPS-06) |
 | Stack self-hosted Docker Compose (Buzz fijado por digest, Tor opcional) | `docker-compose.yml`, `infra/` | ✅ |
 | Buzz upstream sin fork, fijado por digest | `infra/buzz/PIN`, `docs/adr/0002-subset-y-pin-de-buzz.md`, `docs/buzz-integration.md` | ✅ (política de actualización: ADR 0003) |
 
@@ -40,7 +41,7 @@ Releases firmados (cosign keyless + provenance SLSA), imágenes reproducibles, b
 ### Desarrollo (sin Docker)
 ```bash
 npm install
-npm run check                 # typecheck + 100+ tests (unitarios y E2E en proceso)
+npm run check                 # typecheck + tests (unitarios y E2E en proceso)
 npm run dev:relay             # relay de desarrollo en memoria: ws://localhost:7777
 npm run dev:web                # web en http://localhost:5173 (Vite); npm run build:web → apps/web-saas/dist
 npm run dev:admin              # consola de administración en http://localhost:5174; npm run build:admin
@@ -109,10 +110,11 @@ npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 | Comando | Qué cubre |
 |---|---|
 | `npm test` | Unitarios + E2E contra relay/Blossom/SOCKS en memoria (NIP-42, quorum, offline, Tor fail-closed, NIP-46, interop con nostr-tools) |
-| `npm run test:pg` | Repositorios Postgres del indexer e identity-service (`TEST_DATABASE_URL`) |
+| `npm run test:pg` | Pruebas sobre Postgres de los servicios: indexer, identity-service, policy-engine y managed-signer (`TEST_DATABASE_URL`) |
 | `npm run test:keygen-html` | Generador HTML air-gapped abierto desde `file://` sin red |
 | `npm run lint:claims` | Prohíbe afirmaciones absolutas de privacidad en todo el copy |
-| `npm run test:browser` | Web en Chromium (Playwright): personas, canales, DMs con ruteo 10050, adjuntos, receipts, panel aplicado y persistido, vault, nsec que no sale del navegador, axe-core, modo SaaS con Acceso |
+| `npm run test:browser` | Web en Chromium (Playwright): personas, canales, DMs con ruteo 10050, adjuntos, receipts, panel aplicado y persistido, vault, nsec que no sale del navegador, axe-core, modo SaaS con Acceso; grupos Marmot, fugas por WebRTC y previews, consola de administración |
+| `npm run test:leak` | Captura de red real (netns + tcpdump) del CLI soberano, perfiles Tor y directo, con controles negativos (job `leak-tests`) |
 | `BUZZ_RELAY_URL=… npx tsx tests/browser/web-buzz.e2e.ts` | Web contra Buzz real: crear canal, unirse, enviar y leer (FR015-03; job `stack` de CI) |
 | `npm run test:interop` | Gate contra Buzz real (`BUZZ_RELAY_URL`), genera `interop-report.json` |
 | `sh scripts/backup.sh` / `sh scripts/restore.sh DIR` | Backup y restore del stack self-hosted (`docs/runbooks/restore.md`; drill nocturno `restore-drill.yml`) |
@@ -121,21 +123,28 @@ npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 ## Estructura
 ```
 packages/   SDK compartido (nostr-core, relay-pool, signer, delivery-engine, encrypted-store, identity,
-            messaging, marmot-adapter, blossom-client, tor-network, telemetry-policy, profiles,
-            policy-client, sync, service-kit, test-relay)
-apps/       web-saas, sovereign-client, key-generator
+            messaging, marmot-adapter, blossom-client, tor-network, telemetry-policy, metrics, profiles,
+            policy-client, sync, service-kit, qr, rotation-worker, test-relay)
+apps/       web-saas, admin-console, sovereign-client, key-generator
 services/   indexer, identity-service, managed-signer, policy-engine, blob-store, notification-gateway
-infra/      buzz (pin), tor, postgres, web
+infra/      buzz (pin), secure-relay, tor, caddy (TLS), postgres, web
 deploy/     Kubernetes (kustomize) y Terraform del SaaS en staging, monitorización de SLO (deploy/README.md)
-docs/       arquitectura, threat model, trazabilidad, integración Buzz, Tor, runbooks, SLO, RPO/RTO
+docs/       arquitectura, ADR, threat models por perfil, seguridad (alcance, inventario criptográfico, revisión
+            interna), trazabilidad, integración Buzz, Tor, runbooks, SLO, RPO/RTO, notas de release
 ```
 
 ## Pendiente (roadmap §22)
-- F2: persistencia en Postgres del policy-engine; transportes push nativos (APNs/FCM/UnifiedPush) tras la interfaz del notification-gateway. (NIP-77 Negentropy ya está en `packages/sync`, con fallback a REQ por ventanas.)
-- F3: auditoría independiente de fugas; cliente móvil/desktop dedicado para Tor.
-- F4: interoperabilidad verificada con MDK; MIP-04 (media en grupos); unificar Marmot en Buzz si upstream acepta sus kinds.
-- F5: admin-console, directorio con passkeys/attestation, legal hold.
-- Primer release firmado con `release.yml` (falta configurar el entorno `release`), QR en el generador offline, enclave Nitro para managed en AWS real (EIF medida, attestation real).
+- F2: transportes push nativos (APNs/FCM/UnifiedPush) tras la interfaz del notification-gateway, solo con app nativa
+  (fuera de este programa); con los relays de referencia el push web no se dispara (OPS-06). NIP-77 Negentropy ya
+  está en `packages/sync`, con fallback a REQ por ventanas.
+- F3: auditoría independiente de fugas y captura de red también para DMs, grupos y media (FR020-05); cliente
+  dedicado para Tor (FR020-02, después de v1.0).
+- F4: unificar Marmot en Buzz si upstream acepta sus kinds; que MDK pueda añadir miembros marmot-ts por su key
+  package actual (`mls_proposals`, abierto upstream); ts-mls y marmot-ts estables (FR025-08).
+- F5: worker de rotaciones como servicio y sesiones de dispositivo en la web managed (FR024-05); auditoría y
+  retención legal coherentes con la confidencialidad (FR023-12); CI del modo institucional (FR023-13).
+- Primer release firmado con `release.yml` (falta configurar el entorno `release` y aprobar el waiver de v0.1.0) y
+  enclave Nitro para managed en AWS real (EIF medida, attestation real; FR005-05).
 
 ## Licencia
 Apache-2.0 (ver `LICENSE` y `NOTICE`). El relay Buzz (Apache-2.0) se usa sin modificar como imagen upstream fijada por digest.

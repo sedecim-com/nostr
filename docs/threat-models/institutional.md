@@ -27,7 +27,7 @@ de auditoría, dispositivos registrados.
 | Secretos en logs o tablas | Vault envelope; logs y uso sin secreto; tablas solo con metadatos | `services/managed-signer/test` |
 | Uso indebido de la llave managed | Auditoría de cada firma (con el dispositivo que la pidió); migración verificada a llave local | `managed-signer.test.ts` (FR-026) |
 | Abuso de firma managed (token robado, cliente desbocado) | Token bucket por llave y por kind (por defecto 120/min y 60/min, configurable) → 429 con `Retry-After`; fila `rate-limited` en el log de uso (una por llave y minuto); métricas sin identificadores y alertas de ritmo anómalo (> 3× la línea base de 1 d), 429 sostenidos y dispositivo revocado insistiendo | `devices-limits.test.ts` (FR005-06), `deploy/monitoring/prometheus/tests/managed-signer.test.yml` |
-| Suplantación de otro usuario en el managed-signer | Cada petición lleva el token de Acceso (Cognito) verificado; el dueño es `issuer#sub` y nunca sale de `x-account-id` | `managed-signer.test.ts` (FR005-04) |
+| Suplantación de otro usuario en el managed-signer | Cada petición lleva el token de Acceso (Cognito) verificado o una sesión de dispositivo abierta con él; el dueño es `issuer#sub` y `x-account-id` se rechaza (403, FR005-12) | `managed-signer.test.ts` (FR005-04) |
 | Pérdida del registro de llaves al reiniciar | Registro y log de uso en Postgres; retención de 12 meses para el uso y de 30 días para el material borrado | `registry.test.ts` (FR005-03, DEC-09) |
 | Pérdida o manipulación del estado de políticas | Persistencia en Postgres (`policy_*`); auditoría append-only por triggers; tokens de sesión con hash | `policy-engine.test.ts` (FR023-03: reinicio, append-only) |
 | Acceso al relay de un usuario dado de baja | Allowlist NIP-42 sincronizado desde el engine a Buzz (tabla) y al secure-relay (admisión gRPC) | `allowlist-sync.test.ts` (FR023-04) |
@@ -37,11 +37,12 @@ de auditoría, dispositivos registrados.
 ## Riesgos residuales
 | Riesgo | Nivel | Nota |
 |---|---|---|
-| **El operador puede firmar como el usuario (managed)** | Alto | Declarado en el panel y en la API; el tier con enclave (FR005-05) lo reduce |
+| **El operador puede firmar como el usuario y descifra sus DMs NIP-44 (managed)** | Alto | Declarado en el panel, en el consentimiento y en la API; el tier con enclave (FR005-05) lo reduce |
 | Admisión del secure-relay fail-open | Medio | nostr-rs-relay admite el evento si no alcanza el servidor gRPC de `relay-allowlist`; Buzz es fail-closed (`docs/institutional.md`) |
 | El borrado por retención no alcanza réplicas | Medio | Solo borra la copia del mirror; otros relays y clientes conservan la suya (aviso en la API) |
 | Lo descifrado antes de revocar sigue en el dispositivo | Medio | La rotación protege solo lo posterior; ventana del intervalo de sondeo del worker (FR-024, `docs/marmot.md`) |
-| Credenciales de Acceso en el dispositivo robado | Medio | Pueden abrir sesiones del managed-signer con otro id de dispositivo: cerrar las sesiones de Acceso (cierre global) en el runbook de pérdida |
+| Credenciales de Acceso en el dispositivo robado | Medio | Pueden abrir sesiones del managed-signer con otro id de dispositivo: cerrar las sesiones de Acceso (cierre global); el runbook de pérdida está pendiente (FR024-05) |
+| Revocación incompleta en la web managed | Medio | La web aún no usa sesiones de dispositivo del managed-signer y el worker de rotaciones corre desde el CLI, sin servicio desplegado (FR024-03, FR024-05) |
 | Límites de firma por réplica | Bajo | El token bucket vive en memoria de cada réplica: con N réplicas el límite efectivo es hasta N veces mayor |
 | Administrador malicioso | Medio | Falta separación de funciones; la auditoría es append-only en la base, pero un superusuario de Postgres puede desactivar los triggers |
 | Canales NIP-29 legibles por el operador | Medio | Por diseño: usar salas Marmot |

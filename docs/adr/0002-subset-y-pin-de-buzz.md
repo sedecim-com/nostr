@@ -21,10 +21,11 @@ Además, el early release usa solo clientes propios (web SaaS y CLI); no se rebr
 Buzz, que siguen funcionando contra nuestro relay porque hablan el mismo protocolo.
 
 ## Decisión
-- **Sin fork.** Se usa la imagen publicada por Block, fijada por digest en `infra/buzz/PIN` y en
-  `docker-compose.yml` (`BUZZ_IMAGE`).
+- **Sin fork.** Se usa la imagen publicada por Block, fijada por digest en `infra/buzz/PIN`, en
+  `docker-compose.yml` (`BUZZ_IMAGE`) y en `deploy/k8s/base/kustomization.yaml`.
 - **Pin de F0:** relay en el commit `02c6309f` (2026-09-25), imagen
-  `ghcr.io/block/buzz@sha256:da30acf8…`. Evidencia: `docs/interop/buzz-02c6309-report.json`.
+  `ghcr.io/block/buzz@sha256:da30acf8…`. Evidencia: `docs/interop/buzz-02c6309-report.json`. El pin vigente vive
+  en `infra/buzz/PIN` y cambia según ADR 0003, con su informe del gate en `docs/interop/`.
 - **Superficie:** solo se despliega el relay. Los componentes de Buzz que no usamos (agentes, desktop,
   mobile, admin-web) no se ejecutan. Dentro del relay, push se desactiva explícitamente
   (`BUZZ_PUSH_ENABLED=false`) y el resto de funciones opcionales quedan en sus valores por defecto; git

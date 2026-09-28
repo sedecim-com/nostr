@@ -1,7 +1,8 @@
 # Threat model · sovereign-tor (v0.1)
 
 > ⚠️ Según el scope (§2.3), ningún release se recomienda a perfiles de alto riesgo hasta superar una
-> revisión independiente (SEC-01, SEC-02) y tests de fugas con captura de red real (FR020-03).
+> revisión independiente (SEC-01, SEC-02). Los tests de fugas con captura de red real (FR020-03) ya corren en
+> CI, pero son internos y aún no cubren DMs, grupos ni media (FR020-05).
 
 **Configuración:** llave offline o signer, **Tor-only sin fallback clearnet**, relay `.onion`,
 identidad pseudónima, persistencia en el dispositivo, **Marmot/MLS** para grupos, archivos cifrados,
@@ -26,7 +27,7 @@ las conversaciones, identidad de las fuentes.
 |---|---|---|
 | Fuga a clearnet | NetworkGuard falla cerrado: sin ruta Tor no hay transmisión; el mensaje queda en outbox | `packages/tor-network/test`, `delivery-engine.test.ts`, `sovereign.test.ts` |
 | Fuga de DNS | `socks5h`: resolución dentro de Tor; ningún `dns.lookup` local | `tor.test.ts` |
-| Correlación entre personas | Circuitos Tor aislados por persona (IsolateSOCKSAuth), stores separados, aviso de reutilización de contactos/archivos, prohibición de invitar a una identidad propia | `packages/identity/test`, `apps/sovereign-client/test/groups.test.ts` |
+| Correlación entre personas | Circuitos Tor aislados por persona (IsolateSOCKSAuth), stores separados, aviso de reutilización de contactos (archivos: FR006-07), prohibición de invitar a una identidad propia | `packages/identity/test`, `apps/sovereign-client/test/groups.test.ts` |
 | Destinos no autorizados | Allowlist de hosts por persona; `onionOnly` | `sovereign.test.ts` |
 | Compromiso futuro de la llave | Grupos Marmot/MLS con forward secrecy y rotación (PCS) | `packages/marmot-adapter/test` |
 | Expulsado que sigue leyendo | Autoprueba de secreto post-expulsión (falla cerrado con ts-mls vulnerable) | `docs/marmot.md` |
@@ -36,7 +37,7 @@ las conversaciones, identidad de las fuentes.
 | Riesgo | Nivel | Nota |
 |---|---|---|
 | No hay cliente dedicado con Tor embebido | Alto | Hoy es un CLI; la web está bloqueada en este perfil (FR020-02) |
-| Sin tests de fugas con captura de red real | Alto | Los tests actuales son de proceso (FR020-03, P0) |
+| Tests de fugas internos e incompletos | Alto | La captura real (netns + tcpdump, job `leak-tests`) cubre crear persona, canales e historial del CLI, con un stub SOCKS local; faltan DMs, grupos, media y el worker (FR020-05) y una revisión independiente |
 | marmot-ts es alpha y no está auditado | Alto | SEC-01 |
 | DMs NIP-17 sin forward secrecy | Medio | La validación avisa; usar Marmot |
 | Jitter de gift wrap reducido a ±5 min por Buzz | Medio | Solo aplica si la persona usa el relay de Buzz; el secure-relay acepta el jitter estándar |
