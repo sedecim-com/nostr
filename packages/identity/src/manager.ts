@@ -51,6 +51,8 @@ export interface CreatePersonaInput {
   relays: string[];
   compartment?: Compartment;
   network?: 'direct' | 'tor-only';
+  /** FR021-03: only .onion relays, through Tor. */
+  onionOnly?: boolean;
   /** Passphrase protecting the NIP-49 copy of the key inside the persona store. */
   keyPassphrase: string;
   scryptLogN?: number;
@@ -61,8 +63,31 @@ export interface ImportMeta {
   relays: string[];
   compartment?: Compartment;
   network?: 'direct' | 'tor-only';
+  /** FR021-03: only .onion relays, through Tor. */
+  onionOnly?: boolean;
   scryptLogN?: number;
 }
+
+/**
+ * FR021-03: an onion-only persona goes through Tor and every one of its relays is a .onion address. The error
+ * counts the offending relays without naming them (a relay address may be an IP).
+ */
+function networkOf(meta: { relays: string[]; compartment?: Compartment; network?: 'direct' | 'tor-only'; onionOnly?: boolean }): Pick<PersonaConfig, 'network' | 'onionOnly'> {
+  if (!meta.onionOnly) return { network: meta.network ?? (meta.compartment === 'high-risk' ? 'tor-only' : 'direct') };
+  if (meta.network === 'direct') throw new Error('onion-only requires Tor: a direct persona cannot be onion-only');
+  const clearnet = meta.relays.filter((r) => !new URL(r).hostname.toLowerCase().endsWith('.onion')).length;
+  if (clearnet) throw new Error(`onion-only: every relay must be a .onion address (${clearnet} of ${meta.relays.length} are not)`);
+  return { network: 'tor-only', onionOnly: true };
+}
+
+const CUSTODY_BANNER: Record<PersonaConfig['custody'], string> = {
+  local: 'llave cifrada en este dispositivo',
+  offline: 'llave offline',
+  external: 'signer externo (NIP-46)',
+  'encrypted-backup': 'llave en backup cifrado',
+  managed: 'llave gestionada por la plataforma (custodial)',
+  'managed-enclave': 'llave gestionada en enclave (custodial)',
+};
 
 export type ImportInput =
   | { nsec: string; keyPassphrase: string; expectedPubkey?: string }
@@ -150,7 +175,7 @@ export class IdentityManager {
         custody: 'local',
         compartment: input.compartment ?? 'standard',
         relays: input.relays,
-        network: input.network ?? (input.compartment === 'high-risk' ? 'tor-only' : 'direct'),
+        ...networkOf(input),
         createdAt: this.now(),
       };
       await this.storeKey(persona.id, sk, input.keyPassphrase, input.scryptLogN);
@@ -165,6 +190,7 @@ export class IdentityManager {
 
   /** FR-002: import and validate pubkey/secret correspondence (or register an external/managed signer). */
   async importPersona(input: ImportInput, meta: ImportMeta): Promise<PersonaConfig> {
+    const network = networkOf(meta);
     let custody: PersonaConfig['custody'];
     let pubkey: string;
     let sk: Uint8Array | undefined;
@@ -197,7 +223,7 @@ export class IdentityManager {
       custody,
       compartment: meta.compartment ?? 'standard',
       relays: meta.relays,
-      network: meta.network ?? (meta.compartment === 'high-risk' ? 'tor-only' : 'direct'),
+      ...network,
       createdAt: this.now(),
       ...extra,
     };
@@ -272,13 +298,17 @@ export class IdentityManager {
     return (await this.links.all()).map((e) => e.value).filter((l) => l.from === personaId || l.to === personaId);
   }
 
-  /** Composer banner: always show who is sending and how linked that identity is (spec §16.1). */
+  /**
+   * Composer banner: always show who is sending, how the key is held, which network carries it and how linked
+   * that identity is (spec §16.1, FR007-05).
+   */
   async sendingAs(personaId: string): Promise<string> {
     const p = await this.get(personaId);
     const links = await this.linksOf(personaId);
     const level = links.length === 0 ? 'sin vínculo' : links.some((l) => l.visibility === 'public') ? 'vínculo público' : links.some((l) => l.visibility === 'selective') ? 'vínculo selectivo' : 'vínculo privado';
     const npub = npubEncode(p.pubkey);
-    return `Enviando como ${p.label} (${npub.slice(0, 12)}…${npub.slice(-4)}) · ${level} · ${p.network === 'tor-only' ? 'Tor-only' : 'red directa'}`;
+    const network = p.onionOnly ? 'Tor-only, solo .onion' : p.network === 'tor-only' ? 'Tor-only' : 'red directa';
+    return `Enviando como ${p.label} (${npub.slice(0, 12)}…${npub.slice(-4)}) · ${CUSTODY_BANNER[p.custody]} · ${network} · ${level}`;
   }
 
   /** Record use of a contact/file by a persona so reuse across compartments can be warned about. */

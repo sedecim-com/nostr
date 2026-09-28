@@ -1,5 +1,5 @@
-import { connect } from 'node:net';
-import { request as httpRequest } from 'node:http';
+import { connect, type Socket } from 'node:net';
+import { request as httpRequest, type ClientRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import WebSocket from 'ws';
 import { SocksProxyAgent } from 'socks-proxy-agent';
@@ -32,6 +32,21 @@ export interface EgressRecord {
 }
 
 export const PRIVACY_NETWORK_UNAVAILABLE = 'No enviado: red de privacidad no disponible';
+
+/**
+ * FR021-03: through Tor, any failure at the SOCKS layer (the proxy down or refusing, a circuit or an onion service
+ * that cannot be reached) is one failure: PRIVACY_NETWORK_UNAVAILABLE, raised as a block. The message waits for the
+ * privacy network instead of failing, and no address from the SOCKS error reaches a record or a log.
+ */
+class TorAgent extends SocksProxyAgent {
+  override async connect(req: ClientRequest, opts: Parameters<SocksProxyAgent['connect']>[1]): Promise<Socket> {
+    try {
+      return await super.connect(req, opts);
+    } catch {
+      throw new NetworkBlockedError(PRIVACY_NETWORK_UNAVAILABLE);
+    }
+  }
+}
 
 export function isOnionHost(host: string): boolean {
   return /^([a-z2-7]{56}|[a-z2-7]{16})\.onion$/i.test(host) || host.toLowerCase().endsWith('.onion');
@@ -106,11 +121,12 @@ export class NetworkGuard {
         sock.destroy();
         resolve(false);
       }, this.config.probeTimeoutMs ?? 3000);
-      sock.once('connect', () => sock.write(Buffer.from([0x05, 0x01, 0x00])));
+      // Offers no-auth and username/password, like the agent: a SOCKS port that requires authentication answers too.
+      sock.once('connect', () => sock.write(Buffer.from([0x05, 0x02, 0x00, 0x02])));
       sock.once('data', (d: Buffer) => {
         clearTimeout(timer);
         sock.destroy();
-        resolve(d[0] === 0x05 && d[1] === 0x00);
+        resolve(d[0] === 0x05 && (d[1] === 0x00 || d[1] === 0x02));
       });
       sock.once('error', () => {
         clearTimeout(timer);
@@ -137,7 +153,7 @@ export class NetworkGuard {
   }
 
   private agent(): SocksProxyAgent | undefined {
-    return this.torRequired ? new SocksProxyAgent(this.socksUrl()) : undefined;
+    return this.torRequired ? new TorAgent(this.socksUrl()) : undefined;
   }
 
   /** WebSocket factory for RelayPool honouring this policy. */

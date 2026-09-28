@@ -32,6 +32,13 @@ export interface PersonaRecord {
    * inside the sealed vault and in the persona's backup file. Older personas get one on first use.
    */
   archiveKeyHex?: string;
+  /**
+   * FR007-05: the links of this persona that this browser knows (made here, or read from the identity service
+   * when the persona has an account there), for the «Enviando como…» banner.
+   */
+  links?: Array<{ with: string; visibility: 'private' | 'selective' | 'public' }>;
+  /** The persona has an account in the identity service: it linked personas, backed up or attached Acceso here. */
+  identityAccount?: boolean;
   relays: string[];
   preset: PresetName | 'custom';
   config: SovereigntyConfig;

@@ -111,6 +111,15 @@ export function PersonasView() {
       setBackupPass('');
     });
 
+  // FR007-05: the persona now has an identity account: later sessions read its links from the service for the banner.
+  const markIdentityAccount = async () => {
+    const p = ws.session!.persona;
+    if (p.identityAccount) return;
+    const next = { ...p, identityAccount: true };
+    await book.save(next);
+    await ws.updatePersona(next);
+  };
+
   // FR027-03: the same NIP-49 file, uploaded to the vault. Only ciphertext leaves the browser.
   const cloudVault = cfg.backupVault;
   const cloudAllowed = !!cloudVault && session?.persona.config?.cloudBackup !== 'off';
@@ -118,6 +127,7 @@ export function PersonasView() {
     void run(async () => {
       const p = await withArchiveKey();
       await saveCloudBackup(session!.signer, cloudVault!, await backupJson(p, backupPass), realCustody(p.custody));
+      await markIdentityAccount();
       setBackupPass('');
       ws.notify('Copia cifrada guardada en la nube. Sin la contraseña del backup no se puede descifrar: guárdala aparte.', 'success');
     });
@@ -145,6 +155,7 @@ export function PersonasView() {
   const link = () =>
     void run(async () => {
       await linkAccesoLogin(session!.signer, cfg.identityService!, await (await import('../lib/acceso')).accesoIdToken(), session!.persona.custody === 'local' ? 'local' : 'external');
+      await markIdentityAccount();
       setLinkConsent(false);
       ws.notify('Cuenta de Acceso vinculada a esta persona', 'success');
     });

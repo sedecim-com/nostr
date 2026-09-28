@@ -1,14 +1,16 @@
 /**
  * sovereign — self-hosted Nostr client (Sovereign / Sovereign Tor modes).
  *
- *   sovereign persona create --label NAME --relay URL [--relay URL] [--tor] [--high-risk]
- *   sovereign persona import --backup FILE --label NAME --relay URL [--tor] [--high-risk] [--password-file f]
+ *   sovereign persona create --label NAME --relay URL [--relay URL] [--tor] [--high-risk] [--onion-only]
+ *   sovereign persona import --backup FILE --label NAME --relay URL [--tor] [--high-risk] [--onion-only] [--password-file f]
+ *     (--onion-only: Tor and nothing but .onion relays; with Tor, any SOCKS-level failure reads
+ *      «No enviado: red de privacidad no disponible» and the message waits, FR021-03)
  *                                        (key backup from keygen or the web; ncryptsec must match the npub)
  *   sovereign persona list
  *   sovereign backup export --persona ID --out FILE [--password-file f] [--no-mls]   (key, relays, panel, MLS state;
  *                                        --no-mls: to set up an additional device, then `group add-device`)
  *   sovereign backup restore FILE [--password-file f]
- *   sovereign whoami --persona ID
+ *   sovereign whoami --persona ID     (identity, custody, network and link level; also shown before every send)
  *   sovereign channel join --persona ID --group G         (NIP-29 join request)
  *   sovereign channel send --persona ID --group G "text"
  *   sovereign channel read --persona ID --group G
@@ -60,6 +62,7 @@
  *        NIP-98 otherwise),
  *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer)
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
@@ -78,10 +81,21 @@ function relayAdapter() {
 const argv = process.argv.slice(2);
 const opt = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
 const opts = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1]!] : []));
-const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--dry-run', '--no-mls', '--once'].includes(argv[i - 1]!))).slice(2);
+const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--onion-only', '--dry-run', '--no-mls', '--once'].includes(argv[i - 1]!))).slice(2);
 const MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.pdf': 'application/pdf', '.txt': 'text/plain' };
 const since = () => (opt('--since') !== undefined ? Number(opt('--since')) : undefined);
 
+/**
+ * FR021-03 (spec §18.1): what the CLI logs about the network (errors, delivery states per relay, sync results)
+ * carries no IP address. An IP literal becomes `ip-<8 hex>` (stable, so two relays can still be told apart);
+ * host names and .onion addresses stay. Message contents and the persona's own configuration are not touched.
+ */
+const IPV4 = /(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])/g;
+const IPV6 = /\[[0-9a-f:.]*:[0-9a-f:.]*\]|(?<![\w:.])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?![\w:.])/gi;
+const ipLabel = (ip: string) => `ip-${createHash('sha256').update(ip.replace(/^\[|\]$/g, '').toLowerCase()).digest('hex').slice(0, 8)}`;
+export function maskIps(text: string): string {
+  return text.replace(IPV6, (m) => (m.startsWith('[') || m.includes('::') || m.split(':').length === 8 ? ipLabel(m) : m)).replace(IPV4, ipLabel);
+}
 const dmLine = (m: DirectMessage) => `[${new Date(m.rumor.created_at * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.rumor.content}`;
 /** FR009-03: a receipt for one of our DMs, and the state of that operation after it. */
 const receiptLine = (r: Receipt, rec: OutboxRecord) => `acuse (${r.type === 'read' ? 'leído' : 'recibido'}) de ${r.from.slice(0, 8)}: ${rec.state}`;
@@ -113,8 +127,10 @@ async function main() {
   /** FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. */
   const announceDmRelays = async (id: string) => {
     const rec = await client.publishDmRelays(id);
-    console.error(`relays de DM (kind 10050): ${rec.state}${rec.blockedReason ? ` — ${rec.blockedReason}` : ''}`);
+    console.error(`relays de DM (kind 10050): ${rec.state}${rec.blockedReason ? ` — ${maskIps(rec.blockedReason)}` : ''}`);
   };
+  /** FR007-05: before every send, who is sending (identity, custody, network, link level), as the web's banner. */
+  const banner = async (id: string) => console.error(await (await client.identities()).sendingAs(id));
   const persona = opt('--persona');
   const need = () => {
     if (!persona) throw new Error('--persona ID required');
@@ -123,14 +139,14 @@ async function main() {
   try {
     const [a, b] = argv;
     if (a === 'persona' && b === 'create') {
-      const p = await client.createPersona({ label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk') });
+      const p = await client.createPersona({ label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk'), onionOnly: argv.includes('--onion-only') });
       console.log(JSON.stringify(p, null, 2));
       for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
       await announceDmRelays(p.id);
     } else if (a === 'persona' && b === 'import') {
       const file = opt('--backup');
       if (!file) throw new Error('--backup FILE required (JSON from keygen or from the web)');
-      const p = await client.importBackup(readFileSync(file, 'utf8'), backupPassword(), { label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk') });
+      const p = await client.importBackup(readFileSync(file, 'utf8'), backupPassword(), { label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk'), onionOnly: argv.includes('--onion-only') });
       console.log(JSON.stringify(p, null, 2));
       for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
       await announceDmRelays(p.id);
@@ -154,7 +170,7 @@ async function main() {
       console.log(`${rec.state}${rec.blockedReason ? ` — ${rec.blockedReason}` : ''} (op ${rec.opId})`);
     } else if (a === 'history' && b === 'sync') {
       const r = await client.syncHistory(need(), { since: since(), channels: opts('--group') });
-      for (const [relay, strategy] of Object.entries(r.strategies)) console.log(`${relay}  ${strategy}`);
+      for (const [relay, strategy] of Object.entries(r.strategies)) console.log(`${maskIps(relay)}  ${strategy}`);
       for (const [g, events] of Object.entries(r.channels)) console.log(`canal ${g}: ${events.length} eventos`);
       console.log(`DMs: ${r.dms.length}; outbox: ${r.outbox.map((o) => o.state).join(', ') || 'vacío'}`);
     } else if (a === 'history' && b === 'export') {
@@ -170,13 +186,15 @@ async function main() {
       for (const i of r.invalid) console.log(`línea ${i.line}: ${i.reason}`);
       console.log(`válidos=${r.valid} inválidos=${r.invalid.length} duplicados=${r.duplicates} publicados=${r.published} rechazados=${r.rejected}`);
     } else if (a === 'channel' && b === 'send') {
+      await banner(need());
       const rec = await client.sendChannel(need(), opt('--group')!, positional().join(' '));
-      console.log(`${rec.state}${rec.blockedReason ? ` — ${rec.blockedReason}` : ''} (op ${rec.opId})`);
+      console.log(`${rec.state}${rec.blockedReason ? ` — ${maskIps(rec.blockedReason)}` : ''} (op ${rec.opId})`);
     } else if (a === 'channel' && b === 'read') {
       for (const e of await client.readChannel(need(), opt('--group')!)) console.log(`[${new Date(e.created_at * 1000).toISOString()}] ${e.pubkey.slice(0, 8)}: ${e.content}`);
     } else if (a === 'dm' && b === 'send') {
+      await banner(need());
       const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '));
-      for (const r of recs) console.log(`${r.meta?.recipient?.slice(0, 8)} ${r.state}${r.blockedReason ? ` — ${r.blockedReason}` : ''}`);
+      for (const r of recs) console.log(`${r.meta?.recipient?.slice(0, 8)} ${r.state}${r.blockedReason ? ` — ${maskIps(r.blockedReason)}` : ''}`);
       // As in the web: a recipient without DM relays gets the wrap on a guess, and the user is told.
       for (const r of recs) if (r.meta?.dmRelaySource && r.meta.dmRelaySource !== 'self' && r.meta.dmRelaySource !== 'dm-relays') console.error(`aviso: ${r.meta.recipient?.slice(0, 8)} no publicó relays de DM (kind 10050): la entrega es incierta`);
     } else if (a === 'dm' && b === 'relays') {
@@ -196,8 +214,8 @@ async function main() {
       stop();
     } else if (a === 'outbox') {
       for (const r of await client.outbox(need())) {
-        console.log(`${r.opId.slice(0, 8)} ${r.state.padEnd(16)} ${r.blockedReason ?? ''}`);
-        for (const s of Object.values(r.relayStatus)) console.log(`   ${s.relay} attempts=${s.attemptCount} ${s.acceptedAt ? 'ACK' : (s.lastError ?? 'pending')}`);
+        console.log(`${r.opId.slice(0, 8)} ${r.state.padEnd(16)} ${maskIps(r.blockedReason ?? '')}`);
+        for (const s of Object.values(r.relayStatus)) console.log(`   ${maskIps(s.relay)} attempts=${s.attemptCount} ${s.acceptedAt ? 'ACK' : maskIps(s.lastError ?? 'pending')}`);
       }
     } else if (a === 'resume') {
       for (const r of await client.resume(need())) console.log(`${r.opId.slice(0, 8)} ${r.state}`);
@@ -209,7 +227,7 @@ async function main() {
       else if (b === 'create') show(await client.groupCreate(id, opt('--name') ?? 'grupo'));
       else if (b === 'invite') show(await client.groupInvite(id, gid!, opt('--to')!));
       else if (b === 'accept') (await client.groupAccept(id)).forEach(show);
-      else if (b === 'send') await client.groupSend(id, gid!, positional().join(' '));
+      else if (b === 'send') await banner(id).then(() => client.groupSend(id, gid!, positional().join(' ')));
       else if (b === 'read')
         for (const m of await client.groupSync(id, gid!)) {
           console.log(`[${new Date(m.createdAt * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.content}`);
@@ -271,7 +289,7 @@ async function main() {
           for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => stop.abort());
           const interval = Number(opt('--interval') ?? 15) * 1000;
           while (!stop.signal.aborted) {
-            await tick().catch((err: Error) => console.error(`error: ${err.message}`));
+            await tick().catch((err: Error) => console.error(`error: ${maskIps(err.message)}`));
             await new Promise<void>((r) => {
               const t = setTimeout(r, interval);
               stop.signal.addEventListener('abort', () => (clearTimeout(t), r()), { once: true });
@@ -311,6 +329,6 @@ async function main() {
 }
 
 main().catch((err: Error) => {
-  console.error(`error: ${err.message}`);
+  console.error(`error: ${maskIps(err.message)}`);
   process.exit(1);
 });

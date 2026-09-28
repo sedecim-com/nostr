@@ -52,6 +52,27 @@ export async function linkPersonas(from: { signer: Signer; custody: string }, to
   if (res.status !== 201) throw new Error(`identity-service: ${res.status} ${res.json?.error ?? ''}`);
 }
 
+/** FR007-05: the link level the banner shows, the most revealing of the persona's links. */
+export function linkLevel(links: Array<{ visibility: LinkVisibility }> | undefined): 'none' | LinkVisibility {
+  const v = new Set((links ?? []).map((l) => l.visibility));
+  return v.has('public') ? 'public' : v.has('selective') ? 'selective' : v.has('private') ? 'private' : 'none';
+}
+
+export const LINK_LEVEL_LABEL: Record<'none' | LinkVisibility, string> = { none: 'sin vínculo', private: 'vínculo privado', selective: 'vínculo selectivo', public: 'vínculo público' };
+
+/**
+ * FR007-05: the persona's links as the identity service has them. Only for a persona that already has an account
+ * there, so the request reveals nothing new: the service already knows the persona.
+ */
+export async function fetchLinks(signer: Signer, identityService: string): Promise<Array<{ with: string; visibility: LinkVisibility }>> {
+  const me = await nip98Request<{ personas: Array<{ personaId: string; pubkey: string }>; links: Array<{ fromPersona: string; toPersona: string; visibility: LinkVisibility }> }>(signer, `${identityService.replace(/\/$/, '')}/v1/accounts/me`);
+  if (me.status !== 200) throw new Error(`identity-service: ${me.status}`);
+  const pubkey = await signer.getPublicKey();
+  const byId = new Map(me.json.personas.map((p) => [p.personaId, p.pubkey]));
+  const mine = me.json.personas.find((p) => p.pubkey === pubkey)?.personaId;
+  return me.json.links.filter((l) => mine && (l.fromPersona === mine || l.toPersona === mine)).map((l) => ({ with: byId.get(l.fromPersona === mine ? l.toPersona : l.fromPersona) ?? '', visibility: l.visibility }));
+}
+
 /** What each visibility reveals, shown before confirming (FR007-03). */
 export const LINK_CONSEQUENCES: Record<LinkVisibility, string> = {
   private: 'Solo el servicio de identidad sabrá que ambas personas son tuyas. Nadie más puede consultarlo, pero el operador sí conoce la relación.',

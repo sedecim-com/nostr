@@ -89,3 +89,55 @@ describe('Tor-only mode (FR-020, FR-021)', () => {
     await expect(guard.fetchApi()('http://analytics.example/collect')).rejects.toThrow(/allowlist/);
   });
 });
+
+describe('per-persona circuits and one failure through Tor (FR006-06, FR021-03)', () => {
+  const relay = new TestRelay({ publicUrl: `ws://${ONION}` });
+  // Like Tor with IsolateSOCKSAuth: username/password is required, and the credentials pick the circuit.
+  let socks: TestSocksServer;
+  beforeAll(async () => {
+    await relay.start();
+    socks = new TestSocksServer({ [ONION]: { host: '127.0.0.1', port: relay.port } }, { requireAuth: true });
+    await socks.start();
+  });
+  afterAll(async () => {
+    await socks.stop();
+    await relay.stop();
+  });
+  const publish = async (guard: NetworkGuard, url = `ws://${ONION}`) => {
+    const signer = new LocalSigner(generateSecretKey());
+    const pool = new RelayPool({ webSocketFactory: guard.webSocketFactory(), signer, autoReconnect: false });
+    try {
+      return await pool.publishTo(await signer.signEvent({ kind: 1, content: 'aislado' }), url);
+    } finally {
+      pool.close();
+    }
+  };
+
+  it('each persona authenticates to the SOCKS port with its own credentials, so Tor builds separate circuits', async () => {
+    const before = socks.requests.length;
+    for (const key of ['persona-a', 'persona-b', 'persona-a']) expect((await publish(new NetworkGuard({ mode: 'tor-only', socksPort: socks.port, isolationKey: key }))).ok).toBe(true);
+    const fetched = await new NetworkGuard({ mode: 'tor-only', socksPort: socks.port, isolationKey: 'persona-b' }).fetch(`http://${ONION}/`, { headers: { accept: 'application/nostr+json' } });
+    expect(fetched.status).toBe(200);
+    expect(socks.requests.slice(before).map((r) => [r.host, r.username])).toEqual([
+      [ONION, 'persona-a'],
+      [ONION, 'persona-b'],
+      [ONION, 'persona-a'],
+      [ONION, 'persona-b'],
+    ]);
+  });
+
+  it('a SOCKS-level failure is one held failure that names no address: no credentials, an unreachable onion, no proxy', async () => {
+    const failures = [
+      new NetworkGuard({ mode: 'tor-only', socksPort: socks.port }), // refused: no isolation credentials
+      new NetworkGuard({ mode: 'tor-only', socksPort: socks.port, isolationKey: 'persona-a' }), // host unreachable
+    ];
+    const urls = [`ws://${ONION}`, 'ws://unknownrelayabcdefghijklmnopqrstuvwxyz234567abcdefghijklm.onion'];
+    for (const [i, guard] of failures.entries()) {
+      const res = await publish(guard, urls[i]);
+      expect(res).toMatchObject({ ok: false, blocked: true, message: `error: ${PRIVACY_NETWORK_UNAVAILABLE}` });
+    }
+    await expect(failures[1]!.fetch(`http://unknownrelayabcdefghijklmnopqrstuvwxyz234567abcdefghijklm.onion/`)).rejects.toThrow(PRIVACY_NETWORK_UNAVAILABLE);
+    // Tor down: the same message (the probe fails before any SOCKS request).
+    expect(await publish(new NetworkGuard({ mode: 'tor-only', socksPort: 1, probeTimeoutMs: 500, isolationKey: 'persona-a' }))).toMatchObject({ blocked: true, message: `error: ${PRIVACY_NETWORK_UNAVAILABLE}` });
+  });
+});

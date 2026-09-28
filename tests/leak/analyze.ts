@@ -109,6 +109,8 @@ export interface SocksRequest {
   host: string;
   port: number;
   addressType: 'ipv4' | 'domain' | 'ipv6';
+  /** RFC 1929 username the client authenticated with (logged since FR006-06). */
+  username?: string;
 }
 
 /**
@@ -154,13 +156,19 @@ export function networkAllowlist(p: PersonaEgress, socks: Endpoint): Endpoint[] 
  * SOCKS-level check: in the Tor profile every CONNECT must name an allowlisted relay host by name
  * (socks5h: resolution inside Tor, never an address the client resolved locally).
  */
-export function checkSocksRequests(requests: SocksRequest[], p: PersonaEgress): string[] {
+/**
+ * `requireIsolation` (FR006-06): every CONNECT of a Tor persona authenticated with the persona id as SOCKS username,
+ * so Tor (IsolateSOCKSAuth) keeps each persona on its own circuits. Logs recorded before usernames were logged
+ * cannot show it.
+ */
+export function checkSocksRequests(requests: SocksRequest[], p: PersonaEgress, opts: { requireIsolation?: boolean } = {}): string[] {
   const problems: string[] = [];
   const hosts = new Set(p.relays.map((u) => `${u.hostname}:${defaultPort(u)}`));
   if (p.network !== 'tor-only' && requests.length) problems.push(`direct persona used the SOCKS proxy (${requests.length} requests)`);
   for (const r of requests) {
     if (r.addressType !== 'domain') problems.push(`SOCKS CONNECT by ${r.addressType} address ${r.host}: the client resolved the name locally (expected socks5h)`);
     if (!hosts.has(`${r.host}:${r.port}`)) problems.push(`SOCKS CONNECT to ${r.host}:${r.port} outside the persona allowlist (${[...hosts].join(', ')})`);
+    if (opts.requireIsolation && r.username !== p.id) problems.push(`SOCKS CONNECT to ${r.host}:${r.port} without the persona isolation credentials (username ${r.username ?? 'none'}, expected ${p.id})`);
   }
   return problems;
 }

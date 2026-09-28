@@ -59,7 +59,20 @@ describe('IdentityManager', () => {
     expect(a.network).toBe('tor-only');
     expect(backends.size).toBe(3);
     expect(await mgr.linksOf(a.id)).toEqual([]);
-    expect(await mgr.sendingAs(a.id)).toMatch(/^Enviando como Anónima \(npub1.*sin vínculo · Tor-only$/);
+    // FR007-05: identity, custody, network and link level.
+    expect(await mgr.sendingAs(a.id)).toMatch(/^Enviando como Anónima \(npub1.*\) · llave cifrada en este dispositivo · Tor-only · sin vínculo$/);
+  });
+
+  it('an onion-only persona goes through Tor and only takes .onion relays (FR021-03)', async () => {
+    const { mgr } = setup();
+    const p = await mgr.createPersona({ label: 'Solo onion', relays: ['ws://abc.onion'], onionOnly: true, keyPassphrase: 'a', scryptLogN: LOGN });
+    expect(p).toMatchObject({ network: 'tor-only', onionOnly: true });
+    expect(await mgr.sendingAs(p.id)).toContain(' · Tor-only, solo .onion · ');
+    // The error counts the clearnet relays without naming them (an address may be an IP).
+    const err = await mgr.createPersona({ label: 'x', relays: ['ws://abc.onion', 'ws://10.1.2.3:7000'], onionOnly: true, keyPassphrase: 'a', scryptLogN: LOGN }).catch((e: Error) => e);
+    expect((err as Error).message).toBe('onion-only: every relay must be a .onion address (1 of 2 are not)');
+    await expect(mgr.createPersona({ label: 'x', relays: ['ws://abc.onion'], onionOnly: true, network: 'direct', keyPassphrase: 'a', scryptLogN: LOGN })).rejects.toThrow(/requires Tor/);
+    await expect(mgr.importPersona({ nsec: nip19.nsecEncode(generateSecretKey()), keyPassphrase: 'a' }, { label: 'x', relays: ['wss://relay.example'], onionOnly: true })).rejects.toThrow(/onion-only/);
   });
 
   it('requires explicit consent for links and audits them (FR-007)', async () => {

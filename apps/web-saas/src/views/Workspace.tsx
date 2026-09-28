@@ -9,6 +9,7 @@ import { custodyLabel, openDmInbox, openPersona, personaConfig, publishDmRelays,
 import type { PersonaBook, PersonaRecord } from '../lib/vault';
 import { sendBlockedReason, WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
 import { onSignerAuthUrl } from '../lib/authUrl';
+import { fetchLinks, LINK_LEVEL_LABEL, linkLevel } from '../lib/identity';
 import { BRAND } from '../theme';
 import { ChannelsView } from './ChannelsView';
 import { DmView } from './DmView';
@@ -62,6 +63,17 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
 
   const reloadPersonas = useCallback(async () => setPersonas(await book.list()), [book]);
 
+  const updatePersona = useCallback(
+    async (persona: PersonaRecord) => {
+      if (!current.current || current.current.persona.id !== persona.id) return reloadPersonas();
+      const s = { ...current.current, persona };
+      current.current = s;
+      setSession(s);
+      await reloadPersonas();
+    },
+    [reloadPersonas],
+  );
+
   const selectPersona = useCallback(
     async (id: string) => {
       const p = await book.get(id);
@@ -70,8 +82,20 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
       const s = await openPersona(book, p, managedEnv, { discoveryRelays: cfg.discoveryRelays });
       current.current = s;
       setSession(s);
+      // FR007-05: the banner's link level, read again from the identity service when the persona already has an
+      // account there (links made from another device); a persona without one never asks it.
+      if (p.identityAccount && cfg.identityService)
+        void fetchLinks(s.signer, cfg.identityService)
+          .then(async (links) => {
+            const now = current.current?.persona;
+            if (!now || now.id !== p.id || JSON.stringify(now.links ?? []) === JSON.stringify(links)) return;
+            const next = { ...now, links };
+            await book.save(next);
+            await updatePersona(next);
+          })
+          .catch(() => undefined);
     },
-    [book, managedEnv, cfg],
+    [book, managedEnv, cfg, updatePersona],
   );
 
   useEffect(() => {
@@ -128,17 +152,6 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
     [book, session, reloadPersonas],
   );
 
-  const updatePersona = useCallback(
-    async (persona: PersonaRecord) => {
-      if (!current.current || current.current.persona.id !== persona.id) return reloadPersonas();
-      const s = { ...current.current, persona };
-      current.current = s;
-      setSession(s);
-      await reloadPersonas();
-    },
-    [reloadPersonas],
-  );
-
   const ws = useMemo<Ws>(
     () => ({
       cfg,
@@ -162,7 +175,10 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
     [cfg, flags, book, user, personas, session, selectPersona, reloadPersonas, saveConfig, updatePersona, nip17, dmInbox, dmMessages, managedEnv],
   );
 
-  const sendingAs = session ? `Enviando como ${session.persona.label} · ${shortNpub(session.pubkey)} · ${custodyLabel(session.persona)} · ${session.persona.config.network === 'tor-only' ? 'Tor-only' : 'red directa'}` : 'Sin identidad activa';
+  // FR006-02, FR007-05: identity, custody, network and link level, always visible above the composer.
+  const sendingAs = session
+    ? `Enviando como ${session.persona.label} · ${shortNpub(session.pubkey)} · ${custodyLabel(session.persona)} · ${session.persona.config.network === 'tor-only' ? 'Tor-only' : 'red directa'} · ${LINK_LEVEL_LABEL[linkLevel(session.persona.links)]}`
+    : 'Sin identidad activa';
 
   return (
     <WorkspaceContext.Provider value={ws}>

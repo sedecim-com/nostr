@@ -4,6 +4,7 @@ import { assertPublicLinkAllowed, createPublicLink } from '@sedecim/identity/pub
 import { normalizePubkey } from '@sedecim/nostr-core';
 import { LINK_CONSEQUENCES, linkPersonas, type LinkVisibility } from '../lib/identity';
 import { openPersona, shortNpub } from '../lib/session';
+import type { PersonaRecord } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
 
 const CUSTODY = { local: 'local', nip07: 'external', nip46: 'external', managed: 'managed' } as const;
@@ -44,6 +45,12 @@ export function LinkPersonas() {
       try {
         const aud = visibility === 'selective' ? audience.split(/[\s,]+/).filter(Boolean).map(normalizePubkey) : [];
         await linkPersonas({ signer: s.signer, custody: CUSTODY[s.persona.custody] }, { signer: toSession.signer, custody: CUSTODY[other.custody] }, ws.cfg.identityService!, visibility, aud);
+        // FR007-05: both personas now carry the link in their «Enviando como…» banner.
+        const withLink = (p: PersonaRecord, peer: string): PersonaRecord => ({ ...p, identityAccount: true, links: [...(p.links ?? []).filter((l) => l.with !== peer), { with: peer, visibility }] });
+        await ws.book.save(withLink(other, s.pubkey));
+        const active = withLink(s.persona, other.pubkey);
+        await ws.book.save(active);
+        await ws.updatePersona(active);
         if (wantsNostr) {
           // Both personas sign (docs/public-link.md); anyone can verify it without trusting the identity service.
           const evt = await createPublicLink(s.signer, toSession.signer, { confirm: true, acknowledgePermanent: ackPermanent, profiles: [s.persona.config, other.config] });

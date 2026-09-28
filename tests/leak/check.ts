@@ -40,9 +40,10 @@ if (personasFile) {
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l) as SocksRequest);
-    socksProblems = checkSocksRequests(requests, persona);
+    // FR006-06: the stub logs the SOCKS username of each CONNECT, so every one must carry the persona id.
+    socksProblems = checkSocksRequests(requests, persona, { requireIsolation: persona.network === 'tor-only' });
     if (persona.network === 'tor-only' && !requests.length) socksProblems.push('no SOCKS request was logged: the client did no work through the proxy');
-    console.log(`[${label}] SOCKS requests: ${requests.map((r) => `${r.host}:${r.port}(${r.addressType})`).join(', ') || 'none'}`);
+    console.log(`[${label}] SOCKS requests: ${requests.map((r) => `${r.host}:${r.port}(${r.addressType}${r.username ? `, user ${r.username}` : ''})`).join(', ') || 'none'}`);
   }
   console.log(`[${label}] persona ${persona.id} network=${persona.network} relays=${persona.relays.map((u) => u.href).join(',')}`);
 }
