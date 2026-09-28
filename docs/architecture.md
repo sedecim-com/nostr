@@ -7,6 +7,7 @@ firmados; las bases de datos son índices derivados.
         CLIENTES                      SERVICIOS PROPIOS (API solo para cuenta/políticas/custodia)
   web-saas · sovereign-client ─┐      identity-service (NIP-98) · policy-engine · managed-signer
                                │      notification-gateway (push opaco, opt-in, ADR 0010)
+                               │      continuity-vault (sobres sellados en el cliente, ADR 0011)
   Buzz Desktop/Mobile          │                     │
                                ▼                     │
                      SDK (packages/*) ───────────────┘
@@ -41,6 +42,7 @@ firmados; las bases de datos son índices derivados.
 | `qr` | Codificador QR propio (ISO/IEC 18004, modo byte) sin dependencias ni red, salida SVG (generador offline, `nostrconnect` en la web) |
 | `rotation-worker` | Worker de revocación (FR-024): rotación MLS pendiente del policy-engine y propagación de revocaciones al managed-signer; hoy corre desde el CLI (`sovereign group rotation-worker`) |
 | `sync` | Reconstrucción de historial: NIP-77 (Negentropy) con detección NIP-11/sonda y fallback automático a REQ por ventanas; `rebuildHistory` (canales, DMs, evidencia para el outbox); export/import JSONL |
+| `continuity` | Continuity Vault (ADR 0011): llave de archivo por persona distinta de la nsec, sobres XChaCha20-Poly1305 con relleno y AAD ligado al id, validador compartido que rechaza texto plano y cliente del vault |
 | `service-kit` | HTTP mínimo con NIP-98/bearer, anti-replay NIP-98, límites de tasa, verificación de tokens de Acceso (Cognito) y migraciones SQL |
 | `test-relay` | Relay/Blossom/SOCKS en memoria para E2E con inyección de fallos |
 
@@ -56,7 +58,7 @@ firmados; las bases de datos son índices derivados.
    perfil en `docs/threat-models/`.
 
 ## APIs: anti-replay NIP-98 y límites de tasa
-Aplica a identity-service, policy-engine, indexer, notification-gateway y managed-signer (todos sobre
+Aplica a identity-service, policy-engine, indexer, notification-gateway, managed-signer y continuity-vault (todos sobre
 `packages/service-kit`) y a blob-store (servidor propio que usa el mismo limitador). Corrige IR-2026-09-04 e
 IR-2026-09-05 de la [revisión interna](security/internal-review-2026-09.md).
 

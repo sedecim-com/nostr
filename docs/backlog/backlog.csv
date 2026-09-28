@@ -232,7 +232,18 @@
   - services/managed-signer/test/registry.test.ts (Postgres)
   - packages/profiles/test/profiles.test.ts
   - tests/browser/web-saas.e2e.ts","https://github.com/sedecim-com/nostr/issues/234"
-"OPS-11","OPS · Despliegue y DevSecOps","Apéndice D, PRD GC-F05","Corregir la deriva documental","README, notas v0.1.0, architecture.md, ADR 0002/0009, buzz-integration.md, institutional.md, threat-model.md, SECURITY.md y baseline del backlog coinciden con main; internal-review refleja la PR #216","Doc","P1","2","","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/235"
+"OPS-11","OPS · Despliegue y DevSecOps","Apéndice D, PRD GC-F05","Corregir la deriva documental","README, notas v0.1.0, architecture.md, ADR 0002/0009, buzz-integration.md, institutional.md, threat-model.md, SECURITY.md y baseline del backlog coinciden con main; internal-review refleja la PR #216","Doc","P1","2","","S9","2026-10-09","Hecho","Commit 59a187c (PR #310):
+
+- README, notas v0.1.0, architecture.md, ADR 0002/0003/0004/0006/0009, buzz-integration.md, threat-model.md, los threat models por perfil y SECURITY.md revisados contra main@75a18e5. Entre otros:
+  - Postgres del policy-engine;
+  - pin de Buzz;
+  - versiones de @noble;
+  - waiver pendiente;
+  - descifrado NIP-44 en managed;
+  - reporte privado sin activar (OPS-12).
+- institutional.md ya coincidía.
+- internal-review cita 6642ff6 (PR #215) y b43dff4 (PR #216, 9355003) en lugar del inexistente a6b968c.
+- Baseline del backlog: meta.baseline main@75a18e5.","https://github.com/sedecim-com/nostr/issues/235"
 "BUZZ-07","BUZZ · Early release sobre Buzz","§6.3","Adoptar el pin de Buzz ac4521f3e464 (issue #201) tras revisar el changelog","PR del pin fusionada con el gate de interoperabilidad en verde; ADR 0003 seguido","Infra","P2","1","BUZZ-05","S9","2026-10-09","Hecho","Commit cd7ff40 (PR #309):
 
 - Pin de Buzz `ghcr.io/block/buzz@sha256:ac4521f3e464…` (upstream b0d6fb8) en infra/buzz/PIN, compose, kustomize e infra/web/flags.json, con el informe docs/interop/buzz-upstream-ac4521f3e464-report.json.

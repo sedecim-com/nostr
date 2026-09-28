@@ -24,6 +24,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
+| Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md) | 🟡 servicio, formato y cliente (VAULT-01); faltan la llave en los backups y su uso desde la web y el CLI (VAULT-02), la restauración con relays vacíos (VAULT-03) y el compose (VAULT-06) |
 | Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma y NIP-44 en el servidor autorizados con el token de Acceso o una sesión de dispositivo, consentimiento registrado con su versión) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
 | Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (Postgres, tablas `policy_*`; sin `DATABASE_URL`, en memoria) |
 | Consola de administración web (NIP-98; personas, recursos, dispositivos y passkeys, rotaciones, directorio, retención, auditoría) | `apps/admin-console`, [docs/admin-console.md](docs/admin-console.md) | ✅ servida por la imagen web en `/admin/` |
@@ -110,7 +111,7 @@ npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 | Comando | Qué cubre |
 |---|---|
 | `npm test` | Unitarios + E2E contra relay/Blossom/SOCKS en memoria (NIP-42, quorum, offline, Tor fail-closed, NIP-46, interop con nostr-tools) |
-| `npm run test:pg` | Pruebas sobre Postgres de los servicios: indexer, identity-service, policy-engine y managed-signer (`TEST_DATABASE_URL`) |
+| `npm run test:pg` | Pruebas sobre Postgres de los servicios: indexer, identity-service, policy-engine, managed-signer y continuity-vault (`TEST_DATABASE_URL`) |
 | `npm run test:keygen-html` | Generador HTML air-gapped abierto desde `file://` sin red |
 | `npm run lint:claims` | Prohíbe afirmaciones absolutas de privacidad en todo el copy |
 | `npm run test:browser` | Web en Chromium (Playwright): personas, canales, DMs con ruteo 10050, adjuntos, receipts, panel aplicado y persistido, vault, nsec que no sale del navegador, axe-core, modo SaaS con Acceso; grupos Marmot, fugas por WebRTC y previews, consola de administración |
@@ -124,9 +125,10 @@ npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 ```
 packages/   SDK compartido (nostr-core, relay-pool, signer, delivery-engine, encrypted-store, identity,
             messaging, marmot-adapter, blossom-client, tor-network, telemetry-policy, metrics, profiles,
-            policy-client, sync, service-kit, qr, rotation-worker, test-relay)
+            policy-client, sync, service-kit, qr, rotation-worker, continuity, test-relay)
 apps/       web-saas, admin-console, sovereign-client, key-generator
-services/   indexer, identity-service, managed-signer, policy-engine, blob-store, notification-gateway
+services/   indexer, identity-service, managed-signer, policy-engine, blob-store, notification-gateway,
+            continuity-vault
 infra/      buzz (pin), secure-relay, tor, caddy (TLS), postgres, web
 deploy/     Kubernetes (kustomize) y Terraform del SaaS en staging, monitorización de SLO (deploy/README.md)
 docs/       arquitectura, ADR, threat models por perfil, seguridad (alcance, inventario criptográfico, revisión

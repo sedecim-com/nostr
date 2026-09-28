@@ -3165,8 +3165,8 @@
    "sp": 2,
    "deps": [],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 59a187c (PR #310):\n\n- README, notas v0.1.0, architecture.md, ADR 0002/0003/0004/0006/0009, buzz-integration.md, threat-model.md, los threat models por perfil y SECURITY.md revisados contra main@75a18e5. Entre otros:\n  - Postgres del policy-engine;\n  - pin de Buzz;\n  - versiones de @noble;\n  - waiver pendiente;\n  - descifrado NIP-44 en managed;\n  - reporte privado sin activar (OPS-12).\n- institutional.md ya coincidía.\n- internal-review cita 6642ff6 (PR #215) y b43dff4 (PR #216, 9355003) en lugar del inexistente a6b968c.\n- Baseline del backlog: meta.baseline main@75a18e5.",
    "issue": 235
   },
   {
