@@ -18,6 +18,22 @@ describe('NetworkGuard policy', () => {
     const allow = new NetworkGuard({ mode: 'direct', allowedHosts: ['relay.example'] });
     expect(() => allow.checkDestination('https://analytics.example/collect')).toThrow(/allowlist/);
   });
+
+  it('widens an allowlist only with the hosts an explicit action names, and keeps the onion rules (FR017-06)', () => {
+    const allow = new NetworkGuard({ mode: 'direct', allowedHosts: ['relay.example'] });
+    allow.allowHosts(['dm.recipient.example']);
+    expect(allow.checkDestination('wss://dm.recipient.example').hostname).toBe('dm.recipient.example');
+    expect(() => allow.checkDestination('wss://other.example')).toThrow(/allowlist/);
+    allow.allowHosts([ONION]);
+    expect(() => allow.checkDestination(`ws://${ONION}`)).toThrow(/require Tor/);
+    const strict = new NetworkGuard({ mode: 'tor-only', onionOnly: true, allowedHosts: [ONION] });
+    strict.allowHosts(['dm.recipient.example']);
+    expect(() => strict.checkDestination('wss://dm.recipient.example')).toThrow(/onion-only/);
+    // Without an allowlist there is nothing to widen.
+    const open = new NetworkGuard({ mode: 'direct' });
+    open.allowHosts(['x.example']);
+    expect(open.config.allowedHosts).toBeUndefined();
+  });
 });
 
 describe('Tor-only mode (FR-020, FR-021)', () => {

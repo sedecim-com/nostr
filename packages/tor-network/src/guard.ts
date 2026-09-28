@@ -51,6 +51,16 @@ export class NetworkGuard {
     return this.config.mode === 'tor-only';
   }
 
+  /**
+   * FR017-06: widens the allowlist with hosts an explicit user action needs, e.g. the DM relays a recipient
+   * published when the user writes to them. The scheme and onion rules still apply; without an allowlist,
+   * nothing changes.
+   */
+  allowHosts(hosts: string[]): void {
+    if (!this.config.allowedHosts) return;
+    for (const h of hosts) if (!this.config.allowedHosts.includes(h)) this.config.allowedHosts.push(h);
+  }
+
   private socksUrl(): string {
     const host = this.config.socksHost ?? '127.0.0.1';
     const port = this.config.socksPort ?? 9050;

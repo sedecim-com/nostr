@@ -12,8 +12,9 @@
  *   sovereign channel join --persona ID --group G         (NIP-29 join request)
  *   sovereign channel send --persona ID --group G "text"
  *   sovereign channel read --persona ID --group G
- *   sovereign dm send --persona ID --to NPUB "text"
+ *   sovereign dm send --persona ID --to NPUB "text"   (to the recipient's DM relays, kind 10050, like the web)
  *   sovereign dm inbox --persona ID
+ *   sovereign dm relays --persona ID     (publish this persona's DM relay list, kind 10050; also on create/import)
  *   sovereign outbox --persona ID        (delivery states per relay)
  *   sovereign resume --persona ID        (retry pending messages; any command that opens the persona does too)
  *   sovereign history sync --persona ID [--since UNIX] [--group G]   (rebuild channels/DMs; NIP-77 or REQ fallback)
@@ -52,6 +53,7 @@
  *      SOVEREIGN_BACKUP_PASSWORD (backup files, when --password-file is not given),
  *      SOVEREIGN_BLOB_STORE (fallback Blossom/blob-store URL for encrypted group media),
  *      SOVEREIGN_VAULT_URL (Continuity Vault URL, when --vault is not given),
+ *      SOVEREIGN_DISCOVERY_RELAYS (comma-separated relays where recipients' DM relay lists are also looked up),
  *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present),
  *      SOVEREIGN_POLICY_BEARER (optional service bearer for POST /v1/rotations/:id/done and GET /v1/revocations;
  *        NIP-98 otherwise),
@@ -98,7 +100,13 @@ async function main() {
     socksPort: Number(socksPort),
     ...(needsDm ? { relayAdapter: relayAdapter() } : {}),
     ...(process.env.SOVEREIGN_BLOB_STORE ? { blobStore: process.env.SOVEREIGN_BLOB_STORE } : {}),
+    ...(process.env.SOVEREIGN_DISCOVERY_RELAYS ? { discoveryRelays: process.env.SOVEREIGN_DISCOVERY_RELAYS.split(',').map((r) => r.trim()).filter(Boolean) } : {}),
   });
+  /** FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. */
+  const announceDmRelays = async (id: string) => {
+    const rec = await client.publishDmRelays(id);
+    console.error(`relays de DM (kind 10050): ${rec.state}${rec.blockedReason ? ` — ${rec.blockedReason}` : ''}`);
+  };
   const persona = opt('--persona');
   const need = () => {
     if (!persona) throw new Error('--persona ID required');
@@ -110,12 +118,14 @@ async function main() {
       const p = await client.createPersona({ label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk') });
       console.log(JSON.stringify(p, null, 2));
       for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
+      await announceDmRelays(p.id);
     } else if (a === 'persona' && b === 'import') {
       const file = opt('--backup');
       if (!file) throw new Error('--backup FILE required (JSON from keygen or from the web)');
       const p = await client.importBackup(readFileSync(file, 'utf8'), backupPassword(), { label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk') });
       console.log(JSON.stringify(p, null, 2));
       for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
+      await announceDmRelays(p.id);
     } else if (a === 'backup' && b === 'export') {
       const out = opt('--out');
       if (!out) throw new Error('--out FILE required');
@@ -159,6 +169,10 @@ async function main() {
     } else if (a === 'dm' && b === 'send') {
       const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '));
       for (const r of recs) console.log(`${r.meta?.recipient?.slice(0, 8)} ${r.state}${r.blockedReason ? ` — ${r.blockedReason}` : ''}`);
+      // As in the web: a recipient without DM relays gets the wrap on a guess, and the user is told.
+      for (const r of recs) if (r.meta?.dmRelaySource && r.meta.dmRelaySource !== 'self' && r.meta.dmRelaySource !== 'dm-relays') console.error(`aviso: ${r.meta.recipient?.slice(0, 8)} no publicó relays de DM (kind 10050): la entrega es incierta`);
+    } else if (a === 'dm' && b === 'relays') {
+      await announceDmRelays(need());
     } else if (a === 'dm' && b === 'inbox') {
       for (const m of await client.inbox(need())) console.log(`[${new Date(m.rumor.created_at * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.rumor.content}`);
     } else if (a === 'outbox') {

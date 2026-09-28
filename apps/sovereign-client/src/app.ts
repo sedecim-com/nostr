@@ -6,7 +6,7 @@ import { IdentityManager, type BackupPackage, type BackupPackageV2, type Persona
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, createDirectMessage, dmInboxFilter, joinRequest, openDirectMessage, type DirectMessage, type RelayAdapter } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, dmInboxFilter, dmRouter, joinRequest, openDirectMessage, publishDmRelayList, type DirectMessage, type DmOutbox, type RelayAdapter } from '@sedecim/messaging';
 import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
 import { disclose, preset, validateConfig, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
@@ -47,6 +47,11 @@ export interface SovereignOptions {
    * Blossom server list (MIP-04 group media, FR018-05 routing).
    */
   blobStore?: string;
+  /**
+   * FR017-06: extra relays where recipients' DM relay lists (kinds 10050 and 10002) are looked up, besides the
+   * persona's own relays, like the web's `discoveryRelays`. Each lookup tells them which npub you write to.
+   */
+  discoveryRelays?: string[];
 }
 
 /**
@@ -77,6 +82,8 @@ interface Session {
   pool: RelayPool;
   engine: DeliveryEngine;
   guard: NetworkGuard;
+  /** FR017-06: where recipients' DM relay lists are looked up (the persona's relays plus the configured ones). */
+  dmDiscovery: string[];
   store: EncryptedStore;
   groups?: Promise<GroupSession>;
   /** FR011-04: the retry of what earlier runs left pending, started when the persona was opened. */
@@ -207,12 +214,13 @@ export class SovereignClient {
     const mgr = await this.identities();
     const persona = await mgr.get(personaId);
     const signer = await mgr.unlock(personaId, this.opts.passphrase);
+    const dmDiscovery = [...new Set([...persona.relays, ...(this.opts.discoveryRelays ?? [])])];
     const guard = new NetworkGuard({
       mode: persona.network,
       socksHost: this.opts.socksHost,
       socksPort: this.opts.socksPort,
       isolationKey: persona.id,
-      allowedHosts: persona.relays.map((r) => new URL(r).hostname),
+      allowedHosts: [...new Set(dmDiscovery.map((r) => new URL(r).hostname))],
     });
     const pool = new RelayPool({
       webSocketFactory: persona.network === 'tor-only' ? guard.webSocketFactory() : async (u) => (await guard.assertRoute(u), new WebSocket(u) as unknown as WebSocketLike),
@@ -222,13 +230,23 @@ export class SovereignClient {
       connectTimeoutMs: 15_000,
     });
     const store = await this.openStore(join(this.opts.dataDir, 'personas', personaId));
-    const engine = new DeliveryEngine({ store: store.collection<OutboxRecord>('outbox'), publisher: pool, signer, retry: this.opts.retry });
+    // FR017-06: the same routing as the web. A DM wrap goes to the recipient's DM relays, looked up again on each
+    // retry until one accepts it (FR010-03). Writing to someone lets the guard reach the relays they published.
+    const route = dmRouter(pool, { discoveryRelays: dmDiscovery, fallback: persona.relays });
+    const router = async (rec: { meta?: Record<string, string> }) => {
+      const r = await route(rec);
+      if (r) guard.allowHosts(r.relays.map((u) => new URL(u).hostname));
+      return r;
+    };
+    const engine = new DeliveryEngine({ store: store.collection<OutboxRecord>('outbox'), publisher: pool, signer, retry: this.opts.retry, router });
     // FR-011: when a relay comes back (after a drop or a failed attempt) the whole outbox is re-driven.
     pool.onReconnect(() => void engine.resume().catch(() => undefined));
+    // DM wraps an earlier run left pending may target the recipients' DM relays: the guard may reach them again.
+    for (const r of await engine.list()) if (r.meta?.recipient) guard.allowHosts(Object.keys(r.relayStatus).map((u) => new URL(u).hostname));
     // FR011-04: what an earlier run left pending (sent without network, cut off) goes out as soon as the
     // persona is opened again, whatever the command. In the background: the command does not wait for it.
     const resumed = engine.resume().catch(() => undefined);
-    const s: Session = { persona, signer, pool, engine, guard, store, resumed };
+    const s: Session = { persona, signer, pool, engine, guard, dmDiscovery, store, resumed };
     this.sessions.set(personaId, s);
     return s;
   }
@@ -292,15 +310,33 @@ export class SovereignClient {
     return s.pool.query(s.persona.relays, [{ ...channelFilter(groupId), limit }], 10_000);
   }
 
+  /**
+   * FR017-06: a DM goes the way the web sends it. The recipient's wrap goes to the DM relays they published
+   * (kind 10050, else their NIP-65 read relays, else this persona's relays as a disclosed fallback), and the
+   * sender's copy to this persona's relays. Each record keeps `meta.recipient` and `meta.dmRelaySource`.
+   */
   async sendDm(personaId: string, to: string, text: string): Promise<OutboxRecord[]> {
     const s = await this.session(personaId);
     const recipient = normalizePubkey(to);
     const warnings = await (await this.identities()).reuseWarnings(personaId, { contact: recipient });
     if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')} (usa otra persona o confirma explícitamente)`);
     await (await this.identities()).recordUsage(personaId, { contact: recipient });
-    const msg = await createDirectMessage(s.signer, { recipients: [recipient], content: text }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
-    const groupId = msg.rumor.id;
-    return Promise.all(msg.wraps.map((w) => s.engine.submit({ event: w.event }, { relays: s.persona.relays, groupId, meta: { recipient: w.recipient }, wait: true })));
+    // The NIP-17 gate is checked by the CLI before a DM is composed (flags.json of the interop gate).
+    const messenger = new DirectMessenger(s.signer, { nip17: true, readReceipts: false }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
+    const outbox: DmOutbox<OutboxRecord> = {
+      submit: (input, o) => {
+        s.guard.allowHosts(o.relays.map((u) => new URL(u).hostname));
+        return s.engine.submit(input, o);
+      },
+    };
+    const { deliveries } = await messenger.send({ recipients: [recipient], content: text }, { pool: s.pool, outbox, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, wait: true });
+    return deliveries.map((d) => d.record);
+  }
+
+  /** FR017-06: publishes the persona's DM relay list (kind 10050), as the web does when a persona is created. */
+  async publishDmRelays(personaId: string): Promise<OutboxRecord> {
+    const s = await this.session(personaId);
+    return s.engine.submit({ event: await publishDmRelayList(s.signer, s.persona.relays) }, { relays: s.persona.relays, quorum: 1, wait: true });
   }
 
   async inbox(personaId: string): Promise<DirectMessage[]> {

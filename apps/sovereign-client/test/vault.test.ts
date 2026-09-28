@@ -98,12 +98,14 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
     const env = { ...process.env, SOVEREIGN_DATA_DIR: await mkdtemp(join(tmpdir(), 'sovereign-vault-cli-')), SOVEREIGN_PASSPHRASE: 'cli-vault', SOVEREIGN_VAULT_URL: vaultUrl };
     const created = await run(['persona', 'create', '--label', 'Cli', '--relay', relay.url], env);
     expect(created.status, created.stderr).toBe(0);
+    // FR017-06: creating a persona publishes its DM relay list, the one operation of its ledger so far.
+    expect(created.stderr).toMatch(/relays de DM \(kind 10050\): REPLICATED/);
     const id = (JSON.parse(created.stdout) as { id: string }).id;
     const push = await run(['vault', 'push', '--persona', id], env);
     expect(push.status, push.stderr).toBe(0);
     expect(push.stderr).toContain(`aviso: ${CONTINUITY_VAULT_TEXTS.sealed}`);
     expect(push.stderr).toContain(`aviso: ${CONTINUITY_VAULT_TEXTS.metadata}`);
-    expect(push.stdout).toMatch(/sellado y guardado en el vault: 0 operaciones/);
+    expect(push.stdout).toMatch(/sellado y guardado en el vault: 1 operaciones/);
     const verify = await run(['vault', 'verify', '--persona', id], env);
     expect(verify.stdout, verify.stderr).toContain('1 de 1 archivos se abren');
     const noUrl = await run(['vault', 'list', '--persona', id], { ...env, SOVEREIGN_VAULT_URL: '' });
