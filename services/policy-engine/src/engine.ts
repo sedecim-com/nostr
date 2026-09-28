@@ -54,9 +54,26 @@ export class PolicyEngine {
     return this.repo.appendAudit({ at: this.now(), actor, action, target, ...(details ? { details } : {}) });
   }
 
+  /** Sets roles and attributes. Never changes the revocation (FR023-09): lifting it is `reactivateSubject`. */
   async upsertSubject(actor: string, s: Subject) {
-    await this.repo.putSubject(s);
+    const prev = await this.repo.getSubject(s.pubkey);
+    const { suspended: _ignored, ...fields } = s;
+    await this.repo.putSubject({ ...fields, ...(prev?.suspended ? { suspended: true } : {}) });
     await this.log(actor, 'subject.upsert', s.pubkey, { roles: s.roles });
+  }
+
+  /**
+   * FR023-09: lifting a revocation is an explicit action with its own audit entry. Devices revoked with the
+   * subject stay revoked and resource memberships are not restored, so the person needs a new device (and
+   * to be added back to groups) before a relay lets it in again.
+   */
+  async reactivateSubject(actor: string, pubkey: string) {
+    const s = await this.repo.getSubject(pubkey);
+    if (!s) throw new NotFoundError('unknown subject');
+    if (!s.suspended) throw new ConflictError('subject is not revoked');
+    const { suspended: _lifted, ...active } = s;
+    await this.repo.putSubject(active);
+    await this.log(actor, 'subject.reactivate', pubkey);
   }
 
   async upsertResource(actor: string, r: Resource) {

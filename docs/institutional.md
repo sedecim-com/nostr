@@ -35,7 +35,7 @@ Todas las rutas son JSON. "Admin" = NIP-98 firmado por una pubkey de `POLICY_ADM
 
 | Ruta | Auth | Respuesta |
 |---|---|---|
-| `GET /v1/subjects` · `PUT /v1/subjects/:pubkey` · `POST /v1/subjects/:pubkey/revoke` | admin | `{subjects}` · `{ok}` · `{rotations}` |
+| `GET /v1/subjects` · `PUT /v1/subjects/:pubkey` · `POST /v1/subjects/:pubkey/revoke` · `POST /v1/subjects/:pubkey/reactivate` | admin | `{subjects}` · `{ok}` · `{rotations}` · `{ok}` (404 si no existe, 409 si no está revocado) |
 | `GET /v1/resources` · `PUT /v1/resources/:id` | admin | `{resources}` · `{ok}` |
 | `GET /v1/devices?owner=<hex>` · `POST /v1/devices` · `POST /v1/devices/:id/revoke` | admin | `{devices}` · `Device` · `{rotations}` |
 | `POST /v1/devices/:id/webauthn/options` · `POST /v1/devices/:id/webauthn/register` | dueño del dispositivo o admin | `PublicKeyCredentialCreationOptions` (base64url) · `Device` |
@@ -47,6 +47,11 @@ Todas las rutas son JSON. "Admin" = NIP-98 firmado por una pubkey de `POLICY_ADM
 | `GET /v1/directory` · `PUT /v1/directory/:pubkey` · `DELETE /v1/directory/:pubkey` | admin | `{entries}` · entrada · `{ok}` |
 | `GET /v1/retention` | admin o servicio | `{policies, notice}` |
 | `PUT /v1/retention/:resourceId` `{days: number\|null, legalHold: boolean}` | admin | `{policy, notice}` |
+
+`PUT /v1/subjects/:pubkey` cambia roles y atributos y nunca la revocación (FR023-09): editar a una persona
+revocada la deja revocada, aunque el cuerpo traiga `suspended`. Levantarla es `POST …/reactivate`, con su propia
+entrada `subject.reactivate` en la auditoría; los dispositivos revocados siguen revocados y las membresías no
+vuelven, así que no entra en el allowlist hasta que se le registra un dispositivo nuevo.
 
 `POST /v1/devices` no acepta `trust: 'attested'`: ese nivel solo se obtiene con WebAuthn. El navegador (consola
 de administración, web) llama al engine directamente: `CORS_ORIGINS` = origen de la web.

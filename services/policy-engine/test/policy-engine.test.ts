@@ -163,6 +163,36 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
       expect((await asAdmin(`/v1/devices/${dev2.id}/webauthn/options`, 'POST', {})).status).toBe(409);
       expect((await asAdmin('/v1/audit')).json.audit.some((a: { action: string }) => a.action === 'device.attest')).toBe(true);
     });
+
+    it('editing a revoked subject keeps it revoked; reactivating is explicit and audited (FR023-09)', async () => {
+      const carolSk = generateSecretKey();
+      const carol = getPublicKey(carolSk);
+      await asAdmin(`/v1/subjects/${carol}`, 'PUT', { roles: ['analyst'], attributes: {} });
+      await asAdmin('/v1/devices', 'POST', { owner: carol });
+      const allowlist = async () => (await bearerFetch('/v1/relay/allowlist').then((r) => r.json())).pubkeys as string[];
+      const subject = async () => (await asAdmin('/v1/subjects')).json.subjects.find((s: { pubkey: string }) => s.pubkey === carol);
+      expect(await allowlist()).toContain(carol);
+      expect((await asAdmin(`/v1/subjects/${carol}/reactivate`, 'POST', {})).status).toBe(409);
+
+      await asAdmin(`/v1/subjects/${carol}/revoke`, 'POST', {});
+      // The console's "Editar" sends a PUT without `suspended`; so does a PUT that tries to lift it.
+      expect((await asAdmin(`/v1/subjects/${carol}`, 'PUT', { roles: ['analyst', 'legal'], attributes: { unit: 'ops' } })).status).toBe(200);
+      expect((await asAdmin(`/v1/subjects/${carol}`, 'PUT', { roles: ['analyst'], attributes: {}, suspended: false })).status).toBe(200);
+      expect(await subject()).toMatchObject({ roles: ['analyst'], suspended: true });
+      expect(await allowlist()).not.toContain(carol);
+      expect((await evaluate({ pubkey: carol, resourceId: 'general', action: 'read' })).reasons).toEqual(['subject suspended']);
+
+      expect((await nip98Fetch(carolSk, `${base}/v1/subjects/${carol}/reactivate`, 'POST', {})).status).toBe(403);
+      expect((await asAdmin(`/v1/subjects/${getPublicKey(generateSecretKey())}/reactivate`, 'POST', {})).status).toBe(404);
+      expect((await asAdmin(`/v1/subjects/${carol}/reactivate`, 'POST', {})).status).toBe(200);
+      expect((await subject()).suspended).toBeUndefined();
+      const audit = (await asAdmin('/v1/audit?limit=20')).json.audit as Array<{ action: string; target: string }>;
+      expect(audit.find((a) => a.target === carol)?.action).toBe('subject.reactivate');
+      // Its devices stay revoked: no relay access until a new device is registered.
+      expect(await allowlist()).not.toContain(carol);
+      await asAdmin('/v1/devices', 'POST', { owner: carol });
+      expect(await allowlist()).toContain(carol);
+    });
   });
 }
 

@@ -62,6 +62,11 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
     return { ok: true };
   }, 'nip98');
   svc.post('/v1/subjects/:pubkey/revoke', async (req) => ({ rotations: await engine.revokeSubject(admin(req.pubkey), req.params.pubkey!) }), 'nip98');
+  svc.post('/v1/subjects/:pubkey/reactivate', async (req) => {
+    const actor = admin(req.pubkey);
+    await run(() => engine.reactivateSubject(actor, req.params.pubkey!));
+    return { ok: true };
+  }, 'nip98');
 
   svc.get('/v1/resources', async (req) => (admin(req.pubkey), { resources: await engine.listResources() }), 'nip98');
   svc.put('/v1/resources/:id', async (req) => {

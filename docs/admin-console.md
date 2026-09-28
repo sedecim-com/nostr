@@ -25,7 +25,7 @@ Código: `apps/admin-console` (React 19 + MUI 7 + Vite). Cliente tipado del API:
 
 | Pantalla | Qué hace | API |
 | --- | --- | --- |
-| Personas | Alta y edición de roles y atributos; revocación con diálogo que explica la rotación MLS; muestra las rotaciones devueltas | `GET /v1/subjects`, `PUT /v1/subjects/:pubkey`, `POST /v1/subjects/:pubkey/revoke` |
+| Personas | Alta y edición de roles y atributos (editar a una persona revocada no la reactiva); revocación con diálogo que explica la rotación MLS; muestra las rotaciones devueltas; **Reactivar** explícito y auditado, avisando de que los dispositivos siguen revocados | `GET /v1/subjects`, `PUT /v1/subjects/:pubkey`, `POST /v1/subjects/:pubkey/revoke`, `POST /v1/subjects/:pubkey/reactivate` |
 | Recursos y políticas | Tipo, sensibilidad, reglas (JSON validado en el cliente) y miembros explícitos | `GET /v1/resources`, `PUT /v1/resources/:id` |
 | Dispositivos | Lista por titular, registro, revocación (muestra rotaciones), nivel de confianza (registrado / atestiguado) y **Registrar passkey** | `GET /v1/devices?owner=`, `POST /v1/devices`, `POST /v1/devices/:id/revoke`, `POST /v1/devices/:id/webauthn/options` → `navigator.credentials.create` → `POST /v1/devices/:id/webauthn/register` |
 | Rotaciones pendientes | Grupos MLS en los que hay que publicar un commit que quite al miembro; marcar como hecha | `GET /v1/rotations?status=pending`, `POST /v1/rotations/:id/done` |
@@ -67,7 +67,7 @@ npm run test:browser     # incluye tests/browser/admin-console.e2e.ts
 
 El E2E levanta un policy-engine simulado en memoria que implementa el contrato del API
 (`tests/browser/policy-engine-stub.ts`, con verificación NIP-98 real), el identity-service real y un
-relay de prueba para el bunker NIP-46. Recorre el alta, la edición y la revocación, las rotaciones, la
+relay de prueba para el bunker NIP-46. Recorre el alta, la edición, la revocación y la reactivación, las rotaciones, la
 paginación de la auditoría, el aviso de retención y el alta de una passkey con el autenticador virtual
 de Chromium (CDP `WebAuthn.addVirtualAuthenticator`). También pasa axe sin violaciones graves o
 críticas y comprueba que no haya ids duplicados, violaciones de CSP ni errores de página.

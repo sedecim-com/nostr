@@ -231,6 +231,19 @@ try {
   await page.locator('tr[data-rotation]').first().waitFor();
   assert((await page.locator('tr[data-rotation]').count()) === 1, 'the new rotation is listed as pending');
 
+  // --- FR023-09: editing a revoked subject does not reactivate it; reactivating is explicit and audited
+  await tab(page, 'Personas');
+  await row(page, 'pubkey', alicePk).getByRole('button', { name: 'Editar' }).click();
+  await page.getByText('Esta persona está revocada').waitFor();
+  await page.getByRole('button', { name: 'Cancelar' }).click();
+  await row(page, 'pubkey', alicePk).getByRole('button', { name: 'Reactivar' }).click();
+  const reactivateDialog = page.getByRole('dialog', { name: 'Reactivar persona' });
+  await reactivateDialog.waitFor();
+  assert((await reactivateDialog.textContent())?.includes('siguen revocados'), 'the reactivation dialog says devices stay revoked');
+  await reactivateDialog.getByRole('button', { name: 'Reactivar persona' }).click();
+  await row(page, 'pubkey', alicePk).getByText('Activa').waitFor();
+  assert(stub.subjects.get(alicePk)?.suspended === undefined && stub.audit.some((a) => a.action === 'subject.reactivate' && a.target === alicePk), 'subject reactivated explicitly, with its own audit entry');
+
   // --- directory
   await tab(page, 'Directorio');
   assert((await page.textContent('#directory-notice'))?.includes('nunca se publica'), 'directory states it is never published');
