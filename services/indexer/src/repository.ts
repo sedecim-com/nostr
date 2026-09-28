@@ -111,7 +111,7 @@ export class MemoryEventRepository implements EventRepository {
       const older: string[] = [];
       for (const [id, r] of this.rows) {
         if (r.deleted) continue;
-        const re = this.codec.decode(r.stored);
+        const re = this.codec.decode(r.stored, id);
         if (eventAddress(re) !== addr) continue;
         if (!supersedes(evt, re)) return false;
         older.push(id);
@@ -137,7 +137,7 @@ export class MemoryEventRepository implements EventRepository {
   async query(q: EventQuery): Promise<MirroredEvent[]> {
     const out = [...this.rows.values()].filter((m) => matches(q, m));
     out.sort((a, b) => b.event.created_at - a.event.created_at);
-    return out.slice(0, q.limit ?? 500).map(({ stored: _s, communityId: _c, ...m }) => ({ ...m, event: this.codec.decode(_s) }));
+    return out.slice(0, q.limit ?? 500).map(({ stored: _s, communityId: _c, ...m }) => ({ ...m, event: this.codec.decode(_s, m.event.id) }));
   }
 
   async get(id: string) {
@@ -193,6 +193,8 @@ export class MemoryEventRepository implements EventRepository {
 }
 
 interface PgEventRow {
+  event_id: string;
+  seal_version: number | null;
   raw_event_json: NostrEvent | null;
   encrypted_payload: Buffer | null;
   first_seen_at: string;
@@ -232,9 +234,9 @@ export class PgEventRepository implements EventRepository {
         if (!superseded) {
           const enc = this.codec.encode(evt);
           const r = await client.query(
-            `INSERT INTO events (event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, community_id, h_tag, p_tags, sensitivity_class, d_tag)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
-            [evt.id, evt.pubkey, evt.kind, evt.created_at, enc.raw ? JSON.stringify(enc.raw) : null, enc.encrypted ? Buffer.from(enc.encrypted) : null, communityId ?? null, getTagValue(evt, 'h') ?? null, getTagValues(evt, 'p'), classify(evt), d],
+            `INSERT INTO events (event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, community_id, h_tag, p_tags, sensitivity_class, d_tag, seal_version)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
+            [evt.id, evt.pubkey, evt.kind, evt.created_at, enc.raw ? JSON.stringify(enc.raw) : null, enc.encrypted ? Buffer.from(enc.encrypted) : null, communityId ?? null, getTagValue(evt, 'h') ?? null, getTagValues(evt, 'p'), classify(evt), d, enc.sealVersion ?? null],
           );
           inserted = r.rowCount === 1;
           if (inserted && replaceable) {
@@ -285,7 +287,7 @@ export class PgEventRepository implements EventRepository {
 
   private toMirrored(r: PgEventRow): MirroredEvent {
     return {
-      event: this.codec.decode({ raw: r.raw_event_json, encrypted: r.encrypted_payload ? new Uint8Array(r.encrypted_payload) : null }),
+      event: this.codec.decode({ raw: r.raw_event_json, encrypted: r.encrypted_payload ? new Uint8Array(r.encrypted_payload) : null, sealVersion: r.seal_version }, r.event_id),
       firstSeenAt: new Date(r.first_seen_at).getTime(),
       lastSeenAt: new Date(r.last_seen_at).getTime(),
       relays: r.relays,
@@ -355,6 +357,42 @@ export class PgEventRepository implements EventRepository {
       args,
     );
     return rows.map((r) => this.toMirrored(r)).filter((m) => contentMatches(m.event, q.text)).slice(0, limit);
+  }
+
+  /**
+   * IR-2026-09-15: re-encrypts up to `batch` payloads sealed without AAD (event ids after `after`) so they
+   * bind their event id. A row that no longer decrypts to its own id is left as is and counted in `failed`;
+   * reads of it keep failing. `last` is the cursor for the next call, undefined once none are left.
+   */
+  async resealLegacy(after = '', batch = 500): Promise<{ upgraded: number; failed: number; last?: string }> {
+    if (!this.codec.sealed) return { upgraded: 0, failed: 0 };
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query<PgEventRow>(
+        'SELECT * FROM events WHERE encrypted_payload IS NOT NULL AND seal_version IS NULL AND event_id > $1 ORDER BY event_id LIMIT $2 FOR UPDATE SKIP LOCKED',
+        [after, batch],
+      );
+      let upgraded = 0;
+      for (const r of rows) {
+        let evt: NostrEvent;
+        try {
+          evt = this.codec.decode({ encrypted: new Uint8Array(r.encrypted_payload!) }, r.event_id);
+        } catch {
+          continue;
+        }
+        const enc = this.codec.encode(evt);
+        await client.query('UPDATE events SET encrypted_payload = $2, seal_version = $3 WHERE event_id = $1', [r.event_id, Buffer.from(enc.encrypted!), enc.sealVersion]);
+        upgraded++;
+      }
+      await client.query('COMMIT');
+      return { upgraded, failed: rows.length - upgraded, ...(rows.length ? { last: rows[rows.length - 1]!.event_id } : {}) };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async purge(q: PurgeQuery): Promise<number> {

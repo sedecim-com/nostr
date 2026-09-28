@@ -24,7 +24,8 @@ export function getConversationKey(secretKey: Uint8Array, peerPubkeyHex: string)
   return hkdfExtract(sha256, shared.subarray(1, 33), SALT);
 }
 
-function getMessageKeys(conversationKey: Uint8Array, nonce: Uint8Array) {
+/** Exported for the official test vectors (`get_message_keys`). */
+export function getMessageKeys(conversationKey: Uint8Array, nonce: Uint8Array) {
   if (conversationKey.length !== 32) throw new Error('invalid conversation key length');
   if (nonce.length !== 32) throw new Error('invalid nonce length');
   const keys = hkdfExpand(sha256, conversationKey, nonce, 76);

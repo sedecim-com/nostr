@@ -40,6 +40,7 @@ if (env.DATABASE_URL) {
   logger.info('migrations applied', { applied: applied.join(',') || 'none' });
   await migrateReplayStore(pool);
   repo = new PgEventRepository(pool, codec);
+  if (codec.sealed) void resealLegacy(repo);
   coordinator = new PgShardCoordinator(pool);
   replayStore = new PgReplayStore(pool);
 } else {
@@ -47,6 +48,26 @@ if (env.DATABASE_URL) {
   repo = new MemoryEventRepository(codec);
   coordinator = new MemoryShardCoordinator();
 }
+/** IR-2026-09-15: upgrades rows sealed without AAD in the background, one batch at a time. */
+async function resealLegacy(r: PgEventRepository) {
+  let after = '';
+  let upgraded = 0;
+  let failed = 0;
+  try {
+    for (;;) {
+      const b = await r.resealLegacy(after);
+      upgraded += b.upgraded;
+      failed += b.failed;
+      if (!b.last) break;
+      after = b.last;
+    }
+    if (upgraded || failed) logger.info('legacy sealed rows upgraded', { upgraded, failed });
+    if (failed) logger.warn('sealed rows that do not decrypt to their own event id were left untouched', { failed });
+  } catch (err) {
+    logger.error('resealing legacy rows failed', { error: (err as Error).message });
+  }
+}
+
 // Unique per replica: the pod name in Kubernetes, the container id in compose.
 const replicaId = env.INDEXER_REPLICA_ID?.trim() || hostname();
 

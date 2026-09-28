@@ -175,7 +175,7 @@ revisión interna (IR-2026-09-14).
 | Qué | Dónde | Primitivas |
 |---|---|---|
 | Adjuntos cifrados en cliente (Blossom) | `packages/blossom-client/src/client.ts:64-90,124-133` | AES-256-GCM (`@noble/ciphers`), llave 32 B y nonce 12 B aleatorios por archivo, que viajan dentro del DM cifrado; integridad por SHA-256 del ciphertext |
-| Espejo sellado en reposo | `services/indexer/src/codec.ts:23-36` | XChaCha20-Poly1305 con `MIRROR_AT_REST_KEY` (32 B hex por env), nonce aleatorio, **sin AAD** (IR-2026-09-15) |
+| Espejo sellado en reposo | `services/indexer/src/codec.ts` `sealedCodec` | XChaCha20-Poly1305 con `MIRROR_AT_REST_KEY` (32 B hex por env), nonce aleatorio, AAD `sedecim/indexer-mirror/v1:<event_id>` (`seal_version = 1`); las filas anteriores sin AAD se vuelven a sellar al arrancar y siempre se comprueba que el id descifrado sea el de la fila (IR-2026-09-15) |
 | Tokens Acceso (Cognito) | `packages/service-kit/src/cognito.ts:56-84` | RS256 contra el JWKS del pool (caché 1 h, refetch por `kid` desconocido limitado a 1/min), `iss`, `exp`, `token_use`, `aud`/`client_id` |
 | Tokens bearer entre servicios | `packages/service-kit/src/http.ts:33-43` `safeEqual`/`lookupToken` | `timingSafeEqual` sobre bytes |
 | Sesiones de política | `services/policy-engine/src/engine.ts:96-110` | 24 B aleatorios, guardados como hash |
@@ -222,7 +222,7 @@ Objetivos de mayor valor para el auditor:
 
 | Código | Ruta | Por qué importa | Fuzz |
 |---|---|---|---|
-| NIP-44 v2 | `packages/nostr-core/src/nip44.ts` | Implementación propia de la spec | `tests/fuzz/nip44.test.ts` (diferencial con nostr-tools) |
+| NIP-44 v2 | `packages/nostr-core/src/nip44.ts` | Implementación propia de la spec | Vectores oficiales en `packages/nostr-core/test/nip44-vectors.test.ts`; `tests/fuzz/nip44.test.ts` (diferencial con nostr-tools) |
 | NIP-49 | `packages/nostr-core/src/nip49.ts` | Formato y KDF | `tests/fuzz/nip49.test.ts` |
 | Decodificador CBOR WebAuthn | `services/policy-engine/src/webauthn.ts:22` | Entrada de cualquier cliente autenticado | `tests/fuzz/webauthn.test.ts` |
 | Decodificador/codificador CBOR + COSE_Sign1 | `services/managed-signer/src/enclave/cbor.ts`, `attestation.ts` | Attestation Nitro; entra por el padre | `tests/fuzz/enclave-parsers.test.ts` |
@@ -240,9 +240,8 @@ Desviaciones conocidas respecto a lo habitual:
 1. CMS con AES-256-CBC sin autenticación: impuesto por KMS; la integridad depende de TLS con KMS terminado en
    el enclave. Los errores de padding llegan al padre como mensajes distintos (IR-2026-09-18).
 2. WebAuthn sin validación de la cadena x5c ni de AAGUID (IR-2026-09-17).
-3. Espejo sellado sin AAD (IR-2026-09-15).
-4. Sal del store como texto hex (§2.7).
-5. Anti-replay de NIP-98 solo por proceso en servicios sin Postgres (notification-gateway), y tokens Blossom
+3. Sal del store como texto hex (§2.7).
+4. Anti-replay de NIP-98 solo por proceso en servicios sin Postgres (notification-gateway), y tokens Blossom
    (kind 24242) reutilizables hasta su `expiration`, como permite BUD-02 (IR-2026-09-04).
 
 ## 6. Vectores y tests criptográficos presentes
@@ -250,7 +249,7 @@ Desviaciones conocidas respecto a lo habitual:
 | Área | Qué hay | Dónde |
 |---|---|---|
 | Eventos, NIP-19, NIP-44, NIP-49 | Interoperabilidad y diferencial con nostr-tools, propiedades de manipulación | `packages/nostr-core/test/core.test.ts`, `tests/fuzz/*.test.ts` |
-| NIP-44 | **Faltan los vectores oficiales** (`nip44.vectors.json`); recomendado añadirlos antes de SEC-01 | — |
+| NIP-44 | Vectores oficiales v2 completos (`nip44.vectors.json`, SHA-256 publicado en la NIP comprobado por el test): claves de conversación y de mensaje, padding, cifrado/descifrado en ambos sentidos, mensajes de 64 KiB y todos los casos inválidos | `packages/nostr-core/test/nip44-vectors.test.ts` |
 | Web Push | Ejemplo trabajado de RFC 8291 §5 / Apéndice A | `services/notification-gateway/test/webpush.test.ts` |
 | Attestation Nitro | Raíz G1 fijada por huella; PKI simulada; documentos manipulados, caducados, debug, PCR y nonce distintos | `services/managed-signer/test/enclave-attestation.test.ts` |
 | Enclave extremo a extremo | Generar, importar, firmar, NIP-44, exportar con KMS simulado | `services/managed-signer/test/enclave-signer.test.ts` |

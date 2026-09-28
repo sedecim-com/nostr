@@ -2714,7 +2714,7 @@
    ],
    "sprint": "S8",
    "status": "Parcial",
-   "evidence": "Preparación para la revisión externa: docs/security/audit-scope.md, docs/security/crypto-inventory.md y revisión interna docs/security/internal-review-2026-09.md (22 hallazgos, ninguno crítico; IR-01 mitigado con la exportación del enclave desactivada por defecto; IR-04 anti-replay de NIP-98 y IR-05 límites de tasa corregidos), fuzzing de los parsers propios (tests/fuzz), CodeQL y dependency review en CI. Falta el informe externo sin críticos abiertos",
+   "evidence": "Preparación para la revisión externa: docs/security/audit-scope.md, docs/security/crypto-inventory.md y revisión interna docs/security/internal-review-2026-09.md (22 hallazgos, ninguno crítico; IR-01 mitigado con la exportación del enclave desactivada por defecto; IR-04 anti-replay de NIP-98, IR-05 límites de tasa e IR-15 AAD del espejo sellado corregidos; todas las bajas corregidas), vectores oficiales de NIP-44 v2 (packages/nostr-core/test/nip44-vectors.test.ts), fuzzing de los parsers propios (tests/fuzz), CodeQL y dependency review en CI. Falta el informe externo sin críticos abiertos",
    "issue": 192
   },
   {
