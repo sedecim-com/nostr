@@ -3047,8 +3047,8 @@
     "FR010-02"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit c213a18 (PR #307):\n\n- `resolveDmRelays` solo cachea listas encontradas.\n- El motor recibe un router que se consulta antes de cada reintento de un registro que ningún relay aceptó. `dmRouter` vuelve a resolver los relays de DM del destinatario al publicar: es el mismo evento firmado y se conserva el quorum pedido.\n- La web busca en los relays de la persona y en `discoveryRelays` de config.json (README).\n- Test sin red → con red con relays reales: packages/messaging/test/dm-routing.test.ts (el wrap acaba en el inbox del destinatario, nunca en el relay del emisor). Router: packages/delivery-engine/test/engine.test.ts.",
    "issue": 228
   },
   {
@@ -3081,8 +3081,8 @@
     "FR019-02"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 5dbaa90 (PR #307):\n\n- `requireSanitizable: 'images'` (packages/blossom-client). Rechaza:\n  - HEIC/HEIF/AVIF y TIFF/RAW, sea cual sea el tipo declarado;\n  - un `image/*` en un formato desconocido.\n\n  Los demás documentos pasan cifrados.\n- Los DMs de la web lo aplican con stripFileMetadata antes de subir nada, con un mensaje en castellano; `group send-file` del CLI aplica la misma regla.\n- E2E con un HEIC con GPS rechazado sin subir nada: tests/browser/web-saas.e2e.ts. En el CLI: apps/sovereign-client/test/groups.test.ts. Reglas: packages/blossom-client/test/blossom.test.ts.",
    "issue": 230
   },
   {
@@ -3098,8 +3098,8 @@
     "FR010-01"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 3a02ab8 (PR #307):\n\n- **Motor:** el registro guarda `requestedQuorum` cuando el quorum supera los relays. La web lo muestra en «Entrega» y avisa tras el envío.\n- **Panel:** `validateConfig` recibe los relays de la persona y un quorum mayor es el error bloqueante `QUORUM_RELAYS`.\n- **Tests:**\n  - packages/delivery-engine/test/engine.test.ts\n  - packages/profiles/test/profiles.test.ts\n  - rechazo del panel en tests/browser/web-saas.e2e.ts",
    "issue": 231
   },
   {

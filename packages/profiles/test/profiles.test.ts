@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRESETS, preset, disclose, summarize, validateConfig, isValid, assertNoAbsoluteClaims, receiptPolicy, type PresetName } from '../src/index';
+import { PRESETS, preset, disclose, disclosureCatalog, summarize, validateConfig, isValid, assertNoAbsoluteClaims, receiptPolicy, type PresetName, type SovereigntyConfig } from '../src/index';
 
 describe('sovereignty profiles', () => {
   it('reference presets are valid on their intended platforms', () => {
@@ -50,6 +50,25 @@ describe('sovereignty profiles', () => {
     expect(validateConfig(direct, 'web', { relays: 3 }).filter((i) => i.code.startsWith('QUORUM'))).toEqual([]);
   });
 
+  it('tells only what this version does (PANEL-05): no audit claimed, no crash reports or tracing promised', () => {
+    const all = disclosureCatalog();
+    expect(all.flatMap((d) => [d.statement, ...d.trustAssumptions]).join(' ')).not.toMatch(/auditada/);
+    for (const d of all.filter((x) => x.control === 'crashReports' || x.control === 'telemetry')) expect(d.statement).toMatch(/no (los genera|genera|envía|se emite)/);
+    for (const name of Object.keys(PRESETS) as PresetName[]) expect(preset(name).crashReports).toBe('off');
+    const metadata = (on: boolean) => disclose({ ...preset('convenience'), stripFileMetadata: on }).find((d) => d.control === 'stripFileMetadata')!;
+    expect(metadata(true)).toMatchObject({ improves: ['privacidad-operador'], statement: expect.stringMatching(/HEIC, TIFF\/RAW\) se rechazan/) });
+    expect(metadata(false)).toMatchObject({ sacrifices: ['privacidad-operador'], statement: expect.stringMatching(/dónde y con qué dispositivo/) });
+  });
+
+  it('shows the residual risks of the high-risk profile, and the IP of a pseudonymous persona without Tor (PANEL-05)', () => {
+    const warnings = (c: SovereigntyConfig) => validateConfig(c, 'cli').filter((i) => i.severity === 'warning').map((i) => i.code);
+    expect(warnings(preset('sovereign-tor'))).toEqual(expect.arrayContaining(['TOR_EXPERIMENTAL', 'TOR_CORRELATION', 'TOR_HABITS']));
+    expect(isValid(preset('sovereign-tor'), 'cli')).toBe(true); // shown, never blocking
+    expect(warnings(preset('sovereign'))).toContain('NO_TOR_IP');
+    expect(warnings(preset('convenience'))).not.toContain('NO_TOR_IP'); // a linked identity has no pseudonym to protect
+    expect(warnings({ ...preset('sovereign'), custody: 'local' })).toContain('LOSS_RISK'); // a key on this device, no backup
+  });
+
   it('refuses absolute anonymity claims', () => {
     expect(() => assertNoAbsoluteClaims('Modo 100% anónimo')).toThrow();
   });
@@ -84,7 +103,7 @@ describe('disclosure copy versioning (FR028-02)', () => {
   it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
     const { createHash } = await import('node:crypto');
     const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
-    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d' };
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66' };
     const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
     expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();

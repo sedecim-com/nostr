@@ -26,6 +26,12 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
     if (c.identity !== 'pseudonymous') warn('TOR_LINKED_IDENTITY', 'Vincular la identidad reduce el beneficio de Tor frente a correlación.', ['identity']);
     if (c.readReceipts) warn('TOR_READ_RECEIPTS', 'Las confirmaciones de lectura revelan patrones de actividad.', ['readReceipts']);
     if (c.deliveryReceipts) warn('TOR_DELIVERY_RECEIPTS', 'Las confirmaciones de entrega revelan cuándo está conectado tu dispositivo.', ['deliveryReceipts']);
+    // PANEL-05: the residual risks of the high-risk profile (docs/threat-models/sovereign-tor.md), always shown.
+    warn('TOR_EXPERIMENTAL', 'Perfil experimental: ni el cliente ni marmot-ts (alpha) han pasado una auditoría independiente. No lo trates todavía como apto para alto riesgo.', ['network']);
+    warn('TOR_CORRELATION', 'Tor no te protege de quien observe a la vez tu conexión y la de los relays: puede correlacionar horarios y tamaños.', ['network']);
+    warn('TOR_HABITS', 'Tu forma de escribir y tus horarios pueden identificarte; ninguna herramienta lo evita.', ['network']);
+  } else if (c.identity === 'pseudonymous') {
+    warn('NO_TOR_IP', 'Sin Tor, cada relay ve tu dirección IP y cuándo te conectas: esta persona es pseudónima, no anónima. Para alto riesgo usa el perfil sovereign-tor en el cliente soberano.', ['network', 'identity']);
   }
   if (c.localProtection === 'device') {
     if (c.custody !== 'local' || c.network !== 'direct' || c.identity !== 'linked')

@@ -1,6 +1,9 @@
 import type { SovereigntyConfig } from './types';
 
-/** Reference configuration matrix (spec Appendix B). */
+/**
+ * Reference configuration matrix (spec Appendix B). Crash reports are 'off' everywhere: they do not exist yet
+ * (NFR007-03), and a preset must not promise them (PANEL-05).
+ */
 export const PRESETS = {
   convenience: {
     custody: 'local',
@@ -12,7 +15,7 @@ export const PRESETS = {
     telemetry: 'minimal',
     notifications: 'push',
     cloudBackup: 'ciphertext-user-key',
-    crashReports: 'opt-in',
+    crashReports: 'off',
     localProtection: 'passphrase',
     remotePreviews: true,
     deliveryReceipts: true,
@@ -48,7 +51,7 @@ export const PRESETS = {
     telemetry: 'standard',
     notifications: 'push',
     cloudBackup: 'operator-managed',
-    crashReports: 'opt-in',
+    crashReports: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: true,
@@ -66,7 +69,7 @@ export const PRESETS = {
     telemetry: 'none',
     notifications: 'none',
     cloudBackup: 'off',
-    crashReports: 'manual-export',
+    crashReports: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: false,

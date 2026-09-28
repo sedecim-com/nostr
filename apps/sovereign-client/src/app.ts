@@ -105,8 +105,20 @@ export class SovereignClient {
     return this.manager;
   }
 
+  /**
+   * The panel configuration of a CLI persona. PANEL-05: its key lives on this device, sealed with the passphrase,
+   * so its custody is 'local' whatever the preset says ('offline' would describe an air-gapped key).
+   */
   profileFor(p: PersonaConfig): SovereigntyConfig {
-    return p.network === 'tor-only' ? preset('sovereign-tor') : { ...preset('sovereign'), network: p.relays.length > 1 ? 'multi-relay' : 'private-relay' };
+    const base: SovereigntyConfig = p.network === 'tor-only' ? preset('sovereign-tor') : { ...preset('sovereign'), network: p.relays.length > 1 ? 'multi-relay' : 'private-relay' };
+    return { ...base, custody: 'local' };
+  }
+
+  /** PANEL-05: the warnings of a persona's profile (for Tor-only, its residual risks), shown when it is created. */
+  warningsFor(p: PersonaConfig): string[] {
+    return validateConfig(this.profileFor(p), 'cli')
+      .filter((i) => i.severity === 'warning')
+      .map((i) => i.message);
   }
 
   async createPersona(input: { label: string; relays: string[]; tor?: boolean; highRisk?: boolean }): Promise<PersonaConfig> {

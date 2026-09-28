@@ -304,6 +304,9 @@ try {
 
   // --- panel applies and persists per persona (PANEL-02/03)
   await tab(page, 'Soberanía y privacidad');
+  // PANEL-05: custody is a fact of the persona, shown but not chosen, and the panel explains stripFileMetadata.
+  assert((await page.textContent('#cfg-custody')) === 'local' && (await page.isDisabled('#cfg-custody')), 'the panel shows the real custody (a key in this browser) and does not let it change (PANEL-05)');
+  assert((await page.textContent('#panel-disclosures'))?.includes('Se quitan los metadatos (EXIF, ubicación, datos del dispositivo)'), 'the panel explains what stripFileMetadata does (PANEL-05)');
   await page.locator('#cfg-remotePreviews').uncheck();
   await page.locator('#panel-save').click();
   await page.getByText('Configuración aplicada a esta persona').waitFor();
@@ -331,6 +334,18 @@ try {
   await page.locator('#channel-list').getByText('General').click();
   await page.getByRole('button', { name: /Mostrar imagen/ }).waitFor({ timeout: 10_000 });
   assert(true, 'remote previews off: images wait for an explicit click (PANEL-02)');
+
+  // --- PANEL-05: the profile is validated before the persona exists; a browser cannot be Tor-only
+  await tab(page, 'Personas');
+  await page.locator('#persona-preset').click();
+  await page.getByRole('option', { name: 'sovereign-tor', exact: true }).click();
+  await fill(page, 'persona-label', 'Tor en el navegador');
+  await page.getByLabel('Crear llave local nueva (la nsec no sale del navegador)').check();
+  await page.getByRole('button', { name: 'Crear persona' }).click();
+  await page.locator('.MuiAlert-message', { hasText: 'Tor-only no puede garantizarse desde un navegador' }).waitFor({ timeout: 10_000 });
+  assert((await page.getByText('Tor en el navegador ·').count()) === 0, 'a Tor-only persona is refused before it is created (PANEL-05)');
+  await page.locator('#persona-preset').click();
+  await page.getByRole('option', { name: 'convenience', exact: true }).click();
 
   // --- second persona and switching (FR006-02)
   await tab(page, 'Personas');

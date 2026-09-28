@@ -4,7 +4,7 @@ import type { DeploymentFlags } from '@sedecim/messaging';
 import type { SovereigntyConfig } from '@sedecim/profiles';
 import type { AccesoUser } from '../lib/acceso';
 import type { DeploymentConfig } from '../lib/config';
-import { custodyLabel, openPersona, publishDmRelays, shortNpub, type ManagedEnv, type PersonaSession } from '../lib/session';
+import { custodyLabel, openPersona, personaConfig, publishDmRelays, shortNpub, type ManagedEnv, type PersonaSession } from '../lib/session';
 import type { PersonaBook, PersonaRecord } from '../lib/vault';
 import { WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
 import { onSignerAuthUrl } from '../lib/authUrl';
@@ -96,7 +96,7 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
   );
 
   const ws = useMemo<Ws>(
-    () => ({ cfg, flags, book, user, personas, session, config: session?.persona.config, selectPersona, reloadPersonas, saveConfig, publishDmRelays: async () => current.current && publishDmRelays(current.current), managedEnv, notify: (message, severity = 'info') => setToast({ message, severity }) }),
+    () => ({ cfg, flags, book, user, personas, session, config: session ? personaConfig(session.persona) : undefined, selectPersona, reloadPersonas, saveConfig, publishDmRelays: async () => current.current && publishDmRelays(current.current), managedEnv, notify: (message, severity = 'info') => setToast({ message, severity }) }),
     [cfg, flags, book, user, personas, session, selectPersona, reloadPersonas, saveConfig, managedEnv],
   );
 

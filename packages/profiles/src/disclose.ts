@@ -32,15 +32,15 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
   },
   messaging: {
     nip17: d('DMs NIP-17 (NIP-44 + gift wrap): el relay no ve el contenido ni el remitente, pero NO hay forward secrecy ni post-compromise security.', ['privacidad-operador'], [], ['Confidencialidad a largo plazo de tu nsec.']),
-    marmot: d('Grupos Marmot/MLS: forward secrecy y post-compromise security, con menor compatibilidad con clientes Nostr genéricos.', ['privacidad-operador'], [], ['Implementación Marmot fijada y auditada.']),
+    marmot: d('Grupos Marmot/MLS: forward secrecy y post-compromise security, con menor compatibilidad con clientes Nostr genéricos.', ['privacidad-operador'], [], ['La implementación Marmot/MLS (marmot-ts, versión fijada y todavía sin auditoría independiente).']),
   },
   files: {
     'relay-plain': d('Archivos sin cifrar en Blossom: el operador del almacenamiento puede ver el contenido.', [], ['privacidad-operador'], ['Operador del servidor Blossom.']),
     'client-encrypted': d('Archivos cifrados antes de subir: el servidor Blossom solo ve un blob cifrado y su hash.', ['privacidad-operador'], [], []),
   },
   telemetry: {
-    standard: d('Telemetría estándar (sin nsec ni contenido E2EE): útil para diagnóstico, revela patrones de uso al operador.', [], ['privacidad-operador'], ['Operador y su stack de observabilidad.']),
-    minimal: d('Telemetría mínima: solo salud agregada, sin identificadores de usuario.', [], [], ['Operador.']),
+    standard: d('Telemetría estándar: esta versión no envía trazas ni telemetría de uso desde el cliente.', [], [], []),
+    minimal: d('Telemetría mínima: esta versión no envía telemetría desde el cliente.', [], [], []),
     none: d('Sin telemetría: no se emite ninguna llamada de analytics ni crash reporting.', ['privacidad-operador'], [], []),
   },
   notifications: {
@@ -58,9 +58,9 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
     device: d('Desbloqueo sin contraseña con una llave del dispositivo (WebCrypto, no exportable): cualquiera con acceso a este perfil del navegador puede abrir tus llaves.', [], ['soberania', 'privacidad-operador'], ['Seguridad física y de la sesión de este dispositivo.']),
   },
   crashReports: {
-    off: d('Crash reporting deshabilitado.', ['privacidad-operador'], [], []),
-    'manual-export': d('Los informes de fallo quedan en local y solo salen si los exportas manualmente.', ['privacidad-operador'], [], []),
-    'opt-in': d('Informes de fallo opt-in con limpieza de datos sensibles.', [], ['privacidad-operador'], ['Operador.']),
+    off: d('Sin informes de fallo: esta versión no los genera.', ['privacidad-operador'], [], []),
+    'manual-export': d('Informes de fallo exportables a mano: todavía no existen; esta versión no genera ninguno.', [], [], []),
+    'opt-in': d('Informes de fallo opt-in: todavía no existen; esta versión no envía ninguno.', [], [], []),
   },
 };
 
@@ -68,7 +68,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.1.0';
+export const DISCLOSURE_VERSION = '1.2.0';
 
 /** Every statement the panel can show, for review and versioning (not tied to one configuration). */
 export function disclosureCatalog(): Disclosure[] {
@@ -77,7 +77,7 @@ export function disclosureCatalog(): Disclosure[] {
     for (const [option, entry] of Object.entries(options)) out.push({ control, option, ...entry });
   }
   const base = { ...PRESETS.convenience } as SovereigntyConfig;
-  for (const flag of ['remotePreviews', 'deliveryReceipts', 'readReceipts'] as const) {
+  for (const flag of ['remotePreviews', 'deliveryReceipts', 'readReceipts', 'stripFileMetadata'] as const) {
     for (const v of [true, false]) out.push(disclose({ ...base, [flag]: v }).find((x) => x.control === flag)!);
   }
   out.push(disclose({ ...base, quorum: 2 }).find((x) => x.control === 'quorum')!);
@@ -113,6 +113,16 @@ export function disclose(config: SovereigntyConfig): Disclosure[] {
     statement: config.readReceipts ? 'Confirmaciones de lectura activadas (cifradas): tus contactos sabrán cuándo lees.' : 'Confirmaciones de lectura desactivadas.',
     improves: [],
     sacrifices: config.readReceipts ? ['privacidad-operador'] : [],
+    trustAssumptions: [],
+  });
+  out.push({
+    control: 'stripFileMetadata',
+    option: String(config.stripFileMetadata),
+    statement: config.stripFileMetadata
+      ? 'Se quitan los metadatos (EXIF, ubicación, datos del dispositivo) de las imágenes JPEG, PNG y WebP antes de enviarlas; las imágenes que no se pueden limpiar (HEIC, TIFF/RAW) se rechazan. Los demás archivos salen tal cual.'
+      : 'Los archivos salen con sus metadatos: una foto puede revelar dónde y con qué dispositivo se tomó.',
+    improves: config.stripFileMetadata ? ['privacidad-operador'] : [],
+    sacrifices: config.stripFileMetadata ? [] : ['privacidad-operador'],
     trustAssumptions: [],
   });
   out.push({

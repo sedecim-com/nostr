@@ -65,6 +65,18 @@ describe('sovereign client E2E', () => {
     expect(onionRelay.events.has(resumed!.event!.id)).toBe(true);
   });
 
+  it('describes the real custody and shows the residual risks of --high-risk (PANEL-05)', async () => {
+    const plain = await client.createPersona({ label: 'Normal', relays: [relay.url] });
+    const risky = await client.createPersona({ label: 'Alto riesgo', relays: [`ws://${ONION}`], highRisk: true });
+    for (const p of [plain, risky]) {
+      // The key is sealed on this device with the passphrase: not an air-gapped ('offline') key.
+      expect((await client.disclosures(p.id)).find((d) => d.control === 'custody')!.statement).toMatch(/guarda cifrada en este dispositivo/);
+      expect(client.warningsFor(p).join(' ')).toMatch(/perder el dispositivo/);
+    }
+    expect(client.warningsFor(risky).join(' ')).toMatch(/auditoría independiente.*correlacionar horarios.*forma de escribir/);
+    expect(client.warningsFor(plain).join(' ')).toMatch(/Sin Tor, cada relay ve tu dirección IP/);
+  });
+
   it('refuses a direct connection to a relay not configured for the persona', async () => {
     const p = await client.createPersona({ label: 'Otra', relays: [relay.url] });
     const s = await client.session(p.id);
