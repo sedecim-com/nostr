@@ -2996,8 +2996,8 @@
     "FR005-04"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 7cb7d44 (PR #305): el managed-signer rechaza x-account-id (403) para cualquier llamante y solo firma con el token de Acceso del usuario o una sesión de dispositivo abierta con él. No arranca si MANAGED_SIGNER_SERVICE_TOKENS está definida; la variable sale de compose, Kubernetes, el generador de secretos y .env.example. Tests: services/managed-signer/test/managed-signer.test.ts («refuses the retired service-token mode»).",
    "issue": 225
   },
   {
@@ -3064,8 +3064,8 @@
     "FR011-02"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commits 478f107 y 31eb7d2 (PR #306):\n\n- Al abrir una persona, el CLI lanza `resume()` en segundo plano.\n- Al salir, espera hasta 20 s a que termine (`settle`).\n- `syncHistory` espera ese reintento antes de reconciliar.\n- Test entre dos procesos: apps/sovereign-client/test/resume.test.ts. Un proceso envía con el relay caído; otro, con un comando cualquiera, lo entrega una sola vez sin ejecutar `resume`.\n- tests/e2e/reinstall-history.test.ts refleja el comportamiento nuevo.",
    "issue": 229
   },
   {
@@ -3115,8 +3115,8 @@
     "FR004-04"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit aac7167 (PR #306):\n\n- `WEB_SIGNED_KINDS` (packages/signer/src/nip46.ts) lista los kinds que la web firma con la llave de la persona, y `WEB_NIP46_PERMISSIONS` sale de esa lista. Suma 10063, 30078 y 30443 y ya no pide 5 ni 7.\n- Test: apps/web-saas/test/nip46-permissions.test.ts pasa todos los caminos de firma de la web por un signer que registra lo que firma y contrasta la lista en los dos sentidos.",
    "issue": 232
   },
   {
