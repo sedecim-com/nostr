@@ -171,7 +171,12 @@
 "FR005-12","FR · Identidad, llaves y custodia","FR-005, ADR 0009","Retirar el modo legado del managed-signer (token de servicio + x-account-id)","Solo se firma con el token de Acceso o una sesión de dispositivo; test que rechaza el modo legado","Seguridad","P1","1","FR005-04","S9","2026-10-09","Hecho","Commit 7cb7d44 (PR #305): el managed-signer rechaza x-account-id (403) para cualquier llamante y solo firma con el token de Acceso del usuario o una sesión de dispositivo abierta con él. No arranca si MANAGED_SIGNER_SERVICE_TOKENS está definida; la variable sale de compose, Kubernetes, el generador de secretos y .env.example. Tests: services/managed-signer/test/managed-signer.test.ts («refuses the retired service-token mode»).","https://github.com/sedecim-com/nostr/issues/225"
 "FR023-09","FR · Modo institucional","FR-023","B1: editar una persona revocada no la reactiva; reactivar es explícito y auditado","PUT /v1/subjects conserva suspended; ruta de reactivación con entrada de auditoría; test de regresión","Seguridad","P0","1","FR023-03","S9","2026-10-09","Hecho","Commit eb0f69b (PR #304): PUT /v1/subjects conserva suspended; POST /v1/subjects/:pubkey/reactivate (404 si no existe, 409 si no está revocada) deja la entrada subject.reactivate en la auditoría, y los dispositivos siguen revocados. Consola: «Reactivar» con confirmación. Tests: services/policy-engine/test/policy-engine.test.ts (memoria y Postgres) y tests/browser/admin-console.e2e.ts.","https://github.com/sedecim-com/nostr/issues/226"
 "FR024-04","FR · Modo institucional","FR-024","B2: el propagador de revocaciones no pierde eventos","Cursor persistido sobre la auditoría o endpoint /v1/revocations; test con más de 100 entradas entre revocación y propagación sin pérdidas","Dev","P0","2","FR024-01","S9","2026-10-09","Hecho","Commit 0a92758 (PR #304): GET /v1/revocations con cursor sobre la auditoría (migración 002_audit_action_idx) y RevocationPropagator por páginas. El cursor no pasa una revocación fallida ni una de menos de 60 s, y se guarda por policy-engine en el almacén cifrado de la persona. Tests: tests/security/device-loss.test.ts (150 entradas de auditoría entre revocación y propagación), packages/rotation-worker/test/worker.test.ts (250 revocaciones por HTTP), services/policy-engine/test/policy-engine.test.ts y apps/sovereign-client/test/revocations.test.ts.","https://github.com/sedecim-com/nostr/issues/227"
-"FR010-03","FR · Mensajería, entrega y resiliencia","FR-010, FR-011","D1: un DM escrito sin red no queda mal enrutado","No se cachea un descubrimiento vacío; la ruta 10050 se resuelve al publicar; relays de descubrimiento configurables; test offline→online","Dev","P1","3","FR010-02","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/228"
+"FR010-03","FR · Mensajería, entrega y resiliencia","FR-010, FR-011","D1: un DM escrito sin red no queda mal enrutado","No se cachea un descubrimiento vacío; la ruta 10050 se resuelve al publicar; relays de descubrimiento configurables; test offline→online","Dev","P1","3","FR010-02","S9","2026-10-09","Hecho","Commit c213a18 (PR #307):
+
+- `resolveDmRelays` solo cachea listas encontradas.
+- El motor recibe un router que se consulta antes de cada reintento de un registro que ningún relay aceptó. `dmRouter` vuelve a resolver los relays de DM del destinatario al publicar: es el mismo evento firmado y se conserva el quorum pedido.
+- La web busca en los relays de la persona y en `discoveryRelays` de config.json (README).
+- Test sin red → con red con relays reales: packages/messaging/test/dm-routing.test.ts (el wrap acaba en el inbox del destinatario, nunca en el relay del emisor). Router: packages/delivery-engine/test/engine.test.ts.","https://github.com/sedecim-com/nostr/issues/228"
 "FR011-04","FR · Mensajería, entrega y resiliencia","FR-011","D2: el cliente soberano reintenta lo pendiente al abrir sesión","resume() al abrir la persona en el CLI; test entre dos procesos","Dev","P1","1","FR011-02","S9","2026-10-09","Hecho","Commits 478f107 y 31eb7d2 (PR #306):
 
 - Al abrir una persona, el CLI lanza `resume()` en segundo plano.
@@ -179,8 +184,23 @@
 - `syncHistory` espera ese reintento antes de reconciliar.
 - Test entre dos procesos: apps/sovereign-client/test/resume.test.ts. Un proceso envía con el relay caído; otro, con un comando cualquiera, lo entrega una sola vez sin ejecutar `resume`.
 - tests/e2e/reinstall-history.test.ts refleja el comportamiento nuevo.","https://github.com/sedecim-com/nostr/issues/229"
-"FR019-03","FR · Mensajería, entrega y resiliencia","FR-019","D3: los adjuntos de DM no conservan metadatos no saneables (HEIC con GPS)","requireSanitizable también en DMs cuando stripFileMetadata está activo; E2E con un HEIC con GPS","Dev","P1","1","FR019-02","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/230"
-"FR010-04","FR · Mensajería, entrega y resiliencia","FR-010","Avisar cuando el quorum supera el número de relays","El panel y el motor rechazan o avisan en lugar de recortar el quorum en silencio","Dev","P1","1","FR010-01","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/231"
+"FR019-03","FR · Mensajería, entrega y resiliencia","FR-019","D3: los adjuntos de DM no conservan metadatos no saneables (HEIC con GPS)","requireSanitizable también en DMs cuando stripFileMetadata está activo; E2E con un HEIC con GPS","Dev","P1","1","FR019-02","S9","2026-10-09","Hecho","Commit 5dbaa90 (PR #307):
+
+- `requireSanitizable: 'images'` (packages/blossom-client). Rechaza:
+  - HEIC/HEIF/AVIF y TIFF/RAW, sea cual sea el tipo declarado;
+  - un `image/*` en un formato desconocido.
+
+  Los demás documentos pasan cifrados.
+- Los DMs de la web lo aplican con stripFileMetadata antes de subir nada, con un mensaje en castellano; `group send-file` del CLI aplica la misma regla.
+- E2E con un HEIC con GPS rechazado sin subir nada: tests/browser/web-saas.e2e.ts. En el CLI: apps/sovereign-client/test/groups.test.ts. Reglas: packages/blossom-client/test/blossom.test.ts.","https://github.com/sedecim-com/nostr/issues/230"
+"FR010-04","FR · Mensajería, entrega y resiliencia","FR-010","Avisar cuando el quorum supera el número de relays","El panel y el motor rechazan o avisan en lugar de recortar el quorum en silencio","Dev","P1","1","FR010-01","S9","2026-10-09","Hecho","Commit 3a02ab8 (PR #307):
+
+- **Motor:** el registro guarda `requestedQuorum` cuando el quorum supera los relays. La web lo muestra en «Entrega» y avisa tras el envío.
+- **Panel:** `validateConfig` recibe los relays de la persona y un quorum mayor es el error bloqueante `QUORUM_RELAYS`.
+- **Tests:**
+  - packages/delivery-engine/test/engine.test.ts
+  - packages/profiles/test/profiles.test.ts
+  - rechazo del panel en tests/browser/web-saas.e2e.ts","https://github.com/sedecim-com/nostr/issues/231"
 "FR004-06","FR · Identidad, llaves y custodia","FR-004, §8.3","Permisos NIP-46 completos para los kinds que firma la web","WEB_NIP46_PERMISSIONS incluye 10063, 30443, 30078 y los demás kinds firmados; test que los contrasta","Dev","P1","1","FR004-04","S9","2026-10-09","Hecho","Commit aac7167 (PR #306):
 
 - `WEB_SIGNED_KINDS` (packages/signer/src/nip46.ts) lista los kinds que la web firma con la llave de la persona, y `WEB_NIP46_PERMISSIONS` sale de esa lista. Suma 10063, 30078 y 30443 y ya no pide 5 ni 7.

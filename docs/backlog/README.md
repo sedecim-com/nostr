@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **246 tareas** · 141 hechas · 22 parciales · 77 pendientes · 6 descartadas
-- **336 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **246 tareas** · 144 hechas · 22 parciales · 74 pendientes · 6 descartadas
+- **331 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -47,8 +47,8 @@
 | FR-007 | 5 | 4 | FR007-05 (S10) |
 | FR-008 | 3 | 2 | VAULT-04 (S11) |
 | FR-009 | 3 | 2 | FR009-03 (S10) |
-| FR-010 | 5 | 2 | FR010-03 (S9), FR010-04 (S9), FR017-06 (S10) |
-| FR-011 | 8 | 4 | FR010-03 (S9), VAULT-04 (S11), FR025-12 (S12), FR011-06 (S13) |
+| FR-010 | 5 | 4 | FR017-06 (S10) |
+| FR-011 | 8 | 5 | VAULT-04 (S11), FR025-12 (S12), FR011-06 (S13) |
 | FR-012 | 1 | 1 | — |
 | FR-013 | 6 | 4 | VAULT-01 (S10), VAULT-03 (S11) |
 | FR-014 | 5 | 3 | FR014-05 (S10), FR014-04 (Diferido) |
@@ -56,7 +56,7 @@
 | FR-016 | 2 | 2 | — |
 | FR-017 | 6 | 5 | FR017-06 (S10) |
 | FR-018 | 5 | 5 | — |
-| FR-019 | 4 | 3 | FR019-03 (S9) |
+| FR-019 | 4 | 4 | — |
 | FR-020 | 6 | 2 | FR020-02 (Diferido), FR025-12 (S12), FR020-05 (S13), FR020-06 (Diferido) |
 | FR-021 | 2 | 2 | — |
 | FR-022 | 2 | 2 | — |
@@ -227,10 +227,10 @@
 | [FR004-06](https://github.com/sedecim-com/nostr/issues/232) | P1 | Permisos NIP-46 completos para los kinds que firma la web | FR-004, §8.3 | Dev | 1 | FR004-04 | Hecho | WEB_NIP46_PERMISSIONS incluye 10063, 30443, 30078 y los demás kinds firmados; test que los contrasta |
 | [FR005-08](https://github.com/sedecim-com/nostr/issues/234) | P1 | Textos de la custodia gestionada listos para la revisión legal | FR-005, FR-028 | Dev | 3 | FR005-07 | Pendiente | Login sin «tu llave no sale del navegador» en managed; aviso de descifrado NIP-44 en servidor; enlace a los términos; consentimiento registrado con su versión |
 | [FR005-12](https://github.com/sedecim-com/nostr/issues/225) | P1 | Retirar el modo legado del managed-signer (token de servicio + x-account-id) | FR-005, ADR 0009 | Seguridad | 1 | FR005-04 | Hecho | Solo se firma con el token de Acceso o una sesión de dispositivo; test que rechaza el modo legado |
-| [FR010-03](https://github.com/sedecim-com/nostr/issues/228) | P1 | D1: un DM escrito sin red no queda mal enrutado | FR-010, FR-011 | Dev | 3 | FR010-02 | Pendiente | No se cachea un descubrimiento vacío; la ruta 10050 se resuelve al publicar; relays de descubrimiento configurables; test offline→online |
-| [FR010-04](https://github.com/sedecim-com/nostr/issues/231) | P1 | Avisar cuando el quorum supera el número de relays | FR-010 | Dev | 1 | FR010-01 | Pendiente | El panel y el motor rechazan o avisan en lugar de recortar el quorum en silencio |
+| [FR010-03](https://github.com/sedecim-com/nostr/issues/228) | P1 | D1: un DM escrito sin red no queda mal enrutado | FR-010, FR-011 | Dev | 3 | FR010-02 | Hecho | No se cachea un descubrimiento vacío; la ruta 10050 se resuelve al publicar; relays de descubrimiento configurables; test offline→online |
+| [FR010-04](https://github.com/sedecim-com/nostr/issues/231) | P1 | Avisar cuando el quorum supera el número de relays | FR-010 | Dev | 1 | FR010-01 | Hecho | El panel y el motor rechazan o avisan en lugar de recortar el quorum en silencio |
 | [FR011-04](https://github.com/sedecim-com/nostr/issues/229) | P1 | D2: el cliente soberano reintenta lo pendiente al abrir sesión | FR-011 | Dev | 1 | FR011-02 | Hecho | resume() al abrir la persona en el CLI; test entre dos procesos |
-| [FR019-03](https://github.com/sedecim-com/nostr/issues/230) | P1 | D3: los adjuntos de DM no conservan metadatos no saneables (HEIC con GPS) | FR-019 | Dev | 1 | FR019-02 | Pendiente | requireSanitizable también en DMs cuando stripFileMetadata está activo; E2E con un HEIC con GPS |
+| [FR019-03](https://github.com/sedecim-com/nostr/issues/230) | P1 | D3: los adjuntos de DM no conservan metadatos no saneables (HEIC con GPS) | FR-019 | Dev | 1 | FR019-02 | Hecho | requireSanitizable también en DMs cuando stripFileMetadata está activo; E2E con un HEIC con GPS |
 | [OPS-11](https://github.com/sedecim-com/nostr/issues/235) | P1 | Corregir la deriva documental | Apéndice D, PRD GC-F05 | Doc | 2 | — | Pendiente | README, notas v0.1.0, architecture.md, ADR 0002/0009, buzz-integration.md, institutional.md, threat-model.md, SECURITY.md y baseline del backlog coinciden con main; internal-review refleja la PR #216 |
 | [PANEL-05](https://github.com/sedecim-com/nostr/issues/233) | P1 | Panel veraz: perfil validado al crear persona, Tor-only sin clearnet en la web, declaraciones desde la custodia real | §9.1, FR-028 | Dev | 3 | PANEL-04, FR028-01 | Pendiente | isValid al crear persona; con tor-only la web no lee relays ni publica 10050; disclosures según la custodia real (también en el CLI Tor); texto para stripFileMetadata; se retiran «Marmot fijada y auditada» y las promesas de tracing y crash reports; se añaden los avisos de alto riesgo que faltan en --high-risk y en los presets soberanos |
 | [SEC-07](https://github.com/sedecim-com/nostr/issues/223) | P1 | Vectores oficiales de NIP-44 y vectores JSON exportables | §20.3, §21.1 | Seguridad | 2 | SEC-03 | Pendiente | nip44.vectors.json oficial corre en CI; vectores de NIP-44, NIP-49 y NIP-59 exportables en JSON para futuros clientes en otros lenguajes (ADR 0004) |
