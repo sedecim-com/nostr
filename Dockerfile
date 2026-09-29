@@ -24,11 +24,21 @@ COPY --from=web-build /app/apps/web-saas/dist /usr/share/nginx/html
 # Admin console (OPS-07) under /admin/, same CSP and nonce handling.
 COPY --from=web-build /app/apps/admin-console/dist /usr/share/nginx/html/admin
 
+# NFR010-04: the services run without devDependencies (test runners, bundlers, types). tsx, which runs them,
+# is a dependency. scripts/image-sbom-check.mjs fails the build of a release image that carries one.
+FROM ${NODE_IMAGE} AS prod-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages ./packages
+COPY services ./services
+COPY apps ./apps
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+
 FROM ${NODE_IMAGE} AS service
 ARG SERVICE
 ENV NODE_ENV=production SERVICE=${SERVICE}
 WORKDIR /app
-COPY --from=deps /app /app
+COPY --from=prod-deps /app /app
 # adduser writes the current day into /etc/shadow; the account is locked, so clear that field to keep
 # the layer identical across build days.
 RUN addgroup -S app && adduser -S app -G app && mkdir -p /data && chown app:app /data \
