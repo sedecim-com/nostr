@@ -5,6 +5,7 @@ import { normalizePubkey, npubEncode } from '@sedecim/nostr-core';
 import { exclusive, forgetRemovedGroup, GroupHistory, groupRelays, openGroupSession, rejoinRestoredGroup, type StoredGroupMessage } from '../lib/groups';
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
+import { MaturityChip } from './MaturityChip';
 
 const POLL_MS = 4000;
 
@@ -228,7 +229,7 @@ export function GroupsView() {
     });
 
   const intro = (
-    <Alert severity="info" id="groups-intro">
+    <Alert severity="info" id="groups-intro" action={<MaturityChip id="marmot-groups" />}>
       Grupos Marmot sobre MLS (RFC 9420): forward secrecy y post-compromise security; el relay solo ve texto cifrado y metadatos mínimos. La implementación (marmot-ts) es alpha y no tiene revisión independiente: úsala con esa reserva.
     </Alert>
   );

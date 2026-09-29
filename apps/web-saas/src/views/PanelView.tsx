@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, Link, List, ListItem, ListItemText, MenuItem, Stack, TextField, Typography } from '@mui/material';
-import { PRESETS, disclose, preset, summarize, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
+import { PRESETS, configMaturity, disclose, preset, summarize, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
 import { useWorkspace } from '../lib/workspace';
 import { NotificationsControl } from './NotificationsControl';
+import { MaturityChip } from './MaturityChip';
 
 const OPTIONS: Record<string, string[]> = {
   custody: ['local', 'offline', 'external', 'encrypted-backup', 'managed', 'managed-enclave'],
@@ -34,6 +35,8 @@ export function PanelView() {
   // VAULT-04: and the Continuity Vault policy against the deployment (without a vault, `required` would hold every send).
   const issues = validateConfig(draft, 'web', { relays: ws.session?.persona.relays.length, continuityVault: !!ws.cfg.continuityVault });
   const blocking = issues.some((i) => i.severity === 'error');
+  // PANEL-07: the least mature of what this configuration uses (and private-resilient is never above Beta without a vault).
+  const maturityNow = configMaturity(draft, { continuityVault: !!ws.cfg.continuityVault });
   const dirty = JSON.stringify(draft) !== JSON.stringify(ws.config);
   const set = (patch: Partial<SovereigntyConfig>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -49,6 +52,16 @@ export function PanelView() {
                 </MenuItem>
               ))}
             </TextField>
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap id="panel-maturity">
+              <Typography variant="body2">Madurez de esta configuración:</Typography>
+              <MaturityChip level={maturityNow.level} why={maturityNow.parts[0]!.why} />
+              <Typography variant="body2" color="text.secondary">
+                {maturityNow.parts
+                  .filter((p) => p.level === maturityNow.level)
+                  .map((p) => `${p.name}: ${p.why}`)
+                  .join(' ')}
+              </Typography>
+            </Stack>
             <Box id="panel-form" sx={{ display: 'grid', gridTemplateColumns: { sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 2 }}>
               {/* PANEL-05: custody is a fact of the persona (its key or signer), not a setting: shown, not chosen. */}
               {Object.entries(OPTIONS).map(([key, opts]) => (

@@ -444,12 +444,15 @@ try {
   // PANEL-05: custody is a fact of the persona, shown but not chosen, and the panel explains stripFileMetadata.
   assert((await page.textContent('#cfg-custody')) === 'local' && (await page.isDisabled('#cfg-custody')), 'the panel shows the real custody (a key in this browser) and does not let it change (PANEL-05)');
   assert((await page.textContent('#panel-disclosures'))?.includes('Se quitan los metadatos (EXIF, ubicación, datos del dispositivo)'), 'the panel explains what stripFileMetadata does (PANEL-05)');
+  // PANEL-07: the panel says how mature the configuration is, from the same catalog as the CLI and the README.
+  assert((await page.textContent('#panel-maturity'))?.includes('Early release'), 'the panel shows the maturity of the configuration (PANEL-07)');
   await page.locator('#cfg-remotePreviews').uncheck();
   await page.locator('#panel-save').click();
   await page.getByText('Configuración aplicada a esta persona').waitFor();
   await page.locator('#cfg-network').click();
   await page.getByRole('option', { name: 'tor-only' }).click();
   assert((await page.textContent('#panel-issues'))?.includes('Tor-only no puede garantizarse desde un navegador'), 'panel blocks Tor-only in the browser');
+  assert((await page.textContent('#panel-maturity'))?.includes('Experimental'), 'a Tor-only configuration is Experimental (PANEL-07)');
   assert(await page.isDisabled('#panel-save'), 'a blocking configuration cannot be applied');
   await page.getByRole('button', { name: 'Descartar cambios' }).click();
   // FR010-04: a quorum above the persona's relays (one here) is refused instead of being capped in silence.

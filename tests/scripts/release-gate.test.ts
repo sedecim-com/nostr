@@ -296,6 +296,20 @@ describe('scripts/release-gate.mjs (REL-01 / REL-02)', () => {
       expect(checkNotesFile({ tag: 'v9.9.9', root })[0]).toMatch(/falta docs\/releases\/v9\.9\.9\.md/);
     });
 
+    it('the notes of a tag carry the maturity table of the README (PANEL-07)', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'notes-maturity-'));
+      const table = '<!-- maturity:start (x) -->\n| Perfil | Hoy |\n|---|---|\n| sovereign-tor | Experimental |\n<!-- maturity:end -->';
+      mkdirSync(join(dir, 'docs/releases'), { recursive: true });
+      writeFileSync(join(dir, 'README.md'), `# x\n\n${table}\n`);
+      const write = (body: string) => writeFileSync(join(dir, 'docs/releases/v1.0.0.md'), notes('v1.0.0') + body);
+      write(`\n## Madurez por perfil y función\n\n${table}\n`);
+      expect(checkNotesFile({ tag: 'v1.0.0', root: dir })).toEqual([]);
+      write('');
+      expect(checkNotesFile({ tag: 'v1.0.0', root: dir })).toEqual(['Notas: docs/releases/v1.0.0.md no tiene la tabla de madurez (PANEL-07): npx tsx scripts/maturity.ts docs/releases/v1.0.0.md.']);
+      write(`\n${table.replace('Experimental', 'Beta')}\n`);
+      expect(checkNotesFile({ tag: 'v1.0.0', root: dir })[0]).toMatch(/no es la del README/);
+    });
+
     it('the CLI exits 0 / 1 and rejects malformed tags', () => {
       const run = (...args: string[]) => spawnSync(process.execPath, [join(root, 'scripts/release-gate.mjs'), ...args], { cwd: root, encoding: 'utf8' });
       expect(run('notes', '--tag', 'v0.1.0').status).toBe(0);

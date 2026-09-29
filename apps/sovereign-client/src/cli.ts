@@ -10,7 +10,9 @@
  *   sovereign backup export --persona ID --out FILE [--password-file f] [--no-mls]   (key, relays, panel, MLS state;
  *                                        --no-mls: to set up an additional device, then `group add-device`)
  *   sovereign backup restore FILE [--password-file f]
- *   sovereign whoami --persona ID     (identity, custody, network and link level; also shown before every send)
+ *   sovereign whoami --persona ID     (identity, custody, network and link level; also shown before every send;
+ *                                        then the maturity of its configuration, PANEL-07)
+ *   sovereign maturity                   (maturity of each profile and function today and at v1.0; no passphrase)
  *   sovereign channel join --persona ID --group G         (NIP-29 join request)
  *   sovereign channel send --persona ID --group G "text"
  *   sovereign channel read --persona ID --group G
@@ -81,7 +83,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
-import { CONTINUITY_VAULT_TEXTS, disclose } from '@sedecim/profiles';
+import { CONTINUITY_VAULT_TEXTS, configMaturity, disclose, MATURITY, MATURITY_LABELS } from '@sedecim/profiles';
 import { SovereignClient } from './app';
 
 function relayAdapter() {
@@ -123,6 +125,11 @@ function backupPassword(): string {
 }
 
 async function main() {
+  // PANEL-07: the maturity catalog is public information: no store to open, no passphrase.
+  if (argv[0] === 'maturity') {
+    for (const m of MATURITY) console.log(`${MATURITY_LABELS[m.level].padEnd(14)} ${m.name}: ${m.why} En v1.0: ${m.atV1}`);
+    return;
+  }
   const passphrase = process.env.SOVEREIGN_PASSPHRASE;
   if (!passphrase) throw new Error('set SOVEREIGN_PASSPHRASE (protects the local encrypted stores)');
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
@@ -187,6 +194,8 @@ async function main() {
       for (const p of await (await client.identities()).list()) console.log(`${p.id}  ${p.label.padEnd(16)} ${p.network.padEnd(8)} ${p.compartment.padEnd(12)} ${p.relays.join(',')}`);
     } else if (a === 'whoami') {
       console.log(await (await client.identities()).sendingAs(need()));
+      const m = configMaturity(await client.profile(need()), { continuityVault: !!(opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL) });
+      console.log(`madurez: ${m.label} (${m.parts.filter((p) => p.level === m.level).map((p) => `${p.name}: ${p.why}`).join(' ')})`);
     } else if (a === 'channel' && b === 'join') {
       const rec = await client.joinChannel(need(), opt('--group')!);
       console.log(`${rec.state}${rec.blockedReason ? ` — ${rec.blockedReason}` : ''} (op ${rec.opId})`);
