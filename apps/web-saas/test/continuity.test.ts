@@ -129,7 +129,8 @@ describe('web archive key and Continuity Vault (VAULT-02)', () => {
       expect(new Set(repo.rows().map((r) => r.owner))).toEqual(new Set([`nostr:${archiveOwnerPubkey(hexToBytes(p.archiveKeyHex!))}`]));
       let stored = JSON.stringify(repo.rows());
       for await (const k of objects.list()) stored += new TextDecoder().decode((await objects.get(k))!);
-      for (const needle of ['5512', 'nota con', '4410', 'estado-mls', 'clave-privada', p.pubkey, rec.event!.id, relay.url, 'REPLICATED', 'general']) expect(stored, needle).not.toContain(needle);
+      // Needles with a space or an accent: a random id, hash or base64 never contains them by chance (bare digits can).
+      for (const needle of ['número 5512', 'nota con', 'grupo 4410', 'estado-mls', 'clave-privada', p.pubkey, rec.event!.id, relay.url, 'REPLICATED', 'general']) expect(stored, needle).not.toContain(needle);
 
       // A clean browser with the backup only, and relays that lost everything.
       const opened = await openKeyBackup(await backupJson(p, 'contraseña del backup'), 'contraseña del backup');
