@@ -2402,7 +2402,7 @@
     "FR024-04",
     "FR024-05"
    ],
-   "sprint": "S12",
+   "sprint": "S10",
    "status": "Parcial",
    "evidence": "Managed-signer: sesiones ligadas a dispositivo (POST /v1/device-sessions, solo hash), POST /v1/devices/:id/revoke (tokens MANAGED_SIGNER_REVOCATION_TOKENS) que borra sus sesiones y bloquea nuevas; el worker lo propaga desde la auditoría del policy-engine. Bunker NIP-46: revokeDevice/revokeClient y rotación del secreto. Tests: devices-limits.test.ts, signer.test.ts, device-loss.test.ts. Reabierta por la revisión del 27/09/2026: el propagador pierde revocaciones (B2, FR024-04) y la web no usa sesiones de dispositivo (FR024-05).",
    "issue": 169
@@ -2555,7 +2555,7 @@
     "NFR004-01",
     "NFR001-02"
    ],
-   "sprint": "S12",
+   "sprint": "S11",
    "status": "Parcial",
    "evidence": "deploy/monitoring: reglas P95/P99 por relay y región, alertas de degradación absoluta y relativa, outbox y fallos (tests promtool), dashboard Grafana; la web muestra el P95 y un chip \"degradado\". Falta desplegar el monitoreo (NFR001-02)",
    "issue": 178
@@ -2945,7 +2945,7 @@
    "deps": [],
    "sprint": "S9",
    "status": "Pendiente",
-   "evidence": "",
+   "evidence": "El payload sellado del mirror lleva como AAD `acceso-nostr/mirror/v2/<event_id>` y `seal_version` 2 (migración `services/indexer/migrations/005_seal_version.sql`): movido a otra fila no autentica, y no se puede leer como el formato sin AAD. Toda lectura exige además que el evento sea el que nombra el `event_id` de su fila. Las filas selladas antes se siguen leyendo, solo en su propia fila, y el indexer las vuelve a sellar al arrancar (`PgEventRepository.resealLegacy`, seguro con varias réplicas). Tests en `services/indexer/test/seal.test.ts`: intercambio entre filas en Postgres, y un mirror en las migraciones 001–004 con filas antiguas (una manipulada) actualizado a 005 y re-sellado. IR-2026-09-15 queda Corregido en `docs/security/internal-review-2026-09.md`; actualizados el inventario criptográfico y los threat models. Commit 39c456c (PR #329).",
    "issue": 222
   },
   {
@@ -3404,7 +3404,7 @@
     "VAULT-01"
    ],
    "sprint": "S11",
-   "status": "Pendiente",
+   "status": "Hecho",
    "evidence": "Commit f20f802 (PR #326).\n\n**Mismo contrato, dos almacenamientos.** `services/continuity-vault` guarda los sobres en un directorio (`VAULT_OBJECTS_DIR`) o en cualquier S3-compatible (`VAULT_S3_BUCKET`, `VAULT_S3_ENDPOINT`, `VAULT_S3_REGION`, `VAULT_S3_PREFIX` y llaves propias o la cadena de AWS). Al arrancar comprueba el bucket.\n\n**En el compose, sin el SaaS:**\n- servicio `continuity-vault` (:8088);\n- filas en la base de la plataforma;\n- sobres en su propio bucket de SeaweedFS (`continuity-vault`), con llaves que SeaweedFS solo acepta para ese bucket;\n- `seaweedfs-init` crea el bucket e `init-env.sh` genera las llaves;\n- la web del despliegue lo usa (`infra/web/config.json`) y con TLS se sirve en `vault.<dominio>`.\n\n**Backup y restore drill:**\n- `backup.sh` pausa el vault desde antes de los dumps hasta copiar `seaweedfs-data`, así un backup nunca tiene una fila sin su sobre;\n- el restore drill siembra un sobre sellado y, tras backup, host limpio y `restore.sh`, comprueba que vuelve y abre con su llave (`scripts/drill-data.ts`);\n- el gate de interop del stack lo usa en cada PR (`tests/interop/stack.interop.test.ts`).\n\n**Además:**\n- imagen de release `nostr-continuity-vault`;\n- componente opt-in de Kubernetes (`deploy/k8s/components/continuity-vault`), que stage no activa: no arranca hasta que el overlay decida quién abre cuentas.\n\n**Tests:**\n- `services/continuity-vault/test/continuity-vault.test.ts`: la suite completa sobre objetos S3 (moto en CI y el SeaweedFS fijado) y el contrato del almacenamiento: páginas, prefijos y bucket inexistente;\n- `tests/interop/stack.interop.test.ts`;\n- `tests/scripts/build-image.test.ts`;\n- `tests/scripts/deploy-manifests.test.ts`;\n- restore drill (`.github/workflows/restore-drill.yml`).\n\nDocumentado en ADR 0011 (sección VAULT-06), el threat model del vault, `docs/runbooks/restore.md`, `docs/rpo-rto.md` y la trazabilidad (NFR-003).",
    "issue": 249
   },
@@ -3420,7 +3420,7 @@
    "deps": [
     "OPS-17"
    ],
-   "sprint": "S11",
+   "sprint": "S9",
    "status": "Pendiente",
    "evidence": "",
    "issue": 250
@@ -3452,12 +3452,11 @@
    "priority": "P0",
    "sp": 3,
    "deps": [
-    "OPS-06",
-    "REL-01"
+    "OPS-06"
    ],
    "sprint": "S11",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "`deploy/production-gates.json` y `node scripts/release-gate.mjs config` (en `all` del job `dod` de release.yml y en el job `deploy-config` de CI; revisa la web, `deploy/k8s` y `deploy/terraform` salvo stage): managed solo con la aprobación legal registrada en `docs/legal/approvals/custodia-managed.md` (SHA-256 del texto aprobado, DEC-12; hoy pendiente) y los informes de SEC-01 y SEC-02, sin waiver; enclave y `ENCLAVE_ALLOW_EXPORT` apagados mientras sean Preview; push apagado con `safeTrigger: false` (matriz de ADR 0010), e `infra/web/config.saas.example.json` ya no lo ofrece. Tests en `tests/scripts/release-gate.test.ts`; gate 9 de `docs/release-checklist.md`. Commit 6fd6686 (PR #327).",
    "issue": 252
   },
   {
@@ -3490,7 +3489,7 @@
    "deps": [
     "FR023-04"
    ],
-   "sprint": "S11",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 254
@@ -3542,6 +3541,7 @@
    "deps": [
     "SEC-06",
     "SEC-07",
+    "SEC-13",
     "FR025-11",
     "VAULT-03",
     "VAULT-04",
@@ -3569,7 +3569,7 @@
     "NFR001-01",
     "BUZZ-07"
    ],
-   "sprint": "S12",
+   "sprint": "S11",
    "status": "Pendiente",
    "evidence": "",
    "issue": 258
@@ -3586,7 +3586,7 @@
    "deps": [
     "PANEL-05"
    ],
-   "sprint": "S12",
+   "sprint": "S9",
    "status": "Pendiente",
    "evidence": "",
    "issue": 259
@@ -3604,7 +3604,7 @@
     "OPS-18",
     "PANEL-07"
    ],
-   "sprint": "S12",
+   "sprint": "S9",
    "status": "Pendiente",
    "evidence": "",
    "issue": 260
@@ -3621,7 +3621,7 @@
    "deps": [
     "NFR010-01"
    ],
-   "sprint": "S12",
+   "sprint": "S9",
    "status": "Pendiente",
    "evidence": "",
    "issue": 261
@@ -3638,7 +3638,7 @@
    "deps": [
     "OPS-05"
    ],
-   "sprint": "S12",
+   "sprint": "S9",
    "status": "Pendiente",
    "evidence": "",
    "issue": 262
@@ -3655,7 +3655,7 @@
    "deps": [
     "NFR001-04"
    ],
-   "sprint": "S12",
+   "sprint": "S11",
    "status": "Pendiente",
    "evidence": "",
    "issue": 263
@@ -3672,7 +3672,7 @@
    "deps": [
     "FR005-04"
    ],
-   "sprint": "S12",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 264
@@ -3690,7 +3690,7 @@
     "FR024-02",
     "FR024-04"
    ],
-   "sprint": "S12",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 265
@@ -3707,7 +3707,7 @@
    "deps": [
     "FR023-08"
    ],
-   "sprint": "S12",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 266
@@ -3724,7 +3724,7 @@
    "deps": [
     "OPS-07"
    ],
-   "sprint": "S12",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 267
@@ -3741,7 +3741,7 @@
    "deps": [
     "FR011-01"
    ],
-   "sprint": "S12",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 268
@@ -3758,7 +3758,7 @@
    "deps": [
     "FR025-11"
    ],
-   "sprint": "S12",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 269
@@ -3775,7 +3775,7 @@
    "deps": [
     "FR020-03"
    ],
-   "sprint": "S13",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 270
@@ -3792,7 +3792,7 @@
    "deps": [
     "NFR006-03"
    ],
-   "sprint": "S13",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 271
@@ -3809,7 +3809,7 @@
    "deps": [
     "FR011-03"
    ],
-   "sprint": "S13",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 272
@@ -3824,7 +3824,7 @@
    "priority": "P3",
    "sp": 1,
    "deps": [],
-   "sprint": "S13",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 273
@@ -3839,7 +3839,7 @@
    "priority": "P2",
    "sp": 5,
    "deps": [],
-   "sprint": "S14",
+   "sprint": "S10",
    "status": "Pendiente",
    "evidence": "",
    "issue": 274
@@ -4302,6 +4302,41 @@
    "status": "Pendiente",
    "evidence": "",
    "issue": 301
+  },
+  {
+   "id": "OPS-21",
+   "epic": "OPS · Despliegue y DevSecOps",
+   "req": "FR-021 (FR021-02)",
+   "title": "El job tor-profile no falla por la latencia de Tor",
+   "done": "scripts/tor-profile-check.sh no envía el DM hasta que el 10050 del destinatario está REPLICATED y da a cada lectura por Tor el margen de un circuito lento; si aun así falla, el log dice en qué paso y tras cuánto tiempo; el job tor-profile pasa en 5 ejecuciones seguidas",
+   "type": "Infra",
+   "priority": "P1",
+   "sp": 2,
+   "deps": [
+    "FR021-02"
+   ],
+   "sprint": "S9",
+   "status": "Pendiente",
+   "evidence": "",
+   "issue": 330
+  },
+  {
+   "id": "SEC-13",
+   "epic": "SEC/REL · Gates de seguridad y release",
+   "req": "§20.3, PRD GC-A04",
+   "title": "Segunda revisión interna de seguridad antes del tag de auditoría",
+   "done": "docs/security/internal-review-2026-10.md revisa, con el método de la primera revisión, lo fusionado desde entonces (Continuity Vault, motor de entrega, feature gates de producción, SEC-06 y SEC-07); cada hallazgo medio o superior queda corregido, o aceptado con ADR, antes del tag de auditoría; el alcance y los hallazgos entran en el paquete de SEC-01 y SEC-02",
+   "type": "Seguridad",
+   "priority": "P1",
+   "sp": 5,
+   "deps": [
+    "SEC-06",
+    "SEC-07"
+   ],
+   "sprint": "S11",
+   "status": "Pendiente",
+   "evidence": "",
+   "issue": 331
   }
  ]
 }
