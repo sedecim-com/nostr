@@ -1,7 +1,7 @@
 # Backlog — Acceso Nostr
 
 > Fuente: [GitHub Issues](https://github.com/sedecim-com/nostr/issues?q=label%3Abacklog) (ver [GITHUB.md](GITHUB.md)). `backlog.json`, este archivo y `backlog.csv` se regeneran desde los issues; no editar a mano.
-> Base: Scope_Plataforma_Nostr_Soberana_SaaS_v0.1 (25/09/2026) y PRD de cierre de brechas v0.3 (27/09/2026). Estado del código: `main@75a18e5` (2026-09-28).
+> Base: Scope_Plataforma_Nostr_Soberana_SaaS_v0.1 (25/09/2026) y PRD de cierre de brechas v0.3 (27/09/2026). Estado del código: `main@138d242` (2026-09-29).
 
 ## Resumen
 
@@ -24,11 +24,11 @@
 | S6 (cerrado) | 2026-12-07 → 2026-12-18 | F4 | Grupos high-security | 5 | 23 | 0 |
 | S7 (cerrado) | 2027-01-04 → 2027-01-15 | F5 | Modo institucional | 10 | 38 | 1 |
 | S8 (cerrado) | 2027-01-18 → 2027-01-29 | Release | Hardening, escalabilidad y release | 2 | 8 | 0 |
-| S9 | 2026-09-28 → 2026-10-09 | G0 | Main endurecido y v0.1.0 firmada | 31 | 68 | 12 |
-| S10 | 2026-10-12 → 2026-10-23 | G1–G2 | Continuity Vault y stage en AWS | 27 | 88 | 6 |
-| S11 | 2026-10-26 → 2026-11-06 | G1–G2 | Restauración sin relays y operación real | 14 | 53 | 8 |
-| S12 | 2026-11-09 → 2026-11-20 | G2–G3 | Freeze de auditoría y v1.0.0-rc.1 | 1 | 3 | 1 |
-| S13 | 2026-11-23 → 2026-12-04 | G4 | Auditoría externa en campo | 3 | 4 | 0 |
+| S9 | 2026-09-28 → 2026-10-09 | G0 | Código de la auditoría y v0.1.0 firmada | 31 | 68 | 12 |
+| S10 | 2026-10-12 → 2026-10-23 | G1 | Resto del código, vault aprobado y v0.2.0 | 27 | 88 | 6 |
+| S11 | 2026-10-26 → 2026-11-06 | G2 | Stage real en AWS | 14 | 53 | 8 |
+| S12 | 2026-11-09 → 2026-11-20 | G3 | Freeze de auditoría y v1.0.0-rc.1 | 1 | 3 | 1 |
+| S13 | 2026-11-23 → 2026-12-04 | G4 | Auditoría en campo y aprobación legal | 3 | 4 | 0 |
 | S14 | 2026-12-07 → 2026-12-18 | G4 | Informes externos y Nitro en Preview | 2 | 16 | 1 |
 | S15 | 2027-01-04 → 2027-01-15 | G4 | Remediación, retest y v1.0.0-rc.2 | 2 | 16 | 2 |
 | S16 | 2027-01-18 → 2027-01-29 | G5 | v1.0.0 firmada para despliegues controlados | 2 | 4 | 1 |
@@ -207,7 +207,7 @@
 | [NFR010-03](https://github.com/sedecim-com/nostr/issues/191) | P2 | Imágenes Docker reproducibles | NFR-010 | Infra | 3 | OPS-01 | Hecho | Dos builds del mismo commit producen el mismo digest |
 | [NFR005-01](https://github.com/sedecim-com/nostr/issues/179) | P3 | Indexer escalable horizontalmente (reparto por relay y upserts idempotentes) | NFR-005 | Dev | 5 | FR014-01 | Hecho | N réplicas sin duplicados ni pérdidas; test de concurrencia |
 
-## S9 · Main endurecido y v0.1.0 firmada (G0, 2026-09-28 → 2026-10-09) — 68 SP
+## S9 · Código de la auditoría y v0.1.0 firmada (G0, 2026-09-28 → 2026-10-09) — 68 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
@@ -243,7 +243,7 @@
 | [OPS-10](https://github.com/sedecim-com/nostr/issues/61) | P2 | Backlog vivo en GitHub Issues con sincronización automática a docs/backlog | Proceso, PRD GC-E06 | Infra | 3 | — | Hecho | Cada tarea es un issue (milestone = sprint, labels de prioridad/epic/estado, campos Priority/Effort/fechas, sub-issues del epic y "blocked by"); un workflow regenera docs/backlog desde los issues y abre la PR de sync sin intervención, con Actions autorizado a abrir PRs. No bloquea el RC |
 | [OPS-13](https://github.com/sedecim-com/nostr/issues/262) | P2 | Higiene de la cadena de suministro en CI | §21.2 | Infra | 2 | OPS-05 | Pendiente | Acciones por SHA, imágenes por digest, checksums de herramientas, Dependabot para infra/tor y compose, npm audit y CodeQL como gate |
 
-## S10 · Continuity Vault y stage en AWS (G1–G2, 2026-10-12 → 2026-10-23) — 88 SP
+## S10 · Resto del código, vault aprobado y v0.2.0 (G1, 2026-10-12 → 2026-10-23) — 88 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
@@ -275,7 +275,7 @@
 | [DEC-15](https://github.com/sedecim-com/nostr/issues/273) | P3 | Estructura de repositorios | §21.1 | Decisión | 1 | — | Pendiente | ADR que justifica el monorepo frente a los seis repositorios sugeridos por el scope |
 | [NFR006-04](https://github.com/sedecim-com/nostr/issues/271) | P3 | Escaneo de secretos en logs con todos los perfiles | NFR-006 | QA | 2 | NFR006-03 | Pendiente | El job stack también levanta managed, push, institutional y tor y escanea sus logs |
 
-## S11 · Restauración sin relays y operación real (G1–G2, 2026-10-26 → 2026-11-06) — 53 SP
+## S11 · Stage real en AWS (G2, 2026-10-26 → 2026-11-06) — 53 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
@@ -294,13 +294,13 @@
 | [VAULT-05](https://github.com/sedecim-com/nostr/issues/248) | P1 | Retención, borrado y exportación del vault | PRD GC-B05, NFR-008 | Dev | 3 | VAULT-03 | Hecho | Retención configurable; exportación portable; borrar elimina las copias del servidor según la política y queda documentado |
 | [VAULT-06](https://github.com/sedecim-com/nostr/issues/249) | P1 | Backend self-hosted del vault | PRD GC-B06, NFR-003 | Infra | 3 | VAULT-01 | Hecho | El mismo contrato sobre almacenamiento local o S3-compatible (SeaweedFS del compose) sin depender del SaaS de Sedecim; incluido en el compose y en el restore drill |
 
-## S12 · Freeze de auditoría y v1.0.0-rc.1 (G2–G3, 2026-11-09 → 2026-11-20) — 3 SP
+## S12 · Freeze de auditoría y v1.0.0-rc.1 (G3, 2026-11-09 → 2026-11-20) — 3 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
 | [SEC-11](https://github.com/sedecim-com/nostr/issues/257) | P0 | Tag de auditoría firmado y v1.0.0-rc.1 | §20.3, PRD GC-A04, GC-F05 | Seguridad | 3 | SEC-06, SEC-07, SEC-13, FR025-11, VAULT-03, VAULT-04, FR026-04, FR005-13, OPS-18, DEC-10, REL-01 | Pendiente | Tag audit-2026-11 firmado sobre main con internal-review, threat models y backlog sin contradicciones; v1.0.0-rc.1 publicada desde ese commit con el gate y waiver de auditoría; durante el trabajo de campo, cambiar cripto, custodia o continuidad exige waiver y nuevo baseline |
 
-## S13 · Auditoría externa en campo (G4, 2026-11-23 → 2026-12-04) — 4 SP
+## S13 · Auditoría en campo y aprobación legal (G4, 2026-11-23 → 2026-12-04) — 4 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
