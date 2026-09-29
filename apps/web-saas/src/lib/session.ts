@@ -3,7 +3,7 @@ import { NetworkBlockedError, RelayPool, type WebSocketFactory } from '@sedecim/
 import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS, type AccessTokenProvider } from '@sedecim/signer';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type ContinuitySink, type OutboxRecord } from '@sedecim/delivery-engine';
-import { DmInbox, dmRouter, publishDmRelayList, type DirectMessage, type Receipt, type WrapOptions } from '@sedecim/messaging';
+import { DmInbox, dmRouter, publishDmRelayList, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
 import { continuityPolicy, preset, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
 import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
@@ -21,6 +21,8 @@ export interface PersonaSession {
   engine: DeliveryEngine;
   /** FR010-03: where recipients' DM relay lists are looked up (the persona's relays plus the deployment's). */
   dmDiscovery: string[];
+  /** FR011-05: the DMs being sent, stored (encrypted, in the vault) before their wraps are made. */
+  dmOperations: DmOperationStore;
   close(): void;
 }
 
@@ -264,6 +266,7 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
     pool,
     engine,
     dmDiscovery,
+    dmOperations: book.store.collection<DmOperation>(`dm-ops-${persona.id}`),
     close: () => {
       offReconnect();
       pool.close();

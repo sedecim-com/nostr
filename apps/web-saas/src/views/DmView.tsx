@@ -2,9 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import { downloadFromServers, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
 import { getTagValue, normalizePubkey } from '@sedecim/nostr-core';
-import { BUZZ_PINNED_ADAPTER, createFileMessage, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
-import { cappedQuorumNotice } from '../lib/outbox';
+import { cappedQuorumNotice, fileKey, SendOperation } from '../lib/outbox';
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 
@@ -24,6 +24,8 @@ export function DmView() {
   const wrapOpts = wrapOptionsFromFlags(flags, BUZZ_PINNED_ADAPTER.wrap);
   const messenger = () => new DirectMessenger(s.signer, { nip17, readReceipts: config.readReceipts }, wrapOpts);
   const { inbox, messages, background } = ws.dm;
+  // FR011-05: «Enviar» again on the same message retries its operation instead of making another rumor or event.
+  const operation = useRef(new SendOperation());
 
   // ADR 0005: a message shown here counts as read. The inbox sends the read receipt only if the panel allows it,
   // at most once per message; "delivered" receipts go when a message arrives, even in the background (FR009-03).
@@ -43,22 +45,25 @@ export function DmView() {
       if (blocked) throw new Error(blocked);
       if (!nip17) throw new FeatureDisabledError('nip17');
       const recipient = normalizePubkey(to.trim());
-      let msg;
+      const opId = operation.current.for(JSON.stringify([recipient, text, fileKey(file)]));
       // FR010-02: each wrap goes to the recipient's DM relays (10050), else their NIP-65 read relays, else ours.
       // FR010-03: discovery also asks the deployment's discovery relays; a retry re-resolves the route (engine router).
-      const route = { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, quorum: config.quorum };
-      if (file) {
+      // FR011-05: the message is stored before its wraps are made, under the operation id.
+      const route = { pool: s.pool, outbox: s.engine, operations: s.dmOperations, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, quorum: config.quorum };
+      const upload = async () => {
         // DM attachments are always encrypted client-side. FR018-05: they go to the user's Blossom servers
         // (kind 10063, primary first) except image-only ones (relay media), else to the deployment blob-store.
         // FR019-03: with stripFileMetadata, an image whose metadata cannot be removed (HEIC, TIFF/RAW, an image
         // format the sanitizer does not know) is refused before anything is uploaded; other documents go as they are.
-        const prepared = prepareBlob(new Uint8Array(await file.arrayBuffer()), { sanitize: true, requireSanitizable: config.stripFileMetadata && 'images', encrypt: true, mimeType: file.type || 'application/octet-stream', fileName: file.name });
+        const prepared = prepareBlob(new Uint8Array(await file!.arrayBuffer()), { sanitize: true, requireSanitizable: config.stripFileMetadata && 'images', encrypt: true, mimeType: file!.type || 'application/octet-stream', fileName: file!.name });
         const targets = uploadTargets(ws.cfg, await blossomServersOf(s), true);
         if (targets.length === 0) throw new Error('No hay servidor Blossom para adjuntos cifrados: publica tu lista de servidores o configura el blob-store.');
         const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
-        msg = await createFileMessage(s.signer, { recipients: [recipient], url: desc.url, mimeType: prepared.mimeType, sha256: prepared.sha256, originalSha256: prepared.originalSha256, size: prepared.data.length, encryption: prepared.encryption! }, wrapOpts);
-      }
-      const { deliveries } = file ? await messenger().deliver(msg!, route) : await messenger().send({ recipients: [recipient], content: text }, route);
+        return { recipients: [recipient], url: desc.url, mimeType: prepared.mimeType, sha256: prepared.sha256, originalSha256: prepared.originalSha256, size: prepared.data.length, encryption: prepared.encryption! };
+      };
+      // A retry does not upload the file again: the stored message already points to it.
+      const { deliveries } = file ? await messenger().sendFileOnce(opId, upload, route) : await messenger().sendDmOnce(opId, { recipients: [recipient], content: text }, route);
+      operation.current.done();
       const unrouted = deliveries.find((d) => d.recipient === recipient && d.source !== 'dm-relays');
       const capped = deliveries.map((d) => cappedQuorumNotice(d.record)).find(Boolean);
       const notices = [unrouted && `Destinatario sin relays de DM: se envió a ${unrouted.source === 'nip65-read' ? 'sus relays de lectura (NIP-65)' : 'tus relays'}; la entrega es incierta.`, capped].filter(Boolean);

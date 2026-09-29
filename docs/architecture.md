@@ -31,7 +31,7 @@ firmados; las bases de datos son índices derivados.
 | `delivery-engine` | Máquina de estados DRAFT→…→READ, outbox persistente, quorum, reintentos idempotentes, reconciliación, y la copia en el Continuity Vault como pista propia (`CONTINUITY_BACKED_UP`, VAULT-04) |
 | `encrypted-store` | Store local cifrado (XChaCha20-Poly1305, nombres HMAC), backends memoria/archivo atómico/IndexedDB; `Vault` con contraseña o llave del dispositivo (ADR 0007) |
 | `identity` | Personas, compartimentos, vínculos con consentimiento, backup/restore NIP-49; vínculo público opcional firmado por ambas personas ([`public-link.md`](public-link.md)) |
-| `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación |
+| `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación, DMs como operaciones de envío (FR011-05) |
 | `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad |
 | `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash; lista de servidores del usuario (BUD-03, kind 10063) con subida al principal y descarga con alternativas |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
@@ -56,6 +56,24 @@ firmados; las bases de datos son índices derivados.
 6. **Notificaciones push**: opacas y opt-in por perfil, sin push en sovereign ni Tor (ADR 0010). **Custodia managed**:
    `us-east-1`, KMS + Secrets Manager y LFPDPPP (ADR 0009; términos pendientes de aprobación legal). Threat models por
    perfil en `docs/threat-models/`.
+
+## Operaciones de envío del cliente (FR011-05)
+
+El scope pide un identificador interno estable por operación, además del `event_id` (§11.1), para que un reintento de
+la interfaz no duplique nada (§11.2). Cada envío de la web y del CLI es una operación con un id propio:
+
+- **Web.** El id se mantiene mientras la persona reintenta el mismo mensaje (mismo destinatario o canal, texto y
+  archivo) y cambia en cuanto edita algo o el envío sale (`SendOperation`, `apps/web-saas/src/lib/outbox.ts`).
+- **CLI.** `dm send` y `channel send` imprimen el id antes de enviar, y `--op ID` reintenta ese envío, aunque se
+  cortara a medias. Otro texto u otro destinatario con el mismo id se rechaza: sería un mensaje nuevo, no un
+  reintento.
+- **Canales y otros eventos.** `DeliveryEngine.submitOnce(opId, build)` guarda la operación (`LOCAL_PERSISTED`)
+  antes de firmarla. Un reintento la vuelve a enviar y no construye nada: ni otro evento ni otra subida del adjunto.
+  `submit` se serializa por id, así que un doble clic deja una sola operación.
+- **DMs.** `DirectMessenger.sendDmOnce` y `sendFileOnce` guardan el rumor en el store cifrado de la persona
+  (`dm-ops`) antes de crear ningún seal ni wrap. El wrap de cada destinatario, y la copia propia, va al outbox con
+  el id `<operación>:<pubkey>`. Un reintento usa el mismo rumor, reenvía los wraps ya encolados y crea solo los que
+  falten; si el firmante falló a mitad, el destinatario que ya tenía su wrap no recibe otro.
 
 ## APIs: anti-replay NIP-98 y límites de tasa
 Aplica a identity-service, policy-engine, indexer, notification-gateway, managed-signer y continuity-vault (todos sobre

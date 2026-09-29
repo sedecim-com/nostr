@@ -559,7 +559,7 @@ Decisiones, operación, seguridad, panel y gates, con la referencia que citan (P
 | [OPS-19](https://github.com/sedecim-com/nostr/issues/260) README con el estado por release, no con checkmarks | PRD GC-F04 | Pendiente (S9) | — | — |
 | [OPS-13](https://github.com/sedecim-com/nostr/issues/262) Higiene de la cadena de suministro en CI | §21.2 | Pendiente (S9) | — | [release-gate.test.ts](../tests/scripts/release-gate.test.ts), [supply-chain.test.ts](../tests/scripts/supply-chain.test.ts) |
 | [FR023-12](https://github.com/sedecim-com/nostr/issues/266) Auditoría y retención legal coherentes con el modelo de confidencialidad | §16, §12.2 | Pendiente (S10) | — | — |
-| [FR011-05](https://github.com/sedecim-com/nostr/issues/268) Identificador de operación estable en la UI | §11.2 | Pendiente (S10) | — | — |
+| [FR011-05](https://github.com/sedecim-com/nostr/issues/268) Identificador de operación estable en la UI | §11.2 | Pendiente (S10) | — | [engine.test.ts](../packages/delivery-engine/test/engine.test.ts) |
 | [DEC-15](https://github.com/sedecim-com/nostr/issues/273) Estructura de repositorios | §21.1 | Pendiente (S10) | — | — |
 | [OPS-14](https://github.com/sedecim-com/nostr/issues/274) Documentación del SDK y de las APIs | §17, §26 | Pendiente (S10) | — | — |
 | [SEC-08](https://github.com/sedecim-com/nostr/issues/275) Corregir los hallazgos críticos y altos de SEC-01 y SEC-02 | §20.3, PRD GC-A05, GC-A06 | Pendiente (S15) | — | — |

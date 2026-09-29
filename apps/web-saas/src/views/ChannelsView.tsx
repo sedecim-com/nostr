@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Chip, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import { BlossomClient, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
-import { cappedQuorumNotice } from '../lib/outbox';
+import { cappedQuorumNotice, fileKey, SendOperation } from '../lib/outbox';
 import type { NostrEvent } from '@sedecim/nostr-core';
 import { channelFilter, chatMessage, createGroup, joinRequest, NIP29, parseGroupMetadata, type GroupMetadata } from '@sedecim/messaging';
 import { shortNpub } from '../lib/session';
@@ -36,6 +36,7 @@ export function ChannelsView() {
   const [busy, setBusy] = useState(false);
   const blocked = sendBlockedReason(config);
   const sub = useRef<{ close(): void } | undefined>(undefined);
+  const operation = useRef(new SendOperation());
 
   const discover = async () => {
     const evts = await s.pool.query(s.persona.relays, [{ kinds: [NIP29.GroupMetadata], limit: 200 }], 5000);
@@ -90,19 +91,25 @@ export function ChannelsView() {
     if (!openId || blocked) return;
     setBusy(true);
     try {
-      const tmpl = chatMessage(openId, text);
-      if (file) {
-        // FR018-04: channel images are public to channel members: sanitized (EXIF removed) and stored in Buzz /media.
-        if (config.files !== 'relay-plain') throw new Error('Tu perfil exige adjuntos cifrados y los canales NIP-29 no son E2EE: comparte el archivo por mensaje directo.');
-        // FR018-05: the user's Blossom servers (kind 10063, primary first), else the relay media server.
-        const targets = uploadTargets(ws.cfg, await blossomServersOf(s), false);
-        if (targets.length === 0) throw new Error('Este despliegue no tiene servidor de media configurado.');
-        const prepared = prepareBlob(new Uint8Array(await file.arrayBuffer()), { sanitize: true, requireSanitizable: config.stripFileMetadata, mimeType: file.type, fileName: file.name });
-        const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
-        tmpl.content = [text, desc.url].filter(Boolean).join('\n');
-        (tmpl.tags ??= []).push(['imeta', `url ${desc.url}`, `m ${prepared.mimeType}`, `x ${prepared.sha256}`]);
-      }
-      const rec = await s.engine.submit({ template: tmpl }, { relays: s.persona.relays, quorum: config.quorum });
+      const build = async () => {
+        const tmpl = chatMessage(openId, text);
+        if (file) {
+          // FR018-04: channel images are public to channel members: sanitized (EXIF removed) and stored in Buzz /media.
+          if (config.files !== 'relay-plain') throw new Error('Tu perfil exige adjuntos cifrados y los canales NIP-29 no son E2EE: comparte el archivo por mensaje directo.');
+          // FR018-05: the user's Blossom servers (kind 10063, primary first), else the relay media server.
+          const targets = uploadTargets(ws.cfg, await blossomServersOf(s), false);
+          if (targets.length === 0) throw new Error('Este despliegue no tiene servidor de media configurado.');
+          const prepared = prepareBlob(new Uint8Array(await file.arrayBuffer()), { sanitize: true, requireSanitizable: config.stripFileMetadata, mimeType: file.type, fileName: file.name });
+          const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
+          tmpl.content = [text, desc.url].filter(Boolean).join('\n');
+          (tmpl.tags ??= []).push(['imeta', `url ${desc.url}`, `m ${prepared.mimeType}`, `x ${prepared.sha256}`]);
+        }
+        return { template: tmpl };
+      };
+      // FR011-05: «Enviar» again on the same message retries its operation: no other event, no second upload.
+      const opId = operation.current.for(JSON.stringify([openId, text, fileKey(file)]));
+      const rec = await s.engine.submitOnce(opId, build, { relays: s.persona.relays, quorum: config.quorum });
+      operation.current.done();
       const capped = cappedQuorumNotice(rec);
       if (capped) ws.notify(capped, 'warning');
       setText('');
