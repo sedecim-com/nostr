@@ -1,6 +1,6 @@
 # ADR 0011 · Continuity Vault: sobres de archivo sellados en el cliente
 
-- **Estado:** Propuesto · **Tarea:** VAULT-01 (#237); cubre también VAULT-02 (#238) y VAULT-07 (#239) · **Fecha:** 2026-09-28
+- **Estado:** Propuesto · **Tarea:** VAULT-01 (#237); cubre también VAULT-02 (#238), VAULT-03 (#246) y VAULT-07 (#239) · **Fecha:** 2026-09-28
 - **Aprobación:** pendiente (responsable de producto)
 
 ## Contexto
@@ -113,6 +113,52 @@ VAULT-02: ni la base ni el object store contienen texto, eventos ni llaves legib
   - lo que protege una contraseña es el backup de identidad, que sigue en identity-service con su límite
     estricto.
 
+### El historial de la persona (VAULT-03)
+Un dispositivo limpio, con solo el backup de la persona y relays vacíos, reconstruye su historial desde el
+vault. El cliente sella cuatro clases de archivo (`packages/continuity/src/history.ts`); el vault solo ve el id
+opaco de cada etiqueta.
+
+| Etiqueta | Qué guarda | Cómo se escribe |
+|---|---|---|
+| `event:<id>` | Un evento canónico firmado: la actividad propia en canales y sus listas (0, 3, 10002, 10050, 10063), los eventos y el estado (39000–39003) de sus canales, y los gift wraps dirigidos a la persona (DMs recibidos, la copia propia de los enviados, acuses e invitaciones a grupos) | Una vez: un evento no cambia |
+| `group-message:<grupo>:<rumor>` | Un mensaje Marmot descifrado: el rumor, no el kind 445 | Una vez |
+| `ledger` | El outbox: cada operación con su evento firmado y su estado por relay | Reemplaza la copia anterior |
+| `mls` | El estado MLS de los grupos por namespace, sin los key packages privados | Reemplaza la copia anterior |
+
+- **Por qué el rumor.** MLS borra las llaves de las épocas pasadas: un kind 445 ya leído no se vuelve a
+  descifrar. El adaptador llama a `onMessage` con cada mensaje que la sesión descifra o envía, y el cliente
+  lo guarda en ese momento (CLI: colección `group-history`; web: `mlsmsg-<persona>`).
+- **Guardar.** El cliente reconstruye el historial desde los relays de la persona con `rebuildHistory`
+  (NIP-77 y ventanas de REQ en el CLI, ventanas de REQ en la web). Sube lo que el vault no tiene, con cuatro
+  subidas a la vez, y después reemplaza los snapshots. Un evento con firma inválida no se sube.
+  - CLI: `sedecim vault push`.
+  - Web: «Guardar el historial en el vault».
+- **Restaurar.** Solo hace falta la llave de archivo del backup:
+  - Se acepta lo que abre con esa llave, está guardado bajo el id que implica su contenido, tiene firma
+    válida (eventos) y es de la persona (snapshots y mensajes). Lo demás se cuenta como omitido.
+  - Los eventos se publican otra vez en los relays de la persona, que se leen como antes.
+  - Las operaciones del ledger que el dispositivo no tiene se añaden a su outbox, sin pisar las locales.
+  - Los mensajes de grupo se añaden a su historial de grupos.
+  - El estado MLS se escribe solo si el dispositivo no tiene grupos de la persona. Queda a nombre de ningún
+    dispositivo (`vault-restore`), así que cada grupo cuenta como restaurado: es una copia de la hoja del
+    otro dispositivo y no puede enviar hasta entrar otra vez como hoja nueva (FR025-06). En el CLI es
+    `group rejoin`; en la web, «Volver a entrar».
+  - CLI: `sedecim vault restore [--no-republish]`.
+  - Web: «Restaurar desde el vault».
+- **Límites.**
+  - Un relay NIP-29 solo acepta el estado de canal que firma él mismo, y mensajes de canales que existen.
+    Si el relay perdió el canal, su operador tiene que recrearlo. Lo que el relay rechaza se cuenta y sigue
+    en el vault.
+  - Lo que la persona publicó en relays de otros (el gift wrap de un DM en los relays de su destinatario) y
+    los kinds fuera de la tabla (por ejemplo notas kind 1) están en el vault dentro del ledger, con su evento
+    firmado. Restaurar no los vuelve a publicar.
+  - La web muestra y guarda los últimos 500 mensajes de chat de cada grupo. Los que ya se subieron siguen en
+    el vault.
+- **Qué lo demuestra.** `apps/sovereign-client/test/vault-restore.test.ts` (CLI) y los E2E
+  `tests/browser/web-saas.e2e.ts` y `web-groups.e2e.ts` (web) guardan un canal, DMs en los dos sentidos, una
+  conversación de grupo y el ledger; un dispositivo limpio con el backup y un relay vacío los recupera
+  completos.
+
 ### Lo que ve el operador (VAULT-07)
 - **Ve:**
   - la cuenta;
@@ -126,9 +172,8 @@ VAULT-02: ni la base ni el object store contienen texto, eventos ni llaves legib
   conservan los metadatos hasta que caduca su propia retención (se documenta en VAULT-05).
 
 ## Consecuencias
-- VAULT-03 y VAULT-04 se construyen sobre este contrato. VAULT-03 es la restauración con relays vacíos;
-  VAULT-04 es `CONTINUITY_BACKED_UP` en la máquina de estados. Se guarda un archivo por evento con id
-  `event:<id>`, y los snapshots (ledger, estado MLS) por reemplazo.
+- VAULT-03 y VAULT-04 se construyen sobre este contrato. VAULT-03 (arriba) es la restauración con relays
+  vacíos; VAULT-04 es `CONTINUITY_BACKED_UP` en la máquina de estados.
 - VAULT-06 añade:
   - el `ObjectStore` S3-compatible (SeaweedFS del compose);
   - el servicio en el compose y en Kubernetes;

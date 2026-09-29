@@ -518,8 +518,8 @@
     "DEC-08"
    ],
    "sprint": "S10",
-   "status": "Parcial",
-   "evidence": "services/notification-gateway: Web Push (VAPID + RFC 8291, vector del RFC byte a byte), push opaco sin contenido, remitente ni conteo, retardo aleatorio por perfil, rechaza sovereign/Tor y relays .onion; web con suscripción por persona. Falta: Buzz y el secure relay solo entregan kind 1059 a su destinatario, así que con los relays de referencia el gateway no ve los mensajes",
+   "status": "Hecho",
+   "evidence": "Commit b1d405b (PR #320). Completa lo ya hecho en `services/notification-gateway`:\n- Web Push: VAPID + RFC 8291, con el vector del RFC byte a byte.\n- Push opaco: sin contenido, remitente ni conteo, y con retardo aleatorio por perfil.\n- Rechazo de sovereign/Tor y de relays `.onion`.\n- Suscripción por persona en la web.\n\nLo nuevo:\n- **Flag por relay, apagado por defecto.**\n  - El gateway publica en cada relay un canario: un gift wrap entre dos claves desechables que caduca a los 10 minutos.\n  - Solo acepta registros donde lo ve llegar con su identidad NIP-42. En los demás responde 409 (503 antes de comprobar).\n  - No se puede forzar, así que el gateway nunca tiene lectura de DMs.\n  - `GET /v1/relays` expone el resultado.\n- **La web** consulta `/v1/relays`. Si ningún relay de la persona es observable, no ofrece el interruptor y explica por qué (`#notifications-unobservable`).\n- **REQ de vigilancia con `limit: 1`.** nostr-rs-relay nunca cerraba con EOSE un REQ con `limit: 0`, así que el gateway no contaba nada allí.\n- **ADR 0010, «Matriz real por relay»:**\n  - Buzz `ac4521f3e464` no es observable.\n  - El secure relay (nostr-rs-relay con `nip42_dms`) tampoco. Con el stack de referencia no hay push web.\n  - La misma imagen de nostr-rs-relay con `nip42_dms = false` sí es observable: un DM NIP-17 produce el aviso opaco.\n- **Tests:**\n  - `services/notification-gateway/test/gateway.test.ts`;\n  - `apps/web-saas/test/push.test.ts`;\n  - `tests/browser/web-saas.e2e.ts`;\n  - `tests/interop/notification-gateway.interop.test.ts`, en el job `stack`: Buzz y el secure relay no son observables, y el relay sin `nip42_dms` produce el aviso.",
    "issue": 57
   },
   {
@@ -582,8 +582,8 @@
    "sp": 3,
    "deps": [],
    "sprint": "S9",
-   "status": "Parcial",
-   "evidence": "scripts/backlog-github.mjs, .github/workflows/backlog-sync.yml, .github/ISSUE_TEMPLATE/backlog-task.yml, docs/backlog/GITHUB.md. Sembrado: 164 issues, 11 epics, 10 milestones, 320 relaciones; la sync actualiza la rama backlog-sync. Falta que la organización permita a Actions abrir la PR de sync",
+   "status": "Hecho",
+   "evidence": "Commit 8e97d37 (PR #316): último cambio de `.github/workflows/backlog-sync.yml` en main. El workflow hace tres cosas:\n- regenera `docs/backlog` desde los issues;\n- abre o actualiza la PR de sincronización;\n- la cierra cuando main ya coincide.\n\nCon Actions autorizado a abrir PRs (Settings → Actions → Workflow permissions), la sincronización abre sola su PR, con autor github-actions[bot]:\n- **#318**, creada por la ejecución 296 de backlog-sync, disparada por un evento `issues` (2026-09-28 20:08:12 UTC). El log termina con `gh pr create` imprimiendo la URL de la PR: https://github.com/sedecim-com/nostr/actions/runs/36477018172\n- **#312**, creada por la ejecución 287 (18:59:16 UTC) y fusionada.\n\nAdemás: `scripts/backlog-github.mjs`, `.github/ISSUE_TEMPLATE/backlog-task.yml` y `docs/backlog/GITHUB.md`. La última ejecución (304) lee 246 tareas desde los issues, con 12 epics y 18 milestones.",
    "issue": 61
   },
   {

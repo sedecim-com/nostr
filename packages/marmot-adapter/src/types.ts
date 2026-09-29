@@ -163,6 +163,11 @@ export interface SessionOptions {
    * device owns it (older backups), this marks every existing group as restored (see `rejoin`).
    */
   clonedState?: boolean;
+  /**
+   * Called with every application message this session decrypts and every one it sends. MLS deletes the keys of
+   * past epochs, so this is the only moment a client can keep a message (VAULT-03 archives them).
+   */
+  onMessage?: (message: GroupMessage) => void | Promise<void>;
 }
 
 /** Per-identity, per-device group session. */
@@ -178,7 +183,8 @@ export interface GroupSession {
   removeMember(groupId: string, pubkey: string): Promise<GroupHandle>;
   /** Self-update commit: rotates this member's leaf keys (post-compromise security). */
   rotate(groupId: string): Promise<GroupHandle>;
-  send(groupId: string, content: string, tags?: string[][]): Promise<void>;
+  /** Sends an application message; returns it as sent (its rumor id is the one recipients see). */
+  send(groupId: string, content: string, tags?: string[][]): Promise<GroupMessage>;
   /** Fetch and process new kind 445 events for a group; returns decrypted application messages. */
   sync(groupId: string): Promise<GroupMessage[]>;
   /** Process pending invites (gift-wrapped Welcomes) and join those groups. */

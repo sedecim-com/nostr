@@ -1,4 +1,5 @@
-import type { GroupSession, GroupStorage } from '@sedecim/marmot-adapter';
+import type { ArchivedGroupMessage, MlsSnapshot } from '@sedecim/continuity';
+import type { GroupHandle, GroupMessage, GroupSession, GroupStorage } from '@sedecim/marmot-adapter';
 import type { EncryptedStore } from '@sedecim/encrypted-store/browser';
 import type { RelayPool } from '@sedecim/relay-pool';
 import type { DeploymentConfig } from './config';
@@ -43,6 +44,9 @@ export class PersonaGroupStorage implements GroupStorage {
   }
 }
 
+/** Kind of the chat rumor marmot-ts sends inside an MLS application message. */
+export const CHAT_KIND = 9;
+
 // One MLS session per open persona session (keyed by its pool, which is closed when the persona switches).
 const sessions = new WeakMap<RelayPool, Promise<GroupSession>>();
 
@@ -55,7 +59,10 @@ export function openGroupSession(s: PersonaSession, store: EncryptedStore, cfg: 
       // Fail closed if the provider does not declare forward secrecy and post-compromise security.
       m.assertHighSecurity(provider);
       const storage = new PersonaGroupStorage(new m.EncryptedGroupStorage(store), s.persona.id);
-      return provider.openSession({ signer: s.signer, network: new m.PoolGroupNetwork(s.pool, groupRelays(cfg, s).relays), storage, deviceId: `web-${s.persona.id}` });
+      const history = new GroupHistory(store, s.persona.id);
+      // VAULT-03: every chat message this session decrypts or sends is kept here, the only moment it can be.
+      const onMessage = (msg: GroupMessage) => (msg.kind === CHAT_KIND ? history.append(msg.groupId, [storedMessage(msg)]).then(() => undefined) : undefined);
+      return provider.openSession({ signer: s.signer, network: new m.PoolGroupNetwork(s.pool, groupRelays(cfg, s).relays), storage, deviceId: `web-${s.persona.id}`, onMessage });
     })();
     sessions.set(s.pool, p);
     p.catch(() => sessions.delete(s.pool));
@@ -71,6 +78,8 @@ export interface StoredGroupMessage {
 }
 
 const HISTORY_LIMIT = 500;
+
+const storedMessage = (m: Pick<GroupMessage, 'rumorId' | 'sender' | 'content' | 'createdAt'>): StoredGroupMessage => ({ id: m.rumorId, sender: m.sender, content: m.content, createdAt: m.createdAt });
 
 /**
  * Decrypted group history, sealed in the vault per persona (MLS keys of past epochs are deleted, so
@@ -95,6 +104,17 @@ export class GroupHistory {
   }
   forget(groupId: string) {
     return this.col.delete(groupId);
+  }
+  /** VAULT-03: every group's chat, as the vault archives it. */
+  async archived(): Promise<ArchivedGroupMessage[]> {
+    return (await this.col.all()).flatMap(({ id: groupId, value }) => value.map((m) => ({ groupId, rumorId: m.id, sender: m.sender, kind: CHAT_KIND, content: m.content, createdAt: m.createdAt })));
+  }
+  /** VAULT-03: adds the chat messages restored from the vault (other kinds are not shown in the web). */
+  async restore(messages: ArchivedGroupMessage[]): Promise<number> {
+    const byGroup = new Map<string, StoredGroupMessage[]>();
+    for (const m of messages) if (m.kind === CHAT_KIND) byGroup.set(m.groupId, [...(byGroup.get(m.groupId) ?? []), storedMessage(m)]);
+    for (const [groupId, msgs] of byGroup) await this.append(groupId, msgs);
+    return [...byGroup.values()].reduce((n, msgs) => n + msgs.length, 0);
   }
 }
 
@@ -122,4 +142,52 @@ export async function forgetRemovedGroup(s: PersonaSession, store: EncryptedStor
   });
   sessions.delete(s.pool);
   return openGroupSession(s, store, cfg);
+}
+
+/** Drops the persona's cached MLS session (closing it): the next `openGroupSession` reads the stored state again. */
+export async function dropGroupSession(s: PersonaSession): Promise<void> {
+  const p = sessions.get(s.pool);
+  sessions.delete(s.pool);
+  await p?.then((g) => g.close(), () => undefined);
+}
+
+/** VAULT-03: the persona's MLS state by logical namespace, without private key packages (a copy never joins with them). */
+export async function groupStateSnapshot(store: EncryptedStore, personaId: string): Promise<MlsSnapshot> {
+  const prefix = `mls-${personaId}-`;
+  const out: MlsSnapshot = {};
+  for (const name of await store.collectionNames(prefix)) {
+    const ns = name.slice(prefix.length);
+    if (ns !== 'keypackages') out[ns] = await store.collection<unknown>(name).all();
+  }
+  return out;
+}
+
+/** Device id a restored MLS state is owned by: no device, so every group counts as restored until `rejoin`. */
+const RESTORED_OWNER = 'vault-restore';
+
+/**
+ * VAULT-03: writes the MLS state restored from the vault, only if this persona has no groups in this browser (newer
+ * local state is never overwritten). The groups come back as a copy of the other device's leaf: they can be read,
+ * and `rejoinRestoredGroup` makes this browser a new leaf before it sends (FR025-06).
+ */
+export async function restoreGroupState(s: PersonaSession, store: EncryptedStore, namespaces: MlsSnapshot | undefined): Promise<'restored' | 'kept' | 'none'> {
+  if (!namespaces?.groups?.length) return 'none';
+  const prefix = `mls-${s.persona.id}-`;
+  if ((await store.collection<unknown>(`${prefix}groups`).all()).length) return 'kept';
+  await dropGroupSession(s);
+  for (const [ns, entries] of Object.entries(namespaces)) {
+    if (ns === 'keypackages' || !/^[a-z0-9-]+$/.test(ns)) continue;
+    const col = store.collection<unknown>(`${prefix}${ns}`);
+    for (const e of entries) await col.put(e.id, e.value);
+  }
+  const m = await import('@sedecim/marmot-adapter');
+  await new PersonaGroupStorage(new m.EncryptedGroupStorage(store), s.persona.id).put('device', 'owner', RESTORED_OWNER);
+  return 'restored';
+}
+
+/** A restored group is a copy of another device's leaf: join it again as a new leaf of this browser. */
+export async function rejoinRestoredGroup(gs: GroupSession, groupId: string, relays: string[]): Promise<{ status: 'joined' | 'pending'; group: GroupHandle }> {
+  const m = await import('@sedecim/marmot-adapter');
+  if (!m.isExtendedGroupSession(gs)) throw new Error('este proveedor MLS no puede volver a entrar en un grupo restaurado');
+  return gs.rejoin(groupId, relays);
 }

@@ -68,7 +68,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.4.0';
+export const DISCLOSURE_VERSION = '1.5.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.
@@ -90,6 +90,7 @@ export const CONTINUITY_VAULT_TEXTS = {
   sealed: 'Cada archivo se cifra en tu dispositivo con tu llave de archivo, que es distinta de tu nsec. El operador del vault no tiene esa llave: no puede leer el contenido ni saber con quién hablas ni qué eventos guardas.',
   metadata: 'El operador sí ve tu cuenta del vault, cuántos archivos guardas, su tamaño aproximado y cuándo los subes, reemplazas, lees o borras, además de la dirección IP de cada conexión. Si entras con Acceso, también sabe qué usuario de Acceso eres.',
   key: 'La llave de archivo solo viaja dentro de tu backup, cifrada con la contraseña del backup. Si pierdes el backup y este dispositivo, no hay forma de recuperarla: el operador tampoco la tiene.',
+  groups: 'Los mensajes de los grupos seguros se guardan ya descifrados, cifrados con tu llave de archivo: quien consiga tu backup, su contraseña y acceso a tu cuenta del vault puede leer ese historial, algo que MLS por sí solo no permite con llaves obtenidas después.',
   deletion: 'Borrar quita del servidor los archivos y sus metadatos en el momento; las copias de seguridad del operador pueden conservar los archivos, cifrados, y sus metadatos hasta que caduquen.',
 } as const;
 

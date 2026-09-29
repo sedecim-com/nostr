@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.4.0** · huella `26815b67816b9ac2` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.5.0** · huella `7c37100740b85027` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -59,6 +59,7 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | cloudBackup | continuity-vault (sealed) | Cada archivo se cifra en tu dispositivo con tu llave de archivo, que es distinta de tu nsec. El operador del vault no tiene esa llave: no puede leer el contenido ni saber con quién hablas ni qué eventos guardas. | — | — | — |
 | cloudBackup | continuity-vault (metadata) | El operador sí ve tu cuenta del vault, cuántos archivos guardas, su tamaño aproximado y cuándo los subes, reemplazas, lees o borras, además de la dirección IP de cada conexión. Si entras con Acceso, también sabe qué usuario de Acceso eres. | — | — | — |
 | cloudBackup | continuity-vault (key) | La llave de archivo solo viaja dentro de tu backup, cifrada con la contraseña del backup. Si pierdes el backup y este dispositivo, no hay forma de recuperarla: el operador tampoco la tiene. | — | — | — |
+| cloudBackup | continuity-vault (groups) | Los mensajes de los grupos seguros se guardan ya descifrados, cifrados con tu llave de archivo: quien consiga tu backup, su contraseña y acceso a tu cuenta del vault puede leer ese historial, algo que MLS por sí solo no permite con llaves obtenidas después. | — | — | — |
 | cloudBackup | continuity-vault (deletion) | Borrar quita del servidor los archivos y sus metadatos en el momento; las copias de seguridad del operador pueden conservar los archivos, cifrados, y sus metadatos hasta que caduquen. | — | — | — |
 
 ## Aprobación

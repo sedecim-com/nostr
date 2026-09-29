@@ -2,16 +2,16 @@ import { useState } from 'react';
 import { Alert, Button, Card, CardContent, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import { openArchiveKeyBackup } from '@sedecim/identity/key-backup';
 import { CONTINUITY_VAULT_TEXTS } from '@sedecim/profiles';
-import { pushLedger, vaultUsage, verifyVault } from '../lib/continuity';
+import { pushVault, restoreVault, vaultUsage, verifyVault } from '../lib/continuity';
 import { ensureArchiveKey, setArchiveKey } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
 
 const kb = (bytes: number) => `${Math.ceil(bytes / 1024)} KB`;
 
 /**
- * VAULT-02 and VAULT-07 (ADR 0011): the persona's Continuity Vault. What the operator can see is shown before
- * anything is uploaded; every archive is sealed in this browser with the persona's archive key, which travels
- * only inside the persona's backup file.
+ * VAULT-02, VAULT-03 and VAULT-07 (ADR 0011): the persona's Continuity Vault. What the operator can see is shown
+ * before anything is uploaded; every archive is sealed in this browser with the persona's archive key, which travels
+ * only inside the persona's backup file. A browser with nothing but that backup gets the history back from here.
  */
 export function ContinuityVault({ url }: { url: string }) {
   const ws = useWorkspace();
@@ -44,10 +44,25 @@ export function ContinuityVault({ url }: { url: string }) {
   const push = () =>
     void run(async () => {
       const p = await persona();
-      const r = await pushLedger(url, { ...s, persona: p });
+      const r = await pushVault(url, { ...s, persona: p }, ws.book.store);
       const u = await vaultUsage(url, p);
-      setStatus(`Estado de entrega sellado en este navegador y guardado: ${r.operations} operaciones. Tu cuenta del vault tiene ${u.archives} archivos, ${kb(u.bytes)} de ${kb(u.limits.max_bytes)}.`);
-      ws.notify('Estado de entrega guardado en el Continuity Vault', 'success');
+      const invalid = r.events.invalid ? ` ${r.events.invalid} eventos con firma inválida no se guardaron.` : '';
+      setStatus(
+        `Historial sellado en este navegador y guardado: ${r.events.uploaded} eventos nuevos (${r.events.kept} ya estaban), ${r.groupMessages.uploaded} mensajes de grupo nuevos, ledger de ${r.operations} operaciones${r.snapshots.includes('mls') ? ' y estado de los grupos' : ''}.${invalid} Tu cuenta del vault tiene ${u.archives} archivos, ${kb(u.bytes)} de ${kb(u.limits.max_bytes)}.`,
+      );
+      ws.notify('Historial guardado en el Continuity Vault', 'success');
+    });
+  const restore = () =>
+    void run(async () => {
+      const r = await restoreVault(url, { ...s, persona: await persona() }, ws.book.store);
+      const groups = r.mls === 'restored' ? ' Los grupos seguros vuelven como copia del otro dispositivo: entra otra vez en cada uno para escribir.' : r.mls === 'kept' ? ' El estado de los grupos de este navegador se mantiene.' : '';
+      const skipped = r.skipped ? ` ${r.skipped} archivos no se abren con esta llave o no son de esta persona.` : '';
+      const saved = r.savedAt ? ` La copia se guardó el ${new Date(r.savedAt).toLocaleString()}.` : '';
+      const missing = r.missing ? ` Faltan ${r.missing} archivos que el vault tenía en esa copia: el operador los borró o se perdieron.` : '';
+      setStatus(
+        `Restaurado desde el vault: ${r.events} eventos verificados, ${r.published} publicados otra vez en tus relays${r.rejected ? ` y ${r.rejected} rechazados` : ''}; ${r.groupMessages} mensajes de grupo; ledger: ${r.ledger} operaciones añadidas.${saved}${missing}${skipped}${groups}`,
+      );
+      ws.notify('Historial restaurado desde el Continuity Vault', 'success');
     });
   const verify = () =>
     void run(async () => {
@@ -76,7 +91,7 @@ export function ContinuityVault({ url }: { url: string }) {
             Continuity Vault
           </Typography>
           <List dense id="vault-facts">
-            {[CONTINUITY_VAULT_TEXTS.what, CONTINUITY_VAULT_TEXTS.sealed, CONTINUITY_VAULT_TEXTS.metadata, CONTINUITY_VAULT_TEXTS.key].map((t) => (
+            {[CONTINUITY_VAULT_TEXTS.what, CONTINUITY_VAULT_TEXTS.sealed, CONTINUITY_VAULT_TEXTS.metadata, CONTINUITY_VAULT_TEXTS.key, CONTINUITY_VAULT_TEXTS.groups].map((t) => (
               <ListItem key={t} disableGutters>
                 <ListItemText primary={t} />
               </ListItem>
@@ -89,10 +104,13 @@ export function ContinuityVault({ url }: { url: string }) {
           ) : (
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
               <Button id="vault-push" variant="outlined" onClick={push} disabled={busy}>
-                Guardar el estado de entrega en el vault
+                Guardar el historial en el vault
               </Button>
               <Button id="vault-verify" onClick={verify} disabled={busy}>
                 Comprobar el vault
+              </Button>
+              <Button id="vault-restore" onClick={restore} disabled={busy}>
+                Restaurar desde el vault
               </Button>
             </Stack>
           )}
