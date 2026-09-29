@@ -1,6 +1,6 @@
 # ADR 0011 · Continuity Vault: sobres de archivo sellados en el cliente
 
-- **Estado:** Propuesto · **Tarea:** VAULT-01 (#237); cubre también VAULT-02 (#238), VAULT-03 (#246) y VAULT-07 (#239) · **Fecha:** 2026-09-28
+- **Estado:** Propuesto · **Tarea:** VAULT-01 (#237); cubre también VAULT-02 (#238), VAULT-03 (#246), VAULT-04 (#247) y VAULT-07 (#239) · **Fecha:** 2026-09-28
 - **Aprobación:** pendiente (responsable de producto)
 
 ## Contexto
@@ -159,6 +159,49 @@ opaco de cada etiqueta.
   conversación de grupo y el ledger; un dispositivo limpio con el backup y un relay vacío los recupera
   completos.
 
+### El vault en la máquina de estados de entrega (VAULT-04)
+Cada envío tiene dos pistas independientes: la publicación en relays, con sus ACK, y la copia en el vault. La
+política de la persona es un control más del panel: `continuity` (`packages/profiles`).
+
+| Política | Qué hace | Perfiles |
+|---|---|---|
+| `off` | No se copia nada automáticamente. Guardar a mano sigue disponible | sovereign, sovereign-tor |
+| `best-effort` | La copia va al lado de la publicación. Si el vault no responde, el envío sale igual y la copia se reintenta | convenience, institutional |
+| `required-for-resilient` | Nada sale hacia los relays hasta que la copia está en el vault | private-resilient |
+
+- **El estado.** El outbox guarda `continuity` en cada operación (`packages/delivery-engine`): la política con
+  la que se envió, `PENDING`, `CONTINUITY_BACKED_UP` o `FAILED`, y los intentos. Es aparte de la máquina
+  DRAFT→…→READ. Una operación puede estar REPLICATED sin copia todavía, o tener la copia antes de que la acepte
+  ningún relay.
+- **La copia.** Es el archivo `event:<id>` de VAULT-03, sellado en el cliente con la llave de archivo. Así un
+  push posterior la encuentra y una restauración la recupera.
+  - Se copia todo lo que envía el motor, incluidos los gift wraps para otras personas.
+  - Al restaurar, esos gift wraps no se vuelven a publicar en los relays de la persona, porque su sitio son los
+    relays de DM del destinatario. Se cuentan aparte y siguen en el vault y en el ledger.
+- **Reintentos.** La copia sigue su propio backoff; el motor programa la siguiente ronda con el reintento que
+  llegue antes, el de los relays o el del vault. Una copia best-effort se abandona tras `maxAttempts`
+  (`FAILED`); una required nunca, porque retiene el envío. `resume()` también relanza las copias pendientes.
+- **Solo `required-for-resilient` retiene.** El motor lee la política en cada ronda de una operación retenida:
+  - si pasa a `best-effort`, el envío sale y la copia sigue al lado;
+  - si pasa a `off`, el envío sale sin copia.
+  - Una operación retenida muestra el motivo en `blockedReason`. En la web se relanza al aplicar el panel.
+- **Sin vault configurado:**
+  - `best-effort` no copia nada, y el panel lo avisa.
+  - `required-for-resilient` retendría todos los envíos. El panel lo rechaza, y el CLI lo rechaza sin `--vault`.
+  - En un despliegue sin vault, una persona nueva de private-resilient empieza en `best-effort`.
+- **Configuraciones anteriores.** Una configuración guardada antes de VAULT-04 no tiene la política y vale
+  `off`: ninguna persona existente empieza a copiar sin que alguien lo elija.
+- **Backup en la nube.** Una copia en el vault es un backup en la nube, así que con `cloudBackup: off` la
+  política tiene que ser `off`. En el CLI, `persona continuity` enciende las dos.
+- **Qué se revela.** Con `best-effort` o `required-for-resilient` el operador ve una subida por cada envío:
+  cuándo envías y cuántos eventos, no su contenido. v1 no agrupa subidas. Se declara en los textos de cada
+  política (disclosures 1.6.0).
+- **Dónde.**
+  - Web: control `continuity` del panel, columna «Vault» de Entrega y la política en la tarjeta del vault.
+  - CLI: `sovereign persona continuity --persona ID <política> [--vault URL]`. `--vault` o
+    `SOVEREIGN_VAULT_URL` dan el vault de cada ejecución. La copia sale por el guard de la persona: Tor-only
+    por Tor, y onion-only solo a un vault `.onion`.
+
 ### Lo que ve el operador (VAULT-07)
 - **Ve:**
   - la cuenta;
@@ -172,8 +215,8 @@ opaco de cada etiqueta.
   conservan los metadatos hasta que caduca su propia retención (se documenta en VAULT-05).
 
 ## Consecuencias
-- VAULT-03 y VAULT-04 se construyen sobre este contrato. VAULT-03 (arriba) es la restauración con relays
-  vacíos; VAULT-04 es `CONTINUITY_BACKED_UP` en la máquina de estados.
+- VAULT-03 y VAULT-04 se construyen sobre este contrato (arriba): la restauración con relays vacíos, y
+  `CONTINUITY_BACKED_UP` en la máquina de estados.
 - VAULT-06 añade:
   - el `ObjectStore` S3-compatible (SeaweedFS del compose);
   - el servicio en el compose y en Kubernetes;
@@ -182,8 +225,8 @@ opaco de cada etiqueta.
 
   Hasta entonces el vault se levanta a mano (`npx tsx services/continuity-vault/src/main.ts`) o con la
   imagen común (`--build-arg SERVICE=continuity-vault`).
-- La frecuencia es visible. El cliente puede agrupar subidas (VAULT-04) para reducir la señal; v1 no
-  disfraza los tiempos.
+- La frecuencia es visible. Con la copia automática (VAULT-04), cada envío es una subida. Agrupar subidas
+  reduciría la señal a costa de retrasar las copias; v1 no disfraza los tiempos.
 - Con NIP-98 `open`, cualquiera puede crear cuentas. Se acepta en self-hosted; el SaaS elige `allowlist` u
   `off`.
 

@@ -7,6 +7,11 @@ export type FilesOption = 'relay-plain' | 'client-encrypted';
 export type TelemetryOption = 'standard' | 'minimal' | 'none';
 export type NotificationsOption = 'push' | 'privacy-push' | 'none';
 export type CloudBackupOption = 'off' | 'ciphertext-user-key' | 'operator-managed';
+/**
+ * VAULT-04 (ADR 0011): the copy of each sent event in the Continuity Vault. `best-effort` never delays a send;
+ * `required-for-resilient` holds it until its copy is in the vault.
+ */
+export type ContinuityOption = 'off' | 'best-effort' | 'required-for-resilient';
 export type CrashReportsOption = 'off' | 'manual-export' | 'opt-in';
 /** How the local vault is unlocked (ADR 0007). */
 export type LocalProtectionOption = 'passphrase' | 'device';
@@ -23,6 +28,8 @@ export interface SovereigntyConfig {
   telemetry: TelemetryOption;
   notifications: NotificationsOption;
   cloudBackup: CloudBackupOption;
+  /** VAULT-04: configurations stored before it have none, which means `off` (see `continuityPolicy`). */
+  continuity: ContinuityOption;
   crashReports: CrashReportsOption;
   /** 'device': unlock without a passphrase in this browser/device; only for the convenience profile. */
   localProtection: LocalProtectionOption;
@@ -54,6 +61,8 @@ export interface Disclosure {
 export interface ValidationContext {
   /** Relays of the persona the configuration applies to. */
   relays?: number;
+  /** VAULT-04: whether a Continuity Vault is configured for the persona (unknown when undefined). */
+  continuityVault?: boolean;
 }
 
 export interface ValidationIssue {

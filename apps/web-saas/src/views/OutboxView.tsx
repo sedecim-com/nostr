@@ -73,6 +73,15 @@ function RelayHealthPanel() {
   );
 }
 
+/** VAULT-04: the Continuity Vault copy of an operation, a state of its own beside the relay ACKs. */
+function continuityLabel(r: OutboxRecord): string {
+  const c = r.continuity;
+  if (!c) return '—';
+  if (c.state === 'CONTINUITY_BACKED_UP') return 'CONTINUITY_BACKED_UP';
+  if (c.state === 'FAILED') return `sin copia (${c.attemptCount} intentos)`;
+  return c.attemptCount ? `pendiente (${c.attemptCount})` : 'pendiente';
+}
+
 /** Delivery state per operation and relay: accepted ≠ received ≠ read (spec §11). */
 export function OutboxView() {
   const s = useWorkspace().session!;
@@ -99,6 +108,7 @@ export function OutboxView() {
             <TableCell>Operación</TableCell>
             <TableCell>Estado</TableCell>
             <TableCell>Relays</TableCell>
+            <TableCell>Vault</TableCell>
             <TableCell>Motivo</TableCell>
           </TableRow>
         </TableHead>
@@ -108,6 +118,7 @@ export function OutboxView() {
               <TableCell>{r.opId.slice(0, 8)}</TableCell>
               <TableCell>{r.state}</TableCell>
               <TableCell sx={{ whiteSpace: 'pre-line' }}>{Object.values(r.relayStatus).map((x) => `${new URL(x.relay).host}: ${x.acceptedAt ? 'OK' : x.permanent ? 'rechazado' : 'pendiente'} (${x.attemptCount})`).join('\n')}</TableCell>
+              <TableCell className="outbox-vault">{continuityLabel(r)}</TableCell>
               <TableCell>{[r.blockedReason ?? r.failureReason ?? (r.meta?.dmRelaySource === 'fallback' || r.meta?.dmRelaySource === 'nip65-read' ? 'Destinatario sin relays de DM' : ''), cappedQuorumNotice(r)].filter(Boolean).join(' ')}</TableCell>
             </TableRow>
           ))}

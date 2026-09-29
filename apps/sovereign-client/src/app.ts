@@ -8,7 +8,7 @@ import { NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
 import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, publishDmRelayList, type DirectMessage, type DmInboxOptions, type InboxOutbox, type InboxPool, type RelayAdapter } from '@sedecim/messaging';
 import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
-import { disclose, preset, receiptPolicy, validateConfig, type SovereigntyConfig } from '@sedecim/profiles';
+import { continuityPolicy, disclose, preset, receiptPolicy, validateConfig, type ContinuityOption, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
 import {
   EncryptedGroupStorage,
@@ -29,7 +29,7 @@ import {
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
 import { downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
-import { ArchiveVaultClient, archiveHistory, ledgerRecords, openArchive, restoreHistory, type ArchiveMeta, type ArchivedGroupMessage, type HistoryArchiveResult, type MlsSnapshot, type RestoredHistory } from '@sedecim/continuity';
+import { ArchiveVaultClient, archiveEvent, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, restoreHistory, type ArchiveMeta, type ArchivedGroupMessage, type HistoryArchiveResult, type MlsSnapshot, type RestoredHistory } from '@sedecim/continuity';
 
 /** VAULT-03: decrypted group messages this device read or sent, kept because MLS deletes the keys of past epochs. */
 const GROUP_HISTORY = 'group-history';
@@ -66,6 +66,11 @@ export interface SovereignOptions {
    * `sovereign dm watch` turns it on (FR009-03).
    */
   autoReconnect?: boolean;
+  /**
+   * VAULT-04: the Continuity Vault each sent event is copied to, as the persona's policy says (`setContinuity`).
+   * Without it nothing is copied, and a persona that requires the copy keeps its sends held.
+   */
+  vaultUrl?: string;
 }
 
 /** FR009-03: what `watchDms` reports. */
@@ -92,6 +97,8 @@ export interface VaultRestoreResult {
   events: number;
   published: number;
   rejected: number;
+  /** Gift wraps sent to other people (VAULT-04 copies each send): not republished, their place is those people's relays. */
+  othersWraps: number;
   groupMessages: number;
   /** Ledger operations added to this device's outbox (those it already had are kept). */
   ledger: number;
@@ -126,6 +133,8 @@ interface Session {
   groups?: Promise<GroupSession>;
   /** FR011-04: the retry of what earlier runs left pending, started when the persona was opened. */
   resumed: Promise<unknown>;
+  /** VAULT-04: the persona's Continuity Vault policy, as its stored configuration says (the engine reads it here). */
+  continuity: { policy: ContinuityOption };
 }
 
 /**
@@ -280,7 +289,17 @@ export class SovereignClient {
       if (r) allow(r.relays);
       return r;
     };
-    const engine = new DeliveryEngine({ store: store.collection<OutboxRecord>('outbox'), publisher: pool, signer, retry: this.opts.retry, router });
+    // VAULT-04: each sent event is copied to the Continuity Vault as the persona's policy says, through its guard.
+    const continuity = { policy: continuityPolicy((await mgr.getConfig(personaId)) ?? {}) };
+    const vaultUrl = this.opts.vaultUrl;
+    const engine = new DeliveryEngine({
+      store: store.collection<OutboxRecord>('outbox'),
+      publisher: pool,
+      signer,
+      retry: this.opts.retry,
+      router,
+      continuity: { policy: () => continuity.policy, ...(vaultUrl ? { sink: { backup: (event: NostrEvent) => this.archiveSent(persona, vaultUrl, event) } } : {}) },
+    });
     // FR-011: when a relay comes back (after a drop or a failed attempt) the whole outbox is re-driven.
     pool.onReconnect(() => void engine.resume().catch(() => undefined));
     // DM wraps an earlier run left pending may target the recipients' DM relays: the guard may reach them again.
@@ -292,7 +311,7 @@ export class SovereignClient {
     // FR011-04: what an earlier run left pending (sent without network, cut off) goes out as soon as the
     // persona is opened again, whatever the command. In the background: the command does not wait for it.
     const resumed = engine.resume().catch(() => undefined);
-    const s: Session = { persona, signer, pool, engine, guard, dmDiscovery, dmOutbox, store, resumed };
+    const s: Session = { persona, signer, pool, engine, guard, dmDiscovery, dmOutbox, store, resumed, continuity };
     this.sessions.set(personaId, s);
     return s;
   }
@@ -581,17 +600,62 @@ export class SovereignClient {
    * VAULT-02: the persona's Continuity Vault (ADR 0011). Requests are signed (NIP-98) with the key derived
    * from its archive key, never with the persona key, and go through its network guard (Tor for Tor-only).
    */
-  private async vault(personaId: string, url: string): Promise<{ client: ArchiveVaultClient; key: Uint8Array; session: Session }> {
-    const s = await this.session(personaId);
+  /** The persona's vault client, through a guard of its own: Tor-only stays Tor-only, onion-only reaches only a .onion vault. */
+  private async vaultClient(persona: PersonaConfig, url: string): Promise<{ client: ArchiveVaultClient; key: Uint8Array }> {
     const guard = new NetworkGuard({
-      mode: s.persona.network,
+      mode: persona.network,
+      ...(persona.onionOnly ? { onionOnly: true } : {}),
       socksHost: this.opts.socksHost,
       socksPort: this.opts.socksPort,
-      isolationKey: s.persona.id,
-      allowedHosts: [...new Set([...s.persona.relays, url].map((u) => new URL(u).hostname))],
+      isolationKey: persona.id,
+      allowedHosts: [...new Set([...persona.relays, url].map((u) => new URL(u).hostname))],
     });
-    const key = await (await this.identities()).archiveKey(personaId);
-    return { client: new ArchiveVaultClient({ baseUrl: url, auth: { archiveKey: key }, fetch: guard.fetchApi() }), key, session: s };
+    const key = await (await this.identities()).archiveKey(persona.id);
+    return { client: new ArchiveVaultClient({ baseUrl: url, auth: { archiveKey: key }, fetch: guard.fetchApi() }), key };
+  }
+
+  private async vault(personaId: string, url: string): Promise<{ client: ArchiveVaultClient; key: Uint8Array; session: Session }> {
+    const s = await this.session(personaId);
+    return { ...(await this.vaultClient(s.persona, url)), session: s };
+  }
+
+  /** VAULT-04: the Continuity Vault copy of one sent event, sealed on this device with the persona's archive key. */
+  private async archiveSent(persona: PersonaConfig, url: string, event: NostrEvent): Promise<void> {
+    const { client, key } = await this.vaultClient(persona, url);
+    try {
+      await archiveEvent(client, key, event);
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  /**
+   * VAULT-04: the persona's Continuity Vault policy. Anything but `off` is a cloud copy, so the stored profile says
+   * so too; `required-for-resilient` needs a vault (this client's `vaultUrl`) or every send would be held. A held
+   * send goes out as soon as the policy is relaxed.
+   */
+  async setContinuity(personaId: string, policy: ContinuityOption): Promise<SovereigntyConfig> {
+    const mgr = await this.identities();
+    const p = await mgr.get(personaId);
+    const stored = (await mgr.getConfig(personaId)) ?? this.profileFor(p);
+    const next: SovereigntyConfig = { ...stored, continuity: policy, ...(policy !== 'off' && stored.cloudBackup === 'off' ? { cloudBackup: 'ciphertext-user-key' as const } : {}) };
+    const refused = validateConfig(next, 'cli', { relays: p.relays.length, continuityVault: !!this.opts.vaultUrl }).filter((i) => i.severity === 'error' && i.controls.includes('continuity'));
+    if (refused.length) throw new Error(refused.map((i) => i.message).join(' '));
+    await mgr.saveConfig(personaId, next);
+    const s = this.sessions.get(personaId);
+    if (s) {
+      s.continuity.policy = policy;
+      void s.engine.resume().catch(() => undefined);
+    }
+    return next;
+  }
+
+  /** The profile of a persona with what `setContinuity` stored over the derived one (cloud copy and its policy). */
+  async profile(personaId: string): Promise<SovereigntyConfig> {
+    const mgr = await this.identities();
+    const base = this.profileFor(await mgr.get(personaId));
+    const stored = await mgr.getConfig(personaId);
+    return { ...base, ...(stored ? { cloudBackup: stored.cloudBackup } : {}), continuity: continuityPolicy(stored ?? {}) };
   }
 
   /**
@@ -660,8 +724,10 @@ export class SovereignClient {
     }
     let published = 0;
     let rejected = 0;
+    // VAULT-04 copies each send, gift wraps for other people included: their place is those people's relays.
+    const own = restored.events.filter((e) => belongsOnPersonaRelays(e, s.persona.pubkey));
     if (opts.republish ?? true) {
-      for (const e of restored.events) {
+      for (const e of own) {
         if ((await s.pool.publish(e, s.persona.relays)).some((r) => r.ok)) published++;
         else rejected++;
       }
@@ -676,7 +742,7 @@ export class SovereignClient {
     const history = s.store.collection<ArchivedGroupMessage>(GROUP_HISTORY);
     for (const m of restored.groupMessages) await history.put(`${m.groupId}:${m.rumorId}`, m);
     const mls = await this.restoreMls(s, restored.mls?.namespaces);
-    return { archives: restored.archives, skipped: restored.skipped, events: restored.events.length, published, rejected, groupMessages: restored.groupMessages.length, ledger, mls, ...(restored.ledger ? { savedAt: restored.ledger.at } : {}), missing: restored.missing };
+    return { archives: restored.archives, skipped: restored.skipped, events: restored.events.length, published, rejected, othersWraps: restored.events.length - own.length, groupMessages: restored.groupMessages.length, ledger, mls, ...(restored.ledger ? { savedAt: restored.ledger.at } : {}), missing: restored.missing };
   }
 
   private async restoreMls(s: Session, namespaces: MlsSnapshot | undefined): Promise<VaultRestoreResult['mls']> {
@@ -851,8 +917,7 @@ export class SovereignClient {
   }
 
   async disclosures(personaId: string) {
-    const p = await (await this.identities()).get(personaId);
-    return disclose(this.profileFor(p));
+    return disclose(await this.profile(personaId));
   }
 
   close() {

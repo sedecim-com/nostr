@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRESETS, preset, disclose, disclosureCatalog, summarize, validateConfig, isValid, assertNoAbsoluteClaims, receiptPolicy, DISCLOSURE_VERSION, MANAGED_CONSENT_TEXTS, managedConsentVersion, type PresetName, type SovereigntyConfig } from '../src/index';
+import { PRESETS, preset, disclose, disclosureCatalog, summarize, validateConfig, isValid, assertNoAbsoluteClaims, receiptPolicy, continuityPolicy, DISCLOSURE_VERSION, MANAGED_CONSENT_TEXTS, managedConsentVersion, type PresetName, type SovereigntyConfig } from '../src/index';
 
 describe('sovereignty profiles', () => {
   it('reference presets are valid on their intended platforms', () => {
@@ -92,6 +92,33 @@ describe('sovereignty profiles', () => {
   });
 });
 
+describe('Continuity Vault policy (VAULT-04)', () => {
+  it('private-resilient requires the copy, convenience and institutional copy best-effort, the sovereign profiles none', () => {
+    expect(Object.fromEntries(Object.entries(PRESETS).map(([n, c]) => [n, c.continuity]))).toEqual({ convenience: 'best-effort', 'private-resilient': 'required-for-resilient', institutional: 'best-effort', sovereign: 'off', 'sovereign-tor': 'off' });
+    // A configuration stored before VAULT-04 has no policy: it means off, never a copy the user did not choose.
+    const { continuity: _dropped, ...older } = preset('convenience');
+    expect(continuityPolicy(older)).toBe('off');
+  });
+
+  it('a copy needs the cloud backup on, and requiring it needs a vault', () => {
+    const codes = (c: SovereigntyConfig, ctx?: { continuityVault?: boolean; relays?: number }) => validateConfig(c, 'web', ctx).map((i) => `${i.severity}:${i.code}`);
+    expect(codes({ ...preset('sovereign'), continuity: 'best-effort' })).toContain('error:CONTINUITY_CLOUD_OFF');
+    expect(codes(preset('private-resilient'), { continuityVault: false, relays: 2 })).toContain('error:CONTINUITY_NO_VAULT');
+    expect(codes(preset('convenience'), { continuityVault: false })).toContain('warning:CONTINUITY_NO_VAULT');
+    expect(codes(preset('private-resilient'), { continuityVault: true, relays: 2 }).filter((c) => c.includes('CONTINUITY'))).toEqual([]);
+    // Unknown deployment (no context): nothing to say about the vault.
+    expect(codes(preset('private-resilient')).filter((c) => c.includes('CONTINUITY'))).toEqual([]);
+  });
+
+  it('each policy says what the vault operator sees and what may hold a send', () => {
+    const say = (continuity: SovereigntyConfig['continuity']) => disclose({ ...preset('convenience'), continuity }).find((d) => d.control === 'continuity')!;
+    expect(say('best-effort').statement).toMatch(/el envío sale igual.*El operador del vault ve cuándo envías/s);
+    expect(say('required-for-resilient').statement).toMatch(/queda retenido/);
+    expect(say('required-for-resilient').sacrifices).toContain('soberania');
+    expect(say('off').sacrifices).toContain('recuperabilidad');
+  });
+});
+
 describe('localProtection (ADR 0007)', () => {
   it('allows the device key only for the convenience profile', () => {
     const ok = validateConfig({ ...preset('convenience'), localProtection: 'device' }, 'web');
@@ -112,7 +139,7 @@ describe('disclosure copy versioning (FR028-02)', () => {
   it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
     const { createHash } = await import('node:crypto');
     const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
-    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027' };
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b' };
     const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
     expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();

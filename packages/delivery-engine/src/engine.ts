@@ -1,6 +1,6 @@
 import { bytesToHex, randomBytes, type EventTemplate, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { normalizeRelayUrl } from '@sedecim/relay-pool';
-import { classifyFailure, stateRank, type AttemptEvent, type DeliveryState, type OutboxStats, type EventLookup, type OutboxRecord, type Publisher, type RecordStore, type RelayAttempt, type RetryPolicy } from './types';
+import { classifyFailure, stateRank, type AttemptEvent, type ContinuityPolicy, type ContinuitySink, type ContinuityStatus, type DeliveryState, type OutboxStats, type EventLookup, type OutboxRecord, type Publisher, type RecordStore, type RelayAttempt, type RetryPolicy } from './types';
 
 /** Relays for a record that depend on when it is published (see DeliveryEngineOptions.router). */
 export interface RouteUpdate {
@@ -23,7 +23,18 @@ export interface DeliveryEngineOptions {
    * accepted yet; a different answer replaces its relays and keeps the quorum asked for.
    */
   router?: (rec: OutboxRecord) => Promise<RouteUpdate | undefined>;
+  /**
+   * VAULT-04 (ADR 0011): the Continuity Vault track. `policy` is read when an operation is submitted (the record
+   * keeps it) and again on each of its rounds while its copy is pending: relaxing it releases a held operation, and
+   * `off` drops the copy still to make. Without a `sink` (no vault configured) nothing is copied and an operation
+   * sent under `required-for-resilient` stays held.
+   */
+  continuity?: { policy: () => ContinuityPolicy; sink?: ContinuitySink };
 }
+
+/** VAULT-04: why a `required-for-resilient` operation has not gone to its relays yet (shown as its `blockedReason`). */
+export const CONTINUITY_HELD = 'retenido hasta que su copia cifrada esté en el Continuity Vault (required-for-resilient)';
+export const CONTINUITY_HELD_NO_VAULT = 'retenido: esta persona exige una copia en el Continuity Vault antes de enviar y no hay vault configurado';
 
 export interface SubmitOptions {
   relays: string[];
@@ -71,13 +82,16 @@ export class DeliveryEngine {
   /** Outbox depth, oldest pending age and failures (FR011-03), computed from the persisted ledger. */
   async stats(): Promise<OutboxStats> {
     const now = this.now();
-    const out: OutboxStats = { depth: 0, oldestPendingAgeMs: 0, failed: 0, byState: {} };
+    const out: OutboxStats = { depth: 0, oldestPendingAgeMs: 0, failed: 0, byState: {}, continuityPending: 0 };
     for (const r of await this.list()) {
       out.byState[r.state] = (out.byState[r.state] ?? 0) + 1;
       if (r.state === 'FAILED') out.failed++;
-      else if (stateRank(r.state) < stateRank('REPLICATED')) {
-        out.depth++;
-        out.oldestPendingAgeMs = Math.max(out.oldestPendingAgeMs, now - r.createdAt);
+      else {
+        if (stateRank(r.state) < stateRank('REPLICATED')) {
+          out.depth++;
+          out.oldestPendingAgeMs = Math.max(out.oldestPendingAgeMs, now - r.createdAt);
+        }
+        if (r.continuity?.state === 'PENDING') out.continuityPending++;
       }
     }
     return out;
@@ -138,6 +152,9 @@ export class DeliveryEngine {
     };
     if ('template' in input) rec.template = input.template;
     else rec.event = input.event;
+    // VAULT-04: a best-effort copy needs a vault to go to; a required one is kept even without it (the send is held).
+    const policy = this.opts.continuity?.policy() ?? 'off';
+    if (policy === 'required-for-resilient' || (policy === 'best-effort' && this.opts.continuity?.sink)) rec.continuity = { policy, state: 'PENDING', attemptCount: 0 };
     this.transition(rec, 'LOCAL_PERSISTED');
     await this.save(rec);
     await this.prepare(rec);
@@ -186,19 +203,95 @@ export class DeliveryEngine {
     return Object.values(rec.relayStatus).filter((s) => s.acceptedAt).length;
   }
 
+  /**
+   * VAULT-04: applies the policy in force now to a copy still to make: `off` drops it, and a `required-for-resilient`
+   * copy goes on as best-effort once the policy is relaxed to it. Returns whether the record changed.
+   */
+  private applyPolicy(rec: OutboxRecord): boolean {
+    const c = rec.continuity;
+    if (!c || c.state !== 'PENDING') return false;
+    const now = this.opts.continuity?.policy() ?? 'off';
+    if (now === 'off') {
+      delete rec.continuity;
+      if (rec.blockedReason === CONTINUITY_HELD || rec.blockedReason === CONTINUITY_HELD_NO_VAULT) delete rec.blockedReason;
+      return true;
+    }
+    if (c.policy === 'required-for-resilient' && now === 'best-effort') {
+      c.policy = 'best-effort';
+      return true;
+    }
+    return false;
+  }
+
+  /** VAULT-04: one attempt to put the operation's signed event in the Continuity Vault. Never throws. */
+  private async backup(rec: OutboxRecord, c: ContinuityStatus): Promise<void> {
+    const sink = this.opts.continuity?.sink;
+    if (!sink) return;
+    c.attemptCount++;
+    c.lastAttemptAt = this.now();
+    try {
+      await sink.backup(rec.event!);
+      c.state = 'CONTINUITY_BACKED_UP';
+      c.backedUpAt = this.now();
+      delete c.lastError;
+    } catch (e) {
+      c.lastError = (e as Error).message;
+      // A best-effort copy is given up like a relay; a required one holds the send, so it is tried until it lands.
+      if (c.policy === 'best-effort' && this.retry.maxAttempts !== undefined && c.attemptCount >= this.retry.maxAttempts) c.state = 'FAILED';
+    }
+  }
+
+  /** The next round of an operation: the sooner of its relay retry and its vault retry. */
+  private scheduleNext(rec: OutboxRecord, stillPending: RelayAttempt[]) {
+    const delays: number[] = [];
+    if (rec.state !== 'FAILED') {
+      if (stillPending.length > 0) delays.push(this.backoff(Math.max(...stillPending.map((s) => s.attemptCount))));
+      if (rec.continuity?.state === 'PENDING' && this.opts.continuity?.sink) delays.push(this.backoff(rec.continuity.attemptCount));
+    }
+    if (delays.length === 0) {
+      delete rec.nextAttemptAt;
+      return;
+    }
+    const delay = Math.min(...delays);
+    rec.nextAttemptAt = this.now() + delay;
+    this.schedule(rec.opId, delay);
+  }
+
   private async round(opId: string): Promise<OutboxRecord> {
     const rec = await this.opts.store.get(opId);
     if (!rec) throw new Error(`unknown operation ${opId}`);
     if (rec.state === 'FAILED' || this.stopped) return rec;
     if (!rec.event) await this.prepare(rec);
+    const policyChanged = this.applyPolicy(rec);
+    const copy = rec.continuity?.state === 'PENDING' ? rec.continuity : undefined;
+    // VAULT-04: `required-for-resilient` publishes nothing until the copy is in the vault.
+    if (copy?.policy === 'required-for-resilient') {
+      await this.backup(rec, copy);
+      if (copy.state !== 'CONTINUITY_BACKED_UP') {
+        rec.blockedReason = this.opts.continuity?.sink ? CONTINUITY_HELD : CONTINUITY_HELD_NO_VAULT;
+        this.scheduleNext(rec, []);
+        await this.save(rec);
+        return rec;
+      }
+      if (rec.blockedReason === CONTINUITY_HELD || rec.blockedReason === CONTINUITY_HELD_NO_VAULT) delete rec.blockedReason;
+    }
     // FR010-03: a retry goes where the route points now. The first round keeps the route the record was written with.
     if (this.opts.router && this.accepted(rec) === 0 && Object.values(rec.relayStatus).some((s) => s.attemptCount > 0)) await this.reroute(rec);
     const pending = Object.values(rec.relayStatus).filter((s) => !s.acceptedAt && !s.permanent);
-    if (pending.length === 0) return rec;
+    // Best-effort: the copy goes beside the publishing, and neither waits for the other to succeed.
+    const copying = copy?.state === 'PENDING' ? this.backup(rec, copy) : undefined;
+    if (pending.length === 0) {
+      if (copying || policyChanged || copy) {
+        await copying;
+        this.scheduleNext(rec, []);
+        await this.save(rec);
+      }
+      return rec;
+    }
     if (stateRank(rec.state) < stateRank('PUBLISHING')) this.transition(rec, 'PUBLISHING');
     await this.save(rec);
 
-    const results = await Promise.all(pending.map(async (s) => ({ s, res: await this.opts.publisher.publishTo(rec.event!, s.relay) })));
+    const [results] = await Promise.all([Promise.all(pending.map(async (s) => ({ s, res: await this.opts.publisher.publishTo(rec.event!, s.relay) }))), copying]);
     let anyBlocked = false;
     for (const { s, res } of results) {
       s.attemptCount++;
@@ -241,12 +334,7 @@ export class DeliveryEngine {
       this.transition(rec, 'QUEUED');
     }
 
-    if (stillPending.length > 0 && (rec.state as DeliveryState) !== 'FAILED') {
-      const attempt = Math.max(...stillPending.map((s) => s.attemptCount));
-      const delay = this.backoff(attempt);
-      rec.nextAttemptAt = this.now() + delay;
-      this.schedule(opId, delay);
-    } else delete rec.nextAttemptAt;
+    this.scheduleNext(rec, stillPending);
     await this.save(rec);
     return rec;
   }
@@ -292,7 +380,8 @@ export class DeliveryEngine {
     this.stopped = false;
     this.resuming = (async () => {
       const recs = await this.list();
-      const open = recs.filter((r) => r.state !== 'FAILED' && Object.values(r.relayStatus).some((s) => !s.acceptedAt && !s.permanent));
+      // VAULT-04: an operation whose copy is still pending is re-driven too (and a held one goes out if it can).
+      const open = recs.filter((r) => r.state !== 'FAILED' && (Object.values(r.relayStatus).some((s) => !s.acceptedAt && !s.permanent) || r.continuity?.state === 'PENDING'));
       return Promise.all(open.map((r) => this.process(r.opId)));
     })().finally(() => {
       this.resuming = undefined;

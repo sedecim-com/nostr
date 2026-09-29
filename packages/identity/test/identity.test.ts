@@ -192,9 +192,18 @@ describe('IdentityManager', () => {
   it('keeps an archive key per persona that is not the nsec and travels in the backup (VAULT-02)', async () => {
     const one = setup();
     const p = await one.mgr.createPersona({ label: 'Resiliente', relays: ['wss://r'], keyPassphrase: 'pp', scryptLogN: LOGN });
-    const key = await one.mgr.archiveKey(p.id);
-    expect(key).toHaveLength(32);
-    expect(await one.mgr.archiveKey(p.id)).toEqual(key);
+    const made = await one.mgr.archiveKey(p.id);
+    expect(made).toHaveLength(32);
+    expect(await one.mgr.archiveKey(p.id)).toEqual(made);
+    // An older persona has none until first use. VAULT-04: callers at once (the vault copies of two sends) share
+    // the one key the first call makes, instead of each writing its own.
+    const older = await one.mgr.createPersona({ label: 'Anterior', relays: ['wss://r'], keyPassphrase: 'pp', scryptLogN: LOGN });
+    await (await one.open(older.id)).collection<string>('archive').delete('key');
+    const [first, twin, third] = await Promise.all([one.mgr.archiveKey(older.id), one.mgr.archiveKey(older.id), one.mgr.archiveKey(older.id)]);
+    expect([twin, third]).toEqual([first, first]);
+    expect(await one.mgr.archiveKey(older.id)).toEqual(first);
+    expect((await one.mgr.auditLog()).filter((e) => e.action === 'archive_key.created' && e.subject === older.id)).toHaveLength(1);
+    const key = made;
     const pkg = await one.mgr.exportBackup(p.id, 'backup-pw', { keyPassphrase: 'pp', scryptLogN: LOGN });
     // The archive key is inside the sealed payload, never in clear in the package.
     expect(JSON.stringify(pkg)).not.toContain(bytesToHex(key));

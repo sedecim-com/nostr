@@ -1,4 +1,4 @@
-import { ArchiveVaultClient, archiveHistory, ledgerRecords, openArchive, restoreHistory, type ArchiveUsage, type HistoryArchiveResult } from '@sedecim/continuity';
+import { ArchiveVaultClient, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, restoreHistory, type ArchiveUsage, type HistoryArchiveResult } from '@sedecim/continuity';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import type { EncryptedStore } from '@sedecim/encrypted-store/browser';
 import { hexToBytes, wipe, type NostrEvent } from '@sedecim/nostr-core';
@@ -65,6 +65,8 @@ export interface VaultRestore {
   events: number;
   published: number;
   rejected: number;
+  /** Gift wraps sent to other people (VAULT-04 copies each send): their place is those people's relays, not the persona's. */
+  othersWraps: number;
   groupMessages: number;
   /** Ledger operations this browser did not have. */
   ledger: number;
@@ -76,16 +78,19 @@ export interface VaultRestore {
 
 /**
  * VAULT-03: rebuilds the persona's history in this browser from the vault, with nothing but its archive key (from the
- * persona's backup), even if every relay lost its events: the verified events go back to the persona's relays, so
- * channels and DMs read as before; the ledger operations this browser lacks join its outbox; the group messages join
- * its group history; the MLS state is written only if this browser has no groups of the persona.
+ * persona's backup), even if every relay lost its events: the verified events go back to the persona's relays (gift
+ * wraps sent to other people aside), so channels and DMs read as before; the ledger operations this browser lacks
+ * join its outbox; the group messages join its group history; the MLS state is written only if this browser has no
+ * groups of the persona.
  */
 export async function restoreVault(url: string, s: PersonaSession, store: EncryptedStore): Promise<VaultRestore> {
   const restored = await withVault(url, s.persona, (client, key) => restoreHistory(client, key, { pubkey: s.persona.pubkey }));
   let published = 0;
   let rejected = 0;
+  let othersWraps = 0;
   for (const e of restored.events) {
-    if ((await s.pool.publish(e, s.persona.relays)).some((r) => r.ok)) published++;
+    if (!belongsOnPersonaRelays(e, s.persona.pubkey)) othersWraps++;
+    else if ((await s.pool.publish(e, s.persona.relays)).some((r) => r.ok)) published++;
     else rejected++;
   }
   const outbox = store.collection<OutboxRecord>(`outbox-${s.persona.id}`);
@@ -97,7 +102,7 @@ export async function restoreVault(url: string, s: PersonaSession, store: Encryp
   }
   const groupMessages = await new GroupHistory(store, s.persona.id).restore(restored.groupMessages);
   const mls = await restoreGroupState(s, store, restored.mls?.namespaces);
-  return { archives: restored.archives, skipped: restored.skipped, events: restored.events.length, published, rejected, groupMessages, ledger, mls, ...(restored.ledger ? { savedAt: restored.ledger.at } : {}), missing: restored.missing };
+  return { archives: restored.archives, skipped: restored.skipped, events: restored.events.length, published, rejected, othersWraps, groupMessages, ledger, mls, ...(restored.ledger ? { savedAt: restored.ledger.at } : {}), missing: restored.missing };
 }
 
 /** Downloads every archive and opens it here: shows that this browser's archive key opens what the vault keeps. */

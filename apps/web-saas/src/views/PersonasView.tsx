@@ -63,7 +63,7 @@ export function PersonasView() {
         if (!backupFile.parsed.ncryptsec) throw new Error('Este backup solo trae la llave de archivo: abre la persona con su signer y restáurala en la tarjeta «Continuity Vault».');
         // VAULT-02: a v2 backup also brings the persona's archive key, so its vault archives open here.
         const { secretKey, archiveKey } = await openKeyBackup(backupFile.json, ncPass);
-        const p = await createPersona(book, { kind: 'secret', secretKey, ...(archiveKey ? { archiveKey } : {}) }, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device' });
+        const p = await createPersona(book, { kind: 'secret', secretKey, ...(archiveKey ? { archiveKey } : {}) }, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device', continuityVault: !!cfg.continuityVault });
         setNcPass('');
         setBackupFile(undefined);
         await ws.reloadPersonas();
@@ -84,7 +84,7 @@ export function PersonasView() {
                 ? { kind: 'managed', baseUrl: ws.managedEnv.baseUrl!, token: ws.managedEnv.token!, consentVersion: managedConsentVersion(ws.cfg.managedTerms?.version) }
                 : { kind: 'nip46', bunker: secret };
       if (mode === 'managed' && !managedConsent) throw new Error('La custodia gestionada requiere tu consentimiento explícito.');
-      const p = await createPersona(book, input, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device' });
+      const p = await createPersona(book, input, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device', continuityVault: !!cfg.continuityVault });
       setSecret('');
       setNcPass('');
       await ws.reloadPersonas();

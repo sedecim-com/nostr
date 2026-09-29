@@ -83,6 +83,26 @@ type Payload =
 const NAMESPACE = /^[a-z0-9-]+$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 
+/**
+ * VAULT-04: seals one signed event as its `event:<id>` archive (the format `archiveHistory` writes and
+ * `restoreHistory` reads) and stores it. Idempotent: the same event always lands on the same archive.
+ */
+export async function archiveEvent(client: ArchiveVaultClient, key: Uint8Array, event: NostrEvent): Promise<void> {
+  if (!verifyEvent(event)) throw new Error('refusing to archive an event with an invalid signature');
+  const id = archiveId(key, eventLabel(event.id));
+  const payload: Payload = { type: 'event', version: 1, event };
+  await client.put(id, sealArchive(key, id, JSON.stringify(payload)));
+}
+
+/**
+ * Whether a restored event goes back to the persona's relays: every one does except a gift wrap addressed to
+ * someone else (a DM or receipt sent to another person, archived with each send since VAULT-04), whose place is
+ * that person's DM relays. It stays in the vault and in the ledger.
+ */
+export function belongsOnPersonaRelays(event: NostrEvent, pubkey: string): boolean {
+  return event.kind !== 1059 || event.tags.some((t) => t[0] === 'p' && t[1] === pubkey);
+}
+
 /** Ledger entries as outbox records keyed by `opId` (the CLI pushed `{ id, value }` store entries before VAULT-03). */
 export function ledgerRecords<T extends { opId: string }>(outbox: unknown[]): T[] {
   return outbox

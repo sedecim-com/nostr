@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.5.0** · huella `7c37100740b85027` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.6.0** · huella `fc1a8bc65067a39b` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -38,6 +38,9 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | cloudBackup | off | Sin backup en la nube. | privacidad-operador | recuperabilidad | — |
 | cloudBackup | ciphertext-user-key | Backup en la nube cifrado con clave del usuario: el operador almacena ciphertext pero no la clave de descifrado. | recuperabilidad | — | Tu contraseña de backup. |
 | cloudBackup | operator-managed | Backup gestionado por el operador: el operador puede restaurar (y por tanto acceder a) los datos. | recuperabilidad, control-institucional | privacidad-operador, soberania | Operador. |
+| continuity | off | Sin copia automática en el Continuity Vault: tu historial depende de los relays y de este dispositivo, salvo lo que guardes a mano en el vault. | privacidad-operador | recuperabilidad | — |
+| continuity | best-effort | Cada evento que envías se copia cifrado en el Continuity Vault, aparte de los relays. Si el vault no responde, el envío sale igual y la copia se reintenta. El operador del vault ve cuándo envías y cuántos eventos, no su contenido. | recuperabilidad | privacidad-operador | Operador del vault (ve la cuenta, el tamaño y la hora de cada copia). |
+| continuity | required-for-resilient | Ningún evento sale hacia los relays hasta que su copia cifrada está en el Continuity Vault: si el vault no responde, el envío queda retenido hasta que responda. El operador del vault ve cuándo envías y cuántos eventos, no su contenido. | recuperabilidad | privacidad-operador, soberania | Operador del vault (ve la cuenta, el tamaño y la hora de cada copia, y su disponibilidad decide cuándo sale cada envío). |
 | localProtection | passphrase | El almacén local se abre con tu contraseña (scrypt): sin ella, nadie con acceso a este dispositivo puede leer tus llaves. | soberania, privacidad-operador | recuperabilidad | Fortaleza de tu contraseña local. |
 | localProtection | device | Desbloqueo sin contraseña con una llave del dispositivo (WebCrypto, no exportable): cualquiera con acceso a este perfil del navegador puede abrir tus llaves. | — | soberania, privacidad-operador | Seguridad física y de la sesión de este dispositivo. |
 | crashReports | off | Sin informes de fallo: esta versión no los genera. | privacidad-operador | — | — |

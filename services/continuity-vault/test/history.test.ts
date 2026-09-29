@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey, toUnsigned, type NostrEvent } from '@sedecim/nostr-core';
-import { ArchiveVaultClient, archiveHistory, archiveId, eventLabel, generateArchiveKey, LEDGER_LABEL, restoreHistory, sealArchive, type ArchivedGroupMessage } from '@sedecim/continuity';
+import { ArchiveVaultClient, archiveEvent, archiveHistory, archiveId, belongsOnPersonaRelays, eventLabel, generateArchiveKey, LEDGER_LABEL, restoreHistory, sealArchive, type ArchivedGroupMessage } from '@sedecim/continuity';
 import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '../src/index';
 
 const persona = generateSecretKey();
@@ -91,6 +91,23 @@ describe('persona history in the Continuity Vault (VAULT-03)', () => {
     const after = await restoreHistory(c, key, { pubkey });
     expect(after.missing).toBe(1);
     expect(after.events.map((e) => e.id)).not.toContain(channel.id);
+  });
+
+  it('VAULT-04: one sent event lands on the archive a push would write, and a restore keeps others’ gift wraps off the persona’s relays', async () => {
+    const k = generateArchiveKey();
+    const c = new ArchiveVaultClient({ baseUrl: base, auth: { archiveKey: k } });
+    const sent = ev(persona, 9, 'enviado y copiado al momento', [['h', 'general']]);
+    const toOther = ev(generateSecretKey(), 1059, 'wrap-para-otra-persona', [['p', getPublicKey(other)]]);
+    await archiveEvent(c, k, sent);
+    await archiveEvent(c, k, sent); // idempotent: the same archive again
+    await archiveEvent(c, k, toOther);
+    await expect(archiveEvent(c, k, { ...sent, content: 'alterado' })).rejects.toThrow(/invalid signature/);
+    // A later push finds them already there.
+    expect((await archiveHistory(c, k, { pubkey, events: [sent, toOther] })).events).toEqual({ uploaded: 0, kept: 2, invalid: 0 });
+    const restored = await restoreHistory(c, k, { pubkey });
+    expect(new Set(restored.events.map((e) => e.id))).toEqual(new Set([sent.id, toOther.id]));
+    expect(restored.events.filter((e) => belongsOnPersonaRelays(e, pubkey)).map((e) => e.id)).toEqual([sent.id]);
+    expect(belongsOnPersonaRelays(wrap, pubkey)).toBe(true); // a wrap addressed to the persona does go back
   });
 
   it('another archive key is another vault account: it sees none of these archives', async () => {

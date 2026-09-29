@@ -53,6 +53,11 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
     'ciphertext-user-key': d('Backup en la nube cifrado con clave del usuario: el operador almacena ciphertext pero no la clave de descifrado.', ['recuperabilidad'], [], ['Tu contraseña de backup.']),
     'operator-managed': d('Backup gestionado por el operador: el operador puede restaurar (y por tanto acceder a) los datos.', ['recuperabilidad', 'control-institucional'], ['privacidad-operador', 'soberania'], ['Operador.']),
   },
+  continuity: {
+    off: d('Sin copia automática en el Continuity Vault: tu historial depende de los relays y de este dispositivo, salvo lo que guardes a mano en el vault.', ['privacidad-operador'], ['recuperabilidad'], []),
+    'best-effort': d('Cada evento que envías se copia cifrado en el Continuity Vault, aparte de los relays. Si el vault no responde, el envío sale igual y la copia se reintenta. El operador del vault ve cuándo envías y cuántos eventos, no su contenido.', ['recuperabilidad'], ['privacidad-operador'], ['Operador del vault (ve la cuenta, el tamaño y la hora de cada copia).']),
+    'required-for-resilient': d('Ningún evento sale hacia los relays hasta que su copia cifrada está en el Continuity Vault: si el vault no responde, el envío queda retenido hasta que responda. El operador del vault ve cuándo envías y cuántos eventos, no su contenido.', ['recuperabilidad'], ['privacidad-operador', 'soberania'], ['Operador del vault (ve la cuenta, el tamaño y la hora de cada copia, y su disponibilidad decide cuándo sale cada envío).']),
+  },
   localProtection: {
     passphrase: d('El almacén local se abre con tu contraseña (scrypt): sin ella, nadie con acceso a este dispositivo puede leer tus llaves.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Fortaleza de tu contraseña local.']),
     device: d('Desbloqueo sin contraseña con una llave del dispositivo (WebCrypto, no exportable): cualquiera con acceso a este perfil del navegador puede abrir tus llaves.', [], ['soberania', 'privacidad-operador'], ['Seguridad física y de la sesión de este dispositivo.']),
@@ -68,7 +73,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.5.0';
+export const DISCLOSURE_VERSION = '1.6.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.

@@ -29,6 +29,9 @@
  *                                        and time, never content)
  *   sovereign vault restore --persona ID [--vault URL] [--no-republish]   (rebuild the history from the vault,
  *                                        even with empty relays; run on a device restored from the backup)
+ *   sovereign persona continuity --persona ID off|best-effort|required-for-resilient [--vault URL]
+ *                                        (VAULT-04: copy each sent event to the Continuity Vault; best-effort never
+ *                                        delays a send, required-for-resilient holds it until the copy is there)
  *   sovereign vault list --persona ID [--vault URL]    (archives of this persona's vault account)
  *   sovereign vault verify --persona ID [--vault URL]  (download every archive and open it with this device's key)
  *   sovereign group keypackage --persona ID            (publish MLS key package so others can add you)
@@ -71,7 +74,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
-import { CONTINUITY_VAULT_TEXTS } from '@sedecim/profiles';
+import { CONTINUITY_VAULT_TEXTS, disclose } from '@sedecim/profiles';
 import { SovereignClient } from './app';
 
 function relayAdapter() {
@@ -127,6 +130,8 @@ async function main() {
     ...(process.env.SOVEREIGN_BLOB_STORE ? { blobStore: process.env.SOVEREIGN_BLOB_STORE } : {}),
     ...(process.env.SOVEREIGN_DISCOVERY_RELAYS ? { discoveryRelays: process.env.SOVEREIGN_DISCOVERY_RELAYS.split(',').map((r) => r.trim()).filter(Boolean) } : {}),
     ...(watching ? { autoReconnect: true } : {}),
+    // VAULT-04: where each sent event is copied, when the persona's Continuity Vault policy asks for it.
+    ...((opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL) ? { vaultUrl: opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL } : {}),
   });
   /** FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. */
   const announceDmRelays = async (id: string) => {
@@ -165,6 +170,12 @@ async function main() {
       if (!file) throw new Error('usage: sovereign backup restore FILE');
       const p = await client.restoreBackup(JSON.parse(readFileSync(file, 'utf8')), backupPassword());
       console.log(JSON.stringify(p, null, 2));
+    } else if (a === 'persona' && b === 'continuity') {
+      const policy = positional()[0];
+      if (policy !== 'off' && policy !== 'best-effort' && policy !== 'required-for-resilient') throw new Error('usage: sovereign persona continuity --persona ID off|best-effort|required-for-resilient [--vault URL]');
+      const config = await client.setContinuity(need(), policy);
+      console.log(`continuidad: ${config.continuity} (backup en la nube: ${config.cloudBackup})`);
+      for (const d of disclose(config).filter((x) => x.control === 'continuity' || x.control === 'cloudBackup')) console.error(`aviso: ${d.statement}`);
     } else if (a === 'persona' && b === 'list') {
       for (const p of await (await client.identities()).list()) console.log(`${p.id}  ${p.label.padEnd(16)} ${p.network.padEnd(8)} ${p.compartment.padEnd(12)} ${p.relays.join(',')}`);
     } else if (a === 'whoami') {
@@ -220,6 +231,8 @@ async function main() {
       for (const r of await client.outbox(need())) {
         console.log(`${r.opId.slice(0, 8)} ${r.state.padEnd(16)} ${maskIps(r.blockedReason ?? '')}`);
         for (const s of Object.values(r.relayStatus)) console.log(`   ${maskIps(s.relay)} attempts=${s.attemptCount} ${s.acceptedAt ? 'ACK' : maskIps(s.lastError ?? 'pending')}`);
+        // VAULT-04: the Continuity Vault copy, a state of its own beside the relay ACKs.
+        if (r.continuity) console.log(`   vault (${r.continuity.policy}) attempts=${r.continuity.attemptCount} ${r.continuity.state === 'PENDING' ? maskIps(r.continuity.lastError ?? 'pending') : r.continuity.state}`);
       }
     } else if (a === 'resume') {
       for (const r of await client.resume(need())) console.log(`${r.opId.slice(0, 8)} ${r.state}`);
@@ -316,7 +329,7 @@ async function main() {
       } else if (b === 'restore') {
         const r = await client.vaultRestore(need(), url, { republish: !argv.includes('--no-republish') });
         console.log(`vault: ${r.archives} archivos${r.skipped ? ` (${r.skipped} no se abren con esta llave o no son de esta persona)` : ''}`);
-        console.log(`eventos: ${r.events} verificados; ${r.published} vuelven a los relays${r.rejected ? `, ${r.rejected} rechazados` : ''}`);
+        console.log(`eventos: ${r.events} verificados; ${r.published} vuelven a los relays${r.rejected ? `, ${r.rejected} rechazados` : ''}${r.othersWraps ? `; ${r.othersWraps} cifrados para otras personas siguen en el vault` : ''}`);
         console.log(`mensajes de grupo: ${r.groupMessages} · ledger: ${r.ledger} operaciones añadidas`);
         if (r.mls === 'restored') console.log('grupos: restaurados; ejecuta group rejoin antes de enviar');
         else if (r.mls === 'kept') console.log('grupos: este dispositivo ya tenía grupos, se conservan');

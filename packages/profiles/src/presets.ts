@@ -2,7 +2,8 @@ import type { SovereigntyConfig } from './types';
 
 /**
  * Reference configuration matrix (spec Appendix B). Crash reports are 'off' everywhere: they do not exist yet
- * (NFR007-03), and a preset must not promise them (PANEL-05).
+ * (NFR007-03), and a preset must not promise them (PANEL-05). VAULT-04: private-resilient holds each send until
+ * its copy is in the Continuity Vault; the sovereign profiles keep everything on the device.
  */
 export const PRESETS = {
   convenience: {
@@ -15,6 +16,7 @@ export const PRESETS = {
     telemetry: 'minimal',
     notifications: 'push',
     cloudBackup: 'ciphertext-user-key',
+    continuity: 'best-effort',
     crashReports: 'off',
     localProtection: 'passphrase',
     remotePreviews: true,
@@ -33,6 +35,7 @@ export const PRESETS = {
     telemetry: 'minimal',
     notifications: 'privacy-push',
     cloudBackup: 'ciphertext-user-key',
+    continuity: 'required-for-resilient',
     crashReports: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
@@ -51,6 +54,7 @@ export const PRESETS = {
     telemetry: 'standard',
     notifications: 'push',
     cloudBackup: 'operator-managed',
+    continuity: 'best-effort',
     crashReports: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
@@ -69,6 +73,7 @@ export const PRESETS = {
     telemetry: 'none',
     notifications: 'none',
     cloudBackup: 'off',
+    continuity: 'off',
     crashReports: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
@@ -87,6 +92,7 @@ export const PRESETS = {
     telemetry: 'none',
     notifications: 'none',
     cloudBackup: 'off',
+    continuity: 'off',
     crashReports: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
@@ -101,4 +107,9 @@ export type PresetName = keyof typeof PRESETS;
 
 export function preset(name: PresetName): SovereigntyConfig {
   return { ...PRESETS[name] };
+}
+
+/** VAULT-04: the Continuity Vault policy of a configuration; one stored before VAULT-04 has none, which is `off`. */
+export function continuityPolicy(c: Partial<SovereigntyConfig>): SovereigntyConfig['continuity'] {
+  return c.continuity ?? 'off';
 }

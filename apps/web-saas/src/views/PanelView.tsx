@@ -14,6 +14,7 @@ const OPTIONS: Record<string, string[]> = {
   telemetry: ['standard', 'minimal', 'none'],
   notifications: ['push', 'privacy-push', 'none'],
   cloudBackup: ['off', 'ciphertext-user-key', 'operator-managed'],
+  continuity: ['off', 'best-effort', 'required-for-resilient'],
   crashReports: ['off', 'manual-export', 'opt-in'],
   localProtection: ['passphrase', 'device'],
 };
@@ -30,7 +31,8 @@ export function PanelView() {
   const [draft, setDraft] = useState<SovereigntyConfig>(ws.config!);
   useEffect(() => setDraft(ws.config!), [ws.config]);
   // FR010-04: the quorum is checked against this persona's relays, so it is refused rather than capped in silence.
-  const issues = validateConfig(draft, 'web', { relays: ws.session?.persona.relays.length });
+  // VAULT-04: and the Continuity Vault policy against the deployment (without a vault, `required` would hold every send).
+  const issues = validateConfig(draft, 'web', { relays: ws.session?.persona.relays.length, continuityVault: !!ws.cfg.continuityVault });
   const blocking = issues.some((i) => i.severity === 'error');
   const dirty = JSON.stringify(draft) !== JSON.stringify(ws.config);
   const set = (patch: Partial<SovereigntyConfig>) => setDraft((d) => ({ ...d, ...patch }));

@@ -65,7 +65,7 @@ describe('DeliveryEngine', () => {
     now += 5_000;
     await engine.submit({ template: { kind: 1, content: 'failed' } }, { relays: ['wss://strict.example'], wait: true });
     now += 1_000;
-    expect(await engine.stats()).toEqual({ depth: 1, oldestPendingAgeMs: 6_000, failed: 1, byState: { REPLICATED: 1, QUEUED: 1, FAILED: 1 } });
+    expect(await engine.stats()).toEqual({ depth: 1, oldestPendingAgeMs: 6_000, failed: 1, byState: { REPLICATED: 1, QUEUED: 1, FAILED: 1 }, continuityPending: 0 });
     expect(attempts).toEqual([
       { relay: 'wss://up.example', ok: true, latencyMs: 7, permanent: false },
       { relay: 'wss://down.example', ok: false, latencyMs: 5, failure: 'connection', permanent: false },

@@ -106,6 +106,8 @@ export class IdentityManager {
   private readonly links: Collection<IdentityLink>;
   private readonly audit: Collection<AuditEntry>;
   private readonly usage: Collection<{ personaId: string; contacts: string[]; files: string[] }>;
+  /** VAULT-04: archive keys being made, so concurrent callers share one (see `archiveKey`). */
+  private readonly creatingArchiveKeys = new Map<string, Promise<string>>();
 
   constructor(
     accountStore: EncryptedStore,
@@ -156,10 +158,23 @@ export class IdentityManager {
     const col = (await this.openPersonaStore(personaId)).collection<string>(ARCHIVE_COLLECTION);
     const hex = await col.get('key');
     if (hex) return hexToBytes(hex);
-    const key = generateArchiveKey();
-    await col.put('key', bytesToHex(key));
-    await this.log({ action: 'archive_key.created', subject: personaId });
-    return key;
+    // VAULT-04: two callers at once (the vault copies of two sends) must not each make a key, or what the first
+    // one sealed would never open again. The first call makes it; the others wait for it.
+    let creating = this.creatingArchiveKeys.get(personaId);
+    if (!creating) {
+      creating = (async () => {
+        const again = await col.get('key');
+        if (again) return again;
+        const key = generateArchiveKey();
+        const made = bytesToHex(key);
+        wipe(key);
+        await col.put('key', made);
+        await this.log({ action: 'archive_key.created', subject: personaId });
+        return made;
+      })().finally(() => this.creatingArchiveKeys.delete(personaId));
+      this.creatingArchiveKeys.set(personaId, creating);
+    }
+    return hexToBytes(await creating);
   }
 
   /** FR-001: generate a key locally; the nsec never leaves the device. */
