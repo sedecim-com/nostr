@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **246 tareas** · 158 hechas · 21 parciales · 61 pendientes · 6 descartadas
-- **291 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **246 tareas** · 159 hechas · 21 parciales · 60 pendientes · 6 descartadas
+- **286 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -50,7 +50,7 @@
 | FR-010 | 5 | 5 | — |
 | FR-011 | 8 | 5 | VAULT-04 (S11), FR025-12 (S12), FR011-06 (S13) |
 | FR-012 | 1 | 1 | — |
-| FR-013 | 6 | 5 | VAULT-03 (S11) |
+| FR-013 | 6 | 6 | — |
 | FR-014 | 5 | 4 | FR014-04 (Diferido) |
 | FR-015 | 3 | 3 | — |
 | FR-016 | 2 | 2 | — |
@@ -64,7 +64,7 @@
 | FR-024 | 5 | 3 | FR024-03 (S12), FR024-05 (S12) |
 | FR-025 | 12 | 10 | FR025-08 (Diferido), FR025-14 (Diferido) |
 | FR-026 | 5 | 3 | FR026-04 (S11), FR005-09 (Diferido) |
-| FR-027 | 6 | 5 | VAULT-03 (S11) |
+| FR-027 | 6 | 6 | — |
 | FR-028 | 8 | 4 | FR028-02 (S13), VAULT-07 (S10), PANEL-07 (S12), NFR007-03 (Diferido) |
 | NFR-001 | 5 | 0 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR001-04 (S11), NFR001-05 (Diferido) |
 | NFR-002 | 3 | 2 | NFR002-03 (S12) |
@@ -266,7 +266,7 @@
 | [NFR005-02](https://github.com/sedecim-com/nostr/issues/180) | P0 | Pruebas de carga del relay y el indexer | NFR-005, PRD GC-C04 | QA | 5 | NFR005-01, NFR001-01 | Parcial | Throughput, p95/p99, saturación y límites medidos contra el Buzz de stage y el indexer en docs/load-testing.md; capacity baseline y estrategia de escalado de los relays aprobados |
 | [OPS-18](https://github.com/sedecim-com/nostr/issues/250) | P0 | Trazabilidad y estado generados desde la fuente, con check en CI | PRD GC-F03 | Infra | 5 | OPS-17 | Pendiente | requirements-traceability.md y un tablero de estado se regeneran desde los issues y el código; CI falla si una referencia o evidencia (archivo, prueba, SHA o ADR) no existe |
 | [OPS-20](https://github.com/sedecim-com/nostr/issues/252) | P0 | Feature gates de producción para managed, enclave y push | PRD GC-D05, GC-A03, GC-G01 | Seguridad | 3 | OPS-06, REL-01 | Pendiente | Con legal o auditoría pendientes, el onboarding managed no aparece en la configuración de producción; enclave y su exportación apagados mientras sean Preview; push apagado donde no hay disparador seguro; el gate de release comprueba la configuración |
-| [VAULT-03](https://github.com/sedecim-com/nostr/issues/246) | P0 | Respaldo de eventos canónicos y restauración con relays vacíos | PRD GC-B03, FR-013, FR-027 | Dev | 5 | VAULT-02 | Pendiente | Se respaldan NIP-29, la copia propia de NIP-17, los eventos Marmot con el estado MLS necesario y el ledger/outbox; un dispositivo limpio con la backup key y relays vacíos reconstruye el 100 % del fixture de conversaciones y el ledger, en web y CLI, dentro de CI |
+| [VAULT-03](https://github.com/sedecim-com/nostr/issues/246) | P0 | Respaldo de eventos canónicos y restauración con relays vacíos | PRD GC-B03, FR-013, FR-027 | Dev | 5 | VAULT-02 | Hecho | Se respaldan NIP-29, la copia propia de NIP-17, los eventos Marmot con el estado MLS necesario y el ledger/outbox; un dispositivo limpio con la backup key y relays vacíos reconstruye el 100 % del fixture de conversaciones y el ledger, en web y CLI, dentro de CI |
 | [FR023-10](https://github.com/sedecim-com/nostr/issues/254) | P1 | Aplicar «publicar» por recurso en los relays | FR-023 | Dev | 8 | FR023-04 | Pendiente | Admisión por #h en el secure relay y en Buzz, y sincronía de la membresía NIP-29 con el policy-engine; test de denegación |
 | [NFR001-04](https://github.com/sedecim-com/nostr/issues/256) | P1 | Alta disponibilidad en stage | NFR-001 | Infra | 5 | NFR001-02, NFR001-03 | Pendiente | Réplicas y PDB; Redis, SeaweedFS y secure relay en HA o gestionados; blob-store con allowlist o cuotas; el SLO de 99,9 % queda instrumentado sobre una topología que puede cumplirlo |
 | [VAULT-04](https://github.com/sedecim-com/nostr/issues/247) | P1 | El vault en la máquina de estados de entrega | PRD GC-B04, FR-008, FR-011 | Dev | 3 | VAULT-02 | Pendiente | Publicación en relays y subida al vault independientes; política off / best-effort / required-for-resilient en el panel; estado CONTINUITY_BACKED_UP separado del ACK de relays; solo required-for-resilient puede retener el envío |

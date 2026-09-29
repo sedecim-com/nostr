@@ -3353,8 +3353,8 @@
     "VAULT-02"
    ],
    "sprint": "S11",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 7d5e410 (PR #321).\n\n**Qué se guarda.** `packages/continuity/src/history.ts` sella en el cliente:\n- un archivo por evento canónico firmado: canales NIP-29 con su estado, gift wraps de la persona (DMs recibidos y la copia propia de los enviados) y sus listas;\n- un archivo por mensaje Marmot descifrado, porque MLS borra las llaves de épocas pasadas;\n- snapshots del ledger y del estado MLS, que sellan su fecha y el número de archivos de la cuenta.\n\n**Qué se acepta al restaurar.** Solo lo que abre con la llave de archivo, está bajo el id que implica su contenido, tiene firma válida y es de la persona. Se avisa de los archivos borrados desde el último guardado.\n\n**Adaptador Marmot.** `onMessage` guarda cada mensaje que la sesión descifra o envía.\n\n**CLI.**\n- `vault push`.\n- `vault restore`: vuelve a publicar los eventos, une el ledger y escribe el estado MLS solo en un dispositivo sin grupos. Cada grupo pide `group rejoin` antes de enviar.\n\n**Web.** «Guardar el historial en el vault», «Restaurar desde el vault» y, en un grupo restaurado, «Volver a entrar».\n\n**Tests en CI:**\n- `services/continuity-vault/test/history.test.ts`.\n- `apps/sovereign-client/test/vault-restore.test.ts`: relay reiniciado vacío; canal, DMs en los dos sentidos, grupo y ledger al 100 %.\n- `apps/web-saas/test/continuity.test.ts`.\n- `tests/browser/web-saas.e2e.ts`: navegador limpio con el backup descargado y un relay vacío. Vuelven los 13 eventos y las 13 operaciones, el canal completo y todos los gift wraps. La UI muestra el canal, los DMs y el acuse.\n- `tests/browser/web-groups.e2e.ts`: los 5 mensajes del grupo vuelven. El navegador entra otra vez como dispositivo nuevo y escribe. Corre en el job `browser` y en el job `stack` contra el secure relay real.\n\nDocumentado en ADR 0011 (sección VAULT-03), el threat model del vault y el disclosure v1.5.0.",
    "issue": 246
   },
   {
