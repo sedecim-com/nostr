@@ -189,6 +189,7 @@ npm run sovereign -- persona create --label Fuente --relay ws://<onion>.onion --
 | `npm run test:interop` | Gate contra Buzz real (`BUZZ_RELAY_URL`), genera `interop-report.json` |
 | `sh scripts/backup.sh` / `sh scripts/restore.sh DIR` | Backup y restore del stack self-hosted (`docs/runbooks/restore.md`; drill nocturno `restore-drill.yml`) |
 | `sh scripts/scan-logs.sh compose.log .env` | Busca secretos en los logs del stack: reglas de gitleaks + valores de `.env` (job `stack` de CI) |
+| `sh scripts/stack-profiles.sh configure\|exercise\|logged` | Solo stacks de prueba: activa los perfiles opcionales (managed, push, institutional, tor) con secretos generados, les envía una credencial canario y exige que cada servicio salga en el log escaneado (job `stack` de CI) |
 
 ## Estructura
 ```

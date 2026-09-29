@@ -454,8 +454,8 @@ Un requisito está **Hecho** si lo están todas sus tareas del programa, sin con
 |---|---|---|---|
 | [NFR006-01](https://github.com/sedecim-com/nostr/issues/181) Escaneo de secretos que bloquea CI | Hecho | .github/workflows/ci.yml | — |
 | [NFR006-02](https://github.com/sedecim-com/nostr/issues/182) Redacción de secretos en logs de todos los servicios | Hecho | packages/telemetry-policy | — |
-| [NFR006-03](https://github.com/sedecim-com/nostr/issues/183) Test de integración que analiza los logs de los servicios en busca de secretos | Hecho | scripts/scan-logs.sh (gitleaks sobre compose.log + canario con los valores de .env) en el job stack de ci.yml; tests scan-logs.test.ts | [scan-logs.test.ts](../tests/scripts/scan-logs.test.ts) |
-| [NFR006-04](https://github.com/sedecim-com/nostr/issues/271) Escaneo de secretos en logs con todos los perfiles | Pendiente (S10) | — | — |
+| [NFR006-03](https://github.com/sedecim-com/nostr/issues/183) Test de integración que analiza los logs de los servicios en busca de secretos | Hecho | scripts/scan-logs.sh (gitleaks sobre compose.log + canario con los valores de .env) en el job stack de ci.yml; tests scan-logs.test.ts | [scan-logs.test.ts](../tests/scripts/scan-logs.test.ts), [stack-profiles.test.ts](../tests/scripts/stack-profiles.test.ts) |
+| [NFR006-04](https://github.com/sedecim-com/nostr/issues/271) Escaneo de secretos en logs con todos los perfiles | Pendiente (S10) | — | [stack-profiles.test.ts](../tests/scripts/stack-profiles.test.ts) |
 
 ## NFR-007 · Telemetría por perfil
 
