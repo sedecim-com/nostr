@@ -5,8 +5,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 
 const root = new URL('../..', import.meta.url).pathname;
 const read = (p: string) => readFileSync(join(root, p), 'utf8');
@@ -136,6 +137,30 @@ describe('monitoring kustomization ships every rules file, test and dashboard (N
 
 const kubectl = process.env.KUBECTL ?? 'kubectl';
 const hasKubectl = spawnSync(kubectl, ['version', '--client'], { encoding: 'utf8' }).status === 0;
+
+// FR023-13: no overlay uses the institutional component yet, so it is rendered on top of the base.
+describe.skipIf(!hasKubectl)('kubectl kustomize base + components/institutional (FR023-13)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'institutional-'));
+  const k8s = relative(dir, join(root, 'deploy/k8s'));
+  writeFileSync(join(dir, 'kustomization.yaml'), `apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: acceso-nostr\nresources:\n  - ${k8s}/base\ncomponents:\n  - ${k8s}/components/institutional\n`);
+  const out = spawnSync(kubectl, ['kustomize', dir], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  const docs = out.stdout.split('\n---\n');
+
+  it('renders', () => {
+    expect(out.status, out.stderr).toBe(0);
+  });
+
+  it('runs relay-allowlist with its policy token, the secure relay admitting events through it, and Buzz enforcing its allowlist', () => {
+    const allowlist = docs.find((d) => /^kind: Deployment$/m.test(d) && /^  name: relay-allowlist$/m.test(d));
+    expect(allowlist).toBeDefined();
+    expect(allowlist).toMatch(/name: POLICY_ENGINE_TOKEN\n\s+valueFrom:\n\s+secretKeyRef:\n\s+key: RELAY_ALLOWLIST_POLICY_TOKEN\n\s+name: acceso-nostr-secrets/);
+    expect(allowlist).toMatch(/runAsNonRoot: true/);
+    expect(docs.some((d) => /^kind: Service$/m.test(d) && /^  name: relay-allowlist$/m.test(d) && /port: 50051/.test(d))).toBe(true);
+    expect(out.stdout).toContain('event_admission_server = "http://relay-allowlist:50051"');
+    expect(out.stdout).toMatch(/BUZZ_PUBKEY_ALLOWLIST: "true"/);
+    expect(out.stdout).toMatch(/INDEXER_POLICY_ENGINE_URL: http:\/\/policy-engine:8083/);
+  });
+});
 
 describe.skipIf(!hasKubectl)('kubectl kustomize deploy/k8s/overlays/stage', () => {
   const out = spawnSync(kubectl, ['kustomize', join(root, 'deploy/k8s/overlays/stage')], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });

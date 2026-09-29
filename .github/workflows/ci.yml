@@ -137,7 +137,9 @@ jobs:
       - name: Validate docker compose (all profiles, TLS override)
         run: |
           sh scripts/init-env.sh
-          docker compose --profile tor --profile managed config -q
+          docker compose --profile tor --profile managed --profile push --profile institutional config -q
+          # FR023-13: institutional mode, with the secure relay admitting events through relay-allowlist.
+          SECURE_RELAY_CONFIG=./infra/secure-relay/config.institutional.toml docker compose --profile institutional config -q
           DOMAIN=example.org sh scripts/render-tls-config.sh
           DOMAIN=example.org ACME_EMAIL=ops@example.org docker compose -f docker-compose.yml -f compose.tls.yml config -q
       - name: Validate Caddyfile
@@ -158,6 +160,14 @@ jobs:
           node-version: 22
       - name: Render the stage overlay
         run: kubectl kustomize deploy/k8s/overlays/stage > /dev/null
+      # FR023-13: no overlay uses the institutional component yet; it is rendered on top of the base.
+      - name: Render the base with the institutional component (FR023-13)
+        run: |
+          dir="$RUNNER_TEMP/institutional"
+          mkdir -p "$dir"
+          k8s=$(realpath --relative-to="$dir" deploy/k8s)
+          printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: acceso-nostr\nresources:\n  - %s/base\ncomponents:\n  - %s/components/institutional\n' "$k8s" "$k8s" > "$dir/kustomization.yaml"
+          kubectl kustomize "$dir" | grep -q 'event_admission_server = "http://relay-allowlist:50051"'
       # OPS-20: managed, the enclave and push only in the production configuration with their evidence
       # (deploy/production-gates.json); release.yml runs the same check on the tag.
       - name: Production feature gates
@@ -340,6 +350,16 @@ jobs:
           docker run -d --name open-relay --network host -v "$RUNNER_TEMP/open-relay.toml:/usr/src/app/config.toml:ro" "$(docker compose config --images secure-relay)"
           timeout 60 sh -c 'until curl -sf -H "Accept: application/nostr+json" http://localhost:7010 > /dev/null; do sleep 1; done'
           npx vitest run tests/interop/notification-gateway.interop.test.ts
+      # FR023-13: institutional mode end to end on the same stack. The secure relay restarts with nauthz event admission
+      # by relay-allowlist (infra/secure-relay/config.institutional.toml); the checks above used the open one.
+      - name: Institutional mode on the running stack (FR023-13)
+        env:
+          INSTITUTIONAL_RELAY_URL: ws://localhost:7000
+          STACK_POLICY_URL: http://localhost:8083
+        run: |
+          SECURE_RELAY_CONFIG=./infra/secure-relay/config.institutional.toml docker compose up -d secure-relay
+          timeout 60 sh -c 'until curl -sf -H "Accept: application/nostr+json" http://localhost:7000 > /dev/null; do sleep 1; done'
+          POLICY_ADMIN_SECRET_KEY=$(sed -n 's/^POLICY_ADMIN_SECRET_KEY=//p' .env) npx vitest run tests/interop/institutional.interop.test.ts
       # NFR006-04: a request carrying a canary credential to each service; the scan below checks nobody logs it.
       - name: Canary requests to the services (NFR006-04)
         run: sh scripts/stack-profiles.sh exercise
