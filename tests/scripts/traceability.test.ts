@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  capabilityLevel,
   checkEvidence,
   evidenceCell,
   extractRefs,
+  renderReadmeStatus,
   renderStatus,
   renderTraceability,
+  replaceBlock,
   repoIndex,
   requirementState,
+  selectTasks,
   testCitations,
   // @ts-expect-error plain ESM script without types
 } from '../../scripts/traceability.mjs';
@@ -138,5 +142,59 @@ describe('generated traceability and status board', () => {
     expect(md).toContain('| [TST02-01](https://github.com/o/r/issues/3) TST02-01 | S9 | Parcial | TST01-01 |');
     // Only open P0: a deferred P0 is still listed, the done or discarded ones are not.
     expect(md).toContain('| [TST01-02](https://github.com/o/r/issues/2) TST01-02 | Diferido | Pendiente | — |');
+  });
+});
+
+// OPS-19: the README shows each profile and capability by level of evidence, generated from the same backlog.
+describe('README status by level of evidence', () => {
+  const FR3 = req('FR', 3);
+  const tasks = [
+    task({ id: 'TSTV-01', req: 'PRD X', evidenceState: 'merged' }),
+    task({ id: 'TSTV-02', req: 'PRD X', evidenceState: 'ci-verified' }),
+    task({ id: 'TST01-01', req: FR1 }),
+    task({ id: 'TST01-02', req: FR1, status: 'Pendiente' }),
+    task({ id: 'TST02-01', req: FR2, evidenceState: 'externally-audited' }),
+    task({ id: 'TST02-02', req: FR2, status: 'Pendiente', sprint: 'Diferido' }),
+    task({ id: 'TST03-01', req: FR3, status: 'Descartado' }),
+  ];
+  const deferred = new Set(['Diferido']);
+  const ids = (select: string[]) => selectTasks(tasks, select).map((t: Task) => t.id);
+
+  it('selects tasks by requirement, by id prefix and by id', () => {
+    expect(ids([FR1])).toEqual(['TST01-01', 'TST01-02']);
+    expect(ids(['TSTV-*', 'TST02-01'])).toEqual(['TSTV-01', 'TSTV-02', 'TST02-01']);
+  });
+
+  it('the level is the lowest all its tasks reach; a done task without label is Merged; open ones make it "en curso"', () => {
+    expect(capabilityLevel(selectTasks(tasks, ['TSTV-*']), deferred)).toMatchObject({ level: 'merged', done: 2, active: 2 });
+    expect(capabilityLevel(selectTasks(tasks, ['TSTV-02', 'TST02-01']), deferred).level).toBe('ci-verified');
+    expect(capabilityLevel(selectTasks(tasks, [FR1]), deferred)).toMatchObject({ level: 'en-curso', done: 1, active: 2 });
+    // Deferred and discarded tasks do not hold a row back, but deferred ones are still listed as open.
+    const fr2 = capabilityLevel(selectTasks(tasks, [FR2, FR3]), deferred);
+    expect(fr2).toMatchObject({ level: 'externally-audited', done: 1, active: 1 });
+    expect(fr2.open.map((t: Task) => t.id)).toEqual(['TST02-02']);
+  });
+
+  it('renders the rows and keeps the high-risk warning until a row is audited', () => {
+    const meta = {
+      sprints: [{ id: 'S9', start: '2026-09-28' }, { id: 'Diferido', start: null }],
+      capabilities: [
+        { name: 'Perfil X', kind: 'Perfil', select: [FR1] },
+        { name: 'Capacidad Y', kind: 'Capacidad', select: ['TSTV-*'] },
+      ],
+    };
+    const md = renderReadmeStatus({ meta, tasks });
+    expect(md).toMatch(/^> ⚠️ Ningún perfil ni capacidad tiene todavía una auditoría externa.*no es apto para perfiles de alto riesgo/);
+    expect(md).toContain('| Perfil X | Perfil | En curso | 1 de 2 | TST01-02 (S9) |');
+    expect(md).toContain('| Capacidad Y | Capacidad | Merged | 2 de 2 | — |');
+    expect(md).not.toMatch(/✅|🟡/);
+    const audited = renderReadmeStatus({ meta: { ...meta, capabilities: [{ name: 'Z', kind: 'Capacidad', select: [FR2] }] }, tasks });
+    expect(audited).toMatch(/^> ⚠️ Solo Z tiene una auditoría externa\. Lo demás no es apto para perfiles de alto riesgo/);
+    expect(audited).toContain('| Z | Capacidad | Externally Audited | 1 de 1 | TST02-02 (Diferido) |');
+  });
+
+  it('replaces only the block between its markers', () => {
+    expect(replaceBlock('a\n<!-- s -->\nold\n<!-- e -->\nb', '<!-- s -->', '<!-- e -->', 'new')).toBe('a\n<!-- s -->\nnew\n<!-- e -->\nb');
+    expect(replaceBlock('no markers', '<!-- s -->', '<!-- e -->', 'new')).toBeUndefined();
   });
 });
