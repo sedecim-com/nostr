@@ -81,6 +81,6 @@ equivale a "sin críticos": la ausencia de hallazgos en una revisión interna no
 2. ~~Corregir IR-2026-09-04 (anti-replay de NIP-98) e IR-2026-09-05 (límites de tasa)~~: hecho en la
    PR #216 (`9355003`). Queda decidir los valores de producción de `RATE_LIMIT_*` según el número de réplicas.
 3. Triar la primera ejecución de CodeQL en CI.
-4. Añadir los vectores oficiales de NIP-44 ([crypto-inventory.md](crypto-inventory.md) §6, SEC-07).
+4. ~~Añadir los vectores oficiales de NIP-44~~: hecho en SEC-07 (`packages/nostr-core/test/nip44-vectors.test.ts`, [crypto-inventory.md](crypto-inventory.md) §6), junto con vectores exportables de NIP-49 y NIP-59.
 5. Fijar el commit de auditoría (tag `audit-2026-11`, SEC-11) y seguir [audit-scope.md](audit-scope.md) §10.
 6. Corregir IR-2026-09-15 (SEC-06).

@@ -222,8 +222,8 @@ Objetivos de mayor valor para el auditor:
 
 | Código | Ruta | Por qué importa | Fuzz |
 |---|---|---|---|
-| NIP-44 v2 | `packages/nostr-core/src/nip44.ts` | Implementación propia de la spec | `tests/fuzz/nip44.test.ts` (diferencial con nostr-tools) |
-| NIP-49 | `packages/nostr-core/src/nip49.ts` | Formato y KDF | `tests/fuzz/nip49.test.ts` |
+| NIP-44 v2 | `packages/nostr-core/src/nip44.ts` | Implementación propia de la spec | Vectores oficiales en `packages/nostr-core/test/nip44-vectors.test.ts`; `tests/fuzz/nip44.test.ts` (diferencial con nostr-tools) |
+| NIP-49 | `packages/nostr-core/src/nip49.ts` | Formato y KDF | `packages/nostr-core/test/nip49-vectors.test.ts`; `tests/fuzz/nip49.test.ts` |
 | Decodificador CBOR WebAuthn | `services/policy-engine/src/webauthn.ts:22` | Entrada de cualquier cliente autenticado | `tests/fuzz/webauthn.test.ts` |
 | Decodificador/codificador CBOR + COSE_Sign1 | `services/managed-signer/src/enclave/cbor.ts`, `attestation.ts` | Attestation Nitro; entra por el padre | `tests/fuzz/enclave-parsers.test.ts` |
 | Lector/escritor ASN.1 DER | `services/managed-signer/src/enclave/der.ts` | Acepta longitudes BER no mínimas (tolerancia deliberada con KMS) | `tests/fuzz/enclave-parsers.test.ts` |
@@ -250,7 +250,8 @@ Desviaciones conocidas respecto a lo habitual:
 | Área | Qué hay | Dónde |
 |---|---|---|
 | Eventos, NIP-19, NIP-44, NIP-49 | Interoperabilidad y diferencial con nostr-tools, propiedades de manipulación | `packages/nostr-core/test/core.test.ts`, `tests/fuzz/*.test.ts` |
-| NIP-44 | **Faltan los vectores oficiales** (`nip44.vectors.json`); recomendado añadirlos antes de SEC-01 | — |
+| NIP-44 | Vectores oficiales v2 completos (`nip44.vectors.json`, con el SHA-256 publicado en la NIP comprobado por el test): llaves de conversación y de mensaje, padding, cifrado y descifrado en ambos sentidos, mensajes de 64 KiB y todos los casos inválidos (SEC-07) | `packages/nostr-core/test/nip44-vectors.test.ts` |
+| NIP-49, NIP-59 | Vectores exportables en JSON (ADR 0004, SEC-07), generados de forma determinista con `@noble` y no con el código que prueban. NIP-49: el vector publicado en la NIP, normalización NFKC, casos válidos con sal y nonce, y cinco inválidos. NIP-59: DM y copia al emisor, y cinco rechazos (destinatario, firma del wrap, kind del seal, suplantación, rumor editado) | `packages/nostr-core/test/vectors/`, `nip49-vectors.test.ts`, `packages/messaging/test/nip59-vectors.test.ts` |
 | Web Push | Ejemplo trabajado de RFC 8291 §5 / Apéndice A | `services/notification-gateway/test/webpush.test.ts` |
 | Attestation Nitro | Raíz G1 fijada por huella; PKI simulada; documentos manipulados, caducados, debug, PCR y nonce distintos | `services/managed-signer/test/enclave-attestation.test.ts` |
 | Enclave extremo a extremo | Generar, importar, firmar, NIP-44, exportar con KMS simulado | `services/managed-signer/test/enclave-signer.test.ts` |
