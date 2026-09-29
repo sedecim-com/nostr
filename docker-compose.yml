@@ -231,6 +231,8 @@ services:
       WEBAUTHN_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
       WEBAUTHN_REQUIRE_ATTESTATION: ${WEBAUTHN_REQUIRE_ATTESTATION:-false}
+      # FR023-12: days the access decisions are kept (resources under legal hold excepted).
+      ACCESS_LOG_RETENTION_DAYS: ${POLICY_ACCESS_LOG_RETENTION_DAYS:-90}
       PORT: "8083"
     ports: ["${POLICY_PORT:-8083}:8083"]
     depends_on:

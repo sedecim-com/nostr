@@ -1,6 +1,6 @@
 import { Service, HttpError, isHex64, lookupToken, requireFields, type Req, type ServiceOptions } from '@sedecim/service-kit';
 import type { Action, Resource, Subject, Device, Rotation } from '@sedecim/policy-client';
-import { ConflictError, NotFoundError, PolicyEngine, RETENTION_NOTICE } from './engine';
+import { ConflictError, DEFAULT_ACCESS_LOG_RETENTION_DAYS, NotFoundError, PolicyEngine, RETENTION_NOTICE } from './engine';
 import { WebAuthnError, type RegistrationCredentialJSON } from './webauthn';
 
 const TEXT_MAX = 200;
@@ -37,7 +37,7 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
  * relays/services (bearer). A few routes accept either (see `adminOrService`). The directory and the
  * audit are never served without admin authentication.
  */
-export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { adminPubkeys: string[] }) {
+export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { adminPubkeys: string[]; accessLogRetentionDays?: number }) {
   const svc = new Service(opts);
   const admin = (pubkey?: string) => {
     if (!pubkey || !opts.adminPubkeys.includes(pubkey)) throw new HttpError(403, 'admin only');
@@ -147,6 +147,15 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
   svc.get('/v1/audit', async (req) => {
     admin(req.pubkey);
     return { audit: await engine.listAudit({ limit: intParam(req, 'limit', 1), before: intParam(req, 'before', 1) }) };
+  }, 'nip98');
+  // FR023-12: access decisions (evaluate) live in their own log, kept ACCESS_LOG_RETENTION_DAYS (legal hold aside).
+  svc.get('/v1/access-log', async (req) => {
+    admin(req.pubkey);
+    const resource = req.query.get('resource') ?? undefined;
+    return {
+      access: await engine.listAccessLog({ limit: intParam(req, 'limit', 1), before: intParam(req, 'before', 1), ...(resource ? { resourceId: resource } : {}) }),
+      retentionDays: opts.accessLogRetentionDays ?? DEFAULT_ACCESS_LOG_RETENTION_DAYS,
+    };
   }, 'nip98');
   // FR024-04: feed of the revocation propagator (an admin, or the rotation worker's service token).
   svc.get('/v1/revocations', async (req) => {

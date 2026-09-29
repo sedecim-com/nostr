@@ -19,6 +19,13 @@ import { creationOptions, newChallenge, verifyRegistration, WebAuthnError, type 
 export type RotationRequired = Rotation;
 export type { PolicyAuditEntry };
 
+/** FR023-12: how long access decisions are kept by default (ACCESS_LOG_RETENTION_DAYS). */
+export const DEFAULT_ACCESS_LOG_RETENTION_DAYS = 90;
+
+/** FR023-12: why an MLS group resource takes no retention policy (see putRetention). */
+export const GROUP_RETENTION_REFUSED =
+  'retention and legal hold do not apply to MLS groups: the organisation keeps no copy of their content (end-to-end encryption with forward secrecy)';
+
 /** FR023-08: shown with every retention policy (API field and docs). */
 export const RETENTION_NOTICE =
   'La retención y el borrado solo eliminan la copia del mirror/indexer de esta organización. No borran las copias ya replicadas en otros relays ni las que guardan los clientes y dispositivos de los participantes.';
@@ -187,8 +194,25 @@ export class PolicyEngine {
     const device = input.deviceId ? await this.repo.getDevice(input.deviceId) : undefined;
     if (input.deviceId && !device) return { allow: false, reasons: ['unknown device'] };
     const decision = evaluate({ subject, device, resource, action: input.action, now: this.now() });
-    await this.log(input.pubkey, 'policy.evaluate', input.resourceId, { action: input.action, allow: decision.allow });
+    // FR023-12: in the access log, not the audit: it has a retention of its own (pruneAccessLog).
+    await this.repo.appendAccess({ at: this.now(), pubkey: input.pubkey, ...(input.deviceId ? { deviceId: input.deviceId } : {}), resourceId: input.resourceId, action: input.action, allow: decision.allow });
     return decision;
+  }
+
+  /** FR023-12: access decisions, newest first (admin). */
+  listAccessLog(q: { limit?: number; before?: number; resourceId?: string } = {}) {
+    return this.repo.listAccess({ limit: Math.min(Math.max(q.limit ?? 100, 1), 1000), ...(q.before !== undefined ? { before: q.before } : {}), ...(q.resourceId !== undefined ? { resourceId: q.resourceId } : {}) });
+  }
+
+  /**
+   * FR023-12: the access log keeps `days` days. The decisions on a resource under legal hold are kept while the hold
+   * lasts. A hold on a workspace covers all of its channels, and the engine cannot tell which channels those are: while
+   * one lasts, nothing is pruned. Returns how many were deleted.
+   */
+  async pruneAccessLog(days: number): Promise<number> {
+    const held = (await this.retentionWithKinds()).filter((p) => p.legalHold);
+    if (held.some((p) => p.kind === 'workspace')) return 0;
+    return this.repo.purgeAccess({ before: this.now() - days * 86_400_000, exceptResources: held.map((p) => p.resourceId) });
   }
 
   /** NIP-42 allowlist for the relay: active subjects with at least one non-revoked device. */
@@ -214,11 +238,27 @@ export class PolicyEngine {
   }
 
   // FR023-08: retention of the mirror copy per workspace/channel.
-  listRetention() {
-    return this.repo.listRetention();
+  async listRetention(): Promise<RetentionPolicy[]> {
+    return (await this.retentionWithKinds()).map(({ kind: _kind, ...p }) => p);
+  }
+  /**
+   * FR023-12: a policy left on an MLS group (set before groups were refused, or on a resource whose kind changed since)
+   * applies to nothing. The kind of a resource that no longer exists is unknown.
+   */
+  private async retentionWithKinds(): Promise<Array<RetentionPolicy & { kind?: Resource['kind'] }>> {
+    const [policies, resources] = await Promise.all([this.repo.listRetention(), this.repo.listResources()]);
+    const kinds = new Map(resources.map((r) => [r.id, r.kind]));
+    return policies.flatMap((p) => {
+      const kind = kinds.get(p.resourceId);
+      return kind === 'group' ? [] : [{ ...p, ...(kind ? { kind } : {}) }];
+    });
   }
   async putRetention(actor: string, p: RetentionPolicy) {
-    if (!(await this.repo.getResource(p.resourceId))) throw new NotFoundError('unknown resource');
+    const resource = await this.repo.getResource(p.resourceId);
+    if (!resource) throw new NotFoundError('unknown resource');
+    // FR023-12: retention and legal hold act on the organisation's mirror copy. An MLS group has none: its content is
+    // end-to-end encrypted with forward secrecy, so a hold on it would promise evidence nobody can keep.
+    if (resource.kind === 'group') throw new ConflictError(GROUP_RETENTION_REFUSED);
     await this.repo.putRetention(p);
     await this.log(actor, 'retention.set', p.resourceId, { days: p.days, legalHold: p.legalHold });
   }
