@@ -111,6 +111,8 @@ describe('generated traceability and status board', () => {
 
   it('puts an evidence text on one line, lists joined and pipes escaped', () => {
     expect(evidenceCell('Commit 59a187c:\n\n- uno | dos;\n  - tres')).toBe('Commit 59a187c: uno \\| dos; · tres');
+    // A backslash is escaped too, so an escaped pipe in the text stays one and does not split the cell.
+    expect(evidenceCell('a\\|b y c\\d')).toBe('a\\\\\\|b y c\\\\d');
     expect(evidenceCell('')).toBe('—');
   });
 

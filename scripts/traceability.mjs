@@ -146,7 +146,8 @@ export function testCitations(files, read, taskIds) {
 }
 
 // ---- render
-const cell = (s) => String(s).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
+// A table cell: backslashes first, so that a "\|" in the text does not become an escaped backslash and a bare pipe.
+const cell = (s) => String(s).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
 const LEVEL = new Map(EVIDENCE_STATES.map(([slug, label]) => [slug, label]));
 const reqsOf = (t) => [...new Set(t.req.match(REQ_ID) ?? [])];
 
