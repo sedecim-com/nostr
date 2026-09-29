@@ -18,7 +18,7 @@ import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestRelay } from '@sedecim/test-relay';
 import { nip98Fetch } from '@sedecim/service-kit';
 import { createIdentityApi, MemoryIdentityRepository } from '@sedecim/identity-service';
-import { createPolicyApi, MemoryPolicyRepository, PolicyEngine, RETENTION_NOTICE } from '@sedecim/policy-engine';
+import { createPolicyApi, DEFAULT_ACCESS_LOG_RETENTION_DAYS, GROUP_RETENTION_REFUSED, MemoryPolicyRepository, PolicyEngine, RETENTION_NOTICE } from '@sedecim/policy-engine';
 
 const dist = new URL('../../apps/admin-console/dist/', import.meta.url).pathname;
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -278,18 +278,24 @@ try {
   await tab(page, 'Retención');
   await page.locator('#retention-notice').waitFor();
   assert((await page.textContent('#retention-notice'))?.includes(RETENTION_NOTICE), 'retention shows the API notice text');
-  await row(page, 'retention', 'grupo-a').getByRole('button', { name: 'Editar' }).click();
+  await row(page, 'retention', 'canal-general').getByRole('button', { name: 'Editar' }).click();
   await page.fill('#retention-days', '30');
   await page.check('#retention-hold');
   await page.getByRole('button', { name: 'Guardar' }).click();
-  await row(page, 'retention', 'grupo-a').getByText('Retención legal activa').waitFor();
-  const kept = await retentionOf('grupo-a');
+  await row(page, 'retention', 'canal-general').getByText('Retención legal activa').waitFor();
+  const kept = await retentionOf('canal-general');
   assert(kept?.days === 30 && kept.legalHold === true, 'retention days and legal hold saved');
   await row(page, 'retention', 'canal-general').getByRole('button', { name: 'Editar' }).click();
   await page.fill('#retention-days', '');
   await page.getByRole('button', { name: 'Guardar' }).click();
   await row(page, 'retention', 'canal-general').getByText('Sin límite').waitFor();
-  assert((await retentionOf('canal-general'))?.days === null, 'empty days means no automatic deletion (null)');
+  const unlimited = await retentionOf('canal-general');
+  assert(unlimited?.days === null && unlimited.legalHold === true, 'empty days means no automatic deletion (null); the hold stays');
+  // FR023-12: an MLS group has no copy for a retention or a hold to act on; the console says so and offers no edit.
+  await row(page, 'retention', 'grupo-a').getByText('No aplica (grupo MLS)').waitFor();
+  assert((await row(page, 'retention', 'grupo-a').getByRole('button', { name: 'Editar' }).count()) === 0 && !(await retentionOf('grupo-a')), 'a group takes no retention policy');
+  const refused = await nip98Fetch(adminSk, `${policyUrl}/v1/retention/grupo-a`, 'PUT', { days: null, legalHold: true });
+  assert(refused.status === 409 && refused.json.error === GROUP_RETENTION_REFUSED, 'the policy-engine refuses a hold on a group');
 
   // --- audit: server pagination (limit/before), client-side filters
   await tab(page, 'Auditoría');
@@ -310,6 +316,25 @@ try {
   assert((await page.locator('#audit-rows tr[data-action]').count()) === 20, 'client-side filter by actor');
   await page.getByRole('button', { name: 'Más recientes' }).click();
   await page.getByText('Página 1').waitFor();
+
+  // --- FR023-12: access decisions, apart from the audit, with a retention of their own
+  for (let i = 0; i < 25; i++) await engine.repo.appendAccess({ at: Date.now() - 4_000_000 + i, pubkey: bobPk, resourceId: 'canal-general', action: 'read', allow: false });
+  await engine.evaluate({ pubkey: alicePk, resourceId: 'grupo-a', action: 'read' });
+  assert(!(await auditLog()).some((a) => a.action === 'policy.evaluate'), 'decisions are not in the audit');
+  await tab(page, 'Accesos');
+  await until(async () => (await page.locator('#access-rows tr[data-resource]').count()) === 20, 'access page 1');
+  assert((await page.locator('#access-rows tr[data-resource]').first().getAttribute('data-resource')) === 'grupo-a', 'access decisions newest first');
+  assert((await page.textContent('#access-scope'))?.includes(`Se guardan ${DEFAULT_ACCESS_LOG_RETENTION_DAYS} días`), 'the access log states its retention');
+  await page.getByRole('button', { name: 'Anteriores' }).click();
+  await page.getByText('Página 2').waitFor();
+  await until(async () => (await page.locator('#access-rows tr[data-resource]').count()) >= 6, 'access page 2');
+  await page.fill('#access-resource', 'grupo-a');
+  await page.getByRole('button', { name: 'Filtrar' }).click();
+  await page.getByText('Página 1').waitFor();
+  await until(async () => (await page.locator('#access-rows tr[data-resource]').count()) >= 1 && (await page.locator('#access-rows tr[data-resource="canal-general"]').count()) === 0, 'access filtered by resource');
+  assert(policyRequests.some((r) => /\/v1\/access-log\?limit=20&resource=grupo-a$/.test(r.url)), 'the resource filter is applied by the server');
+  await page.getByRole('button', { name: 'Ver todos' }).click();
+  await until(async () => (await page.locator('#access-rows tr[data-resource]').count()) === 20, 'access unfiltered again');
 
   // --- identity-service: visible links lookup (no admin listing exists there)
   await tab(page, 'Vínculos de identidad');
@@ -416,6 +441,7 @@ try {
     ['Directorio', '#directory-notice'],
     ['Retención', '#retention-notice'],
     ['Auditoría', '#audit-rows tr[data-action]'],
+    ['Accesos', '#access-rows tr[data-resource]'],
     ['Vínculos de identidad', '#identity-pubkey'],
   ] as const) {
     await a11y.getByRole('tab', { name }).click();

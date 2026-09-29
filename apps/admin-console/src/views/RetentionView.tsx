@@ -5,13 +5,18 @@ import { errorText, useLoad } from '../ui';
 
 type Editing = { resourceId: string; days: string; legalHold: boolean };
 
+/** FR023-12: mirrors the policy-engine's refusal (GROUP_RETENTION_REFUSED). */
+const GROUP_NOTE =
+  'Los grupos MLS no tienen retención ni retención legal: la organización no guarda copia de su contenido, cifrado de extremo a extremo con secreto hacia adelante. Sus decisiones de acceso siguen el plazo de «Accesos».';
+
 export function RetentionView({ api }: { api: PolicyAdminApi }) {
   const { data, error, reload } = useLoad(async () => {
     const [r, resources] = await Promise.all([api.retention(), api.listResources().catch(() => [])]);
     // Resources without a policy are listed too, so one can be set.
     const byId = new Map<string, RetentionPolicy>(r.policies.map((p) => [p.resourceId, p]));
     for (const res of resources) if (!byId.has(res.id)) byId.set(res.id, { resourceId: res.id, days: null, legalHold: false });
-    return { notice: r.notice, rows: [...byId.values()].sort((a, b) => a.resourceId.localeCompare(b.resourceId)), configured: new Set(r.policies.map((p) => p.resourceId)) };
+    const groups = new Set(resources.filter((res) => res.kind === 'group').map((res) => res.id));
+    return { notice: r.notice, rows: [...byId.values()].sort((a, b) => a.resourceId.localeCompare(b.resourceId)), configured: new Set(r.policies.map((p) => p.resourceId)), groups };
   }, [api]);
   const [editing, setEditing] = useState<Editing | undefined>();
   const [formError, setFormError] = useState<string | undefined>();
@@ -58,18 +63,29 @@ export function RetentionView({ api }: { api: PolicyAdminApi }) {
             </TableRow>
           </TableHead>
           <TableBody>
-            {data?.rows.map((p) => (
-              <TableRow key={p.resourceId} data-retention={p.resourceId}>
-                <TableCell>{p.resourceId}</TableCell>
-                <TableCell>{p.days === null ? (data.configured.has(p.resourceId) ? 'Sin límite' : 'Sin política') : `${p.days} días`}</TableCell>
-                <TableCell>{p.legalHold ? <Chip size="small" color="warning" label="Retención legal activa" /> : 'No'}</TableCell>
-                <TableCell>
-                  <Button size="small" onClick={() => (setFormError(undefined), setEditing({ resourceId: p.resourceId, days: p.days === null ? '' : String(p.days), legalHold: p.legalHold }))}>
-                    Editar
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
+            {data?.rows.map((p) =>
+              data.groups.has(p.resourceId) ? (
+                <TableRow key={p.resourceId} data-retention={p.resourceId} data-group="true">
+                  <TableCell>{p.resourceId}</TableCell>
+                  <TableCell colSpan={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      No aplica (grupo MLS): {GROUP_NOTE}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                <TableRow key={p.resourceId} data-retention={p.resourceId}>
+                  <TableCell>{p.resourceId}</TableCell>
+                  <TableCell>{p.days === null ? (data.configured.has(p.resourceId) ? 'Sin límite' : 'Sin política') : `${p.days} días`}</TableCell>
+                  <TableCell>{p.legalHold ? <Chip size="small" color="warning" label="Retención legal activa" /> : 'No'}</TableCell>
+                  <TableCell>
+                    <Button size="small" onClick={() => (setFormError(undefined), setEditing({ resourceId: p.resourceId, days: p.days === null ? '' : String(p.days), legalHold: p.legalHold }))}>
+                      Editar
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ),
+            )}
             {data?.rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={4}>No hay recursos ni políticas de retención.</TableCell>

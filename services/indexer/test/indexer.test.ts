@@ -8,10 +8,10 @@ import { TestRelay } from '@sedecim/test-relay';
 import { LocalSigner } from '@sedecim/signer';
 import { createDirectMessage } from '@sedecim/messaging';
 import { createPgPool, migrate, nip98Fetch, resetScope } from '@sedecim/service-kit';
-import { createIndexerApi, enforceRetention, GroupAuthorities, Indexer, MemoryEventRepository, PgEventRepository, sealedCodec, type EventRepository } from '../src/index';
+import { createIndexerApi, enforceRetention, GroupAuthorities, Indexer, MemoryEventRepository, PgEventRepository, purgeSupersededVersions, sealedCodec, type EventRepository, type EventRepositoryOptions } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
-const INDEXER_TABLES = ['read_cursors', 'event_sources', 'events', 'indexer_checkpoints', 'indexer_jobs', 'indexer_replicas', 'moderation_deletions'];
+const INDEXER_TABLES = ['read_cursors', 'event_sources', 'events', 'events_superseded', 'indexer_checkpoints', 'indexer_jobs', 'indexer_replicas', 'moderation_deletions'];
 
 // FR014-05: the relay key that signs NIP-29 group state, and a member list (kind 39002) signed with it.
 const relaySk = generateSecretKey();
@@ -260,7 +260,7 @@ describe('Indexer against a Buzz-like relay (auth required, channel-scoped fan-o
 });
 
 /** FR023-08: retention and legal hold over the mirror, identical on every repository. */
-function retentionSuite(name: string, makeRepo: () => Promise<EventRepository>) {
+function retentionSuite(name: string, makeRepo: (opts?: EventRepositoryOptions) => Promise<EventRepository>) {
   describe(name, () => {
     const now = Date.UTC(2027, 0, 15);
     const day = 86_400;
@@ -308,15 +308,61 @@ function retentionSuite(name: string, makeRepo: () => Promise<EventRepository>) 
       // A channel under a held workspace is kept even past its own retention.
       expect(await enforceRetention(repo, [{ resourceId: 'kept', days: 1, legalHold: false }, { resourceId: 'held-ws', days: null, legalHold: true }], now)).toEqual([{ resourceId: 'kept', deleted: 0 }]);
     });
+
+    it('keeps what a newer version replaced while a legal hold covers it, and only then (FR023-12)', async () => {
+      const repo = await makeRepo({ keepSuperseded: true });
+      const alice = getPublicKey(generateSecretKey());
+      const ev = {
+        legalV1: at(10, [['d', 'legal']], 39002),
+        legalV2: at(5, [['d', 'legal'], ['p', alice]], 39002),
+        // Out of order: the newer version first, the older one after it.
+        generalV2: at(5, [['d', 'general'], ['p', alice]], 39002),
+        generalV1: at(10, [['d', 'general']], 39002),
+        profileV1: at(10, [], 0),
+        profileV2: at(5, [], 0),
+      };
+      for (const e of Object.values(ev)) await repo.upsert(e, 'ws://r', 'acme');
+      // Canonical reads only ever see the heads.
+      for (const [k, e] of Object.entries(ev)) expect(!!(await repo.get(e.id)), k).toBe(k.endsWith('V2'));
+      expect((await repo.superseded()).map((x) => [x.event.id, x.supersededBy]).sort()).toEqual(
+        [
+          [ev.legalV1.id, ev.legalV2.id],
+          [ev.generalV1.id, ev.generalV2.id],
+          [ev.profileV1.id, ev.profileV2.id],
+        ].sort(),
+      );
+      // The channel on hold keeps the history of its member list; the rest is deleted.
+      const held = [
+        { resourceId: 'legal', days: null, legalHold: true },
+        { resourceId: 'general', days: 30, legalHold: false },
+      ];
+      expect(await purgeSupersededVersions(repo, held)).toBe(2);
+      expect((await repo.superseded()).map((x) => x.event.id)).toEqual([ev.legalV1.id]);
+      // A held workspace covers everything of its community.
+      expect(await purgeSupersededVersions(repo, [{ resourceId: 'acme', days: null, legalHold: true }])).toBe(0);
+      // Once no hold covers it, the next run deletes it.
+      expect(await purgeSupersededVersions(repo, [{ resourceId: 'legal', days: null, legalHold: false }])).toBe(1);
+      expect(await repo.superseded()).toEqual([]);
+    });
+
+    it('outside institutional mode a newer version still deletes what it replaces', async () => {
+      const repo = await makeRepo();
+      const v1 = at(10, [['d', 'legal']], 39002);
+      const v2 = at(5, [['d', 'legal'], ['p', getPublicKey(generateSecretKey())]], 39002);
+      await repo.upsert(v1, 'ws://r');
+      await repo.upsert(v2, 'ws://r');
+      expect(await repo.get(v1.id)).toBeUndefined();
+      expect(await repo.superseded()).toEqual([]);
+    });
   });
 }
 
-retentionSuite('Retention (memory repository)', async () => new MemoryEventRepository());
+retentionSuite('Retention (memory repository)', async (opts) => new MemoryEventRepository(undefined, opts));
 if (PG) {
-  retentionSuite('Retention (postgres repository)', async () => {
+  retentionSuite('Retention (postgres repository)', async (opts) => {
     const pool = createPgPool(PG);
     await resetScope(pool, 'indexer', INDEXER_TABLES);
     await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
-    return new PgEventRepository(pool, sealedCodec(new Uint8Array(32).fill(4)));
+    return new PgEventRepository(pool, sealedCodec(new Uint8Array(32).fill(4)), opts);
   });
 }

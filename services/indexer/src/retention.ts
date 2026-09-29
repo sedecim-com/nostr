@@ -26,3 +26,11 @@ export async function enforceRetention(repo: EventRepository, policies: Retentio
   }
   return out;
 }
+
+/**
+ * FR023-12: in institutional mode the mirror keeps the versions a replaceable event superseded (a channel's member
+ * list, a profile) while a legal hold covers them; this deletes the rest. Returns how many were deleted.
+ */
+export async function purgeSupersededVersions(repo: EventRepository, policies: RetentionPolicy[]): Promise<number> {
+  return repo.purgeSuperseded(policies.filter((p) => p.legalHold).map((p) => p.resourceId));
+}

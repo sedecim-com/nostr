@@ -50,6 +50,8 @@ configMapGenerator:
       - IDENTITY_PUBLIC_URL=http://identity-service:8082
       - POLICY_PUBLIC_URL=http://policy-engine:8083
       - POLICY_ADMIN_PUBKEYS=
+      # FR023-12: days the policy-engine keeps its access decisions (resources under legal hold excepted).
+      - ACCESS_LOG_RETENTION_DAYS=90
       - BLOB_PUBLIC_URL=http://blob-store:8085
       - BLOB_ALLOWED_PUBKEYS=
       - BLOB_MAX_BYTES=52428800
