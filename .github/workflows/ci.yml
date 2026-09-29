@@ -163,7 +163,7 @@ jobs:
       - name: Production feature gates
         run: node scripts/release-gate.mjs config
       - name: Deploy scripts
-        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/image-sbom.sh scripts/rebuild-image.sh scripts/verify-release.sh
+        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/image-sbom.sh scripts/rebuild-image.sh scripts/verify-release.sh scripts/stack-profiles.sh scripts/wait-stack.sh
       - name: SLO rules and their unit tests (promtool)
         run: |
           curl -sSfL -o prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
@@ -288,6 +288,8 @@ jobs:
           CANDIDATE_BUZZ_IMAGE: ${{ inputs.buzz_image }}
         run: |
           sh scripts/init-env.sh
+          # NFR006-04: the optional profiles (managed, push, institutional, tor) run too, so their logs are scanned.
+          sh scripts/stack-profiles.sh configure
           echo "INDEXER_CHANNEL_REFRESH_MS=2000" >> .env
           if [ -n "$CANDIDATE_BUZZ_IMAGE" ]; then
             case "$CANDIDATE_BUZZ_IMAGE" in *@sha256:*) ;; *) echo "buzz_image must be pinned by digest"; exit 1;; esac
@@ -338,9 +340,15 @@ jobs:
           docker run -d --name open-relay --network host -v "$RUNNER_TEMP/open-relay.toml:/usr/src/app/config.toml:ro" "$(docker compose config --images secure-relay)"
           timeout 60 sh -c 'until curl -sf -H "Accept: application/nostr+json" http://localhost:7010 > /dev/null; do sleep 1; done'
           npx vitest run tests/interop/notification-gateway.interop.test.ts
+      # NFR006-04: a request carrying a canary credential to each service; the scan below checks nobody logs it.
+      - name: Canary requests to the services (NFR006-04)
+        run: sh scripts/stack-profiles.sh exercise
       - name: Collect logs
         if: always()
         run: docker compose logs --no-color > compose.log 2>&1 || true
+      - name: Every service of the stack, optional profiles included, is in the log (NFR006-04)
+        if: always()
+        run: sh scripts/stack-profiles.sh logged compose.log
       # NFR006-03: the logs of the whole stack must not contain secrets. gitleaks (repository rules, no git)
       # plus a canary: every secret init-env.sh generated into .env is a known value that must not appear.
       - name: Scan service logs for secrets (NFR006-03)
