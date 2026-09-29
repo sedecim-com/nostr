@@ -62,6 +62,8 @@ jobs:
         run: node scripts/backlog.mjs --check
       - name: Disclosure copy under review is versioned and up to date (FR028-02)
         run: npx tsx scripts/disclosures.ts --check
+      - name: Maturity table of the README and the release notes template is the catalog (PANEL-07)
+        run: npx tsx scripts/maturity.ts --check
       - name: Wait for moto
         run: curl -sf --retry 15 --retry-delay 2 --retry-connrefused -o /dev/null "$MOTO_ENDPOINT/moto-api/"
       - name: No absolute privacy claims in user-facing copy (FR028-03)

@@ -100,6 +100,15 @@ describe('what the sovereign CLI logs (FR021-03, FR007-05)', () => {
     await relay.stop();
   });
 
+  it('lists the maturity of each profile and function without opening any store (PANEL-07)', async () => {
+    const { SOVEREIGN_PASSPHRASE: _unused, ...noPassphrase } = env;
+    const r = await run(['maturity'], noPassphrase);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^Experimental +sovereign-tor: /m);
+    expect(r.stdout).toMatch(/^Beta +Grupos Marmot\/MLS: /m);
+    expect(r.stdout).toMatch(/^Preview +Custodia en Nitro Enclave: /m);
+  });
+
   it('shows who is sending before each send, and names no relay IP in its diagnostics', async () => {
     expect(relay.url).toMatch(/^ws:\/\/127\.0\.0\.1:/);
     const created = await run(['persona', 'create', '--label', 'Cli', '--relay', relay.url], env);
@@ -110,7 +119,10 @@ describe('what the sovereign CLI logs (FR021-03, FR007-05)', () => {
     expect(sent.status, sent.stderr).toBe(0);
     expect(sent.stderr).toMatch(/^Enviando como Cli \(npub1.*\) · llave cifrada en este dispositivo · red directa · sin vínculo$/m);
     expect(sent.stdout).toMatch(/^REPLICATED/);
-    expect((await run(['whoami', '--persona', id], env)).stdout).toMatch(/· red directa · sin vínculo/);
+    const whoami = await run(['whoami', '--persona', id], env);
+    expect(whoami.stdout).toMatch(/· red directa · sin vínculo/);
+    // PANEL-07: then the maturity of its configuration (sovereign preset, no Tor).
+    expect(whoami.stdout).toMatch(/^madurez: Early release \(sovereign \(self-hosted\): /m);
 
     // The relay goes away: the send waits, and neither its delivery state nor the sync results name the IP.
     await relay.stop();

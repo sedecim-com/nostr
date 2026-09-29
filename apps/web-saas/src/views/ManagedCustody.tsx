@@ -4,6 +4,7 @@ import { disclose, MANAGED_CONSENT_TEXTS, managedConsentVersion, preset } from '
 import { ManagedSignerClient } from '@sedecim/signer';
 import { migrateManagedToLocal } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
+import { MaturityChip } from './MaturityChip';
 
 /** The exact disclosure the panel shows for managed custody, reused for the opt-in (FR005-07, FR-028). */
 export const MANAGED_DISCLOSURE = disclose({ ...preset('convenience'), custody: 'managed' }).find((d) => d.control === 'custody')!.statement;
@@ -16,6 +17,10 @@ export const MANAGED_DISCLOSURE = disclose({ ...preset('convenience'), custody: 
 export function ManagedOptIn({ accepted, onChange, terms }: { accepted: boolean; onChange(v: boolean): void; terms?: { url: string; version: string } }) {
   return (
     <Stack spacing={1}>
+      <Stack direction="row" spacing={1} alignItems="center" id="managed-maturity">
+        <Typography variant="body2">Custodia gestionada:</Typography>
+        <MaturityChip id="managed-custody" />
+      </Stack>
       <Alert severity="warning">{MANAGED_DISCLOSURE}</Alert>
       <Alert severity="warning" id="managed-decryption">
         {MANAGED_CONSENT_TEXTS.decryption}

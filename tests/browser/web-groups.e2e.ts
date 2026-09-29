@@ -97,6 +97,8 @@ const openGroups = async (p: Page) => {
   await p.getByRole('tab', { name: 'Grupos seguros' }).click();
   // The first session per page runs the MLS removal self-test before opening (fail closed).
   await p.locator('#groups-accept').waitFor({ timeout: 30_000 });
+  // PANEL-07: Marmot is Beta while marmot-ts or ts-mls are alpha or release candidate.
+  if (!(await p.locator('#groups-intro [data-maturity="beta"]').textContent())?.includes('Beta')) throw new Error('the groups view does not show the Beta label (PANEL-07)');
 };
 const unlock = async (p: Page, name: string) => {
   await p.getByRole('button', { name: 'Desbloquear' }).waitFor();

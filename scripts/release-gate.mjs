@@ -192,10 +192,26 @@ export function checkNotes(md, tag) {
   return out;
 }
 
+/** PANEL-07: the maturity table that scripts/maturity.ts writes between these markers (undefined without it). */
+export function maturityBlock(md) {
+  const i = md.indexOf('<!-- maturity:start');
+  const j = md.indexOf('<!-- maturity:end -->', i);
+  return i < 0 || j < 0 ? undefined : md.slice(i, j + '<!-- maturity:end -->'.length);
+}
+
 export function checkNotesFile({ tag, root = process.cwd() }) {
   const file = join(root, 'docs/releases', `${tag}.md`);
   if (!existsSync(file)) return [`Notas: falta docs/releases/${tag}.md (plantilla: docs/releases/TEMPLATE.md).`];
-  return checkNotes(readFileSync(file, 'utf8'), tag);
+  const md = readFileSync(file, 'utf8');
+  const out = checkNotes(md, tag);
+  // PANEL-07: the notes carry the maturity of each profile and function, the same table as the README (which CI
+  // keeps equal to the catalog the web and the CLI show).
+  const notes = maturityBlock(md);
+  const readme = maturityBlock(readIfExists(join(root, 'README.md'), 'utf8') ?? '');
+  const fix = `npx tsx scripts/maturity.ts docs/releases/${tag}.md`;
+  if (!notes) out.push(`Notas: docs/releases/${tag}.md no tiene la tabla de madurez (PANEL-07): ${fix}.`);
+  else if (notes !== readme) out.push(`Notas: la tabla de madurez de docs/releases/${tag}.md no es la del README: ${fix}.`);
+  return out;
 }
 
 /** OPS-20: features the production configuration may only turn on with their evidence. */

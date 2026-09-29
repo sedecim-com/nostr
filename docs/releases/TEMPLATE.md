@@ -19,6 +19,24 @@ Fecha: {{AAAA-MM-DD}} · Commit: {{sha corto}} · Estado: {{early release / esta
 
 - {{Cambio visible, con el requisito (FR/NFR) o la PR.}}
 
+## Madurez por perfil y función
+
+<!-- maturity:start (scripts/maturity.ts desde packages/profiles/src/maturity.ts; no editar a mano) -->
+| Perfil o función | Tipo | Hoy | Por qué | En v1.0 |
+|---|---|---|---|---|
+| convenience (SaaS) | Perfil | Early release | Sin revisión externa ni stage en AWS todavía. | GA controlado, con SEC-01, SEC-02, el stage y la release firmada. |
+| private-resilient | Perfil | Early release | Sin revisión externa. Sin Continuity Vault en el despliegue, el historial depende de los relays y el perfil queda en Beta. | GA controlado, solo con el Continuity Vault. |
+| institutional | Perfil | Early release | Sin pentest sobre stage todavía. | GA controlado, con el pentest sobre stage y la auditoría. |
+| sovereign (self-hosted) | Perfil | Early release | Todavía no hay una release firmada. | GA técnico, con la release firmada, la instalación reproducible y el restore drill. |
+| sovereign-tor | Perfil | Experimental | Falla cerrado y tiene pruebas de fugas propias, pero ni el cliente ni sus dependencias tienen revisión independiente. | Experimental: nada lo declara apto para alto riesgo sin una auditoría específica y un cliente dedicado. |
+| DMs NIP-17 | Función | Early release | Solo se habilitan con el gate de interoperabilidad contra el Buzz fijado en verde. No ofrecen forward secrecy. | Con el perfil que los usa, y siempre detrás del gate de interoperabilidad. |
+| Grupos Marmot/MLS | Función | Beta | marmot-ts es alpha y ts-mls está en release candidate. | Beta mientras marmot-ts o ts-mls sean alpha o release candidate. |
+| Continuity Vault | Función | Early release | Falta aprobar su threat model (VAULT-07) y la revisión externa. | Con private-resilient. |
+| Custodia gestionada básica | Función | Early release | Espera la aprobación legal (DEC-12) y la validación en AWS; el gate de release no la deja en producción. | GA opcional, con la aprobación legal y KMS y Secrets Manager reales. |
+| Custodia en Nitro Enclave | Función | Preview | Prototipo: la attestation solo se verificó en local, y va apagada en producción. | Preview: EIF, PCR, attestation y KMS reales más auditoría. |
+| Notificaciones push | Función | Experimental | Con Buzz y el secure relay, el gateway no puede ver la actividad sin leer DMs, así que no se ofrecen. | Experimental, detrás de un flag. |
+<!-- maturity:end -->
+
 ## Cambios en el modelo de confianza
 
 <!-- Obligatoria. Responde a "¿en quién confío ahora y qué puede hacer?" frente al release anterior. -->

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Card, CardContent, FormControlLabel, Stack, Switch, Typography } from '@mui/material';
 import { browserPushEnv, disablePush, enablePush, pushAvailability, pushPreference, watchableRelays, type RelayWatch } from '../lib/push';
 import { useWorkspace } from '../lib/workspace';
+import { MaturityChip } from './MaturityChip';
 
 /** OPS-06: what happens to activity on the persona's relays the gateway does not watch. */
 function partialText(w: RelayWatch): string {
@@ -124,9 +125,12 @@ export function NotificationsControl() {
     <Card id="notifications-control">
       <CardContent>
         <Stack spacing={1}>
-          <Typography variant="h6" component="h2">
-            Notificaciones
-          </Typography>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="h6" component="h2">
+              Notificaciones
+            </Typography>
+            <MaturityChip id="push" />
+          </Stack>
           {body()}
         </Stack>
       </CardContent>
