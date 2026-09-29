@@ -5,7 +5,7 @@
 # (docs/marmot.md). The repository overrides ts-mls to a fixed release, and every session runs `assertRemovalSecrecy`
 # before opening groups and fails closed. This script proves the guard still catches the bug:
 #   1. swaps every installed copy of ts-mls for 2.0.0-rc.10 (the npm tarball, pinned by its integrity);
-#   2. the self-test must fail closed (scripts/mls-selftest.ts exits 3);
+#   2. the self-test must fail closed (tests/security/mls-selftest.ts exits 3);
 #   3. restores the installed copies; the self-test must pass again.
 # The copies are restored on any exit, also when a step fails.
 #
@@ -28,9 +28,9 @@ mapfile -t COPIES < <(find node_modules apps/*/node_modules packages/*/node_modu
 [ "${#COPIES[@]}" -gt 0 ] || { echo "mls-negative-control: ts-mls is not installed" >&2; exit 2; }
 
 version() { node -p "require('./$1/package.json').version"; }
-selftest() { # selftest : exit code of scripts/mls-selftest.ts
+selftest() { # selftest : exit code of tests/security/mls-selftest.ts
   local code=0
-  "$TSX" scripts/mls-selftest.ts || code=$?
+  "$TSX" tests/security/mls-selftest.ts || code=$?
   return "$code"
 }
 
