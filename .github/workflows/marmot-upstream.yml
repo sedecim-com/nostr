@@ -29,7 +29,7 @@ jobs:
       ts_mls: ${{ steps.check.outputs.ts_mls }}
       marmot_ts: ${{ steps.check.outputs.marmot_ts }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Query the npm registry for stable ts-mls / marmot-ts
         id: check
         run: sh scripts/marmot-upstream.sh check | tee -a "$GITHUB_OUTPUT"
@@ -42,7 +42,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Open (or comment on) the migration issue
         env:
           GH_TOKEN: ${{ github.token }}
