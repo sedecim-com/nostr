@@ -36,6 +36,10 @@ description = "Official NIP-44 v2 test vectors (github.com/paulmillr/nip44): pub
 paths = ['''packages/nostr-core/test/vectors/nip44\.vectors\.json$''']
 
 [[allowlists]]
+description = "Exportable NIP-49 and NIP-59 test vectors (SEC-07): throwaway keys derived from fixed labels by generate.ts, and the ncryptsec published in NIP-49"
+paths = ['''packages/nostr-core/test/vectors/(nip(49|59)\.vectors\.json|generate\.ts)$''']
+
+[[allowlists]]
 description = "Kubernetes secretKeyRef/configMapKeyRef key names (e.g. VAULT_S3_SECRET_KEY): a line holding only an env-style name with underscores, never a value (mixed-case or AWS-style values are still reported)"
 regexTarget = "line"
 regexes = ['''(?-i)^\s*key: [A-Z][A-Z0-9]*(_[A-Z0-9]+)+\s*$''']

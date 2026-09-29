@@ -34,4 +34,5 @@ Estado del ecosistema a 2026-09-26:
 - **Diferido:** el early release solo tiene clientes propios en TypeScript (ADR 0002). Esta dirección se
   aplica cuando se decida una app nativa; hasta entonces las tareas nativas quedan como P3 sin sprint.
 - FR025-04 (interoperabilidad con MDK) pasa a ser también la validación del núcleo Rust.
-- Hay que exportar vectores de prueba en JSON (tarea derivada, SEC-07).
+- Hay que exportar vectores de prueba en JSON (tarea derivada, SEC-07). Hecho: `packages/nostr-core/test/vectors/`
+  reúne los vectores oficiales de NIP-44 y los propios de NIP-49 y NIP-59, con su formato en el README de esa carpeta.

@@ -40,7 +40,13 @@ if (env.DATABASE_URL) {
   const applied = await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
   logger.info('migrations applied', { applied: applied.join(',') || 'none' });
   await migrateReplayStore(pool);
-  repo = new PgEventRepository(pool, codec);
+  const pg = new PgEventRepository(pool, codec);
+  repo = pg;
+  // SEC-06: payloads sealed before the AAD are re-sealed in the background; reads accept both formats meanwhile.
+  pg.resealLegacy().then(
+    (r) => (r.resealed || r.failed ? logger[r.failed ? 'warn' : 'info']('mirror payloads re-sealed (SEC-06)', r) : undefined),
+    (err) => logger.error('mirror re-seal failed', { error: err instanceof Error ? err.message : String(err) }),
+  );
   coordinator = new PgShardCoordinator(pool);
   replayStore = new PgReplayStore(pool);
 } else {

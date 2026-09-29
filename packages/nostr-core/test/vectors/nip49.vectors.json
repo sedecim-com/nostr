@@ -1,0 +1,82 @@
+{
+  "description": "NIP-49 (ncryptsec) vectors of Acceso Nostr. See README.md in this folder.",
+  "official": [
+    {
+      "note": "Test vector published in NIP-49",
+      "ncryptsec": "ncryptsec1qgg9947rlpvqu76pj5ecreduf9jxhselq2nae2kghhvd5g7dgjtcxfqtd67p9m0w57lspw8gsq6yphnm8623nsl8xn9j4jdzz84zm3frztj3z7s35vpzmqf6ksu8r89qk5z2zxfmu5gv8th8wclt0h4p",
+      "password": "nostr",
+      "log_n": 16,
+      "sec": "3501454135014541350145413501453fefb02227e449e57cf4d3a3ce05378683"
+    }
+  ],
+  "normalization": [
+    {
+      "note": "NIP-49 example: passwords are NFKC-normalized before scrypt",
+      "password_utf8": "e284abe284a6e1ba9bcca3",
+      "password_nfkc_utf8": "c385cea9e1b9a9"
+    }
+  ],
+  "valid": [
+    {
+      "note": "Default cost (log_n 16) and key security unknown",
+      "sec": "32bcc6101074425e0e470f61af8e12becd0b4b2c7ac2593c0c74f71d7772084b",
+      "password": "nostr",
+      "password_nfkc_utf8": "6e6f737472",
+      "log_n": 16,
+      "key_security": 2,
+      "salt": "d8b3c5a95cdddb974474c78ef6393182",
+      "nonce": "a82ac6843144b57537db41a1448177d32c6571d7d9879596",
+      "ncryptsec": "ncryptsec1qggd3v7949wdmkuhg36v0rhk8ycc92p2c6zrz394w5maksdpgjqh05evv4ca0kv8jktqyhqhhjzumgxz0ul2uzvqmyflhkxzqj4g80e337epl33wsln3rq0c3lst7zv07hjprecnkvcssgl06g5l2g5w"
+    },
+    {
+      "note": "Non-ASCII password; key known not to have been handled insecurely",
+      "sec": "0438615663db1ccca232bceea3a1241ab691dd2053ccd141a4737f75d62de35b",
+      "password": "contraseña 🔑 ñ",
+      "password_nfkc_utf8": "636f6e7472617365c3b16120f09f949120c3b1",
+      "log_n": 12,
+      "key_security": 1,
+      "salt": "4f0f167b9d8255c1ab6a8bef239be9f0",
+      "nonce": "25381d7cf9936535f17290722114b24bf48661b528da3536",
+      "ncryptsec": "ncryptsec1qgxy7rck0wwcy4wp4d4ghmern05lqffcr470nym9xhch9yrjyy2tyjl5sesm22x6x5mqr5q907mevmw4pm2mmsy02neft9hmd4pqkmkgd59csjplyak9uss76zgdpu9xpcugslh7ezruwmwpy5j5cftd"
+    },
+    {
+      "note": "Password that NFKC changes: the normalized form opens it too",
+      "sec": "670829d3d20cf2a2c4116166cd56ce17743a86820ef1f962d2f4a3c252bd446e",
+      "password": "ÅΩẛ̣",
+      "password_nfkc_utf8": "c385cea9e1b9a9",
+      "log_n": 8,
+      "key_security": 0,
+      "salt": "dab94f2b4400c591bdca9be89e7281fe",
+      "nonce": "0d90e3523d0f89fd270e2d328aa29c1f125501383e79b3c2",
+      "ncryptsec": "ncryptsec1qgyd4w209dzqp3v3hh9fh6y7w2qlurvsudfr6rufl5nsutfj323fc8cj25qns0nek0pqp3u8gf5lsvut2n5kakf4h2p0m9h6j6vtg5cuz45ukmp5chupqx9ds5utg7dv9qav8wcvgp09hhrstsg5squ2"
+    }
+  ],
+  "invalid": [
+    {
+      "note": "Wrong password",
+      "ncryptsec": "ncryptsec1qggd3v7949wdmkuhg36v0rhk8ycc92p2c6zrz394w5maksdpgjqh05evv4ca0kv8jktqyhqhhjzumgxz0ul2uzvqmyflhkxzqj4g80e337epl33wsln3rq0c3lst7zv07hjprecnkvcssgl06g5l2g5w",
+      "password": "Nostr"
+    },
+    {
+      "note": "Ciphertext changed",
+      "ncryptsec": "ncryptsec1qggd3v7949wdmkuhg36v0rhk8ycc92p2c6zrz394w5maksdpgjqh05evv4ca0kv8jktqyhghhjzumgxz0ul2uzvqmyflhkxzqj4g80e337epl33wsln3rq0c3lst7zv07hjprecnkvcssgl06ga6pk4c",
+      "password": "nostr"
+    },
+    {
+      "note": "Key security byte changed (it is the AAD)",
+      "ncryptsec": "ncryptsec1qggd3v7949wdmkuhg36v0rhk8ycc92p2c6zrz394w5maksdpgjqh05evv4ca0kv8jktqzhqhhjzumgxz0ul2uzvqmyflhkxzqj4g80e337epl33wsln3rq0c3lst7zv07hjprecnkvcssgl06g9ptyn2",
+      "password": "nostr"
+    },
+    {
+      "note": "Unsupported version 0x01",
+      "ncryptsec": "ncryptsec1qygd3v7949wdmkuhg36v0rhk8ycc92p2c6zrz394w5maksdpgjqh05evv4ca0kv8jktqyhqhhjzumgxz0ul2uzvqmyflhkxzqj4g80e337epl33wsln3rq0c3lst7zv07hjprecnkvcssgl06gnkpnr5",
+      "password": "nostr"
+    },
+    {
+      "note": "log_n above what the reader accepts: reject before running scrypt",
+      "ncryptsec": "ncryptsec1qggd3v7949wdmkuhg36v0rhk8ycc92p2c6zrz394w5maksdpgjqh05evv4ca0kv8jktqyhqhhjzumgxz0ul2uzvqmyflhkxzqj4g80e337epl33wsln3rq0c3lst7zv07hjprecnkvcssgl06g5l2g5w",
+      "password": "nostr",
+      "max_log_n": 15
+    }
+  ]
+}
