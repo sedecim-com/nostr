@@ -137,4 +137,18 @@ describe('what the sovereign CLI logs (FR021-03, FR007-05)', () => {
     for (const l of logs) expect(l.stdout + l.stderr).not.toContain('127.0.0.1');
     await relay.start();
   }, 60_000);
+
+  it('says what the relay answered when it does not take the DM relay list, as Buzz does (OPS-21)', async () => {
+    const buzzLike = new TestRelay();
+    await buzzLike.start();
+    buzzLike.faults.rejectReason = 'restricted: unknown event kind';
+    try {
+      const created = await run(['persona', 'create', '--label', 'Buzz', '--relay', buzzLike.url], env);
+      expect(created.status, created.stderr).toBe(0);
+      expect(created.stderr).toMatch(/^relays de DM \(kind 10050\): FAILED — quorum 1 unreachable: ws:\/\/ip-[0-9a-f]{8}:\d+: restricted: unknown event kind$/m);
+      expect(created.stderr).not.toContain('127.0.0.1');
+    } finally {
+      await buzzLike.stop();
+    }
+  }, 30_000);
 });

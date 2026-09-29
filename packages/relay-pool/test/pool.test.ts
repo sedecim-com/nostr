@@ -6,6 +6,29 @@ import { TestRelay } from '@sedecim/test-relay';
 import { RelayPool, percentile, relayDegradation, type WebSocketLike } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
+/** Delivers what the relay sends `ms` late and in order, as a slow circuit (e.g. Tor) does. */
+const slowFactory = (ms: number) => (url: string): WebSocketLike => {
+  const ws = new WebSocket(url);
+  return {
+    get readyState() {
+      return ws.readyState;
+    },
+    send: (data) => ws.send(data),
+    close: (code, reason) => ws.close(code, reason),
+    set onopen(f: WebSocketLike['onopen']) {
+      ws.onopen = f;
+    },
+    set onclose(f: WebSocketLike['onclose']) {
+      ws.onclose = f;
+    },
+    set onerror(f: WebSocketLike['onerror']) {
+      ws.onerror = f;
+    },
+    set onmessage(f: WebSocketLike['onmessage']) {
+      ws.onmessage = (ev) => setTimeout(() => f?.({ data: ev.data }), ms);
+    },
+  } as WebSocketLike;
+};
 
 describe('RelayPool', () => {
   let relays: TestRelay[] = [];
@@ -103,6 +126,17 @@ describe('RelayPool', () => {
     expect((await pool.query([r.url], [{ kinds: [1059], '#p': [me] }], 3000)).map((e) => e.id)).toEqual([wrap.id]);
     // The REQ follows the AUTH at once, without waiting for the OK nostr-rs-relay never sends (authTimeoutMs: 2 s).
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('asks for gift wraps again with AUTH when the challenge comes after the REQ, over a slow link such as Tor (OPS-21)', async () => {
+    const r = await startRelay({ silentDmKinds: [1059], silentAuthOk: true });
+    const me = await signer.getPublicKey();
+    const wrap = await new LocalSigner(generateSecretKey()).signEvent({ kind: 1059, content: 'sealed', tags: [['p', me]] });
+    r.inject(wrap);
+    // Everything the relay sends arrives 300 ms late, in order: the challenge comes after the 50 ms wait, so the
+    // first REQ goes out unauthenticated and the relay answers it with an empty EOSE, which arrives after the challenge.
+    pool = new RelayPool({ webSocketFactory: slowFactory(300), signer, authMode: 'on-demand', challengeWaitMs: 50 });
+    expect((await pool.query([r.url], [{ kinds: [1059], '#p': [me] }], 5000)).map((e) => e.id)).toEqual([wrap.id]);
   });
 
   it('does not authenticate for public reads in on-demand mode', async () => {

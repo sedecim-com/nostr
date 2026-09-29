@@ -39,6 +39,11 @@ const CHANNEL_STATE_KINDS = [39000, 39001, 39002, 39003];
 const OWN_LIST_KINDS = [0, 3, 10002, 10050, 10063];
 /** Written as the owner of MLS state restored from the vault: no device has this id, so its groups need a rejoin. */
 const RESTORED_MLS_OWNER = 'vault-restore';
+/**
+ * OPS-21: how long a read waits for its relays. Over Tor, reaching an onion service and answering NIP-42 can take
+ * several seconds, so a read there gets the margin of a slow circuit instead of coming back empty.
+ */
+const readTimeoutMs = (persona: Pick<PersonaConfig, 'network'>) => (persona.network === 'tor-only' ? 30_000 : 10_000);
 
 /** VAULT-05: a vault export is one JSON document of its own format; anything else is read as JSONL. */
 function isVaultExport(text: string): boolean {
@@ -293,7 +298,7 @@ export class SovereignClient {
     // FR017-06: the same routing as the web. A DM wrap goes to the recipient's DM relays, looked up again on each
     // retry until one accepts it (FR010-03). Writing to someone lets the guard reach the relays they published.
     const allow = (urls: string[]) => guard.allowHosts(urls.map((u) => new URL(u).hostname));
-    const route = dmRouter(pool, { discoveryRelays: dmDiscovery, fallback: persona.relays });
+    const route = dmRouter(pool, { discoveryRelays: dmDiscovery, fallback: persona.relays, timeoutMs: readTimeoutMs(persona) });
     const router = async (rec: { meta?: Record<string, string> }) => {
       const r = await route(rec);
       if (r) allow(r.relays);
@@ -401,7 +406,7 @@ export class SovereignClient {
 
   async readChannel(personaId: string, groupId: string, limit = 50): Promise<NostrEvent[]> {
     const s = await this.session(personaId);
-    return s.pool.query(s.persona.relays, [{ ...channelFilter(groupId), limit }], 10_000);
+    return s.pool.query(s.persona.relays, [{ ...channelFilter(groupId), limit }], readTimeoutMs(s.persona));
   }
 
   /**
@@ -417,7 +422,7 @@ export class SovereignClient {
     await (await this.identities()).recordUsage(personaId, { contact: recipient });
     // The NIP-17 gate is checked by the CLI before a DM is composed (flags.json of the interop gate).
     const messenger = new DirectMessenger(s.signer, { nip17: true, readReceipts: false }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
-    const { deliveries } = await messenger.send({ recipients: [recipient], content: text }, { pool: s.pool, outbox: s.dmOutbox, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, wait: true });
+    const { deliveries } = await messenger.send({ recipients: [recipient], content: text }, { pool: s.pool, outbox: s.dmOutbox, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, timeoutMs: readTimeoutMs(s.persona), wait: true });
     return deliveries.map((d) => d.record);
   }
 
@@ -447,6 +452,7 @@ export class SovereignClient {
       policy: () => receiptPolicy(this.profileFor(s.persona)),
       sent: s.store.collection<boolean>('receipts'),
       wrapOptions: (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap,
+      timeoutMs: readTimeoutMs(s.persona),
       ...handlers,
     });
   }
@@ -454,7 +460,7 @@ export class SovereignClient {
   /** Reads the persona's DM relays once; `onReceipt` reports the receipts that advanced its DMs. */
   async inbox(personaId: string, handlers: DmWatchHandlers = {}): Promise<DirectMessage[]> {
     const s = await this.session(personaId);
-    return this.dmInbox(s, handlers).sync(10_000);
+    return this.dmInbox(s, handlers).sync(readTimeoutMs(s.persona));
   }
 
   /** FR009-03: keeps reading the persona's DM relays as messages and receipts arrive. Returns the stop function. */
@@ -720,7 +726,7 @@ export class SovereignClient {
     const history = await rebuildHistory({ relays: s.persona.relays, pubkey: s.persona.pubkey, strategies });
     const channels = Object.keys(history.channels);
     const filters = [{ authors: [s.persona.pubkey], kinds: OWN_LIST_KINDS }, ...(channels.length ? [{ kinds: CHANNEL_STATE_KINDS, '#d': channels }] : [])];
-    const lists = await s.pool.query(s.persona.relays, filters, 10_000);
+    const lists = await s.pool.query(s.persona.relays, filters, readTimeoutMs(s.persona));
     return [...history.own, ...lists, ...Object.values(history.channels).flat(), ...history.wraps];
   }
 
