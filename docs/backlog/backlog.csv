@@ -459,7 +459,34 @@ Los disclosures pasan a la versión 1.7.0, con los textos `retention` y `export`
 - `tests/browser/web-saas.e2e.ts`: retención, descarga de la exportación y borrado con confirmación.
 
 Documentado en ADR 0011 (sección VAULT-05), en el threat model del vault y en la trazabilidad (NFR-008, FR-027).","https://github.com/sedecim-com/nostr/issues/248"
-"VAULT-06","VAULT · Encrypted Continuity Vault","PRD GC-B06, NFR-003","Backend self-hosted del vault","El mismo contrato sobre almacenamiento local o S3-compatible (SeaweedFS del compose) sin depender del SaaS de Sedecim; incluido en el compose y en el restore drill","Infra","P1","3","VAULT-01","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/249"
+"VAULT-06","VAULT · Encrypted Continuity Vault","PRD GC-B06, NFR-003","Backend self-hosted del vault","El mismo contrato sobre almacenamiento local o S3-compatible (SeaweedFS del compose) sin depender del SaaS de Sedecim; incluido en el compose y en el restore drill","Infra","P1","3","VAULT-01","S11","2026-11-06","Pendiente","Commit f20f802 (PR #326).
+
+**Mismo contrato, dos almacenamientos.** `services/continuity-vault` guarda los sobres en un directorio (`VAULT_OBJECTS_DIR`) o en cualquier S3-compatible (`VAULT_S3_BUCKET`, `VAULT_S3_ENDPOINT`, `VAULT_S3_REGION`, `VAULT_S3_PREFIX` y llaves propias o la cadena de AWS). Al arrancar comprueba el bucket.
+
+**En el compose, sin el SaaS:**
+- servicio `continuity-vault` (:8088);
+- filas en la base de la plataforma;
+- sobres en su propio bucket de SeaweedFS (`continuity-vault`), con llaves que SeaweedFS solo acepta para ese bucket;
+- `seaweedfs-init` crea el bucket e `init-env.sh` genera las llaves;
+- la web del despliegue lo usa (`infra/web/config.json`) y con TLS se sirve en `vault.<dominio>`.
+
+**Backup y restore drill:**
+- `backup.sh` pausa el vault desde antes de los dumps hasta copiar `seaweedfs-data`, así un backup nunca tiene una fila sin su sobre;
+- el restore drill siembra un sobre sellado y, tras backup, host limpio y `restore.sh`, comprueba que vuelve y abre con su llave (`scripts/drill-data.ts`);
+- el gate de interop del stack lo usa en cada PR (`tests/interop/stack.interop.test.ts`).
+
+**Además:**
+- imagen de release `nostr-continuity-vault`;
+- componente opt-in de Kubernetes (`deploy/k8s/components/continuity-vault`), que stage no activa: no arranca hasta que el overlay decida quién abre cuentas.
+
+**Tests:**
+- `services/continuity-vault/test/continuity-vault.test.ts`: la suite completa sobre objetos S3 (moto en CI y el SeaweedFS fijado) y el contrato del almacenamiento: páginas, prefijos y bucket inexistente;
+- `tests/interop/stack.interop.test.ts`;
+- `tests/scripts/build-image.test.ts`;
+- `tests/scripts/deploy-manifests.test.ts`;
+- restore drill (`.github/workflows/restore-drill.yml`).
+
+Documentado en ADR 0011 (sección VAULT-06), el threat model del vault, `docs/runbooks/restore.md`, `docs/rpo-rto.md` y la trazabilidad (NFR-003).","https://github.com/sedecim-com/nostr/issues/249"
 "OPS-18","OPS · Despliegue y DevSecOps","PRD GC-F03","Trazabilidad y estado generados desde la fuente, con check en CI","requirements-traceability.md y un tablero de estado se regeneran desde los issues y el código; CI falla si una referencia o evidencia (archivo, prueba, SHA o ADR) no existe","Infra","P0","5","OPS-17","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/250"
 "NFR003-03","NFR · Requisitos no funcionales","NFR-003, PRD GC-C05","Simulacro completo de RPO/RTO en stage","Restore nocturno de RDS (PITR) y del almacenamiento S3 con interop, más un drill manual en un entorno limpio con los tiempos reales documentados","Infra","P0","3","NFR001-03","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/251"
 "OPS-20","OPS · Despliegue y DevSecOps","PRD GC-D05, GC-A03, GC-G01","Feature gates de producción para managed, enclave y push","Con legal o auditoría pendientes, el onboarding managed no aparece en la configuración de producción; enclave y su exportación apagados mientras sean Preview; push apagado donde no hay disparador seguro; el gate de release comprueba la configuración","Seguridad","P0","3","OPS-06 REL-01","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/252"
