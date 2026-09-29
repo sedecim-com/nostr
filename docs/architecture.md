@@ -217,7 +217,8 @@ Las lecturas (`/v1/*`) no tienen estado: cualquier réplica las sirve detrás de
   reemplazables y direccionables, los escritores de una misma dirección se serializan con
   `pg_advisory_xact_lock` y la nueva cabeza borra las versiones que reemplaza: tras cualquier carrera queda
   solo la cabeza NIP-01 (mayor `created_at`, empate por menor id). La columna `d_tag` (migración 003)
-  permite elegir cabezas también en un espejo sellado.
+  permite elegir cabezas también en un espejo sellado. En modo institucional las versiones reemplazadas pasan a
+  `events_superseded` en la misma transacción, y la retención borra las que no cubre un legal hold (FR023-12).
 - **Trabajos únicos.** La retención institucional (FR023-08) se reclama de forma atómica en `indexer_jobs`:
   la ejecuta una sola réplica por `RETENTION_INTERVAL_MS`, y sus borrados son idempotentes de todos modos.
   El filtrado por políticas (FR023-05) se evalúa en cada lectura, en la réplica que la atiende.

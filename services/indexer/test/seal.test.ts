@@ -66,7 +66,7 @@ const PG = process.env.TEST_DATABASE_URL;
     await admin.end();
     const pool = createPgPool(`${PG}${PG!.includes('?') ? '&' : '?'}options=${encodeURIComponent(`-c search_path=${schema}`)}`);
     pools.push(pool);
-    await resetScope(pool, 'indexer', ['read_cursors', 'event_sources', 'events', 'indexer_checkpoints', 'indexer_jobs', 'indexer_replicas', 'moderation_deletions']);
+    await resetScope(pool, 'indexer', ['read_cursors', 'event_sources', 'events', 'events_superseded', 'indexer_checkpoints', 'indexer_jobs', 'indexer_replicas', 'moderation_deletions']);
     return pool;
   };
   const payloadOf = async (pool: Pool, id: string) => (await pool.query<{ encrypted_payload: Buffer }>('SELECT encrypted_payload FROM events WHERE event_id = $1', [id])).rows[0]!.encrypted_payload;
@@ -100,7 +100,7 @@ const PG = process.env.TEST_DATABASE_URL;
     const tampered = note('cuatro');
     await insert(tampered, legacySeal(rows[0]!));
 
-    expect(await migrate(pool, migrations, 'indexer')).toEqual(['005_seal_version.sql']);
+    expect(await migrate(pool, migrations, 'indexer')).toEqual(['005_seal_version.sql', '006_superseded.sql']);
     const repo = new PgEventRepository(pool, codec);
     for (const e of rows) expect((await repo.get(e.id))!.event).toEqual(e);
     await expect(repo.get(tampered.id)).rejects.toThrow(/holds another event/);

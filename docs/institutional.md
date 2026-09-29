@@ -19,8 +19,12 @@ retención y desafíos WebAuthn en tablas `policy_*` de la base de plataforma (l
 migraciones (`services/policy-engine/migrations`) se aplican al arrancar. Sin `DATABASE_URL` usa un repositorio
 en memoria con el mismo comportamiento (se pierde al reiniciar; lo avisa en el log).
 
-- **Auditoría append-only**: `policy_audit` rechaza `UPDATE`, `DELETE` y `TRUNCATE` con triggers. Solo registra
-  quién, qué acción, sobre qué y metadatos de la decisión; nunca contenido de mensajes.
+- **Auditoría append-only**: `policy_audit` rechaza `UPDATE`, `DELETE` y `TRUNCATE` con triggers. Registra lo que
+  hacen los administradores: quién, qué acción, sobre qué y sus metadatos; nunca contenido de mensajes. No se poda.
+- **Registro de accesos** (FR023-12): las decisiones de `POST /v1/evaluate` (quién pidió qué acción sobre qué recurso
+  y qué se le respondió) van a `policy_access_log`, no a la auditoría, y tienen su propia retención (ver «Qué cubre y
+  qué no»). Las anteriores a la migración 003 siguen en la auditoría, porque es append-only; la migración las copia
+  al registro de accesos para que también se vean allí.
 - **Sesiones**: el token se guarda como hash SHA-256; una fuga de la base no da tokens utilizables.
 - **WebAuthn**: se guarda solo la llave pública de la credencial; la privada nunca sale del autenticador.
 
@@ -45,9 +49,10 @@ Todas las rutas son JSON. "Admin" = NIP-98 firmado por una pubkey de `POLICY_ADM
 | `POST /v1/rotations/:id/done` | admin o servicio | `Rotation` |
 | `GET /v1/revocations?after=&limit=` | admin o servicio | `{revocations, latest, now}`: revocaciones de dispositivo (`{cursor, at, deviceId, reason}`, más antigua primero) con `cursor` mayor que `after`; `latest` = cursor de la última (FR024-04) |
 | `GET /v1/audit?limit=&before=` | admin | `{audit}`, más nuevo primero; `before` = `id` de la última entrada recibida |
+| `GET /v1/access-log?limit=&before=&resource=` | admin | `{access, retentionDays}`: decisiones de acceso, más nueva primero; `before` como en la auditoría; `resource` filtra por recurso (FR023-12) |
 | `GET /v1/directory` · `PUT /v1/directory/:pubkey` · `DELETE /v1/directory/:pubkey` | admin | `{entries}` · entrada · `{ok}` |
 | `GET /v1/retention` | admin o servicio | `{policies, notice}` |
-| `PUT /v1/retention/:resourceId` `{days: number\|null, legalHold: boolean}` | admin | `{policy, notice}` |
+| `PUT /v1/retention/:resourceId` `{days: number\|null, legalHold: boolean}` | admin | `{policy, notice}`; 409 si el recurso es un grupo MLS (FR023-12) |
 
 `PUT /v1/subjects/:pubkey` cambia roles y atributos y nunca la revocación (FR023-09): editar a una persona
 revocada la deja revocada, aunque el cuerpo traiga `suspended`. Levantarla es `POST …/reactivate`, con su propia
@@ -178,3 +183,36 @@ token) cada `RETENTION_INTERVAL_MS` (1 h) y borra del mirror los eventos con `cr
 
 Tampoco borra los eventos del propio relay Buzz ni del secure-relay: su retención es la del relay. Pruebas: bloque
 "Retention" de `services/indexer/test/indexer.test.ts` (memoria y Postgres) y `tests/e2e/institutional-policy.test.ts`.
+
+### Qué cubre y qué no (FR023-12)
+
+La retención y el legal hold actúan sobre lo que guarda la organización. Por eso:
+
+- **Grupos MLS (Marmot): no aplica.**
+  - `PUT /v1/retention/:id` sobre un recurso `group` responde 409. La organización no guarda copia de su contenido:
+    va cifrado de extremo a extremo con secreto hacia adelante. Un legal hold sobre un grupo prometería una evidencia
+    que nadie puede conservar.
+  - Una política que quedara sobre un grupo (puesta antes, o sobre un recurso que después cambió de tipo) ni se aplica
+    ni aparece en `GET /v1/retention`.
+  - La consola muestra «No aplica» en esas filas.
+- **Versiones reemplazadas.** Un evento reemplazable o direccionable sustituye a su versión anterior: un perfil
+  (kind 0), la lista de miembros de un canal (39002)…
+  - En modo institucional el indexer no la borra: la mueve a `events_superseded`, que las lecturas no ven. Lo mismo
+    con una versión antigua que llega después de la nueva.
+  - Cada pasada de retención borra las que no cubre ningún legal hold. La cubre un hold sobre su canal (`h`), sobre su
+    espacio de trabajo o, en el estado de grupo NIP-29 (39000–39003), sobre su `d`.
+  - Al levantar el hold, la siguiente pasada las borra.
+  - Fuera del modo institucional se borran al llegar la versión nueva, como antes.
+- **Decisiones de acceso.**
+  - Se guardan `ACCESS_LOG_RETENTION_DAYS` días (90 por defecto). Cada réplica del engine poda cada
+    `ACCESS_LOG_PRUNE_INTERVAL_MS` (1 h); el borrado es idempotente.
+  - Las de un recurso con legal hold se guardan mientras dure.
+  - Un hold sobre un espacio de trabajo cubre sus canales, y el engine no sabe cuáles son: mientras dure, no se poda
+    nada.
+- **Auditoría.** Guarda lo que hacen los administradores. Es append-only y no se poda.
+
+Pruebas:
+- `services/policy-engine/test/policy-engine.test.ts`, en memoria y Postgres;
+- bloque "Retention" de `services/indexer/test/indexer.test.ts`, en memoria y Postgres;
+- `tests/e2e/institutional-policy.test.ts`;
+- `tests/browser/admin-console.e2e.ts`.

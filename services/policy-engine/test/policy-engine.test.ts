@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { copyFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateSecretKey, getPublicKey } from '@sedecim/nostr-core';
 import { createPgPool, migrate, nip98Fetch, resetScope, type Pool } from '@sedecim/service-kit';
-import { createPolicyApi, MemoryPolicyRepository, PgPolicyRepository, PolicyEngine, POLICY_TABLES, RETENTION_NOTICE, type PolicyRepository } from '../src/index';
+import { createPolicyApi, GROUP_RETENTION_REFUSED, MemoryPolicyRepository, PgPolicyRepository, PolicyEngine, POLICY_TABLES, RETENTION_NOTICE, type PolicyRepository } from '../src/index';
 import { TestAuthenticator } from './webauthn-fixture';
 
 const MIGRATIONS = fileURLToPath(new URL('../migrations', import.meta.url));
@@ -120,12 +123,57 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
       expect((await asAdmin('/v1/retention/general', 'PUT', { days: 30 })).status).toBe(400);
       expect((await asAdmin('/v1/retention/unknown', 'PUT', { days: 30, legalHold: false })).status).toBe(404);
       expect((await asAdmin('/v1/retention/general', 'PUT', { days: 30, legalHold: false })).status).toBe(200);
-      await asAdmin('/v1/retention/legal-room', 'PUT', { days: null, legalHold: true });
-      const expected = { policies: [{ resourceId: 'general', days: 30, legalHold: false }, { resourceId: 'legal-room', days: null, legalHold: true }], notice: RETENTION_NOTICE };
+      // FR023-12: an MLS group has no mirror copy for a retention or a legal hold to act on.
+      const refused = await asAdmin('/v1/retention/legal-room', 'PUT', { days: null, legalHold: true });
+      expect([refused.status, refused.json.error]).toEqual([409, GROUP_RETENTION_REFUSED]);
+      await asAdmin('/v1/resources/legal-channel', 'PUT', { kind: 'channel', sensitivity: 'confidential', rules: [] });
+      expect((await asAdmin('/v1/retention/legal-channel', 'PUT', { days: null, legalHold: true })).status).toBe(200);
+      const expected = { policies: [{ resourceId: 'general', days: 30, legalHold: false }, { resourceId: 'legal-channel', days: null, legalHold: true }], notice: RETENTION_NOTICE };
       expect((await asAdmin('/v1/retention')).json).toEqual(expected);
       // The indexer's retention job reads them with its service token.
       expect(await (await bearerFetch('/v1/retention')).json()).toEqual(expected);
       expect(RETENTION_NOTICE).toMatch(/otros relays/);
+    });
+
+    it('logs access decisions apart from the audit, and prunes them after their retention unless held (FR023-12)', async () => {
+      await asAdmin('/v1/resources/pruned-channel', 'PUT', { kind: 'channel', sensitivity: 'internal', rules: [{ actions: ['read'], anyRole: ['analyst'] }] });
+      await evaluate({ pubkey: alice, resourceId: 'pruned-channel', action: 'read' });
+      await evaluate({ pubkey: bob, resourceId: 'legal-channel', action: 'publish' });
+      expect((await nip98Fetch(aliceSk, `${base}/v1/access-log`)).status).toBe(403);
+      const access = (await asAdmin('/v1/access-log?limit=2')).json.access as Array<{ id: number; pubkey: string; resourceId: string; action: string; allow: boolean }>;
+      expect(access.map((a) => [a.pubkey, a.resourceId, a.action, a.allow])).toEqual([
+        [bob, 'legal-channel', 'publish', false],
+        [alice, 'pruned-channel', 'read', true],
+      ]);
+      expect(access[0]!.id).toBeGreaterThan(access[1]!.id);
+      expect(((await asAdmin('/v1/access-log?resource=pruned-channel')).json.access as unknown[]).length).toBe(1);
+      // The audit records what admins do; decisions are no longer there.
+      expect(((await asAdmin('/v1/audit?limit=1000')).json.audit as Array<{ action: string }>).some((a) => a.action === 'policy.evaluate')).toBe(false);
+      await new Promise((r) => setTimeout(r, 5));
+      // Everything is past a zero-day retention but the decisions on legal-channel, under legal hold.
+      expect(await engine.pruneAccessLog(0)).toBeGreaterThan(0);
+      expect(((await asAdmin('/v1/access-log?limit=1000')).json.access as Array<{ resourceId: string }>).map((a) => a.resourceId)).toEqual(['legal-channel']);
+    });
+
+    it('a policy left on a group applies to nothing, and a workspace hold keeps the whole access log (FR023-12)', async () => {
+      const logged = async () => ((await asAdmin('/v1/access-log?limit=1000')).json.access as Array<{ resourceId: string }>).map((a) => a.resourceId);
+      // A channel on hold that becomes an MLS group: its policy stays stored, and applies to nothing.
+      await asAdmin('/v1/resources/was-channel', 'PUT', { kind: 'channel', sensitivity: 'internal', rules: [] });
+      expect((await asAdmin('/v1/retention/was-channel', 'PUT', { days: null, legalHold: true })).status).toBe(200);
+      await asAdmin('/v1/resources/was-channel', 'PUT', { kind: 'group', sensitivity: 'internal', rules: [] });
+      expect(((await asAdmin('/v1/retention')).json.policies as Array<{ resourceId: string }>).map((p) => p.resourceId)).toEqual(['general', 'legal-channel']);
+      await evaluate({ pubkey: alice, resourceId: 'was-channel', action: 'read' });
+      // A workspace hold covers its channels, which the engine cannot tell apart: nothing is pruned while it lasts.
+      await asAdmin('/v1/resources/acme', 'PUT', { kind: 'workspace', sensitivity: 'internal', rules: [] });
+      expect((await asAdmin('/v1/retention/acme', 'PUT', { days: null, legalHold: true })).status).toBe(200);
+      await evaluate({ pubkey: alice, resourceId: 'pruned-channel', action: 'read' });
+      await new Promise((r) => setTimeout(r, 5));
+      expect(await engine.pruneAccessLog(0)).toBe(0);
+      expect(await logged()).toEqual(['pruned-channel', 'was-channel', 'legal-channel']);
+      // Lifted: the decisions on the group go as well.
+      expect((await asAdmin('/v1/retention/acme', 'PUT', { days: null, legalHold: false })).status).toBe(200);
+      expect(await engine.pruneAccessLog(0)).toBe(2);
+      expect(await logged()).toEqual(['legal-channel']);
     });
 
     it('attests a device through WebAuthn registration (FR023-07)', async () => {
@@ -201,8 +249,9 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
       const devices: string[] = [];
       for (let i = 0; i < 3; i++) devices.push((await asAdmin('/v1/devices', 'POST', { owner: dave })).json.id);
       await asAdmin(`/v1/devices/${devices[0]}/revoke`, 'POST', { reason: 'lost phone' });
-      // More than a page of other audit entries after the first revocation (B2).
-      for (let i = 0; i < 150; i++) await engine.evaluate({ pubkey: alice, resourceId: 'legal-room', action: 'read' });
+      // More than a page of other audit entries after the first revocation (B2). Access decisions no longer go to the
+      // audit (FR023-12): admin actions fill it here.
+      for (let i = 0; i < 150; i++) await engine.putDirectoryEntry('admin', { pubkey: dave, title: `turno ${i}` });
       await asAdmin(`/v1/devices/${devices[1]}/revoke`, 'POST', {});
       await asAdmin(`/v1/devices/${devices[2]}/revoke`, 'POST', {});
       expect((await asAdmin('/v1/audit')).json.audit.some((a: { target: string }) => a.target === devices[0])).toBe(false);
@@ -253,7 +302,8 @@ if (PG) {
       const token = await first.openSession(alice, d2.id);
       await first.revokeDevice(admin, d1.id, 'lost');
       await first.putDirectoryEntry(admin, { pubkey: alice, title: 'Analista', unit: 'Riesgo' });
-      await first.putRetention(admin, { resourceId: 'room', days: 90, legalHold: true });
+      await first.upsertResource(admin, { id: 'canal', kind: 'channel', sensitivity: 'internal', rules: [] });
+      await first.putRetention(admin, { resourceId: 'canal', days: 90, legalHold: true });
 
       // "Restart": a brand new pool, repository and engine.
       const pool2 = createPgPool(PG);
@@ -261,7 +311,7 @@ if (PG) {
         await migrate(pool2, MIGRATIONS, 'policy-engine');
         const second = new PolicyEngine(new PgPolicyRepository(pool2), Date.now, WEBAUTHN);
         expect(await second.listSubjects()).toEqual([{ pubkey: alice, roles: ['analyst'], attributes: { clearance: 'secret' } }]);
-        expect(await second.listResources()).toEqual([expect.objectContaining({ id: 'room', members: [alice] })]);
+        expect(await second.listResources()).toEqual([expect.objectContaining({ id: 'canal', kind: 'channel' }), expect.objectContaining({ id: 'room', members: [alice] })]);
         expect((await second.listDevices(alice)).map((d) => [d.id, d.revokedAt !== undefined])).toEqual([
           [d1.id, true],
           [d2.id, false],
@@ -271,15 +321,39 @@ if (PG) {
         expect(await second.listRotations('pending')).toEqual([expect.objectContaining({ resourceId: 'room', removedPubkey: alice })]);
         expect((await second.evaluate({ pubkey: alice, deviceId: d2.id, resourceId: 'room', action: 'read' })).allow).toBe(true);
         expect(await second.listDirectory()).toEqual([{ pubkey: alice, title: 'Analista', unit: 'Riesgo' }]);
-        expect(await second.listRetention()).toEqual([{ resourceId: 'room', days: 90, legalHold: true }]);
+        expect(await second.listRetention()).toEqual([{ resourceId: 'canal', days: 90, legalHold: true }]);
         const audit = await second.listAudit({ limit: 100 });
-        expect(audit.map((a) => a.action)).toEqual(['policy.evaluate', 'retention.set', 'directory.upsert', 'device.revoke', 'device.register', 'device.register', 'resource.upsert', 'subject.upsert']);
+        expect(audit.map((a) => a.action)).toEqual(['retention.set', 'resource.upsert', 'directory.upsert', 'device.revoke', 'device.register', 'device.register', 'resource.upsert', 'subject.upsert']);
+        expect((await second.listAccessLog()).map((a) => [a.pubkey, a.deviceId, a.resourceId, a.action, a.allow])).toEqual([[alice, d2.id, 'room', 'read', true]]);
         // Session tokens are stored hashed.
         const { rows } = await pool2.query('SELECT token_hash FROM policy_sessions');
         expect(rows.map((r) => r.token_hash)).not.toContain(token);
       } finally {
         await pool2.end();
       }
+    });
+
+    it('an existing engine upgrades: the decisions in the audit are copied to the access log and stay in the audit (FR023-12)', async () => {
+      pool ??= createPgPool(PG);
+      await resetScope(pool, 'policy-engine', POLICY_TABLES);
+      const before = mkdtempSync(join(tmpdir(), 'policy-migrations-'));
+      for (const f of ['001_policy.sql', '002_audit_action_idx.sql']) copyFileSync(join(MIGRATIONS, f), join(before, f));
+      await migrate(pool, before, 'policy-engine');
+      const alice = getPublicKey(generateSecretKey());
+      await pool.query(
+        `INSERT INTO policy_audit (at, actor, action, target, details) VALUES
+           (1000, $1, 'policy.evaluate', 'room', '{"action":"read","allow":true}'),
+           (2000, 'admin', 'subject.upsert', $1, NULL),
+           (3000, $1, 'policy.evaluate', 'room', '{"action":"publish","allow":false}')`,
+        [alice],
+      );
+      expect(await migrate(pool, MIGRATIONS, 'policy-engine')).toEqual(['003_access_log.sql']);
+      const engine = new PolicyEngine(new PgPolicyRepository(pool), Date.now, WEBAUTHN);
+      expect((await engine.listAccessLog()).map((a) => [a.at, a.pubkey, a.resourceId, a.action, a.allow])).toEqual([
+        [3000, alice, 'room', 'publish', false],
+        [1000, alice, 'room', 'read', true],
+      ]);
+      expect((await engine.listAudit({ limit: 10 })).map((a) => a.action)).toEqual(['policy.evaluate', 'subject.upsert', 'policy.evaluate']);
     });
 
     it('the audit is append-only', async () => {
