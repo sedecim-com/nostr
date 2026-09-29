@@ -75,6 +75,23 @@ export function checkCi({ repo, sha, api = ghApi }) {
   return [`CI: ninguna ejecución de ci.yml para ${sha} tiene en verde los jobs ${REQUIRED_CI_JOBS.join(', ')} (${seen.join('; ')}).`];
 }
 
+/**
+ * OPS-13: CodeQL gates the release. Its analysis (codeql.yml) succeeded on this exact commit, and the default
+ * branch has no open code scanning alert of high or critical security severity (the job's token needs
+ * `security-events: read`). A pull request already fails the CodeQL check when it adds one.
+ */
+export function checkCodeql({ repo, sha, api = ghApi }) {
+  const out = [];
+  const runs = api(`repos/${repo}/actions/workflows/codeql.yml/runs?head_sha=${sha}&status=completed&per_page=100`).workflow_runs ?? [];
+  if (!runs.some((r) => r.conclusion === 'success'))
+    out.push(`CodeQL: ninguna ejecución con éxito de codeql.yml para ${sha}. Lánzala sobre el tag (gh workflow run codeql.yml --ref <tag>) y repite el release cuando termine.`);
+  const alerts = api(`repos/${repo}/code-scanning/alerts?state=open&tool_name=CodeQL&per_page=100`) ?? [];
+  const serious = alerts.filter((a) => ['high', 'critical'].includes(a.rule?.security_severity_level));
+  if (serious.length)
+    out.push(`CodeQL: ${serious.length} alertas abiertas de severidad alta o crítica en la rama principal: ${serious.map((a) => `#${a.number} ${a.rule.id} (${a.most_recent_instance?.location?.path ?? '?'})`).join(', ')}. Corrígelas o descártalas con motivo antes del release.`);
+  return out;
+}
+
 /** The restore drill (restore-drill.yml) succeeded on this exact commit within the last maxAgeHours. */
 export function checkRestore({ repo, sha, api = ghApi, now = Date.now(), maxAgeHours = 72 }) {
   const runs = api(`repos/${repo}/actions/workflows/restore-drill.yml/runs?head_sha=${sha}&status=completed&per_page=100`).workflow_runs ?? [];
@@ -478,6 +495,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   if (opts.tag && !TAG_RE.test(opts.tag)) throw new Error(`tag inválido: ${opts.tag}`);
   const checks = {
     ci: () => checkCi({ repo: need('GH_REPO', repo), sha: need('--sha', opts.sha) }),
+    codeql: () => checkCodeql({ repo: need('GH_REPO', repo), sha: need('--sha', opts.sha) }),
     restore: () => checkRestore({ repo: need('GH_REPO', repo), sha: need('--sha', opts.sha), maxAgeHours: Number(env.RESTORE_MAX_AGE_HOURS || 72) }),
     sbom: () => checkSbom(readFileSync(resolve(need('--sbom o <archivo>', opts.sbom ?? opts.positional[0])), 'utf8')),
     audits: () => checkAudits({ tag: need('--tag', opts.tag), actors: opts.actors }),

@@ -12,6 +12,7 @@ import {
   TRUST_SUBSECTIONS,
   checkAudits,
   checkCi,
+  checkCodeql,
   checkConfig,
   checkLegalApproval,
   checkNotes,
@@ -76,6 +77,16 @@ describe('scripts/release-gate.mjs (REL-01 / REL-02)', () => {
     expect(checkCi({ repo, sha, api: fakeApi({ 'ci.yml': [{ id: 4, conclusion: 'success' }] }, { 4: skipped }) })[0]).toMatch(/sin éxito en tor-profile/);
     const missing = allGreen.filter((j: { name: string }) => j.name !== 'leak-tests');
     expect(checkCi({ repo, sha, api: fakeApi({ 'ci.yml': [{ id: 5, conclusion: 'success' }] }, { 5: missing }) })[0]).toMatch(/leak-tests/);
+  });
+
+  it('CodeQL (OPS-13): a successful analysis of the commit and no open high or critical alert', () => {
+    const alert = (number: number, level: string) => ({ number, rule: { id: `js/rule-${number}`, security_severity_level: level }, most_recent_instance: { location: { path: `src/f${number}.ts` } } });
+    const api = (runs: Run[], alerts: unknown[]) => (path: string) => (path.includes('/code-scanning/alerts?') ? alerts : fakeApi({ 'codeql.yml': runs })(path));
+    expect(checkCodeql({ repo, sha, api: api([{ id: 1, conclusion: 'success' }], [alert(3, 'medium'), alert(4, 'low')]) })).toEqual([]);
+    expect(checkCodeql({ repo, sha, api: api([], []) })[0]).toMatch(/ninguna ejecución con éxito de codeql\.yml.*gh workflow run codeql\.yml/);
+    expect(checkCodeql({ repo, sha, api: api([{ id: 2, conclusion: 'failure' }], []) })).toHaveLength(1);
+    const found = checkCodeql({ repo, sha, api: api([{ id: 1, conclusion: 'success' }], [alert(18, 'high'), alert(19, 'critical'), alert(20, 'medium')]) });
+    expect(found).toEqual([expect.stringMatching(/^CodeQL: 2 alertas abiertas de severidad alta o crítica.*#18 js\/rule-18 \(src\/f18\.ts\), #19 js\/rule-19/)]);
   });
 
   it('restore drill: a success on the commit within the window', () => {

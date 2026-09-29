@@ -113,7 +113,8 @@ jobs:
           if-no-files-found: error
 
   # REL-01 Definition of Done (docs/release-checklist.md), read-only: for this exact commit CI is green
-  # (tests and browser E2E, interop gate, leak tests, tor profile…), the restore drill passed recently,
+  # (tests and browser E2E, interop gate, leak tests, tor profile…), CodeQL ran and left no open high or
+  # critical alert (OPS-13), the restore drill passed recently,
   # the SBOM exists, the security audits are done or waived by someone other than the releaser, and the
   # release notes carry the trust-model section. Nothing is published unless it passes.
   dod:
@@ -122,6 +123,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      security-events: read # CodeQL alerts (OPS-13)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
