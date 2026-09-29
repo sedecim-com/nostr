@@ -100,8 +100,22 @@ docker compose up -d --force-recreate relay secure-relay   # releen BUZZ_PUBKEY_
 En Kubernetes: `components: [../../components/institutional]` en el overlay y los secretos
 `RELAY_ALLOWLIST_POLICY_TOKEN` e `INDEXER_POLICY_ENGINE_TOKEN` en `acceso-nostr-secrets`.
 
-Pruebas: `services/policy-engine/test/allowlist-sync.test.ts` (gRPC real sobre HTTP/2 como el cliente tonic del
-relay, fichero, reconciliación de la tabla de Buzz sobre Postgres, fallo del engine).
+Pruebas:
+
+- `services/policy-engine/test/allowlist-sync.test.ts`: gRPC real sobre HTTP/2 como el cliente tonic del relay,
+  fichero, reconciliación de la tabla de Buzz sobre Postgres y fallo del engine.
+- **En CI, de extremo a extremo (FR023-13).** El job `stack` levanta el perfil `institutional` y, tras el resto de
+  comprobaciones, reinicia el relay seguro con `config.institutional.toml`. `tests/interop/institutional.interop.test.ts`
+  comprueba contra ese relay, `relay-allowlist` y el policy-engine reales que:
+  - una persona con dispositivo activo publica;
+  - una llave que la organización no conoce recibe `blocked: restricted: …`;
+  - al revocar a la persona, deja de poder publicar en la siguiente sincronización.
+- El job `compose` valida todos los perfiles con esa configuración, y `deploy-config` y
+  `tests/scripts/deploy-manifests.test.ts` renderizan la base con la componente `institutional`.
+
+nostr-rs-relay antepone su propio `blocked:` a lo que responde el servidor de admisión. A un evento enviado antes
+del AUTH le contesta `blocked: auth-required: …`. El cliente (`asksForAuth` de relay-pool) lo trata como petición de
+NIP-42: se autentica y reenvía, y el outbox no lo cuenta como rechazo permanente.
 
 **Riesgo residual**: nostr-rs-relay admite el evento (fail-open, solo registra un aviso) si no puede hablar con
 el servidor gRPC. Vigilar la salud de `relay-allowlist`; el lado de Buzz es fail-closed.

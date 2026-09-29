@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { getPublicKey, hexToBytes } from '@sedecim/nostr-core';
 
 const root = new URL('../..', import.meta.url).pathname;
 const script = join(root, 'scripts/stack-profiles.sh');
@@ -40,6 +41,11 @@ describe('scripts/stack-profiles.sh configure', () => {
     // A placeholder Acceso pool: the signer starts and nobody can sign in.
     expect(value(env, 'COGNITO_USER_POOL_ID')).toBe('us-east-1_stackci');
     expect(value(env, 'POSTGRES_PASSWORD')).toBe('abc');
+    // FR023-13: an admin key of the policy-engine for the institutional check, and a fast allowlist sync.
+    const admin = value(env, 'POLICY_ADMIN_SECRET_KEY')!;
+    expect(admin).toMatch(/^[0-9a-f]{64}$/);
+    expect(value(env, 'POLICY_ADMIN_PUBKEYS')).toBe(getPublicKey(hexToBytes(admin)));
+    expect(value(env, 'ALLOWLIST_SYNC_INTERVAL_MS')).toBe('2000');
   });
 
   it('is idempotent and keeps what was already set, other profiles included', () => {
@@ -50,8 +56,9 @@ describe('scripts/stack-profiles.sh configure', () => {
     const second = readFileSync(file, 'utf8');
     expect(value(second, 'COMPOSE_PROFILES')).toBe('scale,managed,push,institutional,tor');
     expect(value(second, 'MANAGED_SIGNER_KEK')).toBe('ab'.repeat(32));
-    for (const name of ['NOTIFY_NSEC', 'NOTIFY_VAPID_PRIVATE_KEY', 'RELAY_ALLOWLIST_POLICY_TOKEN', 'POLICY_SERVICE_TOKENS']) expect(value(second, name), name).toBe(value(first, name));
+    for (const name of ['NOTIFY_NSEC', 'NOTIFY_VAPID_PRIVATE_KEY', 'RELAY_ALLOWLIST_POLICY_TOKEN', 'POLICY_SERVICE_TOKENS', 'POLICY_ADMIN_SECRET_KEY', 'POLICY_ADMIN_PUBKEYS']) expect(value(second, name), name).toBe(value(first, name));
     expect(value(second, 'POLICY_SERVICE_TOKENS')!.split(',')).toHaveLength(1);
+    expect(value(second, 'POLICY_ADMIN_PUBKEYS')!.split(',')).toHaveLength(1);
   });
 
   it('every secret it generates, and the canary, is one the log scan checks (NFR006-03)', () => {
@@ -59,7 +66,7 @@ describe('scripts/stack-profiles.sh configure', () => {
     run(['configure', file]);
     writeFileSync(file, readFileSync(file, 'utf8') + 'STACK_CANARY_TOKEN=' + 'c4'.repeat(24) + '\n');
     const env = readFileSync(file, 'utf8');
-    const names = ['MANAGED_SIGNER_KEK', 'NOTIFY_NSEC', 'NOTIFY_VAPID_PRIVATE_KEY', 'RELAY_ALLOWLIST_POLICY_TOKEN', 'STACK_CANARY_TOKEN'];
+    const names = ['MANAGED_SIGNER_KEK', 'NOTIFY_NSEC', 'NOTIFY_VAPID_PRIVATE_KEY', 'RELAY_ALLOWLIST_POLICY_TOKEN', 'POLICY_ADMIN_SECRET_KEY', 'STACK_CANARY_TOKEN'];
     const log = join(dir, 'compose.log');
     writeFileSync(log, names.map((n) => `managed-signer-1  | leaked ${value(env, n)}`).join('\n') + '\n');
     const scan = spawnSync('sh', [join(root, 'scripts/scan-logs.sh'), '--no-gitleaks', log, file], { encoding: 'utf8' });
@@ -94,7 +101,17 @@ describe('the CI stack job runs and scans the optional profiles (NFR006-04)', ()
   const ci = read('.github/workflows/ci.yml');
   const stack = ci.slice(ci.indexOf('\n  stack:'));
   it('configures the profiles, sends the canaries, requires every service in the log and scans it', () => {
-    const steps = ['sh scripts/stack-profiles.sh configure', 'sh scripts/wait-stack.sh', 'sh scripts/stack-profiles.sh exercise', 'docker compose logs --no-color > compose.log', 'sh scripts/stack-profiles.sh logged compose.log', 'sh scripts/scan-logs.sh compose.log .env'];
+    const steps = [
+      'sh scripts/stack-profiles.sh configure',
+      'sh scripts/wait-stack.sh',
+      // FR023-13: the institutional check restarts the secure relay with event admission, then runs its test.
+      'SECURE_RELAY_CONFIG=./infra/secure-relay/config.institutional.toml docker compose up -d secure-relay',
+      'npx vitest run tests/interop/institutional.interop.test.ts',
+      'sh scripts/stack-profiles.sh exercise',
+      'docker compose logs --no-color > compose.log',
+      'sh scripts/stack-profiles.sh logged compose.log',
+      'sh scripts/scan-logs.sh compose.log .env',
+    ];
     const at = steps.map((s) => stack.indexOf(s));
     expect(at.every((i) => i > 0), steps.filter((_, i) => at[i]! < 0).join(', ')).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);

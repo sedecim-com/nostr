@@ -22,6 +22,11 @@ export interface TestRelayOptions {
   host?: string;
   /** Require NIP-42 authentication before EVENT/REQ. */
   requireAuth?: boolean;
+  /**
+   * OK message for an EVENT sent before AUTH. Default `auth-required: authenticate first`; nostr-rs-relay behind a
+   * nauthz admission server says `blocked: auth-required: …` (FR023-13).
+   */
+  eventAuthRequiredMessage?: string;
   /** Optional pubkey allowlist enforced after NIP-42 (Buzz BUZZ_PUBKEY_ALLOWLIST emulation). */
   allowlist?: string[];
   /** Kinds whose REQs must be restricted to #p == authenticated pubkey (Buzz behaviour for 1059). */
@@ -222,7 +227,7 @@ export class TestRelay {
     };
     if (!verifyEvent(evt)) return respond(false, 'invalid: bad signature or id');
     this.received.push(evt);
-    if (!this.isAuthorized(state)) return respond(false, 'auth-required: authenticate first');
+    if (!this.isAuthorized(state)) return respond(false, this.opts.eventAuthRequiredMessage ?? 'auth-required: authenticate first');
     if (this.faults.rejectReason) return respond(false, this.faults.rejectReason);
     const skew = this.opts.rejectCreatedAtSkewSeconds;
     if (skew !== undefined && Math.abs(Date.now() / 1000 - evt.created_at) > skew) return respond(false, 'invalid: created_at too far from now');

@@ -3,9 +3,10 @@
 # their logs are scanned for secrets with the rest (NFR006-03, scripts/scan-logs.sh).
 #
 #   sh scripts/stack-profiles.sh configure [ENV_FILE]   turn the profiles on (COMPOSE_PROFILES) with the secrets
-#        they need, generated here so that the scan knows them: the managed signer's KEK, the push gateway's keys and
-#        the allowlist sync token (added to POLICY_SERVICE_TOKENS). The Acceso pool is a placeholder: the signer
-#        starts and turns every token away, so nobody can sign in. For test stacks, never for a real deployment.
+#        they need, generated here so that the scan knows them: the managed signer's KEK, the push gateway's keys,
+#        the allowlist sync token (added to POLICY_SERVICE_TOKENS) and an admin key of the policy-engine for the
+#        institutional check (FR023-13). The Acceso pool is a placeholder: the signer starts and turns every token
+#        away, so nobody can sign in. For test stacks, never for a real deployment.
 #   sh scripts/stack-profiles.sh exercise [ENV_FILE]    send each service a request carrying a canary credential,
 #        kept in ENV_FILE as STACK_CANARY_TOKEN, so the scan also checks that no service logs what it is sent.
 #   sh scripts/stack-profiles.sh logged LOGFILE         fail unless every service of the stack wrote to LOGFILE
@@ -50,6 +51,15 @@ case "$cmd" in
     token=$(current RELAY_ALLOWLIST_POLICY_TOKEN)
     tokens=$(current POLICY_SERVICE_TOKENS)
     case ",$tokens," in *",$token:"*) ;; *) set_value POLICY_SERVICE_TOKENS "${tokens:+$tokens,}$token:relay-allowlist" ;; esac
+    # FR023-13: an admin of the policy-engine for the institutional check (tests/interop/institutional.interop.test.ts).
+    # Its secret only lives here, where the scan also looks for it; the allowlist syncs every 2 s instead of 30 s.
+    if [ -z "$(current POLICY_ADMIN_SECRET_KEY)" ]; then
+      keys=$(node --input-type=module -e "import { schnorr } from '@noble/curves/secp256k1.js'; const sk = schnorr.utils.randomSecretKey(); const hex = (b) => Buffer.from(b).toString('hex'); console.log(hex(sk), hex(schnorr.getPublicKey(sk)))")
+      set_value POLICY_ADMIN_SECRET_KEY "${keys% *}"
+      admins=$(current POLICY_ADMIN_PUBKEYS)
+      set_value POLICY_ADMIN_PUBKEYS "${admins:+$admins,}${keys#* }"
+    fi
+    fill ALLOWLIST_SYNC_INTERVAL_MS 2000
     echo "stack-profiles: $profiles on in $ENV_FILE"
     ;;
   exercise)

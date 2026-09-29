@@ -1,5 +1,5 @@
 import { bytesToHex, randomBytes, type EventTemplate, type NostrEvent, type Signer } from '@sedecim/nostr-core';
-import { normalizeRelayUrl } from '@sedecim/relay-pool';
+import { asksForAuth, normalizeRelayUrl } from '@sedecim/relay-pool';
 import { classifyFailure, stateRank, type AttemptEvent, type ContinuityPolicy, type ContinuitySink, type ContinuityStatus, type DeliveryState, type OutboxStats, type EventLookup, type OutboxRecord, type Publisher, type RecordStore, type RelayAttempt, type RetryPolicy } from './types';
 
 /** Relays for a record that depend on when it is published (see DeliveryEngineOptions.router). */
@@ -360,7 +360,8 @@ export class DeliveryEngine {
           // (A relay `reconcile` found holding the event meanwhile stays accepted.)
           s.lastError = res.message;
           if (res.blocked) anyBlocked = true;
-          else if (PERMANENT_PREFIXES.some((p) => res.message.startsWith(p))) s.permanent = true;
+          // A relay asking for NIP-42 is not refusing the event for good, even behind `blocked:` (asksForAuth).
+          else if (PERMANENT_PREFIXES.some((p) => res.message.startsWith(p)) && !asksForAuth(res.message)) s.permanent = true;
           if (this.retry.maxAttempts !== undefined && s.attemptCount >= this.retry.maxAttempts) s.permanent = true;
         }
         const attempt: AttemptEvent = { relay, ok: res.ok, latencyMs: res.latencyMs, permanent: !!s.permanent, ...(res.ok ? {} : { failure: classifyFailure(res.message, res.blocked) }) };
