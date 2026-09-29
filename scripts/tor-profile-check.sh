@@ -7,7 +7,8 @@
 #     and the client authenticates before asking for gift wraps);
 #   - relay (Buzz) .onion: NIP-17 DM between two Tor personas, read back by the recipient (NIP-42 AUTH
 #     through the onion service). Buzz binds each connection to the community of its Host header, so the
-#     onion host gets its own community first (scripts/buzz-provision-community.ts, operator NIP-98).
+#     onion host gets its own community first (scripts/buzz-provision-community.ts, operator NIP-98). Buzz
+#     does not take DM relay lists (kind 10050), so this DM goes to the sender's relays, the same onion.
 #
 # Usage: bash scripts/tor-profile-check.sh              (starts relay, secure-relay, secure-relay-onion and tor with --build)
 #        TOR_CHECK_SKIP_UP=1 bash scripts/tor-profile-check.sh   (stack already running)
@@ -120,13 +121,21 @@ send_with_retry() {
 
 # OPS-21: a DM goes to the DM relays its recipient published (kind 10050, FR017-06). Over a slow circuit that
 # publish can stay QUEUED, and the DM would then go to the sender's relays instead. So the recipient's list is
-# republished until a relay accepts it, before anyone writes to it.
-# dm_relays_ready LOG DIR PERSONA
+# republished while it is QUEUED, before anyone writes to it. FAILED is the relay's answer, which the CLI prints:
+# the secure relay must take the list. Buzz does not take kind 10050 (pass rejected-ok): there the DM goes to the
+# sender's relays, which in this check are the same onion.
+# dm_relays_ready LOG DIR PERSONA [rejected-ok]
 dm_relays_ready() {
-  local log=$1 dir=$2 persona=$3 start=$SECONDS
+  local log=$1 dir=$2 persona=$3 rejected_ok=${4:-} start=$SECONDS rejected
   for i in 1 2 3 4 5 6; do
     if grep -q 'relays de DM (kind 10050): REPLICATED' "$log"; then
       echo "ok - $dir: DM relays (kind 10050) accepted by the relay after $((SECONDS - start))s (attempt $i)"
+      return 0
+    fi
+    rejected=$(grep -m 1 'relays de DM (kind 10050): FAILED' "$log" || true)
+    if [ -n "$rejected" ]; then
+      [ -n "$rejected_ok" ] || return 1
+      echo "ok - $dir: the relay does not take DM relay lists (FAILED${rejected#*FAILED}); the DM goes to the sender's relays, the same onion here"
       return 0
     fi
     sleep 10
@@ -186,7 +195,7 @@ A=$(persona_id "$OUT/buzz-a.persona.json")
 B=$(persona_id "$OUT/buzz-b.persona.json")
 B_PUB=$(pubkey_of "$OUT/buzz-b.persona.json")
 [ -n "$B_PUB" ] || fail "could not read the pubkey of persona B"
-dm_relays_ready "$OUT/buzz-b.relays.log" buzz-b "$B" || fail "persona B could not publish its DM relays (kind 10050) to the relay (Buzz) .onion (see $OUT/buzz-b.relays.log)"
+dm_relays_ready "$OUT/buzz-b.relays.log" buzz-b "$B" rejected-ok || fail "persona B's DM relays (kind 10050) got no answer from the relay (Buzz) .onion (see $OUT/buzz-b.relays.log)"
 DM="dm por onion $(date +%s)"
 send_with_retry "$OUT/buzz.send.log" buzz-a "$A" dm send --persona "$A" --to "$B_PUB" "$DM" ||
   fail "NIP-17 DM to the relay (Buzz) .onion was not accepted; if the log shows auth errors, Buzz rejected the NIP-42 AUTH signed for ws://$RELAY_ONION (see $OUT/buzz.send.log)"

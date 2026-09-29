@@ -140,10 +140,14 @@ async function main() {
     // VAULT-04: where each sent event is copied, when the persona's Continuity Vault policy asks for it.
     ...((opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL) ? { vaultUrl: opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL } : {}),
   });
-  /** FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. */
+  /**
+   * FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. FAILED
+   * says what the relays answered, e.g. one that does not take kind 10050 (OPS-21).
+   */
   const announceDmRelays = async (id: string) => {
     const rec = await client.publishDmRelays(id);
-    console.error(`relays de DM (kind 10050): ${rec.state}${rec.blockedReason ? ` — ${maskIps(rec.blockedReason)}` : ''}`);
+    const why = rec.blockedReason ?? rec.failureReason;
+    console.error(`relays de DM (kind 10050): ${rec.state}${why ? ` — ${maskIps(why)}` : ''}`);
   };
   /** FR007-05: before every send, who is sending (identity, custody, network, link level), as the web's banner. */
   const banner = async (id: string) => console.error(await (await client.identities()).sendingAs(id));

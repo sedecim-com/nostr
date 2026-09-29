@@ -249,7 +249,7 @@ export class RelayConnection {
   }
 
   private sendReq(id: string, sub: SubState) {
-    sub.sentUnauthed = !this.challenge && this.canAuth() && asksRecipientOnly(sub.filters);
+    sub.sentUnauthed = this.canAuth() && asksRecipientOnly(sub.filters) && !this.challenge;
     this.sendRaw(['REQ', id, ...sub.filters]);
   }
 
