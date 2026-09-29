@@ -1,6 +1,6 @@
 import { getTagValue, getTagValues, isAddressableKind, isReplaceableKind, eventAddress, supersedes, type NostrEvent } from '@sedecim/nostr-core';
 import type { Pool } from '@sedecim/service-kit';
-import { plainCodec, type EventCodec } from './codec';
+import { plainCodec, type EventCodec, type StoredEvent } from './codec';
 
 export type SensitivityClass = 'ciphertext' | 'channel' | 'public' | 'protocol';
 
@@ -115,7 +115,7 @@ function matches(q: EventQuery, m: MirroredEvent): boolean {
 }
 
 export class MemoryEventRepository implements EventRepository {
-  private readonly rows = new Map<string, MirroredEvent & { stored: ReturnType<EventCodec['encode']>; communityId?: string }>();
+  private readonly rows = new Map<string, MirroredEvent & { stored: StoredEvent; communityId?: string }>();
   private readonly cursors = new Map<string, number>();
   private readonly moderation = new Map<string, ModerationDeletion & { applied: boolean }>();
   constructor(private readonly codec: EventCodec = plainCodec) {}
@@ -134,7 +134,7 @@ export class MemoryEventRepository implements EventRepository {
       const older: string[] = [];
       for (const [id, r] of this.rows) {
         if (r.deleted) continue;
-        const re = this.codec.decode(r.stored);
+        const re = this.codec.decode(r.stored, id);
         if (eventAddress(re) !== addr) continue;
         if (!supersedes(evt, re)) return false;
         older.push(id);
@@ -160,7 +160,7 @@ export class MemoryEventRepository implements EventRepository {
   async query(q: EventQuery): Promise<MirroredEvent[]> {
     const out = [...this.rows.values()].filter((m) => matches(q, m));
     out.sort((a, b) => b.event.created_at - a.event.created_at);
-    return out.slice(0, q.limit ?? 500).map(({ stored: _s, communityId: _c, ...m }) => ({ ...m, event: this.codec.decode(_s) }));
+    return out.slice(0, q.limit ?? 500).map(({ stored: _s, communityId: _c, ...m }) => ({ ...m, event: this.codec.decode(_s, m.event.id) }));
   }
 
   async get(id: string) {
@@ -251,8 +251,10 @@ export class MemoryEventRepository implements EventRepository {
 }
 
 interface PgEventRow {
+  event_id: string;
   raw_event_json: NostrEvent | null;
   encrypted_payload: Buffer | null;
+  seal_version: number | null;
   first_seen_at: string;
   last_seen_at: string;
   relays: string[];
@@ -290,9 +292,9 @@ export class PgEventRepository implements EventRepository {
         if (!superseded) {
           const enc = this.codec.encode(evt);
           const r = await client.query(
-            `INSERT INTO events (event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, community_id, h_tag, p_tags, sensitivity_class, d_tag)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
-            [evt.id, evt.pubkey, evt.kind, evt.created_at, enc.raw ? JSON.stringify(enc.raw) : null, enc.encrypted ? Buffer.from(enc.encrypted) : null, communityId ?? null, getTagValue(evt, 'h') ?? null, getTagValues(evt, 'p'), classify(evt), d],
+            `INSERT INTO events (event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, seal_version, community_id, h_tag, p_tags, sensitivity_class, d_tag)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (event_id) DO NOTHING RETURNING event_id`,
+            [evt.id, evt.pubkey, evt.kind, evt.created_at, enc.raw ? JSON.stringify(enc.raw) : null, enc.encrypted ? Buffer.from(enc.encrypted) : null, enc.sealVersion ?? null, communityId ?? null, getTagValue(evt, 'h') ?? null, getTagValues(evt, 'p'), classify(evt), d],
           );
           inserted = r.rowCount === 1;
           if (inserted && replaceable) {
@@ -315,6 +317,39 @@ export class PgEventRepository implements EventRepository {
   async tombstone(ids: string[], byPubkey: string): Promise<number> {
     const r = await this.pool.query('UPDATE events SET deleted_tombstone = true WHERE event_id = ANY($1) AND pubkey = $2 AND NOT deleted_tombstone', [ids, byPubkey]);
     return r.rowCount ?? 0;
+  }
+
+  /**
+   * SEC-06: re-seals the payloads sealed before the AAD existed (seal_version NULL), so every one names its
+   * event id. Safe while serving and across replicas: reads accept both formats, and a row is only replaced
+   * if it still holds the payload that was read. A row that does not decode (tampered or corrupted) is left
+   * as it is and counted in `failed`; reads keep refusing it.
+   */
+  async resealLegacy(batch = 200): Promise<{ resealed: number; failed: number }> {
+    const out = { resealed: 0, failed: 0 };
+    if (!this.codec.sealed) return out;
+    for (let after = ''; ; ) {
+      const { rows } = await this.pool.query<{ event_id: string; encrypted_payload: Buffer }>(
+        'SELECT event_id, encrypted_payload FROM events WHERE seal_version IS NULL AND encrypted_payload IS NOT NULL AND event_id > $1 ORDER BY event_id LIMIT $2',
+        [after, batch],
+      );
+      for (const r of rows) {
+        after = r.event_id;
+        let enc: StoredEvent;
+        try {
+          enc = this.codec.encode(this.codec.decode({ encrypted: new Uint8Array(r.encrypted_payload) }, r.event_id));
+        } catch {
+          out.failed++;
+          continue;
+        }
+        const u = await this.pool.query(
+          'UPDATE events SET encrypted_payload = $2, seal_version = $3 WHERE event_id = $1 AND seal_version IS NULL AND encrypted_payload = $4',
+          [r.event_id, Buffer.from(enc.encrypted!), enc.sealVersion, r.encrypted_payload],
+        );
+        out.resealed += u.rowCount ?? 0;
+      }
+      if (rows.length < batch) return out;
+    }
   }
 
   async query(q: EventQuery): Promise<MirroredEvent[]> {
@@ -343,7 +378,7 @@ export class PgEventRepository implements EventRepository {
 
   private toMirrored(r: PgEventRow): MirroredEvent {
     return {
-      event: this.codec.decode({ raw: r.raw_event_json, encrypted: r.encrypted_payload ? new Uint8Array(r.encrypted_payload) : null }),
+      event: this.codec.decode({ raw: r.raw_event_json, encrypted: r.encrypted_payload ? new Uint8Array(r.encrypted_payload) : null, sealVersion: r.seal_version }, r.event_id),
       firstSeenAt: new Date(r.first_seen_at).getTime(),
       lastSeenAt: new Date(r.last_seen_at).getTime(),
       relays: r.relays,

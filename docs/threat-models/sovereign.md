@@ -22,14 +22,14 @@ La llave (generada air-gapped), el stack self-hosted, el historial local.
 | Dependencia del SaaS | Stack completo con Docker Compose sin credenciales del SaaS | `docker-compose.yml`, CI `stack` (OPS-01) |
 | Telemetría hacia terceros | Nivel `none`: cero emisiones y endpoints bloqueados | `packages/telemetry-policy/test` |
 | Imágenes manipuladas | Imágenes fijadas por digest (salvo postgres y redis, por tag) y reproducibles bit a bit (NFR010-03); SBOM; gitleaks | `docker-compose.yml`, CI |
-| Datos en reposo en el host | Mirror sellado en reposo opcional (`MIRROR_AT_REST_KEY`); vault envelope | `services/indexer/test` |
+| Datos en reposo en el host | Mirror sellado en reposo opcional (`MIRROR_AT_REST_KEY`), cada fila ligada a su `event_id` (SEC-06); vault envelope | `services/indexer/test` |
 
 ## Riesgos residuales
 | Riesgo | Nivel | Nota |
 |---|---|---|
 | Pérdida del dispositivo sin backup | Alto | Por diseño; la validación advierte `LOSS_RISK`; conviene un backup offline |
 | Aún sin release firmado | Medio | `release.yml` firma con cosign keyless, provenance SLSA y SBOM, y `verify-release.sh` lo comprueba; falta publicar el primero (NFR010-02) |
-| Filas del mirror sellado intercambiables | Bajo | El sellado en reposo no usa `event_id` como AAD (IR-2026-09-15, SEC-06) |
+| Índice del mirror alterable por quien escribe en la base | Bajo | El payload sellado ya no se puede mover a otra fila (SEC-06), pero las columnas de índice van en claro (canal, destinatarios, listas de miembros); el mirror es una caché derivada de los eventos firmados |
 | IP visible para el relay propio y el ISP | Medio | Usar sovereign-tor si importa |
 | Host del VPS comprometido | Medio | Canales en claro en el relay; usar Marmot |
 

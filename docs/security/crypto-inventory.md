@@ -175,7 +175,7 @@ revisión interna (IR-2026-09-14).
 | Qué | Dónde | Primitivas |
 |---|---|---|
 | Adjuntos cifrados en cliente (Blossom) | `packages/blossom-client/src/client.ts:64-90,124-133` | AES-256-GCM (`@noble/ciphers`), llave 32 B y nonce 12 B aleatorios por archivo, que viajan dentro del DM cifrado; integridad por SHA-256 del ciphertext |
-| Espejo sellado en reposo | `services/indexer/src/codec.ts:23-36` | XChaCha20-Poly1305 con `MIRROR_AT_REST_KEY` (32 B hex por env), nonce aleatorio, **sin AAD** (IR-2026-09-15) |
+| Espejo sellado en reposo | `services/indexer/src/codec.ts:45-63` | XChaCha20-Poly1305 con `MIRROR_AT_REST_KEY` (32 B hex por env), nonce aleatorio y AAD `acceso-nostr/mirror/v2/<event_id>` (`seal_version` 2, SEC-06). Las filas anteriores, sin AAD, solo se abren en su propia fila (el evento debe tener el `event_id` de la fila) y el indexer las vuelve a sellar al arrancar |
 | Tokens Acceso (Cognito) | `packages/service-kit/src/cognito.ts:56-84` | RS256 contra el JWKS del pool (caché 1 h, refetch por `kid` desconocido limitado a 1/min), `iss`, `exp`, `token_use`, `aud`/`client_id` |
 | Tokens bearer entre servicios | `packages/service-kit/src/http.ts:33-43` `safeEqual`/`lookupToken` | `timingSafeEqual` sobre bytes |
 | Sesiones de política | `services/policy-engine/src/engine.ts:96-110` | 24 B aleatorios, guardados como hash |
@@ -240,7 +240,7 @@ Desviaciones conocidas respecto a lo habitual:
 1. CMS con AES-256-CBC sin autenticación: impuesto por KMS; la integridad depende de TLS con KMS terminado en
    el enclave. Los errores de padding llegan al padre como mensajes distintos (IR-2026-09-18).
 2. WebAuthn sin validación de la cadena x5c ni de AAGUID (IR-2026-09-17).
-3. Espejo sellado sin AAD (IR-2026-09-15).
+3. ~~Espejo sellado sin AAD (IR-2026-09-15)~~: corregido en SEC-06.
 4. Sal del store como texto hex (§2.7).
 5. Anti-replay de NIP-98 solo por proceso en servicios sin Postgres (notification-gateway), y tokens Blossom
    (kind 24242) reutilizables hasta su `expiration`, como permite BUD-02 (IR-2026-09-04).

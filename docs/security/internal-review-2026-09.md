@@ -1,6 +1,6 @@
 # Revisión interna de seguridad (2026-09)
 
-- **Fecha:** 2026-09-27 · **Commit revisado:** `aac285b` · **Correcciones:** `6642ff6` (PR #215) y `b43dff4` (PR #216, merge `9355003`: IR-2026-09-04, -05, -16, -19 y -20). Sigue abierto IR-2026-09-15 (SEC-06)
+- **Fecha:** 2026-09-27 · **Commit revisado:** `aac285b` · **Correcciones:** `6642ff6` (PR #215) y `b43dff4` (PR #216, merge `9355003`: IR-2026-09-04, -05, -16, -19 y -20). IR-2026-09-15 se corrigió en SEC-06
 - **Alcance:** el de [audit-scope.md](audit-scope.md), revisado desde dentro del equipo con herramientas
   automáticas y lectura de código.
 
@@ -62,7 +62,7 @@ Severidad según la escala de [audit-scope.md](audit-scope.md) §7.
 | IR-2026-09-12 | indexer | Baja | `kinds`, `limit`, `since` y `until` no numéricos o negativos llegaban a SQL (500). | **Corregido**: validación y 400. | `6642ff6`, `services/indexer/test/indexer.test.ts` |
 | IR-2026-09-13 | managed-signer (DER) | Informativa | `decodeOid` aceptaba en silencio arcos truncados o no mínimos. | **Corregido**. | `6642ff6`, `tests/fuzz/enclave-parsers.test.ts` |
 | IR-2026-09-14 | signer (NIP-46), notification-gateway | Baja | El secreto de `connect` del bunker NIP-46 se comparaba con `===`; los retrasos de push, que ocultan el momento de la actividad (ADR 0010), salían de `Math.random`. | **Corregido**: comparación en tiempo constante; retrasos con CSPRNG. | `6642ff6` |
-| IR-2026-09-15 | indexer (espejo sellado) | Baja | El sellado en reposo (`MIRROR_AT_REST_KEY`) usa XChaCha20-Poly1305 sin AAD: quien escriba en la base de datos puede intercambiar payloads sellados entre filas. Los eventos siguen firmados, pero la fila deja de corresponder a su índice. | **Abierto** (SEC-06, issue #222): añadir `event_id` como AAD exige migrar los datos existentes. | — |
+| IR-2026-09-15 | indexer (espejo sellado) | Baja | El sellado en reposo (`MIRROR_AT_REST_KEY`) usa XChaCha20-Poly1305 sin AAD: quien escriba en la base de datos puede intercambiar payloads sellados entre filas. Los eventos siguen firmados, pero la fila deja de corresponder a su índice. | **Corregido** (SEC-06): el payload lleva como AAD `acceso-nostr/mirror/v2/<event_id>` (columna `seal_version`, migración 005), así que movido a otra fila no autentica; toda lectura exige además que el evento sea el que nombra el `event_id` de su fila. Las filas selladas antes, sin AAD, se siguen leyendo solo en su propia fila, y el indexer las vuelve a sellar al arrancar (`resealLegacy`). Al actualizar hay que reemplazar todas las réplicas del indexer: una anterior no abre las filas nuevas. Sigue fuera del sellado lo que el índice guarda en claro (canal, destinatarios, listas de miembros): quien escribe en la base puede alterarlo, y el espejo es una caché derivada de los eventos firmados. | `services/indexer/test/seal.test.ts` |
 | IR-2026-09-16 | web / edge | Baja | Faltan `frame-ancestors`/`X-Frame-Options`, HSTS y `nosniff` en las respuestas de la web (el CSP va en `<meta>`, que no admite `frame-ancestors`). | **Corregido**: el nginx de la web ya enviaba CSP con `frame-ancestors 'none'`, `X-Frame-Options` y `nosniff` como cabeceras; el edge de k8s añade HSTS (solo tras TLS en el ALB), `nosniff` y `X-Frame-Options` a todos los hosts, sin duplicados, y Caddy añade `X-Frame-Options` a su HSTS y `nosniff`. | `b43dff4` (PR #216), `deploy/k8s/base/files/edge-nginx.conf`, `infra/caddy/Caddyfile` |
 | IR-2026-09-17 | policy-engine (WebAuthn) | Informativa | La cadena x5c de `packed` no se valida contra FIDO MDS y la comprobación del OU no está anclada. | **Aceptado**: decisión documentada (la firma prueba que el autenticador creó la credencial; no se confía en el fabricante). | — |
 | IR-2026-09-18 | managed-signer (CMS) | Informativa | El contenido de CMS usa AES-256-CBC sin MAC y los errores de padding llegan al padre como mensajes distintos. | **Aceptado**: formato impuesto por KMS; la integridad descansa en TLS con KMS terminado en el enclave. Pedir opinión explícita en SEC-01. | — |
@@ -71,8 +71,8 @@ Severidad según la escala de [audit-scope.md](audit-scope.md) §7.
 | IR-2026-09-21 | notification-gateway | Informativa | `NOTIFY_PUSH_HOSTS=""` desactiva la allowlist anti-SSRF, y el puerto del endpoint no se restringe. | **Aceptado**: opción explícita del operador, documentada; el valor por defecto es la allowlist. | — |
 | IR-2026-09-22 | managed-signer (CBOR) | Informativa | La detección de claves duplicadas del CBOR del enclave compara por identidad y no detecta claves duplicadas de tipo bytes o array. | **Aceptado**: los documentos Nitro usan claves de texto y enteras, que son las que se leen. | — |
 
-Resumen (22 hallazgos): 1 alta (mitigada con la exportación desactivada por defecto; el arreglo de fondo sigue abierto), 4 medias (todas corregidas), 12 bajas (11
-corregidas, 1 abierta) y 5 informativas (1 corregida, 4 aceptadas). No hay hallazgos críticos conocidos. Esto **no**
+Resumen (22 hallazgos): 1 alta (mitigada con la exportación desactivada por defecto; el arreglo de fondo sigue abierto), 4 medias (todas corregidas), 12 bajas (todas
+corregidas) y 5 informativas (1 corregida, 4 aceptadas). No hay hallazgos críticos conocidos. Esto **no**
 equivale a "sin críticos": la ausencia de hallazgos en una revisión interna no es evidencia para SEC-01.
 
 ## 3. Qué hacer antes de la auditoría externa
@@ -83,4 +83,4 @@ equivale a "sin críticos": la ausencia de hallazgos en una revisión interna no
 3. Triar la primera ejecución de CodeQL en CI.
 4. Añadir los vectores oficiales de NIP-44 ([crypto-inventory.md](crypto-inventory.md) §6, SEC-07).
 5. Fijar el commit de auditoría (tag `audit-2026-11`, SEC-11) y seguir [audit-scope.md](audit-scope.md) §10.
-6. Corregir IR-2026-09-15 (SEC-06).
+6. ~~Corregir IR-2026-09-15 (SEC-06)~~: hecho, con las filas anteriores migradas al arrancar.
