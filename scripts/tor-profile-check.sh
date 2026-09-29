@@ -118,6 +118,41 @@ send_with_retry() {
   grep -q REPLICATED "$log"
 }
 
+# OPS-21: a DM goes to the DM relays its recipient published (kind 10050, FR017-06). Over a slow circuit that
+# publish can stay QUEUED, and the DM would then go to the sender's relays instead. So the recipient's list is
+# republished until a relay accepts it, before anyone writes to it.
+# dm_relays_ready LOG DIR PERSONA
+dm_relays_ready() {
+  local log=$1 dir=$2 persona=$3 start=$SECONDS
+  for i in 1 2 3 4 5 6; do
+    if grep -q 'relays de DM (kind 10050): REPLICATED' "$log"; then
+      echo "ok - $dir: DM relays (kind 10050) accepted by the relay after $((SECONDS - start))s (attempt $i)"
+      return 0
+    fi
+    sleep 10
+    cli "$dir" dm relays --persona "$persona" >> "$log" 2>&1 || true
+  done
+  grep -q 'relays de DM (kind 10050): REPLICATED' "$log"
+}
+
+# read_dm LOG DIR PERSONA TEXT: reads the persona's DM inbox until TEXT shows up. Each attempt keeps its output
+# (LOG.N) and says how long it took, so a failure shows where the time went.
+read_dm() {
+  local log=$1 dir=$2 persona=$3 text=$4 start=$SECONDS t
+  for i in 1 2 3 4 5 6 7 8; do
+    t=$SECONDS
+    cli "$dir" dm inbox --persona "$persona" > "$log.$i" 2>&1 || true
+    cp "$log.$i" "$log"
+    if grep -qF "$text" "$log"; then
+      echo "ok - $dir: DM read on attempt $i, $((SECONDS - start))s after the first"
+      return 0
+    fi
+    echo "  $dir: attempt $i did not show the DM ($((SECONDS - t))s): $(tail -n 1 "$log")"
+    sleep $((i * 5))
+  done
+  return 1
+}
+
 # --- secure-relay .onion: channel message published and read back
 cli secure persona create --label tor-secure --relay "ws://$SECURE_ONION" --tor --high-risk > "$OUT/secure.persona.json" || fail "persona create (secure-relay onion)"
 S=$(persona_id "$OUT/secure.persona.json")
@@ -129,41 +164,35 @@ grep -qF "$TEXT" "$OUT/secure.read.log" || fail "the message published to the se
 echo "ok - secure-relay .onion: published and read back through the compose Tor SOCKS port"
 
 # --- secure-relay .onion: NIP-17 DM from the Tor persona above to a second one, read back by the recipient
-cli secure-b persona create --label tor-secure-b --relay "ws://$SECURE_ONION" --tor --high-risk > "$OUT/secure-b.persona.json" || fail "persona create B (secure-relay onion)"
+cli secure-b persona create --label tor-secure-b --relay "ws://$SECURE_ONION" --tor --high-risk > "$OUT/secure-b.persona.json" 2> "$OUT/secure-b.relays.log" || fail "persona create B (secure-relay onion)"
+cat "$OUT/secure-b.relays.log"
 SB=$(persona_id "$OUT/secure-b.persona.json")
 SB_PUB=$(pubkey_of "$OUT/secure-b.persona.json")
 [ -n "$SB_PUB" ] || fail "could not read the pubkey of persona B (secure-relay onion)"
+dm_relays_ready "$OUT/secure-b.relays.log" secure-b "$SB" || fail "persona B could not publish its DM relays (kind 10050) to the secure-relay .onion (see $OUT/secure-b.relays.log)"
 SDM="dm por el onion del secure relay $(date +%s)"
 send_with_retry "$OUT/secure.dm.send.log" secure "$S" dm send --persona "$S" --to "$SB_PUB" "$SDM" ||
   fail "NIP-17 DM to the secure-relay .onion was not accepted (see $OUT/secure.dm.send.log)"
-found=0
-for _ in 1 2 3 4 5 6; do
-  cli secure-b dm inbox --persona "$SB" > "$OUT/secure.inbox.log" 2>&1 || true
-  if grep -qF "$SDM" "$OUT/secure.inbox.log"; then found=1; break; fi
-  sleep 5
-done
+read_dm "$OUT/secure.inbox.log" secure-b "$SB" "$SDM" ||
+  fail "the DM was not read back from the secure-relay .onion by its recipient: nostr-rs-relay only serves gift wraps after a NIP-42 AUTH for the host of its relay_url, which must be the onion (see $OUT/secure.inbox.log.* and the secure-relay-onion log)"
 cat "$OUT/secure.inbox.log"
-[ "$found" = 1 ] || fail "the DM was not read back from the secure-relay .onion by its recipient: nostr-rs-relay only serves gift wraps after a NIP-42 AUTH for the host of its relay_url, which must be the onion (see $OUT/secure.inbox.log and the secure-relay-onion log)"
 echo "ok - secure-relay .onion: DM read back by its recipient (NIP-42 through the onion service)"
 
 # --- relay (Buzz) .onion: NIP-17 DM from Tor persona A to Tor persona B, read back by B
 cli buzz-a persona create --label tor-buzz-a --relay "ws://$RELAY_ONION" --tor --high-risk > "$OUT/buzz-a.persona.json" || fail "persona create A (relay onion)"
-cli buzz-b persona create --label tor-buzz-b --relay "ws://$RELAY_ONION" --tor --high-risk > "$OUT/buzz-b.persona.json" || fail "persona create B (relay onion)"
+cli buzz-b persona create --label tor-buzz-b --relay "ws://$RELAY_ONION" --tor --high-risk > "$OUT/buzz-b.persona.json" 2> "$OUT/buzz-b.relays.log" || fail "persona create B (relay onion)"
+cat "$OUT/buzz-b.relays.log"
 A=$(persona_id "$OUT/buzz-a.persona.json")
 B=$(persona_id "$OUT/buzz-b.persona.json")
 B_PUB=$(pubkey_of "$OUT/buzz-b.persona.json")
 [ -n "$B_PUB" ] || fail "could not read the pubkey of persona B"
+dm_relays_ready "$OUT/buzz-b.relays.log" buzz-b "$B" || fail "persona B could not publish its DM relays (kind 10050) to the relay (Buzz) .onion (see $OUT/buzz-b.relays.log)"
 DM="dm por onion $(date +%s)"
 send_with_retry "$OUT/buzz.send.log" buzz-a "$A" dm send --persona "$A" --to "$B_PUB" "$DM" ||
   fail "NIP-17 DM to the relay (Buzz) .onion was not accepted; if the log shows auth errors, Buzz rejected the NIP-42 AUTH signed for ws://$RELAY_ONION (see $OUT/buzz.send.log)"
-found=0
-for _ in 1 2 3 4 5 6; do
-  cli buzz-b dm inbox --persona "$B" > "$OUT/buzz.inbox.log" 2>&1 || true
-  if grep -qF "$DM" "$OUT/buzz.inbox.log"; then found=1; break; fi
-  sleep 5
-done
+read_dm "$OUT/buzz.inbox.log" buzz-b "$B" "$DM" ||
+  fail "the DM was not read back from the relay (Buzz) .onion by its recipient (NIP-42 AUTH over the onion service; see $OUT/buzz.inbox.log.*)"
 cat "$OUT/buzz.inbox.log"
-[ "$found" = 1 ] || fail "the DM was not read back from the relay (Buzz) .onion by its recipient (NIP-42 AUTH over the onion service; see $OUT/buzz.inbox.log)"
 echo "ok - relay (Buzz) .onion: DM published and read back by the recipient through Tor"
 
 "${COMPOSE[@]}" logs --no-color --tail 200 tor > "$OUT/tor.log" 2>&1 || true

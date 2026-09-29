@@ -63,6 +63,8 @@ interface SubState {
   handlers: SubscriptionHandlers;
   authRetried: boolean;
   eosed: boolean;
+  /** Its REQ asked for recipient-only kinds before any challenge had arrived, so it went out unauthenticated. */
+  sentUnauthed?: boolean;
 }
 
 const defaultFactory: WebSocketFactory = (url) => {
@@ -239,11 +241,41 @@ export class RelayConnection {
 
   private resubscribeAll() {
     const send = () => {
-      for (const [id, s] of this.subs) this.sendRaw(['REQ', id, ...s.filters]);
+      for (const [id, s] of this.subs) this.sendReq(id, s);
     };
     const wait = this.authFirstWait([...this.subs.values()].flatMap((s) => s.filters));
     if (wait !== undefined) void this.authenticateFirst(wait).then(send, send);
     else send();
+  }
+
+  private sendReq(id: string, sub: SubState) {
+    sub.sentUnauthed = !this.challenge && this.canAuth() && asksRecipientOnly(sub.filters);
+    this.sendRaw(['REQ', id, ...sub.filters]);
+  }
+
+  /**
+   * OPS-21: over a slow link (Tor) the challenge can arrive after a recipient-only REQ gave up waiting for it and
+   * went out unauthenticated. nostr-rs-relay answers such a REQ with an empty EOSE and no hint, and that EOSE
+   * always arrives after the challenge. So on a late challenge: authenticate, and ask again under a new id, which
+   * drops whatever the relay says about the old one.
+   */
+  private askAgainAuthenticated() {
+    const late = [...this.subs].filter(([, s]) => s.sentUnauthed);
+    if (late.length === 0 || !this.canAuth()) return;
+    for (const [, s] of late) s.sentUnauthed = false;
+    const done = this.authenticate().catch(() => false);
+    void Promise.race([this.authSent, done]).then((sent) => {
+      if (!sent) return;
+      for (const [oldId, s] of late) {
+        if (this.subs.get(oldId) !== s) continue;
+        this.subs.delete(oldId);
+        this.sendRaw(['CLOSE', oldId]);
+        const newId = `s${++subCounter}`;
+        s.eosed = false;
+        this.subs.set(newId, s);
+        this.sendReq(newId, s);
+      }
+    });
   }
 
   /** How long to wait for a challenge before these filters' REQ, or undefined to send it right away. */
@@ -335,6 +367,7 @@ export class RelayConnection {
         this.challengeWaiters = [];
         waiters.forEach((w) => w());
         if (this.opts.authMode === 'auto' && this.canAuth()) void this.authenticate();
+        this.askAgainAuthenticated();
         return;
       }
       case 'NOTICE':
@@ -509,15 +542,22 @@ export class RelayConnection {
   }
 
   subscribe(filters: Filter[], handlers: SubscriptionHandlers, id = `s${++subCounter}`): { id: string; close: () => void } {
-    this.subs.set(id, { filters, handlers, authRetried: false, eosed: false });
+    const state: SubState = { filters, handlers, authRetried: false, eosed: false };
+    this.subs.set(id, state);
+    // The subscription may be asked again under another id (askAgainAuthenticated): close whichever it has now.
     const close = () => {
-      if (this.subs.delete(id)) this.sendRaw(['CLOSE', id]);
+      for (const [current, s] of this.subs) if (s === state) {
+        this.subs.delete(current);
+        this.sendRaw(['CLOSE', current]);
+        return;
+      }
     };
     this.connect().then(
       () => {
-        if (!this.subs.has(id)) return;
+        if (this.subs.get(id) !== state) return;
         const doReq = () => {
-          if (this.subs.has(id)) this.sendRaw(['REQ', id, ...filters]);
+          const sub = this.subs.get(id);
+          if (sub) this.sendReq(id, sub);
         };
         const wait = this.authFirstWait(filters);
         if (wait !== undefined) void this.authenticateFirst(wait).then(doReq, doReq);

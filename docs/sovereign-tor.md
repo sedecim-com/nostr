@@ -119,6 +119,15 @@ Ambos DM exigen NIP-42 a través del onion service. Antes crea la comunidad del
 host onion con una llave de operador desechable (o `BUZZ_OPERATOR_SECRET`). Si falla, imprime el log
 de Tor y dice qué etapa falló. Job `tor-profile` en CI.
 
+Un circuito lento no debe hacerlo fallar (OPS-21):
+
+- Antes de cada DM, el script vuelve a publicar la lista de relays de DM del destinatario (kind 10050) hasta
+  que un relay la acepte. Si no, el DM saldría hacia los relays del emisor.
+- Relee el inbox hasta 8 veces, con esperas crecientes. Guarda la salida de cada intento
+  (`secure.inbox.log.N`, `buzz.inbox.log.N`) y lo que tardó.
+- En Tor, el CLI da 30 s a cada lectura.
+- Si el challenge NIP-42 llega después de pedir los gift wraps, el relay-pool se autentica y vuelve a pedirlos.
+
 ## Web: WebRTC y previews remotas (SEC-05)
 
 La web elimina los constructores WebRTC (`RTCPeerConnection` y afines) antes de arrancar, en todos los
