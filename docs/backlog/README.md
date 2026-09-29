@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **246 tareas** · 160 hechas · 21 parciales · 59 pendientes · 6 descartadas
-- **283 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **246 tareas** · 161 hechas · 21 parciales · 58 pendientes · 6 descartadas
+- **280 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -73,7 +73,7 @@
 | NFR-005 | 2 | 1 | NFR005-02 (S11) |
 | NFR-006 | 4 | 3 | NFR006-04 (S13) |
 | NFR-007 | 2 | 2 | — |
-| NFR-008 | 3 | 2 | VAULT-05 (S11) |
+| NFR-008 | 3 | 3 | — |
 | NFR-009 | 2 | 1 | NFR009-02 (S10) |
 | NFR-010 | 5 | 2 | FR003-06 (S9), NFR010-02 (S9), NFR010-04 (S12) |
 
@@ -270,7 +270,7 @@
 | [FR023-10](https://github.com/sedecim-com/nostr/issues/254) | P1 | Aplicar «publicar» por recurso en los relays | FR-023 | Dev | 8 | FR023-04 | Pendiente | Admisión por #h en el secure relay y en Buzz, y sincronía de la membresía NIP-29 con el policy-engine; test de denegación |
 | [NFR001-04](https://github.com/sedecim-com/nostr/issues/256) | P1 | Alta disponibilidad en stage | NFR-001 | Infra | 5 | NFR001-02, NFR001-03 | Pendiente | Réplicas y PDB; Redis, SeaweedFS y secure relay en HA o gestionados; blob-store con allowlist o cuotas; el SLO de 99,9 % queda instrumentado sobre una topología que puede cumplirlo |
 | [VAULT-04](https://github.com/sedecim-com/nostr/issues/247) | P1 | El vault en la máquina de estados de entrega | PRD GC-B04, FR-008, FR-011 | Dev | 3 | VAULT-02 | Hecho | Publicación en relays y subida al vault independientes; política off / best-effort / required-for-resilient en el panel; estado CONTINUITY_BACKED_UP separado del ACK de relays; solo required-for-resilient puede retener el envío |
-| [VAULT-05](https://github.com/sedecim-com/nostr/issues/248) | P1 | Retención, borrado y exportación del vault | PRD GC-B05, NFR-008 | Dev | 3 | VAULT-03 | Pendiente | Retención configurable; exportación portable; borrar elimina las copias del servidor según la política y queda documentado |
+| [VAULT-05](https://github.com/sedecim-com/nostr/issues/248) | P1 | Retención, borrado y exportación del vault | PRD GC-B05, NFR-008 | Dev | 3 | VAULT-03 | Hecho | Retención configurable; exportación portable; borrar elimina las copias del servidor según la política y queda documentado |
 | [VAULT-06](https://github.com/sedecim-com/nostr/issues/249) | P1 | Backend self-hosted del vault | PRD GC-B06, NFR-003 | Infra | 3 | VAULT-01 | Pendiente | El mismo contrato sobre almacenamiento local o S3-compatible (SeaweedFS del compose) sin depender del SaaS de Sedecim; incluido en el compose y en el restore drill |
 
 ## S12 · Freeze de auditoría y v1.0.0-rc.1 (G2–G3, 2026-11-09 → 2026-11-20) — 43 SP
