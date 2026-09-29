@@ -1,6 +1,7 @@
 # Términos de custodia managed · Acceso Nostr (BORRADOR)
 
-> Estado: **borrador para revisión legal** (DEC-09, FR028-02). No publicar hasta su aprobación.
+> Estado: **borrador para revisión legal** (DEC-09, FR028-02). No publicar hasta su aprobación, que se registra
+> en [`approvals/custodia-managed.md`](approvals/custodia-managed.md) (DEC-12).
 > Marco: Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP, México).
 
 ## 1. Qué es la custodia managed

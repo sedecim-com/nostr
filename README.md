@@ -89,6 +89,10 @@ La web lee `config.json` (compose monta `infra/web/config.json`; otro archivo co
   (kinds 10050 y 10002), además de los de la persona. Cada búsqueda les dice a qué npub vas a escribir. Si al
   escribir un DM no se encuentra la lista (por ejemplo, sin red), cada reintento la vuelve a buscar antes de
   publicar: el mensaje no se queda en tus relays (FR010-03).
+- En producción, `managedSigner`, `managedTerms` y `notificationGateway` solo aparecen con su evidencia: la
+  aprobación legal y los informes de SEC-01 y SEC-02 para la custodia gestionada, y un disparador seguro en los
+  relays para push. Lo comprueba `node scripts/release-gate.mjs config` (OPS-20,
+  [`deploy/production-gates.json`](deploy/production-gates.json)).
 
 Las llaves viven en un vault de IndexedDB cifrado con tu contraseña. Solo el perfil convenience puede
 usar una llave del dispositivo sin contraseña ([ADR 0007](docs/adr/0007-almacenamiento-local-cifrado.md)).

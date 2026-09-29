@@ -6,7 +6,7 @@ Sigue las convenciones de Sedecim y de `buzz-hermes-stack/k8s`: cluster kops `se
 Secrets Manager `k8s/<env>/...`, y entrada por un NodePort registrado en un target group del ALB.
 
 > **Estado:** manifiestos, módulo Terraform y reglas de SLO validados en CI (job `deploy-config`:
-> `kubectl kustomize`, `shellcheck`, `promtool`, `terraform fmt`/`validate`). **El despliegue en staging
+> `kubectl kustomize`, `shellcheck`, `promtool`, `terraform fmt`/`validate` y los feature gates de producción). **El despliegue en staging
 > está pendiente:** requiere credenciales de AWS, el `terraform apply` en el repositorio `infrastructure`
 > y la luz verde para empujar a ECR y aplicar en el cluster.
 
@@ -18,12 +18,14 @@ Secrets Manager `k8s/<env>/...`, y entrada por un NodePort registrado en un targ
 | `k8s/components/managed-signer/` | Firma custodial (solo SaaS, opt-in): vault `aws` = KMS + Secrets Manager (ADR 0009). |
 | `k8s/components/continuity-vault/` | Continuity Vault (opt-in, [ADR 0011](../docs/adr/0011-continuity-vault.md)): sobres en su bucket del SeaweedFS del clúster con llaves propias (`VAULT_S3_*` en el secret), filas en la base de la plataforma, host `nostr-<env>-vault` en el edge. No arranca hasta que el overlay elige quién abre cuentas (`VAULT_NIP98`). |
 | `k8s/components/institutional/` | Modo institucional (opt-in): `relay-allowlist`, allowlist de Buzz activado, secure-relay con admisión gRPC e indexer con políticas ([`docs/institutional.md`](../docs/institutional.md)). |
+| `k8s/components/notification-gateway/` | Push opaco (opt-in, ADR 0010). Con los relays de referencia no hay disparador seguro, así que no va en producción (OPS-20). |
 | `k8s/components/rds-postgres/` | Postgres gestionado (NFR001-03): quita el StatefulSet y apunta `DATABASE_URL` a RDS con TLS verificado ([runbook](../docs/runbooks/rds-postgres.md)). |
 | `k8s/overlays/stage/` | Stage: imágenes de ECR, hosts `*.ai.acce.so`, NodePort `31810`, monitorización y managed-signer. |
 | `k8s/scripts/` | `deploy.sh`, `update-stage.sh`, `teardown-stage.sh` y auxiliares (`generate-secret.sh`, `mirror-ecr-deps.sh`, `build-push.sh`). |
 | `k8s/values.env` | Valores de stage (ECR, contexto esperado, NodePort, host, IDs de Secrets Manager). |
 | `terraform/modules/acceso-nostr/` | Recursos AWS del proyecto para un entorno. |
 | `terraform/examples/stage/` | Cómo lo consume el repositorio `infrastructure`. |
+| `production-gates.json` | OPS-20: qué funciones (custodia gestionada, enclave, push) pueden aparecer en la configuración de producción y con qué evidencia. Lo comprueba `node scripts/release-gate.mjs config` en `deploy-config` y en el release. Todo overlay o ejemplo que no sea stage cuenta como producción ([checklist de release](../docs/release-checklist.md#funciones-con-gate-en-producción-ops-20)). |
 | `monitoring/` | Prometheus + blackbox exporter + Alertmanager + Grafana, reglas y alertas del SLO ([`docs/slo.md`](../docs/slo.md)). |
 
 ## Decisiones

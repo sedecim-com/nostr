@@ -1,0 +1,33 @@
+{
+  "$comment": "OPS-20: funciones que solo pueden aparecer en la configuración de producción con su evidencia. Lo comprueba `node scripts/release-gate.mjs config` (job dod de release.yml y job deploy-config de ci.yml). Cómo habilitar cada una: docs/release-checklist.md.",
+  "production": {
+    "webConfigs": ["infra/web/config.json", "infra/web/config.saas.example.json"],
+    "kubernetes": ["deploy/k8s/base", "deploy/k8s/components", "deploy/k8s/overlays"],
+    "terraform": ["deploy/terraform/modules/acceso-nostr", "deploy/terraform/examples"],
+    "notProduction": ["deploy/k8s/overlays/stage", "deploy/terraform/examples/stage"]
+  },
+  "features": {
+    "managed": {
+      "title": "custodia gestionada: onboarding managed de la web y managed-signer",
+      "webKeys": ["managedSigner", "managedTerms"],
+      "termsKey": "managedTerms",
+      "components": ["managed-signer"],
+      "legalApproval": "docs/legal/approvals/custodia-managed.md",
+      "auditReports": ["SEC-01", "SEC-02"]
+    },
+    "enclave": {
+      "title": "custodia en Nitro Enclave y su exportación (FR005-05)",
+      "maturity": "Preview",
+      "settings": { "MANAGED_SIGNER_BACKEND": "enclave", "ENCLAVE_ALLOW_EXPORT": "1" },
+      "terraform": ["enable_enclave_signer"]
+    },
+    "push": {
+      "title": "notificaciones push (notification-gateway)",
+      "maturity": "Experimental",
+      "webKeys": ["notificationGateway"],
+      "components": ["notification-gateway"],
+      "safeTrigger": false,
+      "evidence": "ADR 0010, matriz real por relay: ni Buzz ni el secure relay entregan al gateway los gift wraps de otras personas (tests/interop/notification-gateway.interop.test.ts, job stack)"
+    }
+  }
+}

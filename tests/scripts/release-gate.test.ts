@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
+  MATURITY,
+  PRODUCTION_GATES,
   REQUIRED_AUDITS,
   REQUIRED_CI_JOBS,
   TRUST_SUBSECTIONS,
   checkAudits,
   checkCi,
+  checkConfig,
+  checkLegalApproval,
   checkNotes,
   checkNotesFile,
   checkRestore,
@@ -142,6 +147,134 @@ describe('scripts/release-gate.mjs (REL-01 / REL-02)', () => {
     });
   });
 
+  describe('production configuration (OPS-20)', () => {
+    type Registry = { production: Record<string, string[]>; features: Record<string, Record<string, unknown>> };
+    const registry: Registry = JSON.parse(readFileSync(join(root, PRODUCTION_GATES), 'utf8'));
+    const withFeature = (name: string, over: Record<string, unknown>): Registry => ({ ...registry, features: { ...registry.features, [name]: { ...registry.features[name], ...over } } });
+    const record = (f: Record<string, string>) => `# Registro\n\n${Object.entries(f).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n`;
+    const terms = '# Términos de custodia managed · Acceso Nostr\n\n> Versión 1.0.0, aprobada.\n\nTexto.\n';
+    const approval = (over: Record<string, string> = {}, text = terms) =>
+      record({ Documento: 'docs/legal/custodia-managed.md', 'Versión': '1.0.0', 'SHA-256': createHash('sha256').update(text).digest('hex'), Dictamen: 'https://example.org/dictamen.pdf', 'Aprobado por': 'Despacho Ejemplo, S.C.', Fecha: '2026-11-02', ...over });
+    const pending = approval({ 'Versión': 'PENDIENTE', 'SHA-256': 'PENDIENTE', Dictamen: 'PENDIENTE', 'Aprobado por': 'PENDIENTE', Fecha: 'PENDIENTE' });
+    const reports = { 'docs/security/audits/v1.0.0.md': '# Auditorías\n\n- Tag: v1.0.0\n- Auditorías: SEC-01, SEC-02\n- Informe: https://example.org/informe.pdf\n' };
+    const saas = (over: Record<string, unknown> = {}) => ({ 'infra/web/config.saas.example.json': { mode: 'saas', relays: ['wss://relay.example.org'], ...over } });
+    const managedOn = { managedSigner: 'https://signer.example.org', managedTerms: { url: 'https://example.org/terminos', version: '1.0.0' } };
+    /** A repository tree with the production paths of the committed registry; `files` adds, replaces or (undefined) drops files. */
+    const tree = (files: Record<string, unknown> = {}, reg: Registry = registry) => {
+      const dir = mkdtempSync(join(tmpdir(), 'production-gates-'));
+      for (const p of [...registry.production.kubernetes!, ...registry.production.terraform!]) mkdirSync(join(dir, p), { recursive: true });
+      const all: Record<string, unknown> = {
+        [PRODUCTION_GATES]: reg,
+        'infra/web/config.json': { mode: 'self-hosted', relays: ['ws://localhost:3000'] },
+        ...saas(),
+        'docs/legal/custodia-managed.md': terms,
+        'docs/legal/approvals/custodia-managed.md': pending,
+        ...files,
+      };
+      for (const [p, c] of Object.entries(all)) {
+        if (c === undefined) continue;
+        mkdirSync(dirname(join(dir, p)), { recursive: true });
+        writeFileSync(join(dir, p), typeof c === 'string' ? c : JSON.stringify(c));
+      }
+      return dir;
+    };
+    const problems = (files: Record<string, unknown> = {}, reg?: Registry) => checkConfig({ root: tree(files, reg) }).join('\n');
+
+    it('the repository passes: the enclave is Preview, push has no safe trigger and managed waits for DEC-12', () => {
+      expect(checkConfig({ root })).toEqual([]);
+      expect(Object.keys(registry.features)).toEqual(['managed', 'enclave', 'push']);
+      expect(registry.features.enclave).toMatchObject({ maturity: 'Preview', settings: { MANAGED_SIGNER_BACKEND: 'enclave', ENCLAVE_ALLOW_EXPORT: '1' } });
+      expect(registry.features.push).toMatchObject({ safeTrigger: false, webKeys: ['notificationGateway'] });
+      expect(registry.features.managed).toMatchObject({ webKeys: ['managedSigner', 'managedTerms'], auditReports: REQUIRED_AUDITS });
+      expect(checkLegalApproval({ root, record: registry.features.managed!.legalApproval }).problems[0]).toMatch(/aprobación legal de docs\/legal\/custodia-managed\.md está pendiente/);
+      expect(MATURITY).toEqual(['GA', 'Beta', 'Preview', 'Experimental']);
+      expect(problems()).toBe('');
+    });
+
+    it('managed stays out of production while its legal approval or the audit reports are pending', () => {
+      const p = problems(saas(managedOn));
+      expect(p).toMatch(/managed \(custodia gestionada.*\) está en la configuración de producción \(infra\/web\/config\.saas\.example\.json \("managedSigner"\), infra\/web\/config\.saas\.example\.json \("managedTerms"\)\)/);
+      expect(p).toMatch(/aprobación legal de docs\/legal\/custodia-managed\.md está pendiente/);
+      expect(p).toMatch(/SEC-01, SEC-02 sin informe/);
+      // Approved, but the audits were waived, not done.
+      const waiver = { 'docs/security/audits/waivers/v1.0.0.md': record({ Tag: 'v1.0.0', 'Auditorías': 'SEC-01, SEC-02', Motivo: 'x'.repeat(40), 'Aprobado por': '@revisora', Fecha: '2026-11-02' }) };
+      const waived = problems({ ...saas(managedOn), 'docs/legal/approvals/custodia-managed.md': approval(), ...waiver });
+      expect(waived).toMatch(/SEC-01, SEC-02 sin informe.*un waiver no basta/);
+      expect(waived).not.toMatch(/aprobación legal/);
+      // Approved and audited: on, with the approved terms version.
+      expect(problems({ ...saas(managedOn), 'docs/legal/approvals/custodia-managed.md': approval(), ...reports })).toBe('');
+      expect(problems({ ...saas({ managedSigner: 'https://signer.example.org' }), 'docs/legal/approvals/custodia-managed.md': approval(), ...reports })).toMatch(
+        /infra\/web\/config\.saas\.example\.json activa managed sin "managedTerms" con la versión aprobada \(1\.0\.0/,
+      );
+      expect(problems({ ...saas({ ...managedOn, managedTerms: { url: 'https://example.org/t', version: '0.9.0' } }), 'docs/legal/approvals/custodia-managed.md': approval(), ...reports })).toMatch(/versión aprobada/);
+    });
+
+    it('the approval is for the text as it is: an edit afterwards, a draft or a missing field invalidates it', () => {
+      const withApproval = (a: string, text = terms) => problems({ ...saas(managedOn), 'docs/legal/custodia-managed.md': text, 'docs/legal/approvals/custodia-managed.md': a, ...reports });
+      const edited = `${terms}Una cláusula nueva.\n`;
+      expect(withApproval(approval(), edited)).toContain(`"- SHA-256: ${createHash('sha256').update(edited).digest('hex')}" si ese es el texto aprobado`);
+      const draft = terms.replace('# Términos', '# (BORRADOR) Términos');
+      expect(withApproval(approval({}, draft), draft)).toMatch(/deje de marcarse como borrador/);
+      expect(withApproval(approval({ Fecha: 'mañana' }))).toMatch(/la fecha \("- Fecha: AAAA-MM-DD"\)/);
+      expect(withApproval(approval({ Dictamen: 'PENDIENTE' }))).toMatch(/el dictamen/);
+      expect(withApproval(approval({ Documento: 'docs/legal/otro.md' }))).toMatch(/el documento aprobado/);
+      expect(problems({ ...saas(managedOn), ...reports, 'docs/legal/approvals/custodia-managed.md': undefined as unknown as string }).length).toBeGreaterThan(0);
+    });
+
+    it('a production overlay is anything but stage: including managed-signer there counts, in stage it does not', () => {
+      const overlay = (name: string) => ({ [`deploy/k8s/overlays/${name}/kustomization.yaml`]: 'resources:\n  - ../../base\ncomponents:\n  - ../../components/managed-signer\n' });
+      expect(problems(overlay('production'))).toMatch(/deploy\/k8s\/overlays\/production\/kustomization\.yaml \(components\/managed-signer\).*aprobación legal/);
+      expect(problems(overlay('stage'))).toBe('');
+      expect(problems({ 'deploy/k8s/overlays/stage/files/web-config.json': managedOn })).toBe('');
+      expect(problems({ 'deploy/k8s/overlays/production/files/web-config.json': managedOn })).toMatch(/overlays\/production\/files\/web-config\.json \("managedSigner"\)/);
+    });
+
+    it('the enclave and its export stay off while they are Preview, however they are set', () => {
+      const on = (files: Record<string, unknown>) => {
+        const p = problems(files);
+        expect(p).toMatch(/enclave \(custodia en Nitro Enclave y su exportación.*es Preview, y lo Preview va apagado en producción/);
+        return p;
+      };
+      expect(on({ 'deploy/k8s/overlays/prod/kustomization.yaml': 'configMapGenerator:\n  - name: acceso-nostr-config\n    literals:\n      - MANAGED_SIGNER_BACKEND=enclave\n' })).toContain('(MANAGED_SIGNER_BACKEND=enclave)');
+      expect(on({ 'deploy/k8s/components/managed-signer/managed-signer.yaml': 'env:\n  - name: ENCLAVE_ALLOW_EXPORT\n    value: "1"\n' })).toContain('(ENCLAVE_ALLOW_EXPORT=1)');
+      expect(on({ 'deploy/k8s/base/config.yaml': 'data:\n  MANAGED_SIGNER_BACKEND: "enclave"\n' })).toContain('deploy/k8s/base/config.yaml');
+      expect(on({ 'deploy/terraform/examples/production/main.tf': 'module "x" {\n  enable_enclave_signer = true\n}\n' })).toContain('(enable_enclave_signer = true)');
+      expect(on({ 'deploy/terraform/modules/acceso-nostr/variables.tf': 'variable "enable_enclave_signer" {\n  type    = bool\n  default = true\n}\n' })).toContain('variables.tf');
+      expect(on({ 'deploy/terraform/examples/production/terraform.tfvars': 'enable_enclave_signer = "true"\n' })).toContain('terraform.tfvars');
+      // Commented out, off by default, another value, or stage: not on.
+      expect(problems({ 'deploy/terraform/examples/production/main.tf': 'module "x" {\n  # enable_enclave_signer = true\n  // enable_enclave_signer = true\n}\n' })).toBe('');
+      expect(problems({ 'deploy/terraform/modules/acceso-nostr/variables.tf': 'variable "enable_enclave_signer" {\n  default = false\n}\nvariable "other" {\n  default = true\n}\n' })).toBe('');
+      expect(problems({ 'deploy/k8s/overlays/prod/kustomization.yaml': '- MANAGED_SIGNER_BACKEND=local\n- ENCLAVE_ALLOW_EXPORT=0\n# - MANAGED_SIGNER_BACKEND=enclave\n' })).toBe('');
+      expect(problems({ 'deploy/k8s/overlays/stage/kustomization.yaml': '- MANAGED_SIGNER_BACKEND=enclave\n' })).toBe('');
+      // Leaving Preview is a reviewed change of the registry.
+      expect(problems({ 'deploy/k8s/overlays/prod/kustomization.yaml': '- MANAGED_SIGNER_BACKEND=enclave\n' }, withFeature('enclave', { maturity: 'Beta' }))).toBe('');
+    });
+
+    it('push stays off without a safe trigger on the production relays', () => {
+      expect(problems(saas({ notificationGateway: 'https://push.example.org' }))).toMatch(/push \(notificaciones push.*\("notificationGateway"\)\) y no puede estarlo: no hay un disparador seguro \(ADR 0010/);
+      expect(problems({ 'deploy/k8s/overlays/prod/kustomization.yaml': 'components:\n  - ../../components/notification-gateway\n' })).toMatch(/\(components\/notification-gateway\)/);
+      // The component's own header mentions how to add it: a comment is not a use.
+      expect(problems({ 'deploy/k8s/components/notification-gateway/kustomization.yaml': '# add `components: [../../components/notification-gateway]` to an overlay\nkind: Component\n' })).toBe('');
+      const safe = withFeature('push', { safeTrigger: true, evidence: 'matriz de ADR 0010: el relay de producción entrega el canario al gateway' });
+      expect(problems(saas({ notificationGateway: 'https://push.example.org' }), safe)).toBe('');
+    });
+
+    it('the registry is validated, so a typo cannot hide a feature', () => {
+      const reg = (over: Registry) => problems({}, over);
+      const { webKeys, ...pushWithoutKeys } = registry.features.push!;
+      expect(webKeys).toEqual(['notificationGateway']);
+      expect(reg({ ...registry, features: { ...registry.features, push: { ...pushWithoutKeys, webkeys: webKeys } } })).toMatch(/features\.push\.webkeys no es un campo conocido/);
+      expect(reg(withFeature('enclave', { maturity: 'Alpha' }))).toMatch(/features\.enclave\.maturity debe ser GA, Beta, Preview, Experimental/);
+      expect(reg(withFeature('push', { safeTrigger: true, evidence: '' }))).toMatch(/safeTrigger = true necesita la evidencia/);
+      expect(reg({ ...registry, features: { ...registry.features, nuevo: { title: 'algo' } } })).toMatch(/features\.nuevo no dice cómo se detecta/);
+      expect(reg(withFeature('push', { termsKey: 'notificationGateway' }))).toMatch(/termsKey debe ser una de sus webKeys y necesita legalApproval/);
+      expect(reg({ ...registry, production: { ...registry.production, kubernetes: ['deploy/k8s/nada'] } })).toMatch(/deploy\/k8s\/nada no existe/);
+      expect(problems({ [PRODUCTION_GATES]: '{' })).toMatch(/no es JSON válido/);
+      expect(problems({ 'deploy/k8s/base/files/web-config.json': '{ "mode": ' })).toMatch(/deploy\/k8s\/base\/files\/web-config\.json no es JSON válido/);
+      expect(checkConfig({ root: mkdtempSync(join(tmpdir(), 'production-gates-')) })).toEqual([`Configuración: falta ${PRODUCTION_GATES}.`]);
+    });
+  });
+
   describe('release notes', () => {
     it('complete notes pass; an explicit "Sin cambios." is content', () => {
       expect(checkNotes(notes('v1.0.0'), 'v1.0.0')).toEqual([]);
@@ -170,6 +303,9 @@ describe('scripts/release-gate.mjs (REL-01 / REL-02)', () => {
       expect(missing.status).toBe(1);
       expect(missing.stderr).toContain('falta docs/releases/v9.9.9.md');
       expect(run('notes', '--tag', '../x').status).toBe(2);
+      const config = run('config');
+      expect(config.status).toBe(0);
+      expect(config.stdout).toContain('OK    config');
     });
   });
 });

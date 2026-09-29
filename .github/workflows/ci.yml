@@ -125,8 +125,15 @@ jobs:
       PROMETHEUS_VERSION: 3.5.0
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
       - name: Render the stage overlay
         run: kubectl kustomize deploy/k8s/overlays/stage > /dev/null
+      # OPS-20: managed, the enclave and push only in the production configuration with their evidence
+      # (deploy/production-gates.json); release.yml runs the same check on the tag.
+      - name: Production feature gates
+        run: node scripts/release-gate.mjs config
       - name: Deploy scripts
         run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/rebuild-image.sh scripts/verify-release.sh
       - name: SLO rules and their unit tests (promtool)

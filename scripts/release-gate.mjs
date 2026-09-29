@@ -8,13 +8,15 @@
  *   node scripts/release-gate.mjs sbom <file>
  *   node scripts/release-gate.mjs audits --tag vX.Y.Z [--actor login]…
  *   node scripts/release-gate.mjs notes --tag vX.Y.Z
+ *   node scripts/release-gate.mjs config                          (OPS-20, deploy/production-gates.json)
  *
  * Env: GH_REPO / GITHUB_REPOSITORY (owner/repo), RESTORE_MAX_AGE_HOURS (default 72).
  * Plain Node, no dependencies: the release job runs it without `npm ci`.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { extname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /** ci.yml jobs that must have succeeded on the tagged commit (job id = check name, no `name:` override). */
@@ -196,6 +198,245 @@ export function checkNotesFile({ tag, root = process.cwd() }) {
   return checkNotes(readFileSync(file, 'utf8'), tag);
 }
 
+/** OPS-20: features the production configuration may only turn on with their evidence. */
+export const PRODUCTION_GATES = 'deploy/production-gates.json';
+export const MATURITY = ['GA', 'Beta', 'Preview', 'Experimental'];
+const FEATURE_FIELDS = ['title', 'maturity', 'webKeys', 'termsKey', 'components', 'settings', 'terraform', 'legalApproval', 'auditReports', 'safeTrigger', 'evidence'];
+/** How a feature is found in the configuration; a feature without any would never be seen. */
+const DETECTORS = ['webKeys', 'components', 'settings', 'terraform'];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A file's contents, or undefined when it does not exist (read once: no separate existence check). */
+function readIfExists(path, encoding) {
+  try {
+    return readFileSync(path, encoding);
+  } catch (e) {
+    if (e.code === 'ENOENT') return undefined;
+    throw e;
+  }
+}
+
+/** Shape of deploy/production-gates.json. An unknown field is an error: a typo must not hide a feature. */
+export function registryProblems(reg) {
+  const out = [];
+  const paths = (v) => Array.isArray(v) && v.every((s) => typeof s === 'string' && s.length > 0);
+  for (const k of ['webConfigs', 'kubernetes', 'terraform', 'notProduction'])
+    if (!paths(reg?.production?.[k])) out.push(`production.${k} debe ser una lista de rutas`);
+  const features = reg?.features;
+  if (!features || typeof features !== 'object' || !Object.keys(features).length) return [...out, 'features debe definir las funciones con gate'];
+  for (const [name, f] of Object.entries(features)) {
+    const at = `features.${name}`;
+    if (!f || typeof f !== 'object') {
+      out.push(`${at} debe ser un objeto`);
+      continue;
+    }
+    for (const k of Object.keys(f)) if (!FEATURE_FIELDS.includes(k)) out.push(`${at}.${k} no es un campo conocido (${FEATURE_FIELDS.join(', ')})`);
+    if (typeof f.title !== 'string' || !f.title) out.push(`${at}.title es obligatorio`);
+    if (f.maturity !== undefined && !MATURITY.includes(f.maturity)) out.push(`${at}.maturity debe ser ${MATURITY.join(', ')}`);
+    for (const k of ['webKeys', 'components', 'terraform', 'auditReports']) if (f[k] !== undefined && !paths(f[k])) out.push(`${at}.${k} debe ser una lista`);
+    if (f.settings !== undefined && !(f.settings && typeof f.settings === 'object' && !Array.isArray(f.settings) && Object.values(f.settings).every((v) => typeof v === 'string' && v)))
+      out.push(`${at}.settings debe ser un objeto { VARIABLE: "valor" }`);
+    if (!DETECTORS.some((k) => f[k] && Object.keys(f[k]).length)) out.push(`${at} no dice cómo se detecta (${DETECTORS.join(', ')})`);
+    if (f.legalApproval !== undefined && (typeof f.legalApproval !== 'string' || !f.legalApproval)) out.push(`${at}.legalApproval debe ser la ruta de la aprobación`);
+    if (f.termsKey !== undefined && !(f.legalApproval && f.webKeys?.includes(f.termsKey))) out.push(`${at}.termsKey debe ser una de sus webKeys y necesita legalApproval`);
+    if (f.safeTrigger !== undefined && typeof f.safeTrigger !== 'boolean') out.push(`${at}.safeTrigger debe ser true o false`);
+    if (f.safeTrigger === true && !(typeof f.evidence === 'string' && f.evidence.length >= 30)) out.push(`${at}.safeTrigger = true necesita la evidencia ("evidence")`);
+  }
+  return out;
+}
+
+/**
+ * DEC-12: a legal approval record (Documento, Versión, SHA-256, Dictamen, Aprobado por, Fecha). The SHA-256
+ * is the one of the document as it is in this commit, so an edit after the approval needs a new approval.
+ */
+export function checkLegalApproval({ root = process.cwd(), record }) {
+  const md = readIfExists(join(root, record), 'utf8');
+  if (md === undefined) return { problems: [`falta la aprobación legal (${record})`] };
+  const f = parseFields(md);
+  const version = f['versión'] ?? '';
+  const pending = [version, f.dictamen, f['aprobado por']].every((v) => PLACEHOLDER.test(v ?? ''));
+  const doc = f.documento ?? '';
+  if (pending) return { problems: [`la aprobación legal de ${doc || 'su texto'} está pendiente (${record})`] };
+  const missing = [];
+  if (PLACEHOLDER.test(version)) missing.push('la versión aprobada ("- Versión: …")');
+  if (PLACEHOLDER.test(f.dictamen ?? '')) missing.push('el dictamen ("- Dictamen: enlace o ruta")');
+  if (PLACEHOLDER.test(f['aprobado por'] ?? '')) missing.push('quién lo aprueba ("- Aprobado por: …")');
+  if (!DATE_RE.test(f.fecha ?? '')) missing.push('la fecha ("- Fecha: AAAA-MM-DD")');
+  const text = doc ? readIfExists(join(root, doc)) : undefined;
+  if (text === undefined) missing.push('el documento aprobado ("- Documento: <ruta en el repositorio>")');
+  else {
+    const sha = createHash('sha256').update(text).digest('hex');
+    if ((f['sha-256'] ?? '').toLowerCase() !== sha)
+      missing.push(`una huella que coincida con ${doc} ("- SHA-256: ${sha}" si ese es el texto aprobado; si cambió después, hace falta aprobarlo de nuevo)`);
+    if (/borrador/i.test(text.toString('utf8').split('\n').slice(0, 5).join('\n'))) missing.push(`que ${doc} deje de marcarse como borrador`);
+  }
+  return { problems: missing.length ? [`la aprobación legal ${record} no es válida: le falta ${missing.join(', ')}`] : [], version };
+}
+
+/** Audits covered by the report of some release (docs/security/audits/<tag>.md with its report linked). */
+export function auditReportsOnFile(root = process.cwd()) {
+  const dir = join(root, 'docs/security/audits');
+  const done = new Set();
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch (e) {
+    if (e.code === 'ENOENT') return done;
+    throw e;
+  }
+  for (const name of names) {
+    const tag = name.replace(/\.md$/, '');
+    if (tag === name || !TAG_RE.test(tag)) continue;
+    const f = parseFields(readFileSync(join(dir, name), 'utf8'));
+    if (f.tag === tag && !PLACEHOLDER.test(f.informe ?? '')) listAudits(f['auditorías']).forEach((a) => done.add(a));
+  }
+  return done;
+}
+
+/** Why a feature cannot be on in production yet (empty: it can). */
+function blockers(f, root) {
+  const out = [];
+  if (f.maturity === 'Preview') out.push('es Preview, y lo Preview va apagado en producción');
+  if (f.legalApproval) out.push(...checkLegalApproval({ root, record: f.legalApproval }).problems);
+  if (f.auditReports) {
+    const done = auditReportsOnFile(root);
+    const missing = f.auditReports.filter((a) => !done.has(a));
+    if (missing.length) out.push(`${missing.join(', ')} sin informe en docs/security/audits/<tag>.md (un waiver no basta)`);
+  }
+  if (f.safeTrigger === false) out.push(`no hay un disparador seguro${f.evidence ? ` (${f.evidence})` : ''}`);
+  return out;
+}
+
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Drops `#` comments (YAML, env, HCL); for HCL also `//` and block comments. */
+const dropConfigComments = (text, hcl) => {
+  const t = hcl ? text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1') : text;
+  return t.replace(/(^|\s)#.*$/gm, '$1');
+};
+const isSet = (v) => v !== undefined && v !== null && v !== '';
+/** `KEY=value`, `KEY: value`, `KEY = "value"` or `- name: KEY` + `value: value`, quoted or not. */
+const setsValue = (text, key, value) => {
+  const k = esc(key);
+  const v = `["']?${esc(value)}["']?`;
+  return new RegExp(`(^|[^\\w])${k}["']?\\s*[:=]\\s*${v}(?=[\\s,}]|$)`, 'm').test(text) || new RegExp(`name:\\s*["']?${k}["']?\\s*\\n\\s*value:\\s*${v}(?=\\s|$)`).test(text);
+};
+const usesComponent = (text, name) => new RegExp(`(^|[^\\w-])components/${esc(name)}(?![\\w-])`, 'm').test(text);
+/** `name = true` (module argument, tfvars; Terraform also takes "true") or `variable "name" { … default = true … }`. */
+const enablesVariable = (text, name) => {
+  if (new RegExp(`(^|[^\\w.])${esc(name)}\\s*=\\s*"?true\\b`, 'm').test(text)) return true;
+  const m = new RegExp(`variable\\s+"${esc(name)}"\\s*\\{`).exec(text);
+  if (!m) return false;
+  let i = m.index + m[0].length;
+  for (let depth = 1; i < text.length && depth; i++) depth += text[i] === '{' ? 1 : text[i] === '}' ? -1 : 0;
+  return /(^|\s)default\s*=\s*"?true\b/.test(text.slice(m.index, i));
+};
+
+/** Every file under a path of the repository, skipping hidden entries and the excluded paths. */
+function filesUnder(root, rel, exclude) {
+  if (exclude.some((x) => rel === x || rel.startsWith(`${x}/`))) return [];
+  let names;
+  try {
+    names = readdirSync(join(root, rel));
+  } catch (e) {
+    if (e.code === 'ENOTDIR') return [rel];
+    throw e;
+  }
+  return names
+    .filter((name) => !name.startsWith('.'))
+    .sort()
+    .flatMap((name) => filesUnder(root, `${rel}/${name}`, exclude));
+}
+
+/**
+ * Where the production configuration turns each feature on: the web configs, and every file of the
+ * Kubernetes and Terraform paths except those listed in notProduction (a new overlay counts as production).
+ */
+export function productionSites({ root = process.cwd(), registry }) {
+  const { production, features } = registry;
+  const sites = Object.fromEntries(Object.keys(features).map((name) => [name, new Set()]));
+  const webConfigs = [];
+  const problems = [];
+  const scanJson = (file, text) => {
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      problems.push(`${file} no es JSON válido`);
+      return;
+    }
+    if (!json || typeof json !== 'object' || Array.isArray(json)) return;
+    webConfigs.push({ file, json });
+    for (const [name, f] of Object.entries(features)) for (const k of f.webKeys ?? []) if (isSet(json[k])) sites[name].add(`${file} ("${k}")`);
+  };
+  const scanText = (file, raw, hcl) => {
+    const text = dropConfigComments(raw, hcl);
+    for (const [name, f] of Object.entries(features)) {
+      for (const k of f.webKeys ?? []) if (new RegExp(`"${esc(k)}"\\s*:\\s*(?!null\\b)`).test(text)) sites[name].add(`${file} ("${k}")`);
+      for (const c of f.components ?? []) if (usesComponent(text, c)) sites[name].add(`${file} (components/${c})`);
+      for (const [k, v] of Object.entries(f.settings ?? {})) if (setsValue(text, k, v)) sites[name].add(`${file} (${k}=${v})`);
+      if (hcl) for (const v of f.terraform ?? []) if (enablesVariable(text, v)) sites[name].add(`${file} (${v} = true)`);
+    }
+  };
+  for (const file of production.webConfigs) {
+    const text = readIfExists(join(root, file), 'utf8');
+    if (text === undefined) problems.push(`${file} no existe (production.webConfigs de ${PRODUCTION_GATES})`);
+    else scanJson(file, text);
+  }
+  for (const dir of [...production.kubernetes, ...production.terraform]) {
+    let files;
+    try {
+      files = filesUnder(root, dir, production.notProduction);
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+      problems.push(`${dir} no existe (${PRODUCTION_GATES})`);
+      continue;
+    }
+    for (const file of files) {
+      const text = readFileSync(join(root, file), 'utf8');
+      const ext = extname(file);
+      if (ext === '.json') scanJson(file, text);
+      else scanText(file, text, ext === '.tf' || ext === '.tfvars');
+    }
+  }
+  return { sites: Object.fromEntries(Object.entries(sites).map(([name, s]) => [name, [...s]])), webConfigs, problems };
+}
+
+/**
+ * OPS-20: with legal approval or audits pending the managed onboarding is not in the production configuration;
+ * whatever is Preview (the enclave and its export) stays off; push stays off without a safe trigger.
+ */
+export function checkConfig({ root = process.cwd() } = {}) {
+  const text = readIfExists(join(root, PRODUCTION_GATES), 'utf8');
+  if (text === undefined) return [`Configuración: falta ${PRODUCTION_GATES}.`];
+  let registry;
+  try {
+    registry = JSON.parse(text);
+  } catch (e) {
+    return [`Configuración: ${PRODUCTION_GATES} no es JSON válido (${e.message}).`];
+  }
+  const bad = registryProblems(registry);
+  if (bad.length) return bad.map((p) => `Configuración: ${PRODUCTION_GATES}: ${p}.`);
+  const { sites, webConfigs, problems } = productionSites({ root, registry });
+  const out = problems.map((p) => `Configuración: ${p}.`);
+  for (const [name, f] of Object.entries(registry.features)) {
+    if (!sites[name].length) continue;
+    const reasons = blockers(f, root);
+    if (reasons.length) {
+      out.push(
+        `Configuración: ${name} (${f.title}) está en la configuración de producción (${sites[name].join(', ')}) y no puede estarlo: ${reasons.join('; ')}. Quita esa configuración o aporta lo que falta (${PRODUCTION_GATES}, docs/release-checklist.md).`,
+      );
+      continue;
+    }
+    // Consent records the terms version: it has to be the approved one wherever the feature is on.
+    if (!f.termsKey) continue;
+    const { version } = checkLegalApproval({ root, record: f.legalApproval });
+    for (const c of webConfigs)
+      if (f.webKeys.some((k) => isSet(c.json[k])) && c.json[f.termsKey]?.version !== version)
+        out.push(`Configuración: ${c.file} activa ${name} sin "${f.termsKey}" con la versión aprobada (${version}, ${f.legalApproval}).`);
+  }
+  return out;
+}
+
 function parseArgs(argv) {
   const opts = { actors: [], positional: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -224,6 +465,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     sbom: () => checkSbom(readFileSync(resolve(need('--sbom o <archivo>', opts.sbom ?? opts.positional[0])), 'utf8')),
     audits: () => checkAudits({ tag: need('--tag', opts.tag), actors: opts.actors }),
     notes: () => checkNotesFile({ tag: need('--tag', opts.tag) }),
+    config: () => checkConfig(),
   };
   const selected = cmd === 'all' ? Object.keys(checks) : cmd in checks ? [cmd] : null;
   if (!selected) throw new Error(`comando desconocido: ${cmd ?? ''} (all | ${Object.keys(checks).join(' | ')})`);
