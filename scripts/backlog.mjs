@@ -27,6 +27,9 @@ for (const t of tasks) {
   if (t.issue !== undefined && !(Number.isInteger(t.issue) && t.issue > 0)) errors.push(`${t.id}: issue must be a GitHub issue number`);
 }
 if (meta.github !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(meta.github)) errors.push(`meta.github must be "owner/repo"`);
+// OPS-18: the names of the requirements the traceability (scripts/traceability.mjs) is generated for.
+for (const r of REQUIRED) if (!meta.requirements?.[r]) errors.push(`meta.requirements has no name for ${r}`);
+for (const r of Object.keys(meta.requirements ?? {})) if (!REQUIRED.includes(r)) errors.push(`meta.requirements: unknown requirement ${r}`);
 for (const t of tasks) {
   for (const d of t.deps) {
     const dep = byId.get(d);

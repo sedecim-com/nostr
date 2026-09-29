@@ -23,6 +23,7 @@ import { pathToFileURL } from 'node:url';
 export const REQUIRED_CI_JOBS = [
   'test', // typecheck, unit + E2E in process, lint:claims, browser E2E (Playwright), keygen HTML, SBOM
   'secrets', // gitleaks over the history
+  'traceability', // traceability and status board generated from the backlog, every cited reference exists (OPS-18)
   'compose', // compose config of every profile, Caddyfile
   'deploy-config', // k8s, Terraform, SLO rules, shellcheck
   'marmot-mdk', // marmot-ts <-> MDK interop

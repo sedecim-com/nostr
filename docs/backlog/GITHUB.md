@@ -4,8 +4,8 @@ Desde OPS-10, **los issues con el label `backlog` son la fuente del backlog**. `
 `backlog.csv` de esta carpeta se generan a partir de ellos: no se editan a mano, y si se editan, la siguiente
 sincronización los sobrescribe.
 
-Excepción: `meta` de `backlog.json` (sprints, `baseline`, `version`, `source`, prioridades) no sale de los
-issues. Se edita a mano por PR y la sincronización lo conserva; después, `node scripts/backlog.mjs` regenera
+Excepción: `meta` de `backlog.json` (sprints, `baseline`, `version`, `source`, prioridades, nombres de los
+requisitos) no sale de los issues. Se edita a mano por PR y la sincronización lo conserva; después, `node scripts/backlog.mjs` regenera
 `README.md` y `backlog.csv`. Al traer la salida de la rama `backlog-sync` a una PR, primero se trae esa salida y
 después se edita `meta`, para no volver a su valor anterior.
 
@@ -68,19 +68,65 @@ La regla que aplica la sincronización (`pull`):
 - Las tareas que ya estaban hechas antes de esta regla se mantienen. La ejecución resume en un aviso las que
   no citan ningún commit.
 
+## Trazabilidad y tablero de estado (OPS-18)
+
+`docs/requirements-traceability.md` y `docs/status.md` se generan con `node scripts/traceability.mjs`. Salen de
+`backlog.json` (los issues) y del código: los tests que citan en su texto una tarea (`FR001-03`) o un requisito
+(`FR-001`). No se editan a mano. La sincronización los regenera. El job `traceability` de CI falla si no están al
+día, o si la evidencia de una tarea que no está Pendiente cita algo que no existe:
+
+| Referencia | Cómo se escribe | Qué se comprueba |
+|---|---|---|
+| Archivo o directorio | Ruta desde la raíz (`apps/web-saas/src/lib/session.ts`). En prosa solo cuenta si tiene extensión; entre backticks, también sin ella | Que exista en el árbol. Una ruta que no empieza en la raíz (`lib/groups.ts`) tiene que ser el final de alguna. `*` vale dentro de un directorio |
+| Prueba | Ruta o solo el nombre del archivo (`identity.test.ts`) | Que exista un archivo con ese nombre |
+| Commit | SHA de 7 a 40 caracteres, suelto en la prosa; también `main@sha` | Que exista y, si la tarea está Hecha, que sea de la historia de `main` |
+| ADR | `ADR 0011`, `ADR 0002/0003` | Que exista `docs/adr/0011-….md` |
+
+No se comprueban:
+
+- los commits de otro repositorio, escritos `repo@sha` (`buzz@02c6309`);
+- los hashes que no son commits (digests, ids), que van entre backticks;
+- las URLs y los hosts (`ghcr.io/…`);
+- las salidas de build (`dist/…`);
+- la prosa con barras sin extensión («deploy/update/teardown»).
+
+**Estado de un requisito:**
+
+- **Hecho**: lo están todas sus tareas del programa, sin las descartadas ni las diferidas a después de v1.0.
+- **Parcial**: alguna está hecha o parcial.
+- **Pendiente**: ninguna.
+
+Los nombres de los requisitos están en `meta.requirements`.
+
+**El tablero** muestra:
+
+- las tareas por estado;
+- las hechas por nivel de evidencia: `evidenceState` es el label `evidencia:…` más alto del issue, que `pull` guarda y `seed` vuelve a poner;
+- los sprints abiertos;
+- las P0 abiertas.
+
+**Si el job falla en una PR:**
+
+1. Corrige la referencia en el issue.
+2. Lleva el mismo texto a `backlog.json`, o espera a la sincronización.
+3. Regenera con `node scripts/traceability.mjs`.
+
 ## Sincronización (`.github/workflows/backlog-sync.yml`)
 
 1. Se ejecuta con cada cambio en un issue `backlog`/`epic`, una vez al día y a mano.
-2. Lanza `node scripts/backlog-github.mjs pull --write`, después `node scripts/backlog.mjs` (valida y regenera),
-   y abre o actualiza la PR **"backlog: sync desde GitHub Issues"** en la rama `backlog-sync`.
+2. Lanza `node scripts/backlog-github.mjs pull --write`, después `node scripts/backlog.mjs` (valida y regenera) y
+   `node scripts/traceability.mjs` (regenera la trazabilidad y el tablero, y comprueba la evidencia con la
+   historia completa). Luego abre o actualiza la PR **"backlog: sync desde GitHub Issues"** en la rama
+   `backlog-sync`.
 3. Si `main` ya coincide con los issues (p. ej. porque otra PR trajo la salida de `backlog-sync`, ver arriba),
    cierra con un comentario la PR de sincronización que siga abierta y borra la rama. Fusionar esa PR no
    cambiaría nada o chocaría con líneas que `main` ya movió, y una rama vieja se podría traer por error a otra PR.
    La siguiente ejecución con diferencias vuelve a crear la rama desde `main` y abre una PR nueva.
 4. Si el validador falla (p. ej. una tarea cerrada que depende de otra abierta, o una dependencia hacia un sprint
-   posterior), la ejecución queda en rojo con el error. Se corrige en los issues.
-5. Las PR que abre `GITHUB_TOKEN` no lanzan `ci`: la sync solo toca `docs/backlog`, y el validador ya corrió en
-   el workflow.
+   posterior) o la evidencia de un issue cita algo que no existe, la ejecución queda en rojo con el error. Se
+   corrige en los issues.
+5. Las PR que abre `GITHUB_TOKEN` no lanzan `ci`: la sync solo toca `docs/backlog`, la trazabilidad y el tablero,
+   y sus comprobaciones ya corrieron en el workflow.
 
 `pull` solo escribe en GitHub para poner `evidencia:merged` (ver arriba).
 

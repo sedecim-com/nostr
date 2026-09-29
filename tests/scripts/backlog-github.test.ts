@@ -282,10 +282,16 @@ describe('backlog ⇄ GitHub Issues (GitHub is the source)', () => {
 
     // Citing a commit of main (abbreviated) makes it Hecho, and the issue gets evidencia:merged once.
     close(open[0]!.id, 'Commit 7dd1ff3 en main (PR #304); tests en verde.');
-    expect((await statusOf(open[0]!.id)).status).toBe('Hecho');
+    const unlabelled = await statusOf(open[0]!.id);
+    expect(unlabelled.status).toBe('Hecho');
     expect(issueOf(open[0]!.id).labels.map((l) => l.name)).not.toContain('evidencia:merged');
-    expect((await statusOf(open[0]!.id, { labelMerged: true })).status).toBe('Hecho');
+    expect(unlabelled.r.backlog.tasks.find((t: { id: string }) => t.id === open[0]!.id).evidenceState).toBeUndefined();
+    const labelled = await statusOf(open[0]!.id, { labelMerged: true });
+    expect(labelled.status).toBe('Hecho');
     expect(issueOf(open[0]!.id).labels.map((l) => l.name)).toContain('evidencia:merged');
+    // OPS-18: the task keeps the evidence state for the status board, and so does the next pull.
+    expect(labelled.r.backlog.tasks.find((t: { id: string }) => t.id === open[0]!.id).evidenceState).toBe('merged');
+    expect((await pull(api7, small)).backlog.tasks.find((t: { id: string }) => t.id === open[0]!.id).evidenceState).toBe('merged');
     const writes = gh7.writes;
     await pull(api7, small, { labelMerged: true });
     expect(gh7.writes).toBe(writes);

@@ -369,7 +369,7 @@
 | [PANEL-01](https://github.com/sedecim-com/nostr/issues/62) | Modelo de configuración del panel, presets del Apéndice B y validación | §9 | `packages/profiles` |
 | [FR001-01](https://github.com/sedecim-com/nostr/issues/66) | Generar llave con CSPRNG y self-test de derivación + firma BIP-340 | FR-001 | `packages/nostr-core/src/keys.ts` |
 | [FR001-02](https://github.com/sedecim-com/nostr/issues/67) | Crear persona local con llave cifrada NIP-49 en su store | FR-001 | `packages/identity` |
-| [FR001-03](https://github.com/sedecim-com/nostr/issues/68) | Flujo "crear llave local" en la web SaaS | FR-001 | `apps/web-saas/src/session.ts` |
+| [FR001-03](https://github.com/sedecim-com/nostr/issues/68) | Flujo "crear llave local" en la web SaaS | FR-001 | `apps/web-saas/src/lib/session.ts (`createPersona`), con la llave guardada cifrada en apps/web-saas/src/lib/vault.ts` |
 | [FR002-01](https://github.com/sedecim-com/nostr/issues/71) | Importar nsec/ncryptsec validando la correspondencia pubkey/secret | FR-002 | `packages/identity/test` |
 | [FR002-02](https://github.com/sedecim-com/nostr/issues/72) | Registrar persona con signer externo (bunker) o managed | FR-002 | `packages/identity` |
 | [FR003-01](https://github.com/sedecim-com/nostr/issues/74) | Generador CLI offline con todas las primitivas de red bloqueadas | FR-003 | `apps/key-generator` |
