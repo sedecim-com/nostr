@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const root = new URL('../..', import.meta.url).pathname;
-const SERVICES = ['indexer', 'identity-service', 'policy-engine', 'blob-store', 'managed-signer', 'notification-gateway', 'web', 'tor'];
+const SERVICES = ['indexer', 'identity-service', 'policy-engine', 'blob-store', 'managed-signer', 'notification-gateway', 'continuity-vault', 'web', 'tor'];
 
 const dryRun = (service: string, env: Record<string, string> = {}) =>
   spawnSync('sh', [join(root, 'scripts/build-image.sh'), service, 'out.tar'], {

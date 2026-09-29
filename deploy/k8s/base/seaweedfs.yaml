@@ -1,4 +1,5 @@
-# S3-compatible store for Buzz media (same SeaweedFS pin and bootstrap as docker-compose.yml).
+# S3-compatible store for Buzz media (same SeaweedFS pin and Buzz bootstrap as docker-compose.yml; the compose also
+# creates the Continuity Vault's bucket and keys, VAULT-06: here components/continuity-vault adds them).
 apiVersion: v1
 kind: Service
 metadata:

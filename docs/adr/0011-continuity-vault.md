@@ -1,6 +1,6 @@
 # ADR 0011 · Continuity Vault: sobres de archivo sellados en el cliente
 
-- **Estado:** Propuesto · **Tarea:** VAULT-01 (#237); cubre también VAULT-02 (#238), VAULT-03 (#246), VAULT-04 (#247), VAULT-05 (#248) y VAULT-07 (#239) · **Fecha:** 2026-09-28
+- **Estado:** Propuesto · **Tarea:** VAULT-01 (#237); cubre también VAULT-02 (#238), VAULT-03 (#246), VAULT-04 (#247), VAULT-05 (#248), VAULT-06 (#249) y VAULT-07 (#239) · **Fecha:** 2026-09-28
 - **Aprobación:** pendiente (responsable de producto)
 
 ## Contexto
@@ -98,8 +98,9 @@ VAULT-02: ni la base ni el object store contienen texto, eventos ni llaves legib
 
 ### Almacenamiento
 - **Dónde.** Los metadatos van en Postgres (`vault_owners`, `vault_archives`) y los sobres en un
-  `ObjectStore`: memoria para desarrollo, sistema de archivos, y S3-compatible en VAULT-06. Las llaves de
-  objeto son aleatorias: ni la ruta ni la llave dicen de quién es un sobre.
+  `ObjectStore`: memoria para desarrollo, un directorio (`VAULT_OBJECTS_DIR`) o un bucket S3-compatible
+  (`VAULT_S3_BUCKET`, VAULT-06). Las llaves de objeto son aleatorias: ni la ruta ni la llave dicen de quién es
+  un sobre.
 - **Orden de escritura.** Primero el objeto, después la fila. El objeto reemplazado o borrado se elimina
   tras el commit. Si el proceso cae en medio, queda un objeto huérfano (ninguna fila lo apunta), nunca una
   fila sin objeto. El barrido de VAULT-05 borra esos huérfanos (abajo).
@@ -233,8 +234,9 @@ política de la persona es un control más del panel: `continuity` (`packages/pr
     automáticos de RDS y su PITR duran `rds_backup_retention_days` (14 días por defecto, de 7 a 35), y el
     bucket de backups expira sus objetos y sus versiones no actuales a los `backup_retention_days` (35 días
     por defecto);
-  - ese módulo y `scripts/backup.sh` todavía no despliegan ni copian el vault (VAULT-06). Quien lo opere
-    declara la retención de sus copias;
+  - ese módulo todavía no despliega el vault. En el compose, `scripts/backup.sh` lo copia (VAULT-06, abajo):
+    esas copias duran lo que el operador las conserve (el cron de ejemplo del runbook guarda 7 días en el
+    host);
   - el texto `deletion` de los disclosures lo dice antes de borrar.
 - **Exportación portable (NFR-008).** La web («Exportar el vault») y el CLI (`sovereign vault export --out
   FILE`) descargan y abren todo en el dispositivo, y escriben un JSON abierto:
@@ -258,6 +260,37 @@ política de la persona es un control más del panel: `continuity` (`packages/pr
   - No va cifrado: los mensajes de grupo quedan en claro. El texto `export` de los disclosures lo dice.
   - El CLI lo escribe con modo 0600 y nunca sobrescribe un archivo.
 
+### Self-hosted (VAULT-06)
+El mismo servicio y el mismo contrato, sin nada del SaaS de Sedecim: los clientes hablan con el vault del
+despliegue igual que con cualquier otro.
+- **Dónde guarda los sobres.** En un directorio (`VAULT_OBJECTS_DIR`) o en cualquier almacenamiento
+  S3-compatible (`VAULT_S3_BUCKET`, con `VAULT_S3_ENDPOINT`, `VAULT_S3_REGION`, `VAULT_S3_PREFIX` y
+  `VAULT_S3_ACCESS_KEY`/`VAULT_S3_SECRET_KEY`; sin llaves, la cadena de credenciales de AWS). Uno de los dos,
+  y siempre junto con `DATABASE_URL`: una mitad persistente dejaría filas sin objeto u objetos sin fila. Al
+  arrancar comprueba que el bucket existe y que sus llaves llegan (`HeadBucket`), así un error de
+  configuración para el arranque y no la primera subida.
+- **En el compose.** El servicio `continuity-vault` (puerto 8088) guarda las filas en la base de la plataforma
+  y los sobres en su propio bucket de SeaweedFS, `continuity-vault`:
+  - tiene llaves S3 propias (`VAULT_S3_ACCESS_KEY`/`VAULT_S3_SECRET_KEY`, que genera `scripts/init-env.sh`)
+    que solo llegan a su bucket: el vault no puede leer ni borrar la media de Buzz;
+  - `seaweedfs-init` crea el bucket;
+  - `VAULT_NIP98` es `open` por defecto: cualquier llave Nostr abre una cuenta, lo que se acepta en
+    self-hosted (ver Consecuencias). `allowlist` u `off` lo cierran;
+  - `infra/web/config.json` lo publica como `continuityVault`, así la web del despliegue lo usa;
+  - con TLS (`compose.tls.yml`), Caddy lo sirve en `vault.<dominio>`.
+- **Backup y restore.** `scripts/backup.sh` pausa el vault desde antes de los dumps hasta copiar
+  `seaweedfs-data`. Como el objeto se escribe antes que la fila y se borra después, una copia tomada así
+  puede tener objetos huérfanos, que el barrido de VAULT-05 recoge, pero nunca una fila sin su sobre, que
+  haría fallar cualquier restauración de esa cuenta. `scripts/restore.sh` lo repone con el dump de la
+  plataforma y `seaweedfs-data`. El restore drill siembra un sobre sellado, hace backup, deja el host limpio,
+  restaura y comprueba que el sobre vuelve y abre con su llave.
+- **Imagen.** `nostr-continuity-vault` se publica como las demás (reproducible, firmada, con SBOM).
+- **Kubernetes.** El componente opt-in `deploy/k8s/components/continuity-vault` lo despliega igual: filas en la
+  base de la plataforma, sobres en su bucket del SeaweedFS del clúster con llaves que solo llegan a él, y el
+  host `nostr-<env>-vault` en el edge. Stage no lo activa: antes hay que decidir su host público (el ALB
+  enruta hosts explícitos) y quién abre cuentas. Por eso el componente trae `VAULT_NIP98=allowlist` con la
+  lista vacía, y el vault no arranca hasta que el overlay elige `allowlist` con llaves u `off` con Acceso.
+
 ### Lo que ve el operador (VAULT-07)
 - **Ve:**
   - la cuenta;
@@ -271,16 +304,13 @@ política de la persona es un control más del panel: `continuity` (`packages/pr
   metadatos y los sobres cifrados hasta que caduca su propia retención (ver VAULT-05, arriba).
 
 ## Consecuencias
-- VAULT-03, VAULT-04 y VAULT-05 se construyen sobre este contrato (arriba): la restauración con relays
-  vacíos, `CONTINUITY_BACKED_UP` en la máquina de estados, y la retención, el borrado y la exportación.
-- VAULT-06 añade:
-  - el `ObjectStore` S3-compatible (SeaweedFS del compose);
-  - el servicio en el compose y en Kubernetes;
-  - la imagen de release;
-  - el restore drill.
-
-  Hasta entonces el vault se levanta a mano (`npx tsx services/continuity-vault/src/main.ts`) o con la
-  imagen común (`--build-arg SERVICE=continuity-vault`).
+- VAULT-03 a VAULT-06 se construyen sobre este contrato (arriba): la restauración con relays vacíos,
+  `CONTINUITY_BACKED_UP` en la máquina de estados, la retención, el borrado y la exportación, y el despliegue
+  self-hosted sobre un directorio o un bucket S3-compatible.
+- El SaaS aún no activa el vault (el componente de Kubernetes existe, stage no lo incluye): falta decidir su
+  host y quién abre cuentas.
+- Un backup del compose pausa el vault unos segundos o minutos (lo que tarden los dumps y la copia de
+  SeaweedFS): sus subidas esperan y los clientes reintentan.
 - La frecuencia es visible. Con la copia automática (VAULT-04), cada envío es una subida. Agrupar subidas
   reduciría la señal a costa de retrasar las copias; v1 no disfraza los tiempos.
 - Con NIP-98 `open`, cualquiera puede crear cuentas. Se acepta en self-hosted; el SaaS elige `allowlist` u

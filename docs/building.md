@@ -13,7 +13,7 @@ publicado y qué partes son reproducibles bit a bit (y cuáles no). Los releases
 | `sbom.cdx.json`: SBOM CycloneDX de las dependencias de producción | assets del GitHub Release | `sbom.cdx.json.sigstore.json`, attestation SLSA |
 | `images.txt`: lista `imagen@sha256:…` de las imágenes del release | assets del GitHub Release | `images.txt.sigstore.json` |
 | `SHA256SUMS`: checksums de los cuatro archivos anteriores | assets del GitHub Release | `SHA256SUMS.sigstore.json` |
-| Imágenes `ghcr.io/sedecim-com/nostr-<servicio>:<tag>`: `indexer`, `identity-service`, `policy-engine`, `blob-store`, `managed-signer`, `notification-gateway`, `web`, `tor` | GHCR, fijadas por digest en `images.txt` | firma cosign en el registry, attestation SLSA (y SBOM salvo `tor`) en el registry y en GitHub |
+| Imágenes `ghcr.io/sedecim-com/nostr-<servicio>:<tag>`: `indexer`, `identity-service`, `policy-engine`, `blob-store`, `managed-signer`, `notification-gateway`, `continuity-vault`, `web`, `tor` | GHCR, fijadas por digest en `images.txt` | firma cosign en el registry, attestation SLSA (y SBOM salvo `tor`) en el registry y en GitHub |
 
 Las firmas son *keyless* (Sigstore): no hay una llave del proyecto que custodiar. El certificado de
 cada firma lo emite Fulcio para la identidad OIDC del workflow, que es exactamente
@@ -143,7 +143,7 @@ antes de añadirlo). Requisitos: Docker con Buildx (driver
 sh scripts/verify-release.sh v0.2.0                 # primero: images.txt firmado por el release
 sh scripts/rebuild-image.sh v0.2.0 indexer release-v0.2.0/images.txt
 #   servicio = indexer | identity-service | policy-engine | blob-store | managed-signer |
-#              notification-gateway | web | tor
+#              notification-gateway | continuity-vault | web | tor
 ```
 
 `rebuild-image.sh` clona el tag en un directorio temporal (con `umask 022`), construye la imagen con

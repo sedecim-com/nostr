@@ -39,6 +39,7 @@ Objetivos de RPO/RTO por tier: [`docs/rpo-rto.md`](../rpo-rto.md) (aprobados el 
 | Eventos del relay | Postgres `buzz` | `pg_dump -Fc` → `postgres-buzz.dump` (+ WAL si se requiere RPO bajo) |
 | Mirror / identidad | Postgres `sedecim` | `pg_dump -Fc` → `postgres-platform.dump` (el mirror es reconstruible desde relays; incluye `backup_vault`, solo sobres cifrados) |
 | Media Blossom (Buzz) | SeaweedFS, bucket `buzz-media` (volumen `seaweedfs-data`) | Archivo del volumen → `seaweedfs-data.tgz` |
+| Continuity Vault (VAULT-06) | Filas en Postgres `sedecim` (`vault_*`); sobres sellados en SeaweedFS, bucket `continuity-vault` | Van en `postgres-platform.dump` y `seaweedfs-data.tgz`. El vault queda pausado desde antes de los dumps hasta copiar `seaweedfs-data`, así ninguna fila respaldada apunta a un sobre que falte |
 | Adjuntos cifrados | blob-store (volumen `blob-data`) | Archivo del volumen → `blob-data.tgz`; son blobs cifrados, direccionados por hash |
 | Repos git de Buzz | volumen `relay-git` | Archivo del volumen → `relay-git.tgz` |
 | Grupos Marmot | secure-relay (volumen `secure-relay-data`, SQLite) | Archivo del volumen → `secure-relay-data.tgz` |
@@ -53,7 +54,10 @@ Objetivos de RPO/RTO por tier: [`docs/rpo-rto.md`](../rpo-rto.md) (aprobados el 
 sh scripts/backup.sh                 # → .data/backups/<fecha UTC>/ (o: sh scripts/backup.sh DIR)
 ```
 Con el stack en marcha. Hace `pg_dump` de las dos bases, archiva cada volumen pausando su servicio unos
-segundos (`docker compose pause`, copia consistente), copia `.env` y escribe `SHA256SUMS`. El directorio
+segundos (`docker compose pause`, copia consistente), copia `.env` y escribe `SHA256SUMS`. El Continuity
+Vault se pausa durante los dumps y la copia de `seaweedfs-data`: sus subidas esperan ese rato y los clientes
+reintentan (una copia `best-effort` no retrasa ningún envío; una `required-for-resilient` lo retiene hasta
+entonces). El directorio
 contiene todos los secretos del stack: cifrarlo y sacarlo del host (p. ej. al bucket de backups de
 `deploy/terraform`). Programarlo con cron según el RPO del tier.
 
@@ -85,7 +89,8 @@ están activos (`COMPOSE_PROFILES=managed sh scripts/restore.sh …`).
 
 ### Drill (NFR003-02)
 `.github/workflows/restore-drill.yml`, cada noche: levanta el stack, siembra datos conocidos en Buzz, el
-mirror, la media, el blob-store y el relay secundario (`scripts/drill-data.ts seed`), hace backup con
+mirror, la media, el blob-store, el relay secundario y el Continuity Vault (un sobre sellado con una llave de
+archivo de prueba; `scripts/drill-data.ts seed`), hace backup con
 `backup.sh`, deja el host limpio (`docker compose down -v` y sin `.env`), restaura con `restore.sh`,
 comprueba que los datos sembrados volvieron (`drill-data.ts verify`) y ejecuta `npm run test:interop`.
 Si falla, abre (o comenta) el issue "Restore drill fallido". El tiempo de restore queda en el resumen del job.

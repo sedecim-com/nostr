@@ -6,9 +6,10 @@
  *   npx tsx scripts/drill-data.ts verify STATE.json   (after scripts/restore.sh)
  *
  * Components: Buzz events (Postgres `buzz`), mirror (Postgres `sedecim`), Buzz media (SeaweedFS),
- * encrypted attachments (blob-store volume) and the secure relay (SQLite volume).
- * Env: BUZZ_RELAY_URL, MARMOT_RELAY_URL, STACK_INDEXER_URL, STACK_BLOB_URL (same as the interop gate).
- * STATE.json holds a throwaway drill key: it is written with mode 600 and never printed.
+ * encrypted attachments (blob-store volume), the secure relay (SQLite volume) and the Continuity Vault (its rows in
+ * Postgres `sedecim`, its envelopes in its SeaweedFS bucket; VAULT-06).
+ * Env: BUZZ_RELAY_URL, MARMOT_RELAY_URL, STACK_INDEXER_URL, STACK_BLOB_URL, STACK_VAULT_URL (as the interop gate).
+ * STATE.json holds a throwaway drill key and archive key: it is written with mode 600 and never printed.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import WebSocket from 'ws';
@@ -17,6 +18,7 @@ import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { chatMessage, createGroup, parseGroupMetadata } from '@sedecim/messaging';
 import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
+import { ArchiveVaultClient, archiveEvent, generateArchiveKey, restoreHistory } from '@sedecim/continuity';
 import { nip98Fetch } from '@sedecim/service-kit';
 import { tinyPng } from '@sedecim/test-relay';
 
@@ -27,6 +29,7 @@ interface DrillState {
   media: { sha256: string; url: string };
   blob: { sha256: string; keyHex: string; nonceHex: string; text: string };
   secureRelay: { eventId: string; text: string };
+  vault: { archiveKeyHex: string; eventId: string };
 }
 
 const env = (name: string) => {
@@ -38,6 +41,7 @@ const RELAY = env('BUZZ_RELAY_URL');
 const SECURE = env('MARMOT_RELAY_URL');
 const INDEXER = env('STACK_INDEXER_URL');
 const BLOBS = env('STACK_BLOB_URL');
+const VAULT = env('STACK_VAULT_URL');
 const factory = (u: string) => new WebSocket(u) as unknown as WebSocketLike;
 
 async function eventually<T>(what: string, fn: () => Promise<T | undefined>, ms = 90_000): Promise<T> {
@@ -96,6 +100,10 @@ async function seed(stateFile: string) {
     const stored = await pool.publishTo(note, SECURE);
     if (!stored.ok) throw new Error(`secure relay rejected the note: ${stored.message}`);
 
+    // Continuity Vault (Postgres sedecim + its SeaweedFS bucket): the note, sealed here with a throwaway archive key.
+    const archiveKey = generateArchiveKey();
+    await archiveEvent(new ArchiveVaultClient({ baseUrl: VAULT, auth: { archiveKey } }), archiveKey, note);
+
     const state: DrillState = {
       createdAt: stamp,
       secretKeyHex: bytesToHex(sk),
@@ -103,9 +111,10 @@ async function seed(stateFile: string) {
       media: { sha256: png.sha256, url: png.url },
       blob: { sha256: blob.sha256, keyHex: prepared.encryption!.keyHex, nonceHex: prepared.encryption!.nonceHex, text: blobText },
       secureRelay: { eventId: note.id, text: noteText },
+      vault: { archiveKeyHex: bytesToHex(archiveKey), eventId: note.id },
     };
     writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 });
-    console.log(`seeded: buzz message ${msg.id}, media ${png.sha256}, blob ${blob.sha256}, secure note ${note.id}`);
+    console.log(`seeded: buzz message ${msg.id}, media ${png.sha256}, blob ${blob.sha256}, secure note ${note.id}, vault archive of it`);
   } finally {
     pool.close();
   }
@@ -146,6 +155,12 @@ async function verify(stateFile: string) {
     await check('Secure relay note (SQLite)', async () => {
       const found = (await pool.query([SECURE], [{ ids: [state.secureRelay.eventId] }], 5000)).find((e) => e.id === state.secureRelay.eventId);
       if (!found || found.content !== state.secureRelay.text) throw new Error('note not found');
+    });
+    await check('Continuity Vault archive (Postgres sedecim + SeaweedFS bucket)', async () => {
+      const archiveKey = hexToBytes(state.vault.archiveKeyHex);
+      const restored = await restoreHistory(new ArchiveVaultClient({ baseUrl: VAULT, auth: { archiveKey } }), archiveKey, { pubkey: await signer.getPublicKey() });
+      const back = restored.events.find((e) => e.id === state.vault.eventId);
+      if (restored.skipped || back?.content !== state.secureRelay.text) throw new Error(`archive not back (${restored.archives} archives, ${restored.skipped} do not open)`);
     });
   } finally {
     pool.close();

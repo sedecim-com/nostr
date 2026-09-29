@@ -13,7 +13,7 @@ services:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
-    depends_on: [web, relay, secure-relay, blob-store, indexer, identity-service, policy-engine]
+    depends_on: [web, relay, secure-relay, blob-store, indexer, identity-service, policy-engine, continuity-vault]
     restart: unless-stopped
     networks: [nostr]
 
@@ -55,6 +55,13 @@ services:
     ports: !reset []
     environment:
       PUBLIC_BASE_URL: https://blobs.${DOMAIN}
+      RATE_LIMIT_TRUST_PROXY_HOPS: "1"
+
+  continuity-vault:
+    ports: !reset []
+    environment:
+      PUBLIC_BASE_URL: https://vault.${DOMAIN}
+      CORS_ORIGINS: https://${DOMAIN}
       RATE_LIMIT_TRUST_PROXY_HOPS: "1"
 
   web:
