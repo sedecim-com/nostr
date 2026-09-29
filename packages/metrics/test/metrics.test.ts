@@ -167,6 +167,21 @@ describe('ACK latency and outbox metrics against the test relay (NFR004-01, FR01
     expect(exporter.ackLatency.count({ relay: host, region: 'stage' })).toBeGreaterThanOrEqual(3);
     // ephemeral: acknowledged but not stored
     expect(await pool.query([r.url], [{ kinds: [20001] }], 1000)).toEqual([]);
+    // FR011-06: like the indexer, this process has no outbox, so it reports none (not an empty, healthy one).
+    expect(await exporter.render()).not.toContain('nostr_outbox_');
+  });
+
+  it('exports the outbox metrics only once an engine is attached (FR011-06)', async () => {
+    const exporter = new NostrMetricsExporter({ telemetry: 'standard' });
+    pool = new RelayPool({ webSocketFactory: factory, signer });
+    exporter.attachPool(pool);
+    expect(await exporter.render()).not.toContain('nostr_outbox_');
+    engine = new DeliveryEngine({ store: memStore(), publisher: pool, signer });
+    exporter.attachEngine(engine);
+    const s = samples(await exporter.render());
+    expect(s.get('nostr_outbox_depth')).toBe(0);
+    expect(s.get('nostr_outbox_oldest_pending_age_seconds')).toBe(0);
+    expect(s.get('nostr_outbox_failed_operations')).toBe(0);
   });
 
   it('classifies publish failures into coarse reason classes', () => {

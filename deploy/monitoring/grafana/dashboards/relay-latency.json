@@ -1,6 +1,6 @@
 {
   "uid": "acceso-nostr-latency",
-  "title": "Acceso Nostr · Latencia de relays y outbox",
+  "title": "Acceso Nostr · Latencia de relays",
   "tags": [
     "acceso-nostr",
     "slo",
@@ -467,185 +467,7 @@
       "gridPos": {
         "x": 0,
         "y": 31,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Fallos del outbox por relay y motivo",
-      "description": "nostr_outbox_relay_failures_total: intentos fallidos de entregas pendientes, por clase de motivo.",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "outbox:relay_failures:rate5m{relay=~\"$relay\",region=~\"$region\"}",
-          "legendFormat": "{{relay}} · {{reason}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "max",
-            "mean",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "id": 6,
-      "gridPos": {
-        "x": 12,
-        "y": 31,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Profundidad del outbox",
-      "description": "Operaciones sin quorum de relays todavía (nostr_outbox_depth) y fallidas (nostr_outbox_failed_operations).",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (service) (nostr_outbox_depth)",
-          "legendFormat": "{{service}} pendientes",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (service) (nostr_outbox_failed_operations)",
-          "legendFormat": "{{service}} fallidas",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "max",
-            "mean",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "id": 7,
-      "gridPos": {
-        "x": 0,
-        "y": 39,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Antigüedad del pendiente más viejo (alerta a 15 min)",
-      "description": "nostr_outbox_oldest_pending_age_seconds; alerta OutboxOldestPendingTooOld por encima de 900 s durante 10 min.",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "max by (service) (nostr_outbox_oldest_pending_age_seconds)",
-          "legendFormat": "{{service}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 0,
-            "thresholdsStyle": {
-              "mode": "line"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "transparent",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 900
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "max",
-            "mean",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "id": 8,
-      "gridPos": {
-        "x": 12,
-        "y": 39,
-        "w": 12,
+        "w": 24,
         "h": 8
       },
       "datasource": {
@@ -655,7 +477,7 @@
     },
     {
       "type": "table",
-      "title": "Alertas de latencia y outbox activas",
+      "title": "Alertas de latencia activas",
       "targets": [
         {
           "datasource": {
@@ -693,7 +515,7 @@
       "id": 9,
       "gridPos": {
         "x": 0,
-        "y": 47,
+        "y": 39,
         "w": 24,
         "h": 7
       },

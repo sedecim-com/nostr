@@ -127,6 +127,11 @@ describe('monitoring kustomization ships every rules file, test and dashboard (N
     expect(read('deploy/monitoring/prometheus/prometheus.yml')).toMatch(/job_name: nostr-metrics\n[\s\S]*?targets: \['indexer:9464'\]/);
     expect(read('deploy/k8s/base/indexer.yaml')).toMatch(/name: METRICS_PORT\n\s+value: "9464"/);
   });
+  // FR011-06: the only exporter (the indexer) has no outbox, so an outbox rule or panel could never show a problem.
+  it('neither alerts on nor charts outbox metrics that no deployed process exports', () => {
+    for (const f of rules) expect(read(`deploy/monitoring/prometheus/rules/${f}`), f).not.toMatch(/nostr_outbox_|outbox:/);
+    for (const f of dashboards) expect(read(`deploy/monitoring/grafana/dashboards/${f}`), f).not.toMatch(/nostr_outbox_|outbox:/);
+  });
 });
 
 const kubectl = process.env.KUBECTL ?? 'kubectl';
