@@ -72,6 +72,8 @@ export class RotationWorker {
     const before = await s.group(gid);
     if (!before.members.includes(r.removedPubkey)) return { result: 'already-removed', epoch: before.epoch };
     const after = await s.removeMember(gid, r.removedPubkey);
+    // FR025-12: without network the commit waits in the session and goes out on its next sync (this retry's included).
+    if (after.pending?.some((p) => p.type === 'remove' && p.target === r.removedPubkey && !p.failed)) throw new Error('remove commit pending: no relay took it yet');
     if (after.members.includes(r.removedPubkey) || after.epoch <= before.epoch) throw new Error('remove commit not applied');
     return { result: 'removed', epoch: after.epoch };
   }

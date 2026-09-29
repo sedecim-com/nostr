@@ -18,6 +18,7 @@ import {
   isExtendedGroupSession,
   parseMediaImeta,
   type ExtendedGroupSession,
+  type GroupNetwork,
 } from '../src/index';
 
 const RELAYS = ['wss://relay.invalid'];
@@ -159,6 +160,42 @@ describe('backup restore never clones a leaf (FR025-06)', () => {
     expect(await contents(b, g.groupId)).toContain('ya con hoja propia');
     // The source device's leaf is gone: it cannot read the new epoch any more.
     expect(await a.sync(g.groupId).then((m) => m.map((x) => x.content), () => [])).not.toContain('ya con hoja propia');
+  }, 60_000);
+
+  it('admin: a rejoin whose commit found no relay stays pending; the next one finishes it with a single new leaf (FR025-12)', async () => {
+    const w = world();
+    const [alice, bob] = [w.persona(), w.persona()];
+    const { s: a, storage } = await w.open(alice, 'alice-old');
+    const { s: b } = await w.open(bob, 'bob');
+    await b.publishKeyPackage(RELAYS);
+    const g = await a.createGroup({ name: 'g', relays: RELAYS });
+    await a.invite(g.groupId, (await b.findKeyPackage(b.pubkey, RELAYS))!);
+    await b.acceptInvites();
+
+    // Key packages go out; group messages (the commit) do not.
+    const net = { groupMessagesDown: true };
+    const flaky: GroupNetwork = {
+      publish: (relays, e) => (net.groupMessagesDown && e.kind === 445 ? Promise.resolve(relays.map((relay) => ({ relay, ok: false, message: 'error: offline' }))) : w.network.publish(relays, e)),
+      query: (relays, filters) => w.network.query(relays, filters),
+      subscribe: (relays, filters, fn) => w.network.subscribe(relays, filters, fn),
+      inboxRelays: () => w.network.inboxRelays(),
+    };
+    const restored = await new MarmotTsProvider().openSession({ signer: alice, network: flaky, storage: storage.clone(), deviceId: 'alice-new' });
+    const first = await restored.rejoin(g.groupId, RELAYS);
+    expect(first.status).toBe('pending');
+    expect(first.group.pending).toMatchObject([{ type: 'add', target: a.pubkey }]);
+    expect(await restored.restoredGroups()).toEqual([g.groupId]);
+
+    net.groupMessagesDown = false;
+    const second = await restored.rejoin(g.groupId, RELAYS);
+    expect(second.status).toBe('joined');
+    await restored.retryPending();
+    const devices = (await restored.group(g.groupId)).devices!.filter((d) => d.pubkey === a.pubkey);
+    expect(devices).toHaveLength(1);
+    expect(devices[0]).toMatchObject({ self: true, deviceId: 'alice-new' });
+    await b.sync(g.groupId);
+    await restored.send(g.groupId, 'una sola hoja nueva');
+    expect(await contents(b, g.groupId)).toContain('una sola hoja nueva');
   }, 60_000);
 
   it('non-admin: the cloned leaf proposes Add(new leaf) + Remove(itself) and the admin commits', async () => {

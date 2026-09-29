@@ -12,6 +12,7 @@ import { continuityPolicy, disclose, preset, receiptPolicy, validateConfig, type
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
 import {
   EncryptedGroupStorage,
+  hasPendingGroupOperations,
   MarmotTsProvider,
   PoolGroupNetwork,
   assertHighSecurity,
@@ -26,6 +27,7 @@ import {
   type GroupMessage,
   type GroupProposal,
   type GroupSession,
+  type PendingGroupOperation,
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
 import { downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
@@ -489,11 +491,26 @@ export class SovereignClient {
    * short-lived CLI command does not exit in the middle of delivering what an earlier run left pending.
    */
   async settle(timeoutMs = 20_000): Promise<void> {
-    const pending = [...this.sessions.values()].map((s) => s.resumed);
+    const pending = [...this.sessions.values()].map((s) => s.resumed.then(() => this.retryGroups(s)));
     if (pending.length === 0) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([Promise.all(pending), new Promise<void>((r) => (timer = setTimeout(r, timeoutMs)))]);
     clearTimeout(timer);
+  }
+
+  /**
+   * FR025-12: the group messages and commits that found no relay (in this run or an earlier one) go out at the end of
+   * any command that opened the persona, as FR011-04 does for DMs. After the command, not during it: two operations on
+   * the same MLS state must never interleave.
+   */
+  private async retryGroups(s: Session): Promise<void> {
+    try {
+      if (!(await hasPendingGroupOperations(new EncryptedGroupStorage(s.store)))) return;
+      const gs = await this.groupSession(s.persona.id);
+      if (isExtendedGroupSession(gs)) await gs.retryPending();
+    } catch {
+      /* they stay pending: the next command tries again */
+    }
   }
 
   async outbox(personaId: string): Promise<OutboxRecord[]> {
@@ -986,10 +1003,26 @@ export class SovereignClient {
     return (await this.groupSession(personaId)).acceptInvites();
   }
 
-  async groupSend(personaId: string, groupId: string, text: string): Promise<void> {
+  /** FR025-12: without a relay, the message comes back `pending` and goes out later (sync, `groupRetry`, next command). */
+  async groupSend(personaId: string, groupId: string, text: string): Promise<GroupMessage> {
     const gs = await this.groupSession(personaId);
     await gs.sync(groupId);
-    await gs.send(groupId, text);
+    return gs.send(groupId, text);
+  }
+
+  /** FR025-12: group messages and commits of this persona still waiting for a relay (one group, or all). */
+  async groupPending(personaId: string, groupId?: string): Promise<PendingGroupOperation[]> {
+    return (await this.extended(personaId)).pendingOperations(groupId);
+  }
+
+  /** FR025-12: syncs the groups with pending operations and sends them again; returns what is still pending. */
+  async groupRetry(personaId: string, groupId?: string): Promise<PendingGroupOperation[]> {
+    return (await this.extended(personaId)).retryPending(groupId);
+  }
+
+  /** FR025-12: forgets a pending operation (e.g. one every relay refused). */
+  async groupDiscard(personaId: string, id: string): Promise<void> {
+    await (await this.extended(personaId)).discardPending(id);
   }
 
   /** New messages of the group (each is also kept in this device's group history, VAULT-03). */

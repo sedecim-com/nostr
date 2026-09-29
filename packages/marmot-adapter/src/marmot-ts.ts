@@ -5,8 +5,14 @@
  */
 import {
   MarmotClient,
+  createAdminCommitPolicyCallback,
+  createGiftWrap,
+  createGroupEvent,
+  createWelcomeRumor,
+  decryptGroupMessageEvent,
   defaultMarmotClientConfig,
   deserializeApplicationData,
+  deserializeClientState,
   getCredentialPubkey,
   getEpoch,
   getGroupIdHex,
@@ -16,11 +22,31 @@ import {
   getNostrGroupIdHex,
   getPubkeyLeafNodeIndexes,
   getWelcomeKeyPackageRefs,
+  serializeApplicationRumor,
+  serializeClientState,
+  sortGroupCommits,
   type MarmotGroup,
 } from '@internet-privacy/marmot-ts';
 import type { EventSigner } from 'applesauce-core';
-import { contentTypes, defaultKeyPackageEqualityConfig, defaultProposalTypes, getOwnLeafNode, mlsExporter, nodeTypes, type ClientState, type Proposal } from 'ts-mls';
+import {
+  contentTypes,
+  createApplicationMessage,
+  createCommit,
+  defaultCredentialTypes,
+  defaultKeyPackageEqualityConfig,
+  defaultProposalTypes,
+  getOwnLeafNode,
+  mlsExporter,
+  nodeTypes,
+  processMessage,
+  wireformats,
+  type AuthenticationService,
+  type ClientState,
+  type MlsMessage,
+  type Proposal,
+} from 'ts-mls';
 import { bytesToHex, randomBytes, generateSecretKey, finalizeEvent, getEventHash, getPublicKey, nip44, toUnsigned, type EventTemplate, type Filter, type NostrEvent, type Signer } from '@sedecim/nostr-core';
+import { asksForAuth } from '@sedecim/relay-pool';
 import { MemoryGroupNetwork, VolatileGroupStorage } from './memory-network';
 import { MEDIA_SECRET_RETENTION_EPOCHS, MIP04_EXPORTER_CONTEXT, MIP04_EXPORTER_LABEL, buildMediaImetaTag, decryptGroupMedia, encryptGroupMedia, parseMediaAttachments } from './media';
 import {
@@ -44,6 +70,7 @@ import {
   type GroupStorage,
   type GroupSyncReport,
   type MediaUploader,
+  type PendingGroupOperation,
   type SessionOptions,
 } from './types';
 
@@ -216,7 +243,7 @@ export function assertRemovalSecrecy(): Promise<void> {
 export const DEVICE_ROSTER_KIND = 9443;
 
 /** Storage namespaces added on top of marmot-ts' own (`groups`, `keypackages`, `invites`). */
-const NS = { device: 'device', roster: 'roster', restored: 'restored', mediaKeys: 'mediakeys', mediaRefs: 'mediarefs' } as const;
+const NS = { device: 'device', roster: 'roster', restored: 'restored', mediaKeys: 'mediakeys', mediaRefs: 'mediarefs', outbox: 'outbox' } as const;
 
 interface RosterEntry {
   deviceId: string;
@@ -243,7 +270,6 @@ interface WelcomeRecipient {
 }
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-const ok = (res: Record<string, { ok: boolean }>) => Object.values(res).some((r) => r.ok);
 const utf8 = new TextEncoder();
 
 function exportMedia(state: ClientState, ciphersuite: unknown, exporter = state.keySchedule.exporterSecret) {
@@ -282,6 +308,94 @@ function proposalType(p: Proposal): GroupProposalType {
 
 const removeProposal = (removed: number) => ({ proposalType: defaultProposalTypes.remove, remove: { removed } }) as Proposal;
 
+/** Signature keys (hex) of the tree's leaves, by leaf index. */
+function leafSigs(state: ClientState): Map<number, string> {
+  const out = new Map<number, string>();
+  state.ratchetTree.forEach((node, i) => {
+    if (i % 2 === 0 && node && node.nodeType === nodeTypes.leaf) out.set(i / 2, hex(node.leaf.signaturePublicKey));
+  });
+  return out;
+}
+
+/**
+ * MIP-00 credential policy, the same as marmot-ts' `marmotAuthService` (which the package does not export): a basic
+ * credential with a 32-byte identity, the member's pubkey. A leaf never changes identity (marmot-ts has no successor rule).
+ */
+const marmotAuth: AuthenticationService = {
+  async validateCredential(credential) {
+    const identity = (credential as { identity?: unknown }).identity;
+    return credential.credentialType === defaultCredentialTypes.basic && identity instanceof Uint8Array && identity.length === 32;
+  },
+  async validateSuccessorCredential() {
+    return false;
+  },
+};
+
+type GroupRumor = { id: string; kind: number; pubkey: string; created_at: number; content: string; tags: string[][] };
+
+/**
+ * FR025-12: a group operation kept until a relay takes it (namespace `outbox` of the group storage, sealed like the MLS
+ * state). What it keeps is what it takes to send it again in the group's epoch at that moment.
+ */
+interface StoredOp extends PendingGroupOperation {
+  /** message: the rumor, and its ciphertext for `epoch`. */
+  rumor?: GroupRumor;
+  event?: NostrEvent;
+  epoch?: number;
+  /** add: the key packages to add. */
+  keyPackages?: NostrEvent[];
+  /** remove: the leaves with these signature keys (a device), or else every leaf of `target` (a persona). */
+  leafSigs?: string[];
+  /** proposals: the refs an admin approved (all admissible ones when absent). */
+  approve?: string[];
+  /** A commit from a restored (cloned) leaf, as `rejoin` makes. */
+  allowRestored?: boolean;
+  /**
+   * A commit built for `epoch`: its event, the state it leads to (serialized) and its Welcomes. Kept before it is
+   * published, since a relay may store it without its OK arriving; built again if another commit takes the epoch.
+   */
+  commit?: { event: NostrEvent; epoch: number; state: Uint8Array; welcomes: Array<{ pubkey: string; rumor: unknown }> };
+  /** welcome: the gift wrap, and the group's relays in case the invitee's inbox relays cannot be found. */
+  wrap?: NostrEvent;
+  relays?: string[];
+}
+
+/**
+ * FR025-12: whether a group storage holds operations still waiting for a relay, without opening a session (a client
+ * can decide to open one only to send them).
+ */
+export async function hasPendingGroupOperations(storage: GroupStorage): Promise<boolean> {
+  return (await storage.keys(NS.outbox)).length > 0;
+}
+
+/** Every relay refused the event in a way that retrying it cannot fix. */
+class RelaysRefusedError extends Error {
+  constructor(what: string, detail: string) {
+    super(`${what} not accepted by any relay: ${detail}`);
+    this.name = 'RelaysRefusedError';
+  }
+}
+
+/** NIP-01 refusals a retry of the same event cannot change; a relay asking for NIP-42 is not one (asksForAuth). */
+const refusesForGood = (message: string) => ['invalid:', 'blocked:', 'restricted:', 'pow:', 'unsupported:'].some((p) => message.startsWith(p)) && !asksForAuth(message);
+
+/** A commit operation already waiting that does the same (a request repeated while offline is not kept twice). */
+function sameCommit(a: StoredOp, b: StoredOp): boolean {
+  if (a.failed || a.type !== b.type || a.groupId !== b.groupId) return false;
+  const key = (o: StoredOp) => JSON.stringify([o.target ?? null, o.leafSigs ?? null, o.approve ?? null, (o.keyPackages ?? []).map((k) => k.id).sort(), !!o.allowRestored]);
+  return a.type === 'rotate' || key(a) === key(b);
+}
+
+const publicView = (op: StoredOp): PendingGroupOperation => {
+  const v: PendingGroupOperation = { id: op.id, groupId: op.groupId, type: op.type, createdAt: op.createdAt, attempts: op.attempts };
+  if (op.lastAttemptAt !== undefined) v.lastAttemptAt = op.lastAttemptAt;
+  if (op.lastError) v.lastError = op.lastError;
+  if (op.failed) v.failed = op.failed;
+  if (op.rumor) v.rumorId = op.rumor.id;
+  if (op.target) v.target = op.target;
+  return v;
+};
+
 export class MarmotTsSession implements ExtendedGroupSession {
   pubkey = '';
   /** Addressable `d` slot of this device's kind 30443 key package: random 32-byte hex (MIP-00). */
@@ -292,11 +406,14 @@ export class MarmotTsSession implements ExtendedGroupSession {
   private readonly needsAnnounce = new Set<string>();
   private mediaChain: Promise<void> = Promise.resolve();
   private readonly label?: string;
+  private readonly signer: EventSigner;
+  private lastOpAt = 0;
 
   constructor(private readonly opts: SessionOptions) {
     this.label = opts.deviceLabel;
+    this.signer = eventSigner(opts.signer);
     this.client = new MarmotClient({
-      signer: eventSigner(opts.signer),
+      signer: this.signer,
       network: networkInterface(opts.network) as never,
       groupStateStore: kv(opts.storage, 'groups'),
       keyPackageStore: kv(opts.storage, 'keypackages'),
@@ -408,6 +525,8 @@ export class MarmotTsSession implements ExtendedGroupSession {
       pendingProposals: Object.keys(g.state.unappliedProposals).length,
     };
     if (this.restoredIds.has(g.idStr)) h.restored = true;
+    const pending = await this.ops(g.idStr);
+    if (pending.length) h.pending = pending.map(publicView);
     return h;
   }
 
@@ -537,24 +656,133 @@ export class MarmotTsSession implements ExtendedGroupSession {
     return p.type === 'add' || p.type === 'update' || (p.type === 'remove' && p.target === p.proposer);
   }
 
-  /** Every admin commit goes through here: proposal policy + one Welcome per new persona. */
-  private async adminCommit(g: MarmotGroup<any, any>, extra: Proposal[], recipients: WelcomeRecipient[], opts: { approve?: string[]; allowRestored?: boolean } = {}) {
-    if (!opts.allowRestored) this.assertNotRestored(g);
+  private mls(g: MarmotGroup<any, any>) {
+    return { cipherSuite: g.ciphersuite, authService: marmotAuth, externalPsks: {} };
+  }
+
+  /**
+   * Builds the commit of a commit operation against the group's current state: the admin proposal policy, one Welcome
+   * per new persona, and what is still to do (a member already added or removed is not committed twice). Built here
+   * rather than by marmot-ts (`commit`, `selfUpdate`) to keep the state the commit leads to: marmot-ts discards it when
+   * no OK arrives, even if a relay stored the commit and the members apply it. Returns false when nothing is left.
+   */
+  private async buildCommit(g: MarmotGroup<any, any>, op: StoredOp): Promise<boolean> {
+    if (!op.allowRestored) this.assertNotRestored(g);
     if (!g.groupData) throw new Error('group has no Marmot metadata');
-    if (!this.isAdmin(g)) throw new NotGroupAdminError('commit');
-    const admins = g.groupData.adminPubkeys;
+    const state = g.state;
     const pending = this.describe(g);
-    const keep = pending.filter((p) => (opts.approve ? opts.approve.includes(p.ref) && p.admissible : this.incidental(p, admins)));
-    if (keep.length !== pending.length) {
-      g.state = { ...g.state, unappliedProposals: Object.fromEntries(keep.map((p) => [p.ref, g.state.unappliedProposals[p.ref]!])) };
+    let keep: GroupProposal[] = [];
+    let extra: Proposal[] = [];
+    const recipients = new Map<string, WelcomeRecipient>();
+    if (op.type !== 'rotate') {
+      if (!this.isAdmin(g)) throw new NotGroupAdminError('commit');
+      const admins = g.groupData.adminPubkeys;
+      keep = op.type === 'proposals' ? pending.filter((p) => p.admissible && (!op.approve || op.approve.includes(p.ref))) : pending.filter((p) => this.incidental(p, admins));
+      if (op.type === 'proposals' && keep.length === 0) return false;
+      if (op.type === 'add') {
+        const inTree = new Set(leafSigs(state).values());
+        const add = (op.keyPackages ?? []).filter((kp) => !inTree.has(hex(getKeyPackage(kp as never).leafNode.signaturePublicKey)));
+        if (add.length === 0) return false;
+        extra = add.map((kp) => this.addProposal(kp));
+        for (const kp of add) if (!recipients.has(kp.pubkey)) recipients.set(kp.pubkey, { pubkey: kp.pubkey, keyPackageEventId: kp.id, keyPackageEvent: kp });
+      }
+      if (op.type === 'remove') {
+        const sigs = leafSigs(state);
+        const own = state.privatePath.leafIndex;
+        const leaves = op.leafSigs ? [...sigs].filter(([, sig]) => op.leafSigs!.includes(sig)).map(([i]) => i) : getPubkeyLeafNodeIndexes(state, op.target!);
+        const removable = leaves.filter((i) => i !== own);
+        if (removable.length === 0) return false;
+        extra = removable.map(removeProposal);
+      }
+      for (const p of keep) if (p.type === 'add' && p.target && !recipients.has(p.target)) recipients.set(p.target, { pubkey: p.target });
     }
-    const byPubkey = new Map<string, WelcomeRecipient>();
-    for (const r of recipients) if (!byPubkey.has(r.pubkey)) byPubkey.set(r.pubkey, r);
-    for (const p of keep) if (p.type === 'add' && p.target && !byPubkey.has(p.target)) byPubkey.set(p.target, { pubkey: p.target });
-    const res = await g.commit({ extraProposals: extra, ...(byPubkey.size ? { welcomeRecipients: [...byPubkey.values()] as never } : {}) });
-    if (!ok(res)) throw new Error('commit not accepted by any relay');
-    if (byPubkey.size) await this.announce(g, true);
-    return keep;
+    // ts-mls bundles every proposal left in the state: only the kept ones (none for a self-update, which other members
+    // reject from a non-admin if it carries foreign proposals, MIP-03). The group's own state is not touched.
+    const bundled = Object.fromEntries(keep.map((p) => [p.ref, state.unappliedProposals[p.ref]!]));
+    const { commit, newState, welcome } = await createCommit({ context: this.mls(g), state: { ...state, unappliedProposals: bundled }, wireAsPublicMessage: false, ratchetTreeExtension: true, extraProposals: extra });
+    const event = (await createGroupEvent({ message: commit as never, state, ciphersuite: g.ciphersuite })) as NostrEvent;
+    const inner = welcome?.welcome;
+    const welcomes = inner
+      ? [...recipients.values()].map((r) => ({
+          pubkey: r.pubkey,
+          rumor: createWelcomeRumor({ welcome: inner as never, author: this.pubkey, groupRelays: g.groupData!.relays, ...(r.keyPackageEventId ? { keyPackageEventId: r.keyPackageEventId } : {}), ...(r.keyPackageEvent ? { keyPackageEvent: r.keyPackageEvent as never } : {}) }),
+        }))
+      : [];
+    op.commit = { event, epoch: getEpoch(state), state: serializeClientState(newState as never), welcomes };
+    return true;
+  }
+
+  /**
+   * FR025-12: every commit (an admin's, or a self-update) goes through here. It is kept before it is published and
+   * applied once a relay has it. Without network it stays pending: the next sync applies it if a relay took it after
+   * all, publishes it again, or builds it again if another commit took the epoch. Returns whether it is applied.
+   */
+  private async commitOperation(g: MarmotGroup<any, any>, spec: Pick<StoredOp, 'type' | 'target' | 'keyPackages' | 'leafSigs' | 'approve' | 'allowRestored'>): Promise<boolean> {
+    const op: StoredOp = { ...spec, id: bytesToHex(randomBytes(16)), groupId: g.idStr, createdAt: this.opTime(), attempts: 0 };
+    // Checked (and built) now, so that an invalid request fails here and not later in the background.
+    if (!(await this.buildCommit(g, op))) return true;
+    const waiting = await this.ops(g.idStr);
+    if (waiting.some((o) => sameCommit(o, op))) return false;
+    if (waiting.some((o) => !o.failed)) {
+      // Older operations go first: this one is built again when its turn comes, against the state they leave.
+      delete op.commit;
+      await this.putOp(op);
+      return false;
+    }
+    await this.putOp(op);
+    try {
+      return await this.deliverCommit(g, op);
+    } catch (e) {
+      if (e instanceof RelaysRefusedError) await this.dropOp(op);
+      throw e;
+    }
+  }
+
+  /** One publish of a commit operation's commit; applied if a relay takes it. Throws if every relay refused it for good. */
+  private async deliverCommit(g: MarmotGroup<any, any>, op: StoredOp): Promise<boolean> {
+    const res = await this.attempt(op, g.relays ?? [], op.commit!.event);
+    if (res.ok) {
+      await this.applyOwnCommit(g, op);
+      return true;
+    }
+    await this.putOp(op);
+    if (res.permanent) throw new RelaysRefusedError('commit', res.error);
+    return false;
+  }
+
+  /**
+   * A commit of ours is on a relay: the group moves to the state it leads to, and only then do its Welcomes go out
+   * (MIP-02), each as an operation of its own until a relay takes it.
+   */
+  private async applyOwnCommit(g: MarmotGroup<any, any>, op: StoredOp) {
+    const c = op.commit!;
+    // Wrapped (signed) before the state changes, so that nothing slow sits between the new state and its Welcomes.
+    const wraps = await Promise.all(c.welcomes.map(async (w) => ({ pubkey: w.pubkey, wrap: (await createGiftWrap({ rumor: w.rumor as never, recipient: w.pubkey, signer: this.signer })) as NostrEvent })));
+    g.state = deserializeClientState(c.state) as never;
+    await g.save();
+    const welcomes: StoredOp[] = wraps.map((w) => ({ id: bytesToHex(randomBytes(16)), groupId: g.idStr, type: 'welcome', createdAt: this.opTime(), attempts: 0, target: w.pubkey, wrap: w.wrap, relays: g.relays ?? [] }));
+    for (const w of welcomes) await this.putOp(w);
+    await this.dropOp(op);
+    for (const w of welcomes) await this.deliverWelcome(w).catch(async (e: Error) => this.putOp({ ...w, failed: e.message }));
+    if (welcomes.length) await this.announce(g, true);
+  }
+
+  /** One publish of an invitation, to the invitee's inbox relays (the group's when they cannot be found). */
+  private async deliverWelcome(op: StoredOp): Promise<boolean> {
+    let relays: string[] = [];
+    try {
+      relays = await this.opts.network.inboxRelays(op.target!);
+    } catch {
+      /* the group's relays below */
+    }
+    const res = await this.attempt(op, relays.length ? relays : (op.relays ?? []), op.wrap!);
+    if (res.ok) {
+      await this.dropOp(op);
+      return true;
+    }
+    await this.putOp(op);
+    if (res.permanent) throw new RelaysRefusedError('welcome', res.error);
+    return false;
   }
 
   private addProposal(kp: NostrEvent): Proposal {
@@ -573,12 +801,8 @@ export class MarmotTsSession implements ExtendedGroupSession {
     const g = await this.load(groupId);
     this.assertNotRestored(g);
     await this.sync(groupId);
-    const proposals = keyPackages.map((kp) => this.addProposal(kp));
-    await this.adminCommit(
-      g,
-      proposals,
-      keyPackages.map((kp) => ({ pubkey: kp.pubkey, keyPackageEventId: kp.id, keyPackageEvent: kp })),
-    );
+    keyPackages.forEach((kp) => this.addProposal(kp)); // validated before anything is kept
+    await this.commitOperation(g, { type: 'add', target: keyPackages[0]!.pubkey, keyPackages });
     return this.handle(g);
   }
 
@@ -597,7 +821,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
     // does not flatten multi-proposal actions, so the concrete proposals are built here.)
     const leaves = getPubkeyLeafNodeIndexes(g.state, pubkey);
     if (leaves.length === 0) throw new Error('pubkey is not a member of this group');
-    await this.adminCommit(g, leaves.map(removeProposal), []);
+    await this.commitOperation(g, { type: 'remove', target: pubkey });
     return this.handle(g);
   }
 
@@ -605,9 +829,11 @@ export class MarmotTsSession implements ExtendedGroupSession {
     const g = await this.load(groupId);
     this.assertNotRestored(g);
     await this.sync(groupId);
-    if (!pubkeyAt(g.state, leafIndex)) throw new Error(`no member leaf at index ${leafIndex}`);
+    const target = pubkeyAt(g.state, leafIndex);
+    if (!target) throw new Error(`no member leaf at index ${leafIndex}`);
     if (leafIndex === g.state.privatePath.leafIndex) throw new Error('a committer cannot remove its own leaf (RFC 9420): use leave or ask another admin');
-    await this.adminCommit(g, [removeProposal(leafIndex)], []);
+    // By signature key: leaf indexes are reused once a leaf is gone, and the commit may be built again later.
+    await this.commitOperation(g, { type: 'remove', target, leafSigs: [hex(leafAt(g.state, leafIndex)!.signaturePublicKey)] });
     return this.handle(g);
   }
 
@@ -620,11 +846,8 @@ export class MarmotTsSession implements ExtendedGroupSession {
     const g = await this.load(groupId);
     this.assertNotRestored(g);
     await this.sync(groupId);
-    // A self-update must carry no foreign proposals: other members reject a non-admin commit that does
-    // (MIP-03), and ts-mls bundles every pending proposal. Pending proposals become stale (re-propose).
-    if (Object.keys(g.state.unappliedProposals).length) g.state = { ...g.state, unappliedProposals: {} };
-    const res = await g.selfUpdate();
-    if (!ok(res)) throw new Error('self-update commit not accepted by any relay');
+    // A self-update carries no foreign proposals (see buildCommit): once it is applied, pending ones are stale (re-propose).
+    await this.commitOperation(g, { type: 'rotate' });
     return this.handle(g);
   }
 
@@ -663,7 +886,8 @@ export class MarmotTsSession implements ExtendedGroupSession {
     const pending = this.describe(g);
     const approve = (opts.refs ?? pending.map((p) => p.ref)).filter((r) => pending.some((p) => p.ref === r && p.admissible));
     if (approve.length === 0) throw new Error(pending.length ? 'no admissible pending proposal to commit' : 'no pending proposals in this epoch (stale proposals must be sent again)');
-    await this.adminCommit(g, [], [], { approve });
+    // Proposals belong to their epoch: if another commit comes first, the pending commit finds nothing left to commit.
+    await this.commitOperation(g, { type: 'proposals', approve });
     return this.handle(g);
   }
 
@@ -691,8 +915,10 @@ export class MarmotTsSession implements ExtendedGroupSession {
       }
       const pending = Object.keys(g.state.unappliedProposals).length;
       if (pending) throw new PendingProposalsError(pending);
-      const res = await this.sendRumor(g, this.rumor(DEVICE_ROSTER_KIND, JSON.stringify({ v: 1, devices })));
-      if (!ok(res)) throw new Error('not accepted');
+      // Not kept as a pending operation: without a relay it is announced again before the next message.
+      const op = { rumor: this.rumor(DEVICE_ROSTER_KIND, JSON.stringify({ v: 1, devices })) } as StoredOp;
+      await this.encrypt(g, op);
+      if (!(await this.publishEvent(g.relays ?? [], op.event!)).ok) throw new Error('not accepted');
       this.needsAnnounce.delete(g.idStr);
     } catch {
       this.needsAnnounce.add(g.idStr);
@@ -723,18 +949,204 @@ export class MarmotTsSession implements ExtendedGroupSession {
     await this.opts.storage.put(NS.roster, g.idStr, roster);
   }
 
+  private seenIn(groupId: string): Set<string> {
+    const seen = this.seen.get(groupId) ?? new Set<string>();
+    this.seen.set(groupId, seen);
+    return seen;
+  }
+
   /**
-   * Encrypts and publishes an application rumor. Encrypting advances this member's ratchet, whether or not a relay
-   * then takes the message, and marmot-ts only stores the group state on its next commit or ingest. It is stored here
-   * at once. Otherwise, after a restart before either, the next message would use the same generation again: the same
-   * key (only RFC 9420's random reuse guard keeps the nonces apart), and the members, who already used up that
-   * generation, could not read it.
+   * Encrypts a message operation's rumor for the group's current epoch. Encrypting advances this member's ratchet,
+   * whether or not a relay then takes the message, so the group state is stored at once, before the operation: after a
+   * restart the next message must not use the same generation again (the same key, and a message the members, who
+   * used up that generation, could not read). Built here rather than by marmot-ts (`sendApplicationRumor`), which does
+   * not hand the ciphertext back when no relay takes it.
    */
-  private async sendRumor(g: MarmotGroup<any, any>, rumor: ReturnType<MarmotTsSession['rumor']>) {
+  private async encrypt(g: MarmotGroup<any, any>, op: StoredOp) {
+    const { newState, message } = await createApplicationMessage({ context: this.mls(g), state: g.state, message: serializeApplicationRumor(op.rumor as never) });
+    const event = (await createGroupEvent({ message: message as never, state: g.state, ciphersuite: g.ciphersuite })) as NostrEvent;
+    g.state = newState as never;
+    await g.save();
+    // An MLS sender cannot decrypt its own ciphertext: a sync must not try (marmot-ts' own self-echo list is not used here).
+    this.seenIn(g.idStr).add(event.id);
+    op.event = event;
+    op.epoch = getEpoch(g.state);
+  }
+
+  /** Publishes an event: whether a relay took it, and whether every refusal is one a retry cannot change. */
+  private async publishEvent(relays: string[], event: NostrEvent): Promise<{ ok: boolean; permanent: boolean; error: string }> {
+    if (relays.length === 0) return { ok: false, permanent: true, error: 'no relays' };
+    let res: Array<{ relay: string; ok: boolean; message: string }>;
     try {
-      return await g.sendApplicationRumor(rumor as never);
-    } finally {
-      await g.save();
+      res = await this.opts.network.publish(relays, event);
+    } catch (e) {
+      return { ok: false, permanent: false, error: (e as Error).message };
+    }
+    if (res.some((r) => r.ok)) return { ok: true, permanent: false, error: '' };
+    const failed = res.filter((r) => !r.ok);
+    return { ok: false, permanent: failed.length > 0 && failed.every((r) => refusesForGood(r.message)), error: failed.map((r) => `${r.relay}: ${r.message}`).join('; ') || 'no relay answered' };
+  }
+
+  private async attempt(op: StoredOp, relays: string[], event: NostrEvent) {
+    op.attempts++;
+    op.lastAttemptAt = Date.now();
+    const res = await this.publishEvent(relays, event);
+    if (res.ok) delete op.lastError;
+    else op.lastError = res.error;
+    return res;
+  }
+
+  /** Creation times strictly increasing within the session: they order a group's operations. */
+  private opTime(): number {
+    this.lastOpAt = Math.max(Date.now(), this.lastOpAt + 1);
+    return this.lastOpAt;
+  }
+
+  private async ops(groupId?: string): Promise<StoredOp[]> {
+    const st = this.opts.storage;
+    const out: StoredOp[] = [];
+    for (const k of await st.keys(NS.outbox)) {
+      const op = (await st.get(NS.outbox, k)) as StoredOp | undefined;
+      if (op && (!groupId || op.groupId === groupId)) out.push(op);
+    }
+    return out.sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
+  }
+
+  private putOp(op: StoredOp) {
+    return this.opts.storage.put(NS.outbox, op.id, op);
+  }
+
+  private dropOp(op: StoredOp) {
+    return this.opts.storage.delete(NS.outbox, op.id);
+  }
+
+  /**
+   * FR025-12: an application message is kept with its ciphertext until a relay takes it; without network it waits, and
+   * the next sync sends it again. Returns whether a relay took it.
+   */
+  private async messageOperation(g: MarmotGroup<any, any>, rumor: GroupRumor): Promise<boolean> {
+    const op: StoredOp = { id: bytesToHex(randomBytes(16)), groupId: g.idStr, type: 'message', createdAt: this.opTime(), attempts: 0, rumor };
+    if ((await this.ops(g.idStr)).some((o) => !o.failed)) {
+      // Behind older operations: never ahead of a pending commit (a removed member must not read what follows it).
+      await this.putOp(op);
+      await this.flush(g, { commits: false });
+      const after = (await this.ops(g.idStr)).find((o) => o.id === op.id);
+      if (after?.failed) {
+        await this.dropOp(after);
+        throw new Error(after.failed);
+      }
+      return !after;
+    }
+    await this.encrypt(g, op);
+    await this.putOp(op);
+    try {
+      return await this.deliverMessage(g, op);
+    } catch (e) {
+      if (e instanceof RelaysRefusedError) await this.dropOp(op);
+      throw e;
+    }
+  }
+
+  private async deliverMessage(g: MarmotGroup<any, any>, op: StoredOp): Promise<boolean> {
+    const res = await this.attempt(op, g.relays ?? [], op.event!);
+    if (res.ok) {
+      await this.dropOp(op);
+      return true;
+    }
+    await this.putOp(op);
+    if (res.permanent) throw new RelaysRefusedError('group message', res.error);
+    return false;
+  }
+
+  /**
+   * FR025-12: sends a group's pending operations again, oldest first, and stops at the first one no relay takes (the
+   * next ones would not go either, and nothing may overtake a commit). A message that cannot go yet (pending proposals,
+   * a restored leaf) is skipped. Commits are only sent right after a sync (`commits`): only then is it known whether
+   * one of ours is already on a relay or another commit took the epoch.
+   */
+  private async flush(g: MarmotGroup<any, any>, opts: { commits: boolean }): Promise<void> {
+    for (const op of await this.ops(g.idStr)) {
+      if (op.failed) continue;
+      if (op.type !== 'message' && op.type !== 'welcome' && !opts.commits) return;
+      let sent: boolean;
+      try {
+        sent = await this.retry(g, op);
+      } catch (e) {
+        if (e instanceof PendingProposalsError || e instanceof RestoredGroupStateError) {
+          await this.putOp({ ...op, lastError: e.message });
+          continue;
+        }
+        // Refused for good, or no longer possible (not an admin, not a member): kept, visible, until discarded.
+        await this.putOp({ ...op, failed: (e as Error).message });
+        continue;
+      }
+      if (!sent) return;
+    }
+  }
+
+  private async retry(g: MarmotGroup<any, any>, op: StoredOp): Promise<boolean> {
+    if (op.type === 'welcome') return this.deliverWelcome(op);
+    if (op.type === 'message') {
+      this.assertNotRestored(g);
+      const proposals = Object.keys(g.state.unappliedProposals).length;
+      if (proposals) throw new PendingProposalsError(proposals);
+      // A ciphertext of an earlier epoch cannot be read by members already in this one: encrypted again for it. Not a
+      // file's (MIP-04): its key comes from the epoch it was uploaded in, which the members find by the message's epoch.
+      if (!op.event || op.epoch !== getEpoch(g.state)) {
+        if (op.event && parseMediaAttachments(op.rumor!.tags).length) throw new Error('the group epoch changed before the file went out: send the file again');
+        await this.encrypt(g, op);
+        await this.putOp(op);
+      }
+      return this.deliverMessage(g, op);
+    }
+    if (!op.commit || op.commit.epoch !== getEpoch(g.state)) {
+      delete op.commit;
+      if (!(await this.buildCommit(g, op))) {
+        await this.dropOp(op);
+        return true;
+      }
+      await this.putOp(op);
+    }
+    return this.deliverCommit(g, op);
+  }
+
+  /**
+   * FR025-12: what became of a commit of ours that no relay confirmed, among the events of this sync. It may be on a
+   * relay after all (the OK was lost): it then counts as the members count it, the first by created_at and id among the
+   * commits of this epoch that they apply (MIP-03). `won`: apply it; `lost`: another commit took the epoch.
+   */
+  private async ownCommit(g: MarmotGroup<any, any>, events: NostrEvent[]): Promise<{ op: StoredOp; outcome: 'won' | 'lost'; commits: Set<string> } | undefined> {
+    const epoch = getEpoch(g.state);
+    const op = (await this.ops(g.idStr)).find((o) => !o.failed && o.commit?.epoch === epoch);
+    if (!op) return undefined;
+    const ours = events.find((e) => e.id === op.commit!.event.id);
+    const commits: Array<{ event: NostrEvent; message?: MlsMessage }> = ours ? [{ event: ours }] : [];
+    for (const e of events) {
+      if (e.id === ours?.id) continue;
+      try {
+        const message = (await decryptGroupMessageEvent(e as never, g.state, g.ciphersuite)) as MlsMessage;
+        const pm = (message as { privateMessage?: { epoch: bigint | number; contentType: number } }).privateMessage;
+        if (message.wireformat === wireformats.mls_private_message && pm?.contentType === contentTypes.commit && BigInt(pm.epoch) === BigInt(epoch)) commits.push({ event: e, message });
+      } catch {
+        /* another epoch's, or not readable here */
+      }
+    }
+    const ids = new Set(commits.map((c) => c.event.id));
+    for (const c of sortGroupCommits(commits as never) as typeof commits) {
+      if (c.event.id === ours?.id) return { op, outcome: 'won', commits: ids };
+      if (await this.wouldApply(g, c.message!)) return { op, outcome: 'lost', commits: ids };
+    }
+    return undefined; // not on the relays we see, and no other commit took the epoch: the flush publishes it again
+  }
+
+  /** Whether the members apply this commit of the current epoch: a valid commit their admin policy accepts (MIP-03). */
+  private async wouldApply(g: MarmotGroup<any, any>, message: MlsMessage): Promise<boolean> {
+    try {
+      const copy = deserializeClientState(serializeClientState(g.state)) as unknown as ClientState;
+      const r = await processMessage({ context: this.mls(g), state: copy, message: message as never, callback: createAdminCommitPolicyCallback({ ratchetTree: g.state.ratchetTree as never, adminPubkeys: g.groupData?.adminPubkeys ?? [] }) as never });
+      return r.kind === 'newState' && r.actionTaken !== 'reject';
+    } catch {
+      return false;
     }
   }
 
@@ -748,9 +1160,8 @@ export class MarmotTsSession implements ExtendedGroupSession {
     // cannot decrypt its own ciphertext later (VAULT-03 archives what the persona read and sent).
     const rumor = this.rumor(9, content, tags);
     const epoch = Number(getEpoch(g.state));
-    const res = await this.sendRumor(g, rumor);
-    if (!ok(res)) throw new Error('group message not accepted by any relay');
-    const sent: GroupMessage = { groupId: g.idStr, sender: this.pubkey, content, kind: rumor.kind, createdAt: rumor.created_at, rumorId: rumor.id, epoch, senderLeaf: g.state.privatePath.leafIndex, tags };
+    const delivered = await this.messageOperation(g, rumor);
+    const sent: GroupMessage = { groupId: g.idStr, sender: this.pubkey, content, kind: rumor.kind, createdAt: rumor.created_at, rumorId: rumor.id, epoch, senderLeaf: g.state.privatePath.leafIndex, tags, ...(delivered ? {} : { pending: true }) };
     await this.opts.onMessage?.(sent);
     return sent;
   }
@@ -763,13 +1174,31 @@ export class MarmotTsSession implements ExtendedGroupSession {
     const g = await this.load(groupId);
     const relays = g.relays ?? [];
     const events = await this.opts.network.query(relays, [{ kinds: [MARMOT_KINDS.GroupMessage], '#h': [getNostrGroupIdHex(g.state)] }]);
-    const seen = this.seen.get(groupId) ?? new Set<string>();
-    this.seen.set(groupId, seen);
-    const fresh = events.filter((e) => !seen.has(e.id)).sort((a, b) => a.created_at - b.created_at);
+    const seen = this.seenIn(groupId);
+    const fresh = () => events.filter((e) => !seen.has(e.id)).sort((a, b) => a.created_at - b.created_at);
     const report: GroupSyncReport = { messages: [], proposals: 0, commits: 0, rejectedCommits: 0, unreadable: 0 };
-    for await (const r of g.ingest(fresh as never)) {
+    // FR025-12: a commit of ours no relay confirmed may be there after all, or another may have taken the epoch.
+    const own = await this.ownCommit(g, events);
+    if (own?.outcome === 'won') {
+      // Messages of this epoch first: once our commit moves the group on, they could no longer be read.
+      await this.ingest(g, fresh().filter((e) => !own.commits.has(e.id)), report, false);
+      await this.applyOwnCommit(g, own.op);
+      report.commits++;
+    } else if (own?.outcome === 'lost') {
+      delete own.op.commit;
+      await this.putOp(own.op);
+    }
+    await this.ingest(g, fresh(), report, true);
+    await this.flush(g, { commits: true });
+    return report;
+  }
+
+  /** Processes events with marmot-ts; `final: false` leaves the unreadable ones for a later pass of the same sync. */
+  private async ingest(g: MarmotGroup<any, any>, batch: NostrEvent[], report: GroupSyncReport, final: boolean) {
+    const seen = this.seenIn(g.idStr);
+    for await (const r of g.ingest(batch as never)) {
       if (r.kind === 'unreadable') {
-        report.unreadable++;
+        if (final) report.unreadable++;
         continue;
       }
       seen.add(r.event.id);
@@ -801,7 +1230,26 @@ export class MarmotTsSession implements ExtendedGroupSession {
       } else if (wire.privateMessage?.contentType === contentTypes.commit) report.commits++;
       else report.proposals++;
     }
-    return report;
+  }
+
+  async pendingOperations(groupId?: string): Promise<PendingGroupOperation[]> {
+    return (await this.ops(groupId)).map(publicView);
+  }
+
+  async retryPending(groupId?: string): Promise<PendingGroupOperation[]> {
+    const ids = groupId ? [groupId] : [...new Set((await this.ops()).filter((o) => !o.failed).map((o) => o.groupId))];
+    for (const id of ids) {
+      try {
+        await this.syncWithReport(id);
+      } catch {
+        /* this group cannot be synced now (unknown here, left): its operations stay as they are */
+      }
+    }
+    return this.pendingOperations(groupId);
+  }
+
+  async discardPending(id: string): Promise<void> {
+    await this.opts.storage.delete(NS.outbox, id);
   }
 
   async acceptInvites(): Promise<GroupHandle[]> {
@@ -872,7 +1320,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
     if (!rec || !this.restoredIds.has(g.idStr)) return { status: 'joined', group: await this.handle(g) };
     // An admin may already have committed an earlier request: the Welcome for the new leaf is waiting.
     await this.acceptInvites();
-    if (!this.restoredIds.has(g.idStr)) return { status: 'joined', group: await this.handle(await this.load(groupId)) };
+    if (!this.restoredIds.has(g.idStr)) return { status: 'joined', group: await this.dropClonedLeaf(groupId, rec) };
     if (rec.proposedAtEpoch !== undefined) {
       await this.sync(groupId);
       g = await this.load(groupId);
@@ -880,25 +1328,42 @@ export class MarmotTsSession implements ExtendedGroupSession {
     }
     await this.sync(groupId);
     g = await this.load(groupId);
-    const kp = await this.publishKeyPackage(relays);
     if (this.isAdmin(g)) {
+      // FR025-12: a request of ours still waiting for a relay (or its Welcome) is the one to finish, not a new leaf;
+      // one the sync above just sent is joined with.
+      if ((await this.ops(g.idStr)).some((o) => !o.failed && (o.allowRestored || (o.type === 'welcome' && o.target === this.pubkey)))) return { status: 'pending', group: await this.handle(g) };
+      await this.acceptInvites();
+      if (!this.restoredIds.has(g.idStr)) return { status: 'joined', group: await this.dropClonedLeaf(groupId, rec) };
+      const kp = await this.publishKeyPackage(relays);
       // 1. The cloned leaf adds this device's new leaf (Welcome to our own pubkey).
-      await this.adminCommit(g, [this.addProposal(kp)], [{ pubkey: this.pubkey, keyPackageEventId: kp.id, keyPackageEvent: kp }], { allowRestored: true });
+      if (!(await this.commitOperation(g, { type: 'add', target: this.pubkey, keyPackages: [kp], allowRestored: true }))) return { status: 'pending', group: await this.handle(g) };
       // 2. Join as the new leaf, replacing the clone.
       await this.acceptInvites();
-      if (this.restoredIds.has(g.idStr)) throw new Error('could not join the group as a new leaf');
-      // 3. The new leaf removes the cloned one (a committer cannot remove itself, hence two commits).
-      const fresh = await this.load(groupId);
-      const old = getPubkeyLeafNodeIndexes(fresh.state, this.pubkey).find((i) => hex(leafAt(fresh.state, i)!.signaturePublicKey) === rec.oldSig);
-      if (old !== undefined) await this.adminCommit(fresh, [removeProposal(old)], []);
-      return { status: 'joined', group: await this.handle(fresh) };
+      if (this.restoredIds.has(g.idStr)) {
+        if ((await this.ops(g.idStr)).some((o) => o.type === 'welcome' && o.target === this.pubkey && !o.failed)) return { status: 'pending', group: await this.handle(g) };
+        throw new Error('could not join the group as a new leaf');
+      }
+      // 3. The new leaf removes the cloned one.
+      return { status: 'joined', group: await this.dropClonedLeaf(groupId, rec) };
     }
     // Non-admin: the cloned leaf proposes Add(new leaf) + Remove(itself); an admin commits both and
     // sends the Welcome; `acceptInvites` (or `rejoin` again) then replaces the clone.
     if (hex(getOwnLeafNode(g.state).signaturePublicKey) !== rec.oldSig) throw new Error('restored leaf changed unexpectedly');
+    const kp = await this.publishKeyPackage(relays);
     await this.sendProposals(g, [this.addProposal(kp), removeProposal(g.state.privatePath.leafIndex)]);
     await this.opts.storage.put(NS.restored, g.idStr, { ...rec, proposedAtEpoch: getEpoch(g.state) });
     return { status: 'pending', group: await this.handle(g) };
+  }
+
+  /**
+   * Once this device holds its own new leaf, an admin removes the cloned one (a committer cannot remove itself, hence
+   * a commit of its own). Also when the new leaf came from an earlier `rejoin` that had to wait for a relay.
+   */
+  private async dropClonedLeaf(groupId: string, rec: RestoredRecord): Promise<GroupHandle> {
+    const g = await this.load(groupId);
+    const cloned = [...leafSigs(g.state).values()].includes(rec.oldSig) && hex(getOwnLeafNode(g.state).signaturePublicKey) !== rec.oldSig;
+    if (cloned && this.isAdmin(g)) await this.commitOperation(g, { type: 'remove', target: this.pubkey, leafSigs: [rec.oldSig] });
+    return this.handle(g);
   }
 
   private async storeMediaRef(ref: GroupMediaReference) {
@@ -917,7 +1382,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
     if (getEpoch(g.state) !== epoch) throw new Error('the group epoch changed during the upload: send the file again');
     const full: GroupMediaAttachment = { ...attachment, url };
     const sent = await this.send(groupId, caption, [buildMediaImetaTag({ ...full, url })]);
-    const ref: GroupMediaReference = { groupId: g.idStr, epoch, attachment: full, sender: this.pubkey, rumorId: sent.rumorId };
+    const ref: GroupMediaReference = { groupId: g.idStr, epoch, attachment: full, sender: this.pubkey, rumorId: sent.rumorId, ...(sent.pending ? { pending: true } : {}) };
     await this.storeMediaRef(ref);
     return ref;
   }
@@ -937,6 +1402,8 @@ export class MarmotTsSession implements ExtendedGroupSession {
 
   async leave(groupId: string): Promise<void> {
     await this.client.groups.leave(groupId);
+    // FR025-12: what was still waiting for a relay can no longer be sent.
+    for (const op of await this.ops(groupId)) await this.dropOp(op);
   }
 
   async groups(): Promise<GroupHandle[]> {

@@ -120,14 +120,14 @@ describe('rotation worker (FR024-02)', () => {
     let now = 0;
     const worker = new RotationWorker({ source: new HttpPolicySource({ baseUrl: base, signer: w.adminSigner }), session: w.admin, now: () => now, backoff: { baseMs: 1000, maxMs: 4000 }, logger: createLogger({ write: () => {} }) });
 
-    // Relays reject the commit: nothing is marked done, the member is still there.
+    // Relays down: the commit waits in the session (FR025-12); nothing is marked done, the member is still there.
     w.flaky.failGroupMessages = true;
     let out = await worker.runOnce();
     expect(out.map((o) => [o.result, o.retryAt])).toEqual([
       ['failed', 1000],
       ['failed', 1000],
     ]);
-    expect(out[0]!.error).toMatch(/publish commit|not accepted/);
+    expect(out[0]!.error).toMatch(/remove commit pending/);
     expect(out[1]!.error).toMatch(/not held/);
     expect(stub.done.size).toBe(0);
     expect((await w.admin.group(w.groupId)).members).toContain(w.bob.pubkey);

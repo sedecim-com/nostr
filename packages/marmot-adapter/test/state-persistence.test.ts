@@ -62,13 +62,14 @@ describe('MLS group state is stored as soon as a message is encrypted', () => {
   }, 60_000);
 
   it('a message no relay took still used up its key: delivered later, it is not a twin of the next one', async () => {
-    // The first group message after the setup finds the network down; its ciphertext is kept, as an outbox would.
+    // The first group message after the setup finds the network down; its ciphertext is kept (FR025-12).
     let down = false;
-    const kept: NostrEvent[] = [];
+    const refused: NostrEvent[] = [];
+    const published: string[] = [];
     const flaky = (inner: GroupNetwork): GroupNetwork => ({
       publish: async (relays, event) => {
-        if (!down) return inner.publish(relays, event);
-        kept.push(event);
+        if (!down) return published.push(event.id), inner.publish(relays, event);
+        refused.push(event);
         return relays.map((relay) => ({ relay, ok: false, message: 'error: connection failed: offline' }));
       },
       query: (relays, filters, timeoutMs) => inner.query(relays, filters, timeoutMs),
@@ -77,12 +78,14 @@ describe('MLS group state is stored as soon as a message is encrypted', () => {
     });
     const { alice, bob, openAlice, groupId } = await group('offline', flaky);
     down = true;
-    await expect(alice.send(groupId, 'sin red')).rejects.toThrow();
+    expect((await alice.send(groupId, 'sin red')).pending).toBe(true);
     alice.close();
     down = false;
     const again = await openAlice();
     await again.send(groupId, 'con red');
-    for (const e of kept) relay.inject(e); // the outbox delivers the kept ciphertext afterwards
+    // The kept message went first, with the ciphertext it was given then.
+    expect(published).toContain(refused[0]!.id);
+    expect(await again.pendingOperations()).toEqual([]);
     expect((await bob.sync(groupId)).map((m) => m.content).sort()).toEqual(['con red', 'sin red']);
     again.close();
     bob.close();

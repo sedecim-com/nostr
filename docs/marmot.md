@@ -179,6 +179,62 @@ Flujo completo de un dispositivo perdido o robado, probado de punta a punta en
   (otro commit, `rotate`), se descartan y `commitProposals` responde que no hay pendientes; el miembro debe
   volver a proponer (probado).
 
+## Sin red: mensajes y commits pendientes (FR025-12)
+Con Tor caído o sin red, un mensaje o un commit de grupo que ningún relay toma queda pendiente en lugar de fallar.
+Se guarda con el estado MLS, sellado igual (`mls-outbox`), y se reenvía en la siguiente sincronización del grupo o
+con `retryPending`. `GroupMessage.pending` y `GroupHandle.pending` lo dicen; `pendingOperations` lo lista.
+
+- **Mensajes.** Se guarda el cifrado con su época y se reenvía ese mismo cifrado: no gasta otra generación del
+  ratchet ni duplica el mensaje. Si el grupo pasa a otra época antes de que salga, se vuelve a cifrar para la nueva.
+  marmot-ts cifra la capa externa del kind 445 con el exporter de la época, así que quien ya está en la nueva no
+  podría leer el cifrado anterior. Un mensaje con archivo (MIP-04) no se vuelve a cifrar, porque la clave del archivo
+  es la de la época en que se subió: queda rechazado y hay que enviar el archivo otra vez.
+- **Commits.** El adaptador construye los commits (invitar, expulsar, rotar, comprometer propuestas) en lugar de
+  `commit` y `selfUpdate` de marmot-ts. Así guarda, antes de publicarlos, el evento, el estado al que llevan y sus
+  Welcomes. marmot-ts descarta ese estado cuando no llega el OK, aunque un relay lo haya guardado y los miembros lo
+  apliquen, y el dispositivo quedaría en otra rama del grupo. La sincronización siguiente decide:
+  - si el commit está en un relay y es el primero de su época entre los que los miembros aplicarían (MIP-03: por
+    `created_at` y después por id), se aplica, después de leer los mensajes pendientes de la época anterior;
+  - si otro commit ganó la época, el nuestro se vuelve a construir sobre el estado nuevo, y se olvida si ya no queda
+    nada que hacer (el miembro ya no está, la clave ya se añadió);
+  - si no está en ningún relay y nadie más hizo commit en esa época, se vuelve a publicar el mismo.
+- **Orden.** Las operaciones de un grupo salen en el orden en que se hicieron y nada adelanta a un commit pendiente.
+  Un mensaje escrito después de una expulsión que aún espera sale detrás de ella, así que el expulsado no lo lee.
+  Los commits solo se publican justo después de sincronizar.
+- **Repeticiones.** Una petición repetida mientras espera no se guarda dos veces, por ejemplo cuando el admin o el
+  rotation-worker vuelven a expulsar al mismo miembro.
+- **Welcomes.** Salen cuando su commit ya está aplicado (MIP-02). Si no llegan a ningún relay, esperan como
+  operación propia.
+- **Rechazos definitivos.** Lo que todos los relays rechazan para siempre (`invalid:`, `restricted:`…) no se guarda:
+  falla en el momento. Si pasa en un reintento, queda como rechazado, visible y sin más intentos, hasta que se
+  descarta (`discardPending`).
+- **Dónde se reintenta.**
+  - CLI: en cada `group` que sincroniza y al final de cualquier comando de la persona, como los DMs de FR011-04.
+    `group pending`, `group retry` y `group discard` lo muestran, lo fuerzan y lo olvidan.
+  - Web: en cada sondeo del grupo abierto, al abrir la vista y al volver la conexión (`online`). La vista lista lo
+    pendiente y marca los mensajes «pendiente de enviar».
+- **Verificación.**
+  - `packages/marmot-adapter/test/group-outbox.test.ts`, con MLS real entre tres y cuatro miembros:
+    - mensaje sin red y reenvío del mismo cifrado;
+    - cambio de época mientras espera;
+    - expulsión sin red, con un mensaje posterior que espera detrás;
+    - OK perdido aplicado tras reiniciar;
+    - carrera entre ese commit y otro;
+    - Welcome reenviado;
+    - rechazo definitivo.
+  - `apps/sovereign-client/test/groups.test.ts`: persona Tor-only con el proxy SOCKS caído; el mensaje y la
+    rotación salen al final del siguiente comando.
+  - `tests/browser/web-groups.e2e.ts`: el navegador sin red y de vuelta.
+- **Límites.**
+  - Las propuestas (`proposeAdd`, `proposeRemove`, `leave`, la petición de `rejoin` de un no admin) siguen fallando
+    sin red, como en marmot-ts: hay que repetirlas.
+  - Si un commit guardado sin OK solo sigue en relays que este dispositivo ya no alcanza, y en los que alcanza otro
+    commit ocupa la época, este dispositivo aplica el otro. MIP-03 no ordena más allá de lo que se ve.
+  - Los Welcomes de un commit propio se guardan justo después de aplicarlo. Si el proceso muere en ese instante, el
+    invitado queda en el árbol sin invitación: hay que expulsarlo e invitarlo otra vez.
+  - No va por el `DeliveryEngine`, el outbox de DMs y canales. Un evento de grupo no es fijo, porque se vuelve a
+    cifrar al cambiar de época. Tampoco sirve su copia en el Continuity Vault: VAULT-03 guarda los mensajes descifrados.
+
 ## Media cifrada en grupos: MIP-04 (FR025-05)
 Versión `mip04-v2`, la que implementa marmot-ts 0.5.1 (se usan sus primitivas AEAD y el parser de `imeta`):
 - `media_secret = MLS-Exporter("marmot", "encrypted-media", 32)` de la **época del mensaje** que lleva el
@@ -290,6 +346,9 @@ sovereign group send   --persona A --group <gid> "texto"
 sovereign group read   --persona B --group <gid>
 sovereign group remove --persona A --group <gid> --member <npub-B>
 sovereign group rotate --persona A --group <gid>
+sovereign group pending --persona A                    # sin red: lo que espera un relay (FR025-12)
+sovereign group retry   --persona A                    # reintentarlo ya (también sale al final de cualquier comando)
+sovereign group discard --persona A --op <id>          # olvidar uno rechazado
 
 # Multi-dispositivo: segundo dispositivo de B (backup solo de llave) y alta de sus dispositivos
 sovereign backup export --persona B --out b.json --no-mls          # en el dispositivo 1
