@@ -12,3 +12,11 @@ CREATE TABLE IF NOT EXISTS policy_access_log (
 );
 CREATE INDEX IF NOT EXISTS policy_access_log_at_idx ON policy_access_log (at);
 CREATE INDEX IF NOT EXISTS policy_access_log_resource_idx ON policy_access_log (resource_id, id);
+
+-- Decisions logged before this migration stay in policy_audit: it is append-only and nothing deletes from it. A copy goes
+-- to the access log so that it shows them too; the copy follows the access log's retention.
+INSERT INTO policy_access_log (at, pubkey, resource_id, action, allow)
+SELECT at, actor, target, coalesce(details->>'action', ''), coalesce((details->>'allow')::boolean, false)
+FROM policy_audit
+WHERE action = 'policy.evaluate' AND NOT EXISTS (SELECT 1 FROM policy_access_log)
+ORDER BY id;

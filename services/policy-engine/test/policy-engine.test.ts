@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { copyFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateSecretKey, getPublicKey } from '@sedecim/nostr-core';
 import { createPgPool, migrate, nip98Fetch, resetScope, type Pool } from '@sedecim/service-kit';
@@ -328,6 +331,29 @@ if (PG) {
       } finally {
         await pool2.end();
       }
+    });
+
+    it('an existing engine upgrades: the decisions in the audit are copied to the access log and stay in the audit (FR023-12)', async () => {
+      pool ??= createPgPool(PG);
+      await resetScope(pool, 'policy-engine', POLICY_TABLES);
+      const before = mkdtempSync(join(tmpdir(), 'policy-migrations-'));
+      for (const f of ['001_policy.sql', '002_audit_action_idx.sql']) copyFileSync(join(MIGRATIONS, f), join(before, f));
+      await migrate(pool, before, 'policy-engine');
+      const alice = getPublicKey(generateSecretKey());
+      await pool.query(
+        `INSERT INTO policy_audit (at, actor, action, target, details) VALUES
+           (1000, $1, 'policy.evaluate', 'room', '{"action":"read","allow":true}'),
+           (2000, 'admin', 'subject.upsert', $1, NULL),
+           (3000, $1, 'policy.evaluate', 'room', '{"action":"publish","allow":false}')`,
+        [alice],
+      );
+      expect(await migrate(pool, MIGRATIONS, 'policy-engine')).toEqual(['003_access_log.sql']);
+      const engine = new PolicyEngine(new PgPolicyRepository(pool), Date.now, WEBAUTHN);
+      expect((await engine.listAccessLog()).map((a) => [a.at, a.pubkey, a.resourceId, a.action, a.allow])).toEqual([
+        [3000, alice, 'room', 'publish', false],
+        [1000, alice, 'room', 'read', true],
+      ]);
+      expect((await engine.listAudit({ limit: 10 })).map((a) => a.action)).toEqual(['policy.evaluate', 'subject.upsert', 'policy.evaluate']);
     });
 
     it('the audit is append-only', async () => {

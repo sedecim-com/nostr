@@ -23,7 +23,8 @@ en memoria con el mismo comportamiento (se pierde al reiniciar; lo avisa en el l
   hacen los administradores: quién, qué acción, sobre qué y sus metadatos; nunca contenido de mensajes. No se poda.
 - **Registro de accesos** (FR023-12): las decisiones de `POST /v1/evaluate` (quién pidió qué acción sobre qué recurso
   y qué se le respondió) van a `policy_access_log`, no a la auditoría, y tienen su propia retención (ver «Qué cubre y
-  qué no»).
+  qué no»). Las anteriores a la migración 003 siguen en la auditoría, porque es append-only; la migración las copia
+  al registro de accesos para que también se vean allí.
 - **Sesiones**: el token se guarda como hash SHA-256; una fuga de la base no da tokens utilizables.
 - **WebAuthn**: se guarda solo la llave pública de la credencial; la privada nunca sale del autenticador.
 
