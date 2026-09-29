@@ -119,6 +119,13 @@ describe.skipIf(!URL_)('Buzz interop gate', () => {
     report.marmotRoute = Object.values(probe).every((p) => p.ok) ? 'buzz' : 'secure-relay';
     expect(Object.keys(probe)).toHaveLength(3);
   });
+  // OPS-21: without a DM relay list (FR017-06) on its relay, DMs to a persona go to the sender's relays, and the web
+  // and the CLI say delivery is uncertain. The tor-profile check relies on what this records.
+  it('records whether the relay takes DM relay lists (kind 10050)', async () => {
+    const res = await pa.publishTo(await alice.signEvent({ kind: 10050, content: '', tags: [['relay', URL_!]] }), URL_!);
+    report.dmRelayList = { ok: res.ok, message: res.message };
+    expect(res.ok || res.message.length > 0, 'a rejection says why').toBe(true);
+  });
 });
 
 const MARMOT_URL = process.env.MARMOT_RELAY_URL;

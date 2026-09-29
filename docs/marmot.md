@@ -208,6 +208,10 @@ ver `docs/sovereign-tor.md`).
   no manda CLOSED ni NOTICE.
 - Por eso el relay-pool se autentica antes de cualquier suscripción que pida esos kinds, también en modo
   `on-demand` (FR025-11). Así llegan las invitaciones (Welcome dentro del gift wrap) y los DM NIP-17.
+- Si el challenge tarda más que esa espera, como pasa por un circuito Tor lento, el REQ sale sin autenticar y el
+  relay lo contesta con un EOSE vacío que llega después del challenge. Al recibir un challenge tardío, el
+  relay-pool se autentica y repite esas suscripciones con otro id, y descarta lo que el relay conteste al id
+  anterior (OPS-21). En Tor, el CLI da además 30 s a cada lectura, en vez de 10 s.
 - El E2E de grupos de la web y el del CLI (`tests/interop/sovereign-secure-relay.interop.test.ts`) corren en
   CI contra el nostr-rs-relay real del stack.
 Incluye su URL en los relays de la persona (`--relay ws://localhost:7000`); la política de red de la
