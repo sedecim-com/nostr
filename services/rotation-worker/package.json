@@ -1,0 +1,24 @@
+{
+  "name": "@sedecim/rotation-worker-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Servicio de rotaciones (FR024-05): la identidad del worker entra en los grupos MLS que la invitan, quita a los miembros revocados y propaga las revocaciones de dispositivo.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sedecim/encrypted-store": "0.1.0",
+    "@sedecim/marmot-adapter": "0.1.0",
+    "@sedecim/nostr-core": "0.1.0",
+    "@sedecim/relay-pool": "0.1.0",
+    "@sedecim/rotation-worker": "0.1.0",
+    "@sedecim/service-kit": "0.1.0",
+    "@sedecim/signer": "0.1.0",
+    "@sedecim/telemetry-policy": "0.1.0",
+    "ws": "8.21.3"
+  }
+}

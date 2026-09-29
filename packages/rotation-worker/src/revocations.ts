@@ -56,6 +56,9 @@ export class RevocationPropagator {
   private saved: number | undefined;
   /** Propagated revocations above the cursor: still settling, or behind one that failed. */
   private readonly sent = new Set<number>();
+  /** Revocations whose propagation failed in the last run (the next run retries them), and the last error. */
+  failing = 0;
+  lastError?: string;
   private readonly log: Logger;
 
   constructor(private readonly opts: RevocationPropagatorOptions) {
@@ -70,6 +73,7 @@ export class RevocationPropagator {
     let cursor = this.cursor;
     let after = cursor;
     let advancing = true;
+    let failing = 0;
     const done: string[] = [];
     for (;;) {
       const page = await this.opts.feed.revocations(after, size);
@@ -80,9 +84,11 @@ export class RevocationPropagator {
         continue;
       }
       for (const r of page.revocations) {
-        if (!this.sent.has(r.cursor) && (await this.propagate(r))) {
-          this.sent.add(r.cursor);
-          done.push(r.deviceId);
+        if (!this.sent.has(r.cursor)) {
+          if (await this.propagate(r)) {
+            this.sent.add(r.cursor);
+            done.push(r.deviceId);
+          } else failing++;
         }
         if (advancing && this.sent.has(r.cursor) && page.now - r.at >= settleMs) {
           cursor = r.cursor;
@@ -94,6 +100,7 @@ export class RevocationPropagator {
       after = last;
     }
     this.cursor = cursor;
+    this.failing = failing;
     if (cursor !== this.saved && this.opts.cursor) {
       try {
         await this.opts.cursor.save(cursor);
@@ -112,7 +119,8 @@ export class RevocationPropagator {
       this.log.info('device revocation propagated', { device_id: r.deviceId, sinks: this.opts.sinks.length });
       return true;
     } catch (err) {
-      this.log.warn('device revocation propagation failed', { device_id: r.deviceId, error: (err as Error).message });
+      this.lastError = (err as Error).message;
+      this.log.warn('device revocation propagation failed', { device_id: r.deviceId, error: this.lastError });
       return false;
     }
   }

@@ -18,7 +18,9 @@ import type { AddressInfo } from 'node:net';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import WebSocket from 'ws';
 import { bytesToHex, generateSecretKey, getPublicKey, nip19, npubEncode, type Filter } from '@sedecim/nostr-core';
+import { MarmotTsProvider, PoolGroupNetwork, VolatileGroupStorage } from '@sedecim/marmot-adapter';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
+import { LocalSigner } from '@sedecim/signer';
 import { TestRelay } from '@sedecim/test-relay';
 import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '@sedecim/continuity-vault';
 
@@ -72,9 +74,9 @@ const config = { mode: 'self-hosted', relays: [relay.url], secureRelays: [secure
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const errors: string[] = [];
 
-async function newUser(name: string, opts: { bypassCSP?: boolean } = {}): Promise<{ ctx: BrowserContext; page: Page; sk: Uint8Array; pubkey: string }> {
+async function newUser(name: string, opts: { bypassCSP?: boolean; config?: Record<string, unknown> } = {}): Promise<{ ctx: BrowserContext; page: Page; sk: Uint8Array; pubkey: string }> {
   const ctx = await browser.newContext(opts.bypassCSP ? { bypassCSP: true } : {});
-  await ctx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(config) }));
+  await ctx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(opts.config ?? config) }));
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
   page.on('console', (m) => /Content Security Policy/i.test(m.text()) && errors.push(`${name}: ${m.text()}`));
@@ -310,6 +312,29 @@ try {
   } finally {
     await cleanCtx.close();
     await emptyRelay.stop();
+  }
+
+  // --- FR024-05: with the organisation's rotation worker in the configuration, a new group lists it as an admin and
+  // invites it, and shows it as such to the members.
+  const workerSk = generateSecretKey();
+  const worker = getPublicKey(workerSk);
+  const workerPool = new RelayPool({ webSocketFactory: (url) => new WebSocket(url) as unknown as WebSocketLike, signer: new LocalSigner(workerSk), authMode: 'auto' });
+  const workerSession = await new MarmotTsProvider().openSession({ signer: new LocalSigner(workerSk), network: new PoolGroupNetwork(workerPool, [secureUrl]), storage: new VolatileGroupStorage(), deviceId: 'rotation-worker' });
+  const org = await newUser('Organización', { config: { ...config, rotationWorker: npubEncode(worker) } });
+  try {
+    await workerSession.publishKeyPackage([secureUrl]);
+    await openGroups(org.page);
+    await org.page.fill('#group-name', 'Con worker');
+    await org.page.locator('#groups-create').getByRole('button', { name: 'Crear grupo' }).click();
+    await org.page.locator('#group-members').getByText('worker de rotaciones de la organización', { exact: false }).waitFor({ timeout: 30_000 });
+    await waitState(org.page, /· 2 miembros · 2 admins/);
+    assert(true, 'a group created with the rotation worker configured lists it as a member and an admin, labelled as such');
+    const joined = await workerSession.acceptInvites();
+    assert(joined.length === 1 && joined[0]!.name === 'Con worker' && joined[0]!.admins.includes(worker) && joined[0]!.admins.includes(org.pubkey), 'the worker receives the invitation and is an admin of the group, so it can remove revoked devices');
+  } finally {
+    await org.ctx.close();
+    workerSession.close();
+    workerPool.close();
   }
 
   assert(errors.length === 0, `no page errors or CSP violations (${errors.join('; ')})`);

@@ -10,6 +10,7 @@ usuario; el policy-engine nunca guarda plaintext de mensajes.
 | `services/policy-engine` | compose `policy-engine`, k8s `base/policy-engine.yaml` | API de políticas (admin NIP-98, servicios con bearer) |
 | `relay-allowlist` | compose perfil `institutional`, k8s `components/institutional` | Sincroniza el allowlist NIP-42 de Buzz y del secure-relay |
 | `services/indexer` | `POLICY_ENGINE_URL` + `POLICY_ENGINE_TOKEN` | Filtra lecturas por `evaluate()` y aplica la retención |
+| `services/rotation-worker` | compose perfil `institutional`, k8s `components/institutional` | Saca de los grupos MLS a quien se revoca y lleva las revocaciones al managed-signer (FR024-05) |
 | `@sedecim/policy-client` | paquete | Tipos, evaluador puro y cliente HTTP del engine |
 
 ## Persistencia (FR023-03)
@@ -41,7 +42,7 @@ Todas las rutas son JSON. "Admin" = NIP-98 firmado por una pubkey de `POLICY_ADM
 | `POST /v1/devices/:id/webauthn/options` · `POST /v1/devices/:id/webauthn/register` | dueño del dispositivo o admin | `PublicKeyCredentialCreationOptions` (base64url) · `Device` |
 | `POST /v1/sessions` | NIP-98 del dueño | `{token}` |
 | `POST /v1/evaluate` · `GET /v1/relay/allowlist` | servicio | `Decision` · `{pubkeys}` |
-| `GET /v1/rotations?status=pending\|done` | admin | `{rotations}` (cada una con `id` y `status`) |
+| `GET /v1/rotations?status=pending\|done` | admin o servicio | `{rotations}` (cada una con `id` y `status`) |
 | `POST /v1/rotations/:id/done` | admin o servicio | `Rotation` |
 | `GET /v1/revocations?after=&limit=` | admin o servicio | `{revocations, latest, now}`: revocaciones de dispositivo (`{cursor, at, deviceId, reason}`, más antigua primero) con `cursor` mayor que `after`; `latest` = cursor de la última (FR024-04) |
 | `GET /v1/audit?limit=&before=` | admin | `{audit}`, más nuevo primero; `before` = `id` de la última entrada recibida |
@@ -84,8 +85,9 @@ Comportamiento ante fallos: si el engine no responde se mantiene la última list
 error transitorio); antes de la primera sincronización el servidor gRPC deniega todo. `GET /health` del job
 (puerto 8087) indica la última sincronización y el último error.
 
-Identidades de servicio: el mirror (`INDEXER_NSEC`) y el gateway de notificaciones también se autentican con
-NIP-42; sus pubkeys van en `ALLOWLIST_EXTRA_PUBKEYS` para que no pierdan acceso.
+Identidades de servicio: el mirror (`INDEXER_NSEC`), el gateway de notificaciones y el worker de rotaciones
+(`ROTATION_WORKER_NSEC`) también se autentican con NIP-42; sus pubkeys van en `ALLOWLIST_EXTRA_PUBKEYS` para que no
+pierdan acceso.
 
 Activación en compose:
 
@@ -178,3 +180,75 @@ token) cada `RETENTION_INTERVAL_MS` (1 h) y borra del mirror los eventos con `cr
 
 Tampoco borra los eventos del propio relay Buzz ni del secure-relay: su retención es la del relay. Pruebas: bloque
 "Retention" de `services/indexer/test/indexer.test.ts` (memoria y Postgres) y `tests/e2e/institutional-policy.test.ts`.
+
+## Worker de rotaciones (FR024-05)
+
+El servicio `rotation-worker` (`services/rotation-worker`) hace sin que nadie deje un CLI abierto lo que antes
+pedía `sovereign group rotation-worker`: saca de los grupos MLS a quien la organización revoca (FR024-02) y lleva cada
+revocación de dispositivo al managed-signer (FR024-03/04). En cada ciclo (`ROTATION_INTERVAL_MS`, 15 s):
+
+1. acepta las invitaciones a grupos;
+2. propaga las revocaciones de dispositivo, si tiene managed-signer;
+3. hace el commit Remove de cada rotación pendiente y la marca como hecha.
+
+Un paso que falla no detiene a los otros y se reintenta en el ciclo siguiente. `GET /health` (puerto 8089) dice si
+el último ciclo terminó sin errores y cuál es el error de cada paso, sin contenido. Una rotación que espera su
+reintento o una revocación sin propagar lo dejan en error hasta que se completan.
+
+**Qué necesita cada grupo.** El worker solo rota los grupos que lo tienen como **admin** (MIP-03: solo los admins
+hacen commit) y en los que entró:
+- la web lo añade sola si `config.json` tiene `rotationWorker` (su npub). Al crear un grupo lo pone como admin y lo
+  invita, y la lista de miembros lo muestra como «worker de rotaciones de la organización». Si no encuentra su key
+  package, el grupo se crea igual y la web avisa. Se le puede invitar después con «Invitar»: el grupo ya lo lista
+  como admin;
+- en el policy-engine tiene que existir el recurso del grupo: id = id MLS del grupo, `kind: 'group'` y sus
+  miembros (docs/marmot.md, «Revocación de dispositivos»).
+
+**Confidencialidad.** El worker es un miembro más: mientras está en un grupo **puede descifrar** lo que se envía.
+- No guarda los mensajes: los descarta al sincronizar.
+- Su estado MLS está cifrado con `ROTATION_STATE_KEY` en su volumen. El secreto hacia adelante le afecta igual que a
+  cualquier miembro.
+- Quien controle el worker podría leer esos grupos. Es una decisión de la organización, y los miembros lo ven en la
+  lista.
+
+**Permisos.** No es admin del policy-engine: lee rotaciones y revocaciones con su token de servicio. Su llave Nostr
+solo firma dentro de los grupos. En el managed-signer usa un token de revocación, que no sirve para nada más.
+
+**Configuración.**
+
+| Variable | Qué es |
+|---|---|
+| `ROTATION_WORKER_NSEC` | Identidad del worker (nsec o hex). La genera `scripts/init-env.sh`. |
+| `ROTATION_STATE_KEY` | 32 bytes hex que cifran el estado MLS. La genera `init-env.sh`. Otra clave no abre el estado y el worker no arranca. |
+| `ROTATION_STATE_DIR` | Volumen del estado (`/data`). Una sola réplica: el estado MLS tiene un único escritor. |
+| `POLICY_ENGINE_URL`, `POLICY_ENGINE_TOKEN` | El engine y un token de `POLICY_SERVICE_TOKENS` (en compose, `ROTATION_WORKER_POLICY_TOKEN`). |
+| `ROTATION_WORKER_RELAYS` | `pública=interna`: la URL del relay seguro que usan los clientes (`secureRelays` de la web) y dónde lo alcanza el worker. Por defecto `ws://localhost:7000=ws://secure-relay:8080`. |
+| `ROTATION_MANAGED_SIGNER_URL`, `ROTATION_MANAGED_SIGNER_TOKEN` | El managed-signer y uno de sus `MANAGED_SIGNER_REVOCATION_TOKENS`. Los dos o ninguno. |
+| `ROTATION_INTERVAL_MS` | Intervalo entre ciclos (15 000 ms). |
+
+Con el relay seguro en modo institucional, la pubkey del worker va en `ALLOWLIST_EXTRA_PUBKEYS`.
+
+**Despliegue.**
+- compose: servicio `rotation-worker` del perfil `institutional`, con el volumen `rotation-state`;
+- Kubernetes: `components/institutional` trae el Deployment (1 réplica, estrategia `Recreate`), su PVC y el
+  Service. Secretos en `acceso-nostr-secrets`: `ROTATION_WORKER_NSEC`, `ROTATION_STATE_KEY`,
+  `ROTATION_WORKER_POLICY_TOKEN` y, con el managed-signer, `ROTATION_MANAGED_SIGNER_TOKEN`
+  (y `ROTATION_MANAGED_SIGNER_URL` en la configuración).
+
+Si se pierden el volumen o la clave, el worker empieza sin grupos. En cada grupo, un admin tiene que sacarlo y volver
+a invitarlo: sigue en la lista de admins, así que vuelve como admin. El procedimiento ante un dispositivo perdido
+está en `docs/runbooks/device-loss.md`.
+
+Pruebas:
+- `services/rotation-worker/test/service.test.ts`, con un relay que exige NIP-42 y se conoce por una URL pública que
+  el worker no marca, el policy-engine real (el worker no es admin) y el managed-signer:
+  - entra en el grupo que lo tiene como admin, saca al miembro revocado y propaga la revocación;
+  - lo que se envía después no llega al dispositivo revocado;
+  - tras reiniciar sobre el mismo estado sigue en el grupo y rota la revocación siguiente;
+  - otra clave no abre el estado.
+- `packages/rotation-worker/test/service.test.ts`: un paso que falla no para a los demás, y la salud sigue en error
+  hasta que la rotación está hecha.
+- `tests/browser/web-groups.e2e.ts`: con `rotationWorker` en la configuración, el grupo nuevo lo tiene como admin, lo
+  muestra como tal y el worker recibe la invitación.
+- CI, job `stack`: el perfil `institutional` levanta el worker contra el relay seguro, el policy-engine y el
+  managed-signer reales, y `scripts/wait-stack.sh` espera a que su primer ciclo termine sin errores.

@@ -72,8 +72,12 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
       expect(JSON.stringify(audit)).not.toMatch(/content|plaintext/);
     });
 
-    it('rotations have ids and can be marked done by an admin or a service', async () => {
+    it('rotations have ids, services read them, and an admin or a service marks them done', async () => {
       const pending = (await asAdmin('/v1/rotations?status=pending')).json.rotations;
+      // FR024-05: the rotation worker reads them with its service token; a non-admin key cannot.
+      expect((await bearerFetch('/v1/rotations?status=pending').then((r) => r.json())).rotations).toEqual(pending);
+      expect((await nip98Fetch(aliceSk, `${base}/v1/rotations?status=pending`)).status).toBe(403);
+      expect((await fetch(`${base}/v1/rotations?status=pending`, { headers: { authorization: 'Bearer wrong-token-0000' } })).status).toBe(401);
       expect(pending).toHaveLength(1);
       expect((await fetch(`${base}/v1/rotations/${pending[0].id}/done`, { method: 'POST', headers: { authorization: 'Bearer wrong-token-0000' } })).status).toBe(401);
       expect((await nip98Fetch(aliceSk, `${base}/v1/rotations/${pending[0].id}/done`, 'POST', {})).status).toBe(403);

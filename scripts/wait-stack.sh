@@ -28,5 +28,7 @@ if has managed; then wait_for "managed-signer :8084" curl -fsS http://localhost:
 if has push; then wait_for "notification-gateway :8086" curl -fsS http://localhost:8086/health; fi
 # relay-allowlist has no host port: its health says whether its first sync with the policy-engine went through.
 if has institutional; then wait_for "relay-allowlist (first sync)" sh -c 'docker compose exec -T relay-allowlist wget -qO- http://127.0.0.1:8087/health | grep -q "\"ok\":true"'; fi
+# Neither has the rotation worker (FR024-05): ok once a run went through (key package, revocations, rotations).
+if has institutional; then wait_for "rotation-worker (first run)" sh -c 'docker compose exec -T rotation-worker wget -qO- http://127.0.0.1:8089/health | grep -q "\"ok\":true"'; fi
 # Tor only has to be running here: reaching the network through it is what the tor-profile job checks.
 if has tor; then wait_for "tor" sh -c 'docker compose logs tor | grep -q "Tor .* running"'; fi

@@ -4,8 +4,8 @@
 #
 #   sh scripts/stack-profiles.sh configure [ENV_FILE]   turn the profiles on (COMPOSE_PROFILES) with the secrets
 #        they need, generated here so that the scan knows them: the managed signer's KEK, the push gateway's keys,
-#        the allowlist sync token (added to POLICY_SERVICE_TOKENS) and an admin key of the policy-engine for the
-#        institutional check (FR023-13). The Acceso pool is a placeholder: the signer starts and turns every token
+#        the allowlist sync token (added to POLICY_SERVICE_TOKENS), an admin key of the policy-engine for the
+#        institutional check (FR023-13) and the rotation worker's tokens (FR024-05). The Acceso pool is a placeholder: the signer starts and turns every token
 #        away, so nobody can sign in. For test stacks, never for a real deployment.
 #   sh scripts/stack-profiles.sh exercise [ENV_FILE]    send each service a request carrying a canary credential,
 #        kept in ENV_FILE as STACK_CANARY_TOKEN, so the scan also checks that no service logs what it is sent.
@@ -60,6 +60,23 @@ case "$cmd" in
       set_value POLICY_ADMIN_PUBKEYS "${admins:+$admins,}${keys#* }"
     fi
     fill ALLOWLIST_SYNC_INTERVAL_MS 2000
+    # FR024-05: the rotation worker reads rotations and revocations with a service token of its own, sends device
+    # revocations to the managed-signer with a revocation token, and the institutional secure relay admits its identity.
+    fill ROTATION_WORKER_POLICY_TOKEN "$(rand 24)"
+    token=$(current ROTATION_WORKER_POLICY_TOKEN)
+    tokens=$(current POLICY_SERVICE_TOKENS)
+    case ",$tokens," in *",$token:"*) ;; *) set_value POLICY_SERVICE_TOKENS "${tokens:+$tokens,}$token:rotation-worker" ;; esac
+    fill ROTATION_MANAGED_SIGNER_URL http://managed-signer:8084
+    fill ROTATION_MANAGED_SIGNER_TOKEN "$(rand 24)"
+    token=$(current ROTATION_MANAGED_SIGNER_TOKEN)
+    tokens=$(current MANAGED_SIGNER_REVOCATION_TOKENS)
+    case ",$tokens," in *",$token:"*) ;; *) set_value MANAGED_SIGNER_REVOCATION_TOKENS "${tokens:+$tokens,}$token:rotation-worker" ;; esac
+    worker=$(current ROTATION_WORKER_NSEC)
+    if [ -n "$worker" ]; then
+      pubkey=$(node --input-type=module -e "import { schnorr } from '@noble/curves/secp256k1.js'; console.log(Buffer.from(schnorr.getPublicKey(Buffer.from(process.argv[1], 'hex'))).toString('hex'))" "$worker")
+      extra=$(current ALLOWLIST_EXTRA_PUBKEYS)
+      case ",$extra," in *",$pubkey,"*) ;; *) set_value ALLOWLIST_EXTRA_PUBKEYS "${extra:+$extra,}$pubkey" ;; esac
+    fi
     echo "stack-profiles: $profiles on in $ENV_FILE"
     ;;
   exercise)

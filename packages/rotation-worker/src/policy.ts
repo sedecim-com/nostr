@@ -43,9 +43,9 @@ export class PolicyHttpError extends Error {
 
 export interface PolicyConnection {
   baseUrl: string;
-  /** Admin identity for NIP-98 (its pubkey must be in POLICY_ADMIN_PUBKEYS). */
+  /** Identity for NIP-98 when there is no `bearer` (its pubkey must then be in POLICY_ADMIN_PUBKEYS). */
   signer: Signer;
-  /** Optional service bearer for `POST /v1/rotations/:id/done` (NIP-98 is used otherwise). */
+  /** Service bearer (one of POLICY_SERVICE_TOKENS) for the rotation contract; NIP-98 of `signer` otherwise. */
   bearer?: string;
   fetch?: typeof fetch;
 }
@@ -56,8 +56,8 @@ export async function nip98Header(signer: Signer, url: string, method: string, b
 }
 
 /**
- * Policy-engine client for the rotation contract: `GET /v1/rotations?status=pending` (admin NIP-98),
- * `POST /v1/rotations/:id/done` and `GET /v1/revocations` (admin NIP-98 or bearer).
+ * Policy-engine client for the rotation contract: `GET /v1/rotations?status=pending`,
+ * `POST /v1/rotations/:id/done` and `GET /v1/revocations` (bearer, or admin NIP-98 without one).
  */
 export class HttpPolicySource implements RotationSource {
   private readonly base: string;
@@ -75,7 +75,7 @@ export class HttpPolicySource implements RotationSource {
   }
 
   async pending(): Promise<Rotation[]> {
-    const { rotations } = await this.call<{ rotations?: Partial<Rotation>[] }>('GET', '/v1/rotations?status=pending');
+    const { rotations } = await this.call<{ rotations?: Partial<Rotation>[] }>('GET', '/v1/rotations?status=pending', true);
     // Defensive: a server that ignores the filter, or rotations without an id, are never acted upon blindly.
     return (rotations ?? []).filter((r): r is Rotation => typeof r.id === 'string' && r.status === 'pending' && typeof r.resourceId === 'string' && typeof r.removedPubkey === 'string');
   }
