@@ -144,7 +144,8 @@ describe.skipIf(!hasKubectl)('kubectl kustomize base + components/institutional 
   const k8s = relative(dir, join(root, 'deploy/k8s'));
   writeFileSync(join(dir, 'kustomization.yaml'), `apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: acceso-nostr\nresources:\n  - ${k8s}/base\ncomponents:\n  - ${k8s}/components/institutional\n`);
   const out = spawnSync(kubectl, ['kustomize', dir], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-  const docs = out.stdout.split('\n---\n');
+  // vitest runs this body even when the suite is skipped (no kubectl): nothing was rendered then.
+  const docs = (out.stdout ?? '').split('\n---\n');
 
   it('renders', () => {
     expect(out.status, out.stderr).toBe(0);

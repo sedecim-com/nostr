@@ -75,6 +75,16 @@ la interfaz no duplique nada (§11.2). Cada envío de la web y del CLI es una op
   el id `<operación>:<pubkey>`. Un reintento usa el mismo rumor, reenvía los wraps ya encolados y crea solo los que
   falten; si el firmante falló a mitad, el destinatario que ya tenía su wrap no recibe otro.
 
+## Grupos MLS sin red (FR025-12)
+
+Los mensajes y commits de grupos Marmot tienen su propio outbox en el adaptador (`packages/marmot-adapter`), sellado
+con el estado MLS. No van por el `DeliveryEngine`, porque un evento de grupo no es fijo:
+- un mensaje se vuelve a cifrar si el grupo cambia de época antes de que salga;
+- un commit se guarda con el estado al que lleva, para aplicarlo si un relay lo tomó sin que llegara el OK, o se
+  vuelve a construir si otro commit ganó su época.
+
+Nada adelanta a un commit pendiente. Detalle en `docs/marmot.md` («Sin red: mensajes y commits pendientes»).
+
 ## APIs: anti-replay NIP-98 y límites de tasa
 Aplica a identity-service, policy-engine, indexer, notification-gateway, managed-signer y continuity-vault (todos sobre
 `packages/service-kit`) y a blob-store (servidor propio que usa el mismo limitador). Corrige IR-2026-09-04 e
