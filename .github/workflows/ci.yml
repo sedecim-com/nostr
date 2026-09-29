@@ -137,7 +137,7 @@ jobs:
       - name: Production feature gates
         run: node scripts/release-gate.mjs config
       - name: Deploy scripts
-        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/rebuild-image.sh scripts/verify-release.sh
+        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/image-sbom.sh scripts/rebuild-image.sh scripts/verify-release.sh
       - name: SLO rules and their unit tests (promtool)
         run: |
           curl -sSfL -o prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
