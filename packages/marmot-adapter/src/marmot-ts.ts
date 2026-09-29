@@ -406,14 +406,15 @@ export class MarmotTsSession implements ExtendedGroupSession {
   private readonly needsAnnounce = new Set<string>();
   private mediaChain: Promise<void> = Promise.resolve();
   private readonly label?: string;
-  private readonly signer: EventSigner;
+  /** The persona's signer as marmot-ts and applesauce take it (gift wraps). */
+  private readonly applesauceSigner: EventSigner;
   private lastOpAt = 0;
 
   constructor(private readonly opts: SessionOptions) {
     this.label = opts.deviceLabel;
-    this.signer = eventSigner(opts.signer);
+    this.applesauceSigner = eventSigner(opts.signer);
     this.client = new MarmotClient({
-      signer: this.signer,
+      signer: this.applesauceSigner,
       network: networkInterface(opts.network) as never,
       groupStateStore: kv(opts.storage, 'groups'),
       keyPackageStore: kv(opts.storage, 'keypackages'),
@@ -757,7 +758,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
   private async applyOwnCommit(g: MarmotGroup<any, any>, op: StoredOp) {
     const c = op.commit!;
     // Wrapped (signed) before the state changes, so that nothing slow sits between the new state and its Welcomes.
-    const wraps = await Promise.all(c.welcomes.map(async (w) => ({ pubkey: w.pubkey, wrap: (await createGiftWrap({ rumor: w.rumor as never, recipient: w.pubkey, signer: this.signer })) as NostrEvent })));
+    const wraps = await Promise.all(c.welcomes.map(async (w) => ({ pubkey: w.pubkey, wrap: (await createGiftWrap({ rumor: w.rumor as never, recipient: w.pubkey, signer: this.applesauceSigner })) as NostrEvent })));
     g.state = deserializeClientState(c.state) as never;
     await g.save();
     const welcomes: StoredOp[] = wraps.map((w) => ({ id: bytesToHex(randomBytes(16)), groupId: g.idStr, type: 'welcome', createdAt: this.opTime(), attempts: 0, target: w.pubkey, wrap: w.wrap, relays: g.relays ?? [] }));
