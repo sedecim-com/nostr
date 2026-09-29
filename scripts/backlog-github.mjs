@@ -185,7 +185,7 @@ export async function seed(api, backlog) {
   for (const t of tasks) {
     if (byId.has(t.id)) continue;
     const sprint = meta.sprints.find((s) => s.id === t.sprint);
-    const labels = [TASK_LABEL, t.priority, `tipo:${t.type}`, epicLabel(t.epic), ...(t.status === 'Parcial' ? [PARTIAL_LABEL] : [])];
+    const labels = [TASK_LABEL, t.priority, `tipo:${t.type}`, epicLabel(t.epic), ...(t.status === 'Parcial' ? [PARTIAL_LABEL] : []), ...(t.evidenceState ? [evidenceLabel(t.evidenceState)] : [])];
     const payload = { title: taskTitle(t), body: taskBody(t), labels, milestone: milestones.get(t.sprint).number };
     const fv = fieldValues(t, sprint, ids);
     let issue;
@@ -263,7 +263,8 @@ export async function seed(api, backlog) {
  * is accepted as Hecho only when its Evidencia cites a SHA (7-40 hex) that is main or one of its ancestors;
  * otherwise the task keeps its previous status and a warning says why. Tasks already Hecho in `backlog` are
  * kept (they predate the rule); those whose evidence cites no SHA at all are listed in `unverified`. With
- * `labelMerged`, an accepted issue without an evidencia:* label gets evidencia:merged.
+ * `labelMerged`, an accepted issue without an evidencia:* label gets evidencia:merged. Each task keeps the highest
+ * evidencia:* label it has as `evidenceState` (OPS-18); seed puts it back on the issues it creates.
  */
 export async function pull(api, backlog, opts = {}) {
   const issues = (await api.all(`/repos/${api.repo}/issues?state=all&labels=${TASK_LABEL}`)).filter((i) => !i.pull_request);
@@ -302,6 +303,8 @@ export async function pull(api, backlog, opts = {}) {
     const epic = epicLbl && (backlog.tasks.find((t) => epicLabel(t.epic) === epicLbl)?.epic ?? epicLbl.slice(5));
     const sprint = sprintOfMilestone(i.milestone?.title);
     let status = i.state === 'closed' ? (i.state_reason === 'not_planned' ? 'Descartado' : 'Hecho') : labels.includes(PARTIAL_LABEL) ? 'Parcial' : 'Pendiente';
+    // OPS-18: the highest evidence state its labels reach, for the status board (scripts/traceability.mjs).
+    let evidenceState = EVIDENCE_STATES.map(([s]) => s).filter((s) => labels.includes(evidenceLabel(s))).at(-1);
     const problems = [!priority && 'sin label de prioridad (P0–P3)', !epic && 'sin label epic:…', !sprint && 'sin milestone (sprint)'].filter(Boolean);
     if (problems.length) {
       warnings.push(`#${i.number} ${p.id}: ${problems.join(', ')}`);
@@ -320,6 +323,7 @@ export async function pull(api, backlog, opts = {}) {
         } else if (opts.labelMerged && !labels.some((l) => l.startsWith('evidencia:'))) {
           try {
             await api.request('POST', `/repos/${api.repo}/issues/${i.number}/labels`, { labels: [evidenceLabel('merged')] });
+            evidenceState = 'merged';
           } catch (e) {
             warnings.push(`#${i.number} ${p.id}: no se pudo poner ${evidenceLabel('merged')} (${e.message})`);
           }
@@ -340,6 +344,7 @@ export async function pull(api, backlog, opts = {}) {
       status,
       evidence: b.Evidencia ?? '',
       issue: i.number,
+      ...(evidenceState ? { evidenceState } : {}),
     });
   }
   tasks.sort((a, b) => (order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9) || a.id.localeCompare(b.id));
