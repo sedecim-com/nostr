@@ -188,7 +188,155 @@
    "NFR-008": "Portabilidad",
    "NFR-009": "Accesibilidad",
    "NFR-010": "Auditabilidad"
-  }
+  },
+  "capabilities": [
+   {
+    "name": "convenience (SaaS)",
+    "kind": "Perfil",
+    "select": [
+     "FR-014",
+     "FR-015",
+     "NFR-001",
+     "NFR-004"
+    ]
+   },
+   {
+    "name": "private-resilient",
+    "kind": "Perfil",
+    "select": [
+     "FR-013",
+     "FR-027",
+     "VAULT-*"
+    ]
+   },
+   {
+    "name": "institutional",
+    "kind": "Perfil",
+    "select": [
+     "FR-023",
+     "FR-024"
+    ]
+   },
+   {
+    "name": "sovereign (self-hosted)",
+    "kind": "Perfil",
+    "select": [
+     "FR-012",
+     "FR-022",
+     "NFR-003",
+     "NFR-008"
+    ]
+   },
+   {
+    "name": "sovereign-tor",
+    "kind": "Perfil",
+    "select": [
+     "FR-020",
+     "FR-021"
+    ]
+   },
+   {
+    "name": "Identidad, personas y custodia en el dispositivo",
+    "kind": "Capacidad",
+    "select": [
+     "FR-001",
+     "FR-002",
+     "FR-003",
+     "FR-004",
+     "FR-006",
+     "FR-007"
+    ]
+   },
+   {
+    "name": "Custodia gestionada y Nitro Enclave",
+    "kind": "Capacidad",
+    "select": [
+     "FR-005",
+     "FR-026",
+     "OPS-20"
+    ]
+   },
+   {
+    "name": "Entrega fiable (outbox, quorum, acuses)",
+    "kind": "Capacidad",
+    "select": [
+     "FR-008",
+     "FR-009",
+     "FR-010",
+     "FR-011",
+     "NFR-002"
+    ]
+   },
+   {
+    "name": "DMs NIP-17 y canales NIP-29",
+    "kind": "Capacidad",
+    "select": [
+     "FR-016",
+     "FR-017"
+    ]
+   },
+   {
+    "name": "Grupos Marmot/MLS",
+    "kind": "Capacidad",
+    "select": [
+     "FR-025"
+    ]
+   },
+   {
+    "name": "Continuity Vault",
+    "kind": "Capacidad",
+    "select": [
+     "VAULT-*"
+    ]
+   },
+   {
+    "name": "Adjuntos Blossom sin metadatos",
+    "kind": "Capacidad",
+    "select": [
+     "FR-018",
+     "FR-019"
+    ]
+   },
+   {
+    "name": "Panel de soberanía, madurez y disclosures",
+    "kind": "Capacidad",
+    "select": [
+     "FR-028"
+    ]
+   },
+   {
+    "name": "Notificaciones push",
+    "kind": "Capacidad",
+    "select": [
+     "DEC-08",
+     "OPS-06",
+     "DEC-13"
+    ]
+   },
+   {
+    "name": "Sin telemetría ni secretos en los logs",
+    "kind": "Capacidad",
+    "select": [
+     "FR-022",
+     "NFR-006",
+     "NFR-007"
+    ]
+   },
+   {
+    "name": "Releases firmados, SBOM e imágenes reproducibles",
+    "kind": "Capacidad",
+    "select": [
+     "NFR-010"
+    ]
+   },
+   {
+    "name": "Accesibilidad",
+    "kind": "Capacidad",
+    "select": [
+     "NFR-009"
+    ]
+   }
+  ]
  },
  "tasks": [
   {
