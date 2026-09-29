@@ -16,6 +16,7 @@ Secrets Manager `k8s/<env>/...`, y entrada por un NodePort registrado en un targ
 |---|---|
 | `k8s/base/` | Todos los servicios de `docker-compose.yml`: relay Buzz, Postgres, Redis, SeaweedFS (+ Job de bucket), secure-relay, indexer, identity-service, policy-engine, blob-store, web y el proxy `edge` (NodePort). |
 | `k8s/components/managed-signer/` | Firma custodial (solo SaaS, opt-in): vault `aws` = KMS + Secrets Manager (ADR 0009). |
+| `k8s/components/continuity-vault/` | Continuity Vault (opt-in, [ADR 0011](../docs/adr/0011-continuity-vault.md)): sobres en su bucket del SeaweedFS del clúster con llaves propias (`VAULT_S3_*` en el secret), filas en la base de la plataforma, host `nostr-<env>-vault` en el edge. No arranca hasta que el overlay elige quién abre cuentas (`VAULT_NIP98`). |
 | `k8s/components/institutional/` | Modo institucional (opt-in): `relay-allowlist`, allowlist de Buzz activado, secure-relay con admisión gRPC e indexer con políticas ([`docs/institutional.md`](../docs/institutional.md)). |
 | `k8s/components/rds-postgres/` | Postgres gestionado (NFR001-03): quita el StatefulSet y apunta `DATABASE_URL` a RDS con TLS verificado ([runbook](../docs/runbooks/rds-postgres.md)). |
 | `k8s/overlays/stage/` | Stage: imágenes de ECR, hosts `*.ai.acce.so`, NodePort `31810`, monitorización y managed-signer. |

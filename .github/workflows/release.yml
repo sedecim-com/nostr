@@ -80,7 +80,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        name: [indexer, identity-service, policy-engine, blob-store, managed-signer, notification-gateway, web, tor]
+        name: [indexer, identity-service, policy-engine, blob-store, managed-signer, notification-gateway, continuity-vault, web, tor]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -163,6 +163,7 @@ jobs:
           - { name: blob-store, sbom: true }
           - { name: managed-signer, sbom: true }
           - { name: notification-gateway, sbom: true }
+          - { name: continuity-vault, sbom: true }
           - { name: web, sbom: true }
           # Alpine + tor only: the npm SBOM does not describe it.
           - { name: tor, sbom: false }

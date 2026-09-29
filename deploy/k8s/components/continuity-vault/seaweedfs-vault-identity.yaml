@@ -1,0 +1,41 @@
+# The vault's own SeaweedFS keys, which reach only its bucket (as in docker-compose.yml). Without them in the
+# secret, SeaweedFS starts with the Buzz identity alone (Buzz media keeps working) and the vault stops at start.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seaweedfs
+spec:
+  template:
+    spec:
+      containers:
+        - name: seaweedfs
+          args:
+            - |
+              set -eu
+              case "$S3_ACCESS_KEY$S3_SECRET_KEY${VAULT_S3_ACCESS_KEY:-}${VAULT_S3_SECRET_KEY:-}" in *[!A-Za-z0-9]*) echo "S3 keys must be alphanumeric"; exit 1;; esac
+              case "$VAULT_S3_BUCKET" in *[!a-z0-9-]* | '') echo "VAULT_S3_BUCKET: lowercase letters, digits and -"; exit 1;; esac
+              umask 077
+              vault=
+              if [ -n "${VAULT_S3_ACCESS_KEY:-}" ] && [ -n "${VAULT_S3_SECRET_KEY:-}" ]; then
+                vault=$(printf ',{"name":"continuity-vault","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s"]}' "$VAULT_S3_ACCESS_KEY" "$VAULT_S3_SECRET_KEY" "$VAULT_S3_BUCKET" "$VAULT_S3_BUCKET" "$VAULT_S3_BUCKET")
+              fi
+              printf '{"identities":[{"name":"buzz","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}%s]}' "$S3_ACCESS_KEY" "$S3_SECRET_KEY" "$vault" > /tmp/s3.json
+              exec weed server -dir=/data -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=/tmp/s3.json
+          env:
+            - name: VAULT_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: VAULT_S3_ACCESS_KEY
+                  optional: true
+            - name: VAULT_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: VAULT_S3_SECRET_KEY
+                  optional: true
+            - name: VAULT_S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: acceso-nostr-config
+                  key: VAULT_S3_BUCKET

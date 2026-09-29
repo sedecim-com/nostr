@@ -9,6 +9,9 @@
 # - Volumes: tar of relay-git, seaweedfs-data (Buzz media), blob-data (encrypted attachments),
 #   secure-relay-data and, when those services run, managed-vault, tor-data and secure-relay-onion-data. Each service is paused
 #   (`docker compose pause`) during its copy, so the archive is a consistent snapshot (a few seconds).
+# - Continuity Vault (VAULT-06): its rows are in the platform database and its envelopes in SeaweedFS. It is paused
+#   from before the dumps until seaweedfs-data is copied, so no backed-up row points to an envelope the backup lacks
+#   (uploads wait meanwhile; the clients retry).
 # - .env (relay key and every stack secret), unless --no-env: keep the backup directory encrypted/offline.
 # - SHA256SUMS over everything, checked by scripts/restore.sh.
 # Redis is not backed up: it only holds caches and pub/sub state (docs/rpo-rto.md).
@@ -34,13 +37,29 @@ volume_at() { docker inspect -f "{{ range .Mounts }}{{ if eq .Destination \"$2\"
 
 [ -n "$(cid_of postgres)" ] || { echo "backup: the stack is not running (docker compose up -d)" >&2; exit 1; }
 
+paused=
+vault_paused=
+cleanup() {
+  [ -z "$paused" ] || docker compose unpause "$paused" > /dev/null 2>&1 || true
+  [ -z "$vault_paused" ] || docker compose unpause continuity-vault > /dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+unpause_vault() {
+  [ -n "$vault_paused" ] || return 0
+  docker compose unpause continuity-vault > /dev/null
+  vault_paused=
+  log "continuity-vault resumed"
+}
+
+if [ -n "$(cid_of continuity-vault)" ]; then
+  log "continuity-vault paused until its envelopes (seaweedfs-data) are copied"
+  docker compose pause continuity-vault > /dev/null
+  vault_paused=1
+fi
+
 log "Postgres (pg_dump -Fc)"
 docker compose exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc -d "$POSTGRES_DB"' > "$DIR/postgres-buzz.dump"
 docker compose exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc -d "$PLATFORM_DB"' > "$DIR/postgres-platform.dump"
-
-paused=
-cleanup() { [ -z "$paused" ] || docker compose unpause "$paused" > /dev/null 2>&1 || true; }
-trap cleanup EXIT INT TERM
 
 # service  mount path  archive name
 for entry in relay:/data/git:relay-git seaweedfs:/data:seaweedfs-data blob-store:/data:blob-data \
@@ -64,7 +83,9 @@ for entry in relay:/data/git:relay-git seaweedfs:/data:seaweedfs-data blob-store
     --numeric-owner -C /src -czf "/backup/$name.tgz" .
   docker compose unpause "$svc" > /dev/null
   paused=
+  if [ "$name" = seaweedfs-data ]; then unpause_vault; fi
 done
+unpause_vault
 
 if [ "$WITH_ENV" -eq 1 ]; then
   [ -f "$ENV_FILE" ] || { echo "backup: $ENV_FILE not found (use --no-env to skip it)" >&2; exit 1; }

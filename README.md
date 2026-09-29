@@ -24,7 +24,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
-| Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md), [threat model](docs/threat-models/continuity-vault.md) | 🟡 servicio y sobres (VAULT-01); la llave de archivo viaja en los backups de la web y del CLI (VAULT-02); la web y el CLI sellan el historial (canales, DMs, mensajes de grupo, ledger y estado MLS) y un dispositivo limpio lo recupera con relays vacíos (VAULT-03); cada envío se copia según la política de la persona (off, best-effort o required-for-resilient), con `CONTINUITY_BACKED_UP` aparte de los ACK (VAULT-04); retención por cuenta dentro del máximo del operador, exportación a un JSON abierto y borrado de la cuenta entera (VAULT-05); falta el compose (VAULT-06) |
+| Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md), [threat model](docs/threat-models/continuity-vault.md) | 🟡 servicio y sobres (VAULT-01); la llave de archivo viaja en los backups de la web y del CLI (VAULT-02); la web y el CLI sellan el historial (canales, DMs, mensajes de grupo, ledger y estado MLS) y un dispositivo limpio lo recupera con relays vacíos (VAULT-03); cada envío se copia según la política de la persona (off, best-effort o required-for-resilient), con `CONTINUITY_BACKED_UP` aparte de los ACK (VAULT-04); retención por cuenta dentro del máximo del operador, exportación a un JSON abierto y borrado de la cuenta entera (VAULT-05); en el compose, con sus sobres en un bucket propio de SeaweedFS (o en un directorio o cualquier S3-compatible), en el backup y en el restore drill (VAULT-06); en Kubernetes es un componente opt-in que stage aún no activa |
 | Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma y NIP-44 en el servidor autorizados con el token de Acceso o una sesión de dispositivo, consentimiento registrado con su versión) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
 | Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (Postgres, tablas `policy_*`; sin `DATABASE_URL`, en memoria) |
 | Consola de administración web (NIP-98; personas, recursos, dispositivos y passkeys, rotaciones, directorio, retención, auditoría) | `apps/admin-console`, [docs/admin-console.md](docs/admin-console.md) | ✅ servida por la imagen web en `/admin/` |
@@ -52,7 +52,7 @@ npm run dev:admin              # consola de administración en http://localhost:
 ```bash
 git clone <repo> && cd nostr
 sh scripts/init-env.sh        # genera o completa .env sin sobrescribir valores (tras `npm ci`, llaves del keygen offline)
-docker compose up -d          # relay Buzz, postgres, redis, SeaweedFS (S3), indexer, identity, policy, blob-store, secure-relay, web
+docker compose up -d          # relay Buzz, postgres, redis, SeaweedFS (S3), indexer, identity, policy, blob-store, continuity-vault, secure-relay, web
 docker compose --profile tor up -d       # + Tor SOCKS y relay .onion
 docker compose --profile managed up -d   # + managed signer (CUSTODIAL, opt-in; requiere Acceso: COGNITO_*)
 ```
@@ -75,7 +75,8 @@ La web lee `config.json` (compose monta `infra/web/config.json`; otro archivo co
   ([borrador](docs/legal/custodia-managed.md), pendiente de legal). La aceptación enlaza esos términos y el
   managed-signer guarda su versión con la llave (FR005-08). Sin ella, la web avisa de que no están publicados y
   lo registra así.
-- `"continuityVault"` (opcional): URL de `services/continuity-vault` ([ADR 0011](docs/adr/0011-continuity-vault.md)). La
+- `"continuityVault"` (opcional): URL de `services/continuity-vault` ([ADR 0011](docs/adr/0011-continuity-vault.md)); el
+  compose lo levanta en `http://localhost:8088` y `infra/web/config.json` ya lo apunta ahí (VAULT-06). La
   tarjeta «Continuity Vault» explica qué ve el operador, sella el historial de la persona en el navegador con su llave
   de archivo (canales, DMs, mensajes de grupo, ledger de entrega y estado MLS) y comprueba que se abre. En un
   navegador limpio, tras importar el backup, «Restaurar desde el vault» lo recupera aunque los relays lo hayan

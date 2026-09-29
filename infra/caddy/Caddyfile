@@ -53,3 +53,12 @@ policy.{$DOMAIN} {
 	import security_headers
 	reverse_proxy policy-engine:8083
 }
+
+# Continuity Vault (VAULT-06): one sealed envelope per request, 1 MiB by default (VAULT_MAX_ENVELOPE_BYTES).
+vault.{$DOMAIN} {
+	import security_headers
+	request_body {
+		max_size 2MB
+	}
+	reverse_proxy continuity-vault:8088
+}

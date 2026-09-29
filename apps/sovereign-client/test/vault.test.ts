@@ -93,7 +93,8 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
     const rows = repo.rows();
     expect(new Set(rows.map((r) => r.owner))).toEqual(new Set([`nostr:${archiveOwnerPubkey(key)}`]));
     const stored = JSON.stringify(rows) + (await objectsText(objects));
-    for (const needle of ['4471', 'portal', alice.pubkey, relay.url, 'REPLICATED', '"outbox"', '"kind"']) expect(stored, needle).not.toContain(needle);
+    // 'es 4471', not bare digits: a random id or hash can contain four digits by chance, never a space.
+    for (const needle of ['es 4471', 'portal', alice.pubkey, relay.url, 'REPLICATED', '"outbox"', '"kind"']) expect(stored, needle).not.toContain(needle);
 
     // The archive key travels in the identity backup: a clean device restores it and opens the vault.
     const pkg = await a.exportBackup(alice.id, 'contraseña del backup', { scryptLogN: 4 });

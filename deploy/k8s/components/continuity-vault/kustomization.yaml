@@ -1,0 +1,29 @@
+# Continuity Vault (ADR 0011, VAULT-06; compose service `continuity-vault`). Opt-in: add
+# `components: [../../components/continuity-vault]` to an overlay and set there:
+#   - VAULT_PUBLIC_URL, its public host (nostr-<env>-vault.<domain>, which the ALB must also route; terraform
+#     public_hosts), and the web's `continuityVault` in the overlay's web-config.json;
+#   - VAULT_NIP98: `allowlist` (VAULT_ALLOWED_PUBKEYS) or `off` (Acceso logins, COGNITO_*), the SaaS choice in
+#     ADR 0011. The default here, allowlist with an empty list, stops the vault at start until that is decided.
+# Envelopes go to their own bucket of the in-cluster SeaweedFS, with keys that reach only that bucket
+# (VAULT_S3_ACCESS_KEY / VAULT_S3_SECRET_KEY in acceso-nostr-secrets; generate-secret.sh --bootstrap creates them
+# for a new secret, an existing one needs them added). Rows go to the platform database.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - continuity-vault.yaml
+patches:
+  - path: seaweedfs-vault-identity.yaml
+configMapGenerator:
+  - name: acceso-nostr-config
+    behavior: merge
+    literals:
+      - VAULT_S3_BUCKET=continuity-vault
+      - VAULT_PUBLIC_URL=http://continuity-vault:8088
+      - VAULT_NIP98=allowlist
+      - VAULT_ALLOWED_PUBKEYS=
+      # VAULT-05: the most days an archive is kept since its last write (empty: until deleted).
+      - VAULT_RETENTION_DAYS=
+  - name: edge-conf
+    behavior: merge
+    files:
+      - vault-server.conf=vault-server.conf

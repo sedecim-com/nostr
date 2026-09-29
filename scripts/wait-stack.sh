@@ -18,4 +18,5 @@ wait_for "indexer :8081" curl -fsS http://localhost:8081/health
 wait_for "identity-service :8082" curl -fsS http://localhost:8082/health
 wait_for "policy-engine :8083" curl -fsS http://localhost:8083/health
 wait_for "blob-store :8085" curl -fsS http://localhost:8085/health
+wait_for "continuity-vault :8088" curl -fsS http://localhost:8088/health
 wait_for "web :8080" curl -fsS http://localhost:8080/flags.json

@@ -8,6 +8,7 @@
 #    whatever the images seeded into them.
 # 4. Starts Postgres alone (its init script creates the platform database) and pg_restores both dumps.
 # 5. Starts the whole stack. Wait for it with scripts/wait-stack.sh and run the drill checks.
+# The Continuity Vault comes back with them: its rows in the platform dump, its envelopes in seaweedfs-data.
 # Optional services (managed-signer, tor) are restored when their profile is enabled (COMPOSE_PROFILES).
 set -eu
 umask 077

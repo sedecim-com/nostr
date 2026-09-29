@@ -64,6 +64,8 @@ fill_random POSTGRES_PASSWORD 24
 fill_random REDIS_PASSWORD 24
 fill_random S3_ACCESS_KEY 12
 fill_random S3_SECRET_KEY 24
+fill_random VAULT_S3_ACCESS_KEY 12
+fill_random VAULT_S3_SECRET_KEY 24
 fill_random BUZZ_GIT_HOOK_HMAC_SECRET 32
 fill_service_key BUZZ_RELAY_PRIVATE_KEY
 fill_service_key INDEXER_NSEC

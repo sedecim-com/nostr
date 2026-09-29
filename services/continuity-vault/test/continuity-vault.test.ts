@@ -8,7 +8,8 @@ import { finalizeEvent, generateSecretKey, getPublicKey, nip19, nip98, randomByt
 import { ArchiveVaultClient, ArchiveVaultError, archiveAuthKey, archiveId, archiveKeyId, archiveOwnerPubkey, generateArchiveKey, openArchiveText, sealArchive } from '@sedecim/continuity';
 import { createPgPool, createTestCognito, migrate, resetScope, type Pool } from '@sedecim/service-kit';
 import { createLogger } from '@sedecim/telemetry-policy';
-import { createContinuityVaultApi, FileObjectStore, MemoryArchiveRepository, MemoryObjectStore, PgArchiveRepository, VaultSweeper, type ArchiveRepository, type ContinuityVaultOptions, type ObjectStore } from '../src/index';
+import { CreateBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { createContinuityVaultApi, FileObjectStore, MemoryArchiveRepository, MemoryObjectStore, PgArchiveRepository, S3ObjectStore, VaultSweeper, type ArchiveRepository, type ContinuityVaultOptions, type ObjectStore } from '../src/index';
 
 const MIGRATIONS = fileURLToPath(new URL('../migrations', import.meta.url));
 const acceso = createTestCognito();
@@ -352,6 +353,64 @@ describe('FileObjectStore', () => {
   });
 });
 
+/**
+ * VAULT-06: the S3-compatible backend, against moto in CI (MOTO_ENDPOINT) or any S3 store (TEST_S3_ENDPOINT with
+ * TEST_S3_ACCESS_KEY / TEST_S3_SECRET_KEY, e.g. the compose SeaweedFS). Each run uses a bucket of its own.
+ */
+const S3_ENDPOINT = process.env.TEST_S3_ENDPOINT || process.env.MOTO_ENDPOINT;
+const s3Credentials = { accessKeyId: process.env.TEST_S3_ACCESS_KEY || 'test', secretAccessKey: process.env.TEST_S3_SECRET_KEY || 'test' };
+const s3Bucket = `vault-test-${Date.now().toString(36)}`;
+let s3BucketReady: Promise<void> | undefined;
+const s3Store = async (opts: { prefix?: string; pageSize?: number; bucket?: string } = {}) => {
+  s3BucketReady ??= (async () => {
+    const admin = new S3Client({ region: 'us-east-1', endpoint: S3_ENDPOINT, forcePathStyle: true, credentials: s3Credentials });
+    await admin.send(new CreateBucketCommand({ Bucket: s3Bucket }));
+    admin.destroy();
+  })();
+  await s3BucketReady;
+  return new S3ObjectStore({ bucket: opts.bucket ?? s3Bucket, endpoint: S3_ENDPOINT, credentials: s3Credentials, prefix: opts.prefix ?? `${randomHex()}/`, ...(opts.pageSize ? { pageSize: opts.pageSize } : {}) });
+};
+const randomHex = () => Buffer.from(randomBytes(6)).toString('hex');
+
+if (S3_ENDPOINT) {
+  describe('S3ObjectStore (VAULT-06)', () => {
+    it('stores, lists page by page, reads back and deletes, only under its prefix', async () => {
+      const prefix = `${randomHex()}/`;
+      const store = await s3Store({ prefix, pageSize: 3 });
+      await store.check();
+      const keys = Array.from({ length: 7 }, () => randomHex().padEnd(32, '0').slice(0, 32)).sort();
+      for (const [i, k] of keys.entries()) await store.put(k, new Uint8Array([i, 1, 2]));
+      expect(await store.get(keys[3]!)).toEqual(new Uint8Array([3, 1, 2]));
+      // Seven keys in pages of three, and nothing that is not an object key of this prefix.
+      const other = await s3Store({ prefix: `${randomHex()}/` });
+      await other.put('cd'.repeat(16), new Uint8Array([9]));
+      const raw = new S3Client({ region: 'us-east-1', endpoint: S3_ENDPOINT, forcePathStyle: true, credentials: s3Credentials });
+      await raw.send(new PutObjectCommand({ Bucket: s3Bucket, Key: `${prefix}not-an-object-key`, Body: 'x' }));
+      raw.destroy();
+      expect((await keysOf(store)).sort()).toEqual(keys);
+      expect(await keysOf(other)).toEqual(['cd'.repeat(16)]);
+      await store.delete(keys[0]!);
+      await store.delete(keys[0]!);
+      expect(await store.get(keys[0]!)).toBeUndefined();
+      expect(await keysOf(store)).toHaveLength(6);
+      await expect(store.put('../x', new Uint8Array(1))).rejects.toThrow(/invalid object key/);
+      store.close();
+      other.close();
+    });
+
+    it('refuses to start against a bucket that does not exist', async () => {
+      const missing = await s3Store({ bucket: `${s3Bucket}-missing` });
+      await expect(missing.check()).rejects.toThrow();
+      missing.close();
+    });
+  });
+
+  suite('continuity-vault (memory metadata, S3 objects)', async () => {
+    const repo = new MemoryArchiveRepository();
+    return { repo, objects: await s3Store(), dump: async () => JSON.stringify(repo.rows()) };
+  });
+}
+
 const PG = process.env.TEST_DATABASE_URL;
 if (PG) {
   const pools: Pool[] = [];
@@ -378,6 +437,12 @@ if (PG) {
     };
   };
   suite('continuity-vault (postgres, file objects)', () => pgBackend());
+  if (S3_ENDPOINT) {
+    suite('continuity-vault (postgres, S3 objects)', async () => {
+      const b = await pgBackend();
+      return { ...b, objects: await s3Store() };
+    });
+  }
 
   describe('continuity-vault (postgres) restarts and concurrency', () => {
     it('keeps the archives across a restart', async () => {
