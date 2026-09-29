@@ -369,7 +369,31 @@ Falta que el threat model lo apruebe alguien distinto del autor, como los de DEC
   - `packages/identity/test/identity.test.ts`;
   - `apps/sovereign-client/test/tor-hardening.test.ts` (banner del proceso real del CLI);
   - `tests/browser/web-saas.e2e.ts`: custodia, red y «sin vínculo»; tras vincular, «vínculo selectivo» en las dos personas.","https://github.com/sedecim-com/nostr/issues/245"
-"VAULT-03","VAULT · Encrypted Continuity Vault","PRD GC-B03, FR-013, FR-027","Respaldo de eventos canónicos y restauración con relays vacíos","Se respaldan NIP-29, la copia propia de NIP-17, los eventos Marmot con el estado MLS necesario y el ledger/outbox; un dispositivo limpio con la backup key y relays vacíos reconstruye el 100 % del fixture de conversaciones y el ledger, en web y CLI, dentro de CI","Dev","P0","5","VAULT-02","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/246"
+"VAULT-03","VAULT · Encrypted Continuity Vault","PRD GC-B03, FR-013, FR-027","Respaldo de eventos canónicos y restauración con relays vacíos","Se respaldan NIP-29, la copia propia de NIP-17, los eventos Marmot con el estado MLS necesario y el ledger/outbox; un dispositivo limpio con la backup key y relays vacíos reconstruye el 100 % del fixture de conversaciones y el ledger, en web y CLI, dentro de CI","Dev","P0","5","VAULT-02","S11","2026-11-06","Hecho","Commit 7d5e410 (PR #321).
+
+**Qué se guarda.** `packages/continuity/src/history.ts` sella en el cliente:
+- un archivo por evento canónico firmado: canales NIP-29 con su estado, gift wraps de la persona (DMs recibidos y la copia propia de los enviados) y sus listas;
+- un archivo por mensaje Marmot descifrado, porque MLS borra las llaves de épocas pasadas;
+- snapshots del ledger y del estado MLS, que sellan su fecha y el número de archivos de la cuenta.
+
+**Qué se acepta al restaurar.** Solo lo que abre con la llave de archivo, está bajo el id que implica su contenido, tiene firma válida y es de la persona. Se avisa de los archivos borrados desde el último guardado.
+
+**Adaptador Marmot.** `onMessage` guarda cada mensaje que la sesión descifra o envía.
+
+**CLI.**
+- `vault push`.
+- `vault restore`: vuelve a publicar los eventos, une el ledger y escribe el estado MLS solo en un dispositivo sin grupos. Cada grupo pide `group rejoin` antes de enviar.
+
+**Web.** «Guardar el historial en el vault», «Restaurar desde el vault» y, en un grupo restaurado, «Volver a entrar».
+
+**Tests en CI:**
+- `services/continuity-vault/test/history.test.ts`.
+- `apps/sovereign-client/test/vault-restore.test.ts`: relay reiniciado vacío; canal, DMs en los dos sentidos, grupo y ledger al 100 %.
+- `apps/web-saas/test/continuity.test.ts`.
+- `tests/browser/web-saas.e2e.ts`: navegador limpio con el backup descargado y un relay vacío. Vuelven los 13 eventos y las 13 operaciones, el canal completo y todos los gift wraps. La UI muestra el canal, los DMs y el acuse.
+- `tests/browser/web-groups.e2e.ts`: los 5 mensajes del grupo vuelven. El navegador entra otra vez como dispositivo nuevo y escribe. Corre en el job `browser` y en el job `stack` contra el secure relay real.
+
+Documentado en ADR 0011 (sección VAULT-03), el threat model del vault y el disclosure v1.5.0.","https://github.com/sedecim-com/nostr/issues/246"
 "VAULT-04","VAULT · Encrypted Continuity Vault","PRD GC-B04, FR-008, FR-011","El vault en la máquina de estados de entrega","Publicación en relays y subida al vault independientes; política off / best-effort / required-for-resilient en el panel; estado CONTINUITY_BACKED_UP separado del ACK de relays; solo required-for-resilient puede retener el envío","Dev","P1","3","VAULT-02","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/247"
 "VAULT-05","VAULT · Encrypted Continuity Vault","PRD GC-B05, NFR-008","Retención, borrado y exportación del vault","Retención configurable; exportación portable; borrar elimina las copias del servidor según la política y queda documentado","Dev","P1","3","VAULT-03","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/248"
 "VAULT-06","VAULT · Encrypted Continuity Vault","PRD GC-B06, NFR-003","Backend self-hosted del vault","El mismo contrato sobre almacenamiento local o S3-compatible (SeaweedFS del compose) sin depender del SaaS de Sedecim; incluido en el compose y en el restore drill","Infra","P1","3","VAULT-01","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/249"
