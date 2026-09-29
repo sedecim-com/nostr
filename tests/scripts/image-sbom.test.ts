@@ -11,7 +11,7 @@ const root = new URL('../..', import.meta.url).pathname;
 const npm = (name: string, version: string, path: string) => ({
   name,
   version,
-  purl: `pkg:npm/${name.replace('@', '%40')}@${version}`,
+  purl: `pkg:npm/${name.replace(/@/g, '%40')}@${version}`,
   properties: [
     { name: 'syft:package:foundBy', value: 'javascript-package-cataloger' },
     { name: 'syft:location:0:path', value: path },
