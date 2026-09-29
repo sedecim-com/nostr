@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, type ReplayStore } from '@sedecim/service-kit';
-import { CognitoVerifier, createContinuityVaultApi, FileObjectStore, MemoryArchiveRepository, MemoryObjectStore, PgArchiveRepository, type ArchiveRepository, type Nip98Policy, type ObjectStore, type VaultLimits } from './index';
+import { CognitoVerifier, createContinuityVaultApi, FileObjectStore, MemoryArchiveRepository, MemoryObjectStore, PgArchiveRepository, VaultSweeper, type ArchiveRepository, type Nip98Policy, type ObjectStore, type VaultLimits } from './index';
 
 const env = process.env;
 
@@ -47,6 +47,11 @@ if (maxEnvelopeBytes) limits.maxEnvelopeBytes = maxEnvelopeBytes;
 if (maxArchives) limits.maxArchives = maxArchives;
 if (maxBytes) limits.maxBytes = maxBytes;
 const corsOrigins = (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+// VAULT-05: the most days an archive is kept since its last write, and how often the sweep runs (retention and
+// orphan objects). An interval under a minute would only hammer the database.
+const retentionDays = positive('VAULT_RETENTION_DAYS');
+const sweepEvery = positive('VAULT_SWEEP_INTERVAL_MS') ?? 60 * 60 * 1000;
+if (sweepEvery < 60_000) throw new Error(`VAULT_SWEEP_INTERVAL_MS must be at least 60000, got ${sweepEvery}`);
 const api = createContinuityVaultApi(repo, objects, {
   name: 'continuity-vault',
   publicBaseUrl: env.PUBLIC_BASE_URL,
@@ -54,9 +59,14 @@ const api = createContinuityVaultApi(repo, objects, {
   nip98,
   allowedPubkeys,
   limits,
+  ...(retentionDays ? { retentionDays } : {}),
   rateLimit: rateLimitFromEnv(env),
   ...(replayStore ? { replayStore } : {}),
   ...(cognito ? { cognito } : {}),
 });
 if (env.METRICS_PORT && api.rateLimiter) await serveMetrics(() => api.rateLimiter!.render(), { port: Number(env.METRICS_PORT), host: env.METRICS_HOST ?? '0.0.0.0' });
 await api.listen(Number(env.PORT ?? 8088), env.HOST ?? '0.0.0.0');
+const sweeper = new VaultSweeper(repo, objects, { ...(retentionDays ? { retentionDays } : {}), logger: api.logger });
+const sweep = () => void sweeper.sweep().catch((e) => api.logger.error('vault sweep failed', { error: (e as Error).message }));
+sweep();
+setInterval(sweep, sweepEvery).unref();

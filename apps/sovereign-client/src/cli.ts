@@ -22,7 +22,8 @@
  *   sovereign resume --persona ID        (retry pending messages; any command that opens the persona does too)
  *   sovereign history sync --persona ID [--since UNIX] [--group G]   (rebuild channels/DMs; NIP-77 or REQ fallback)
  *   sovereign history export --persona ID --out FILE [--since UNIX]  (JSONL, one signed NIP-01 event per line)
- *   sovereign history import --persona ID FILE [--dry-run]           (verify signatures, republish valid events)
+ *   sovereign history import --persona ID FILE [--dry-run]           (verify signatures, republish valid events;
+ *                                        FILE is a JSONL export or a `vault export` file)
  *   sovereign disclose --persona ID      (what each setting implies)
  *   sovereign vault push --persona ID [--vault URL]    (seal the history here and store it in the Continuity Vault:
  *                                        events, group messages, ledger, MLS state; the operator sees account, size
@@ -34,6 +35,12 @@
  *                                        delays a send, required-for-resilient holds it until the copy is there)
  *   sovereign vault list --persona ID [--vault URL]    (archives of this persona's vault account)
  *   sovereign vault verify --persona ID [--vault URL]  (download every archive and open it with this device's key)
+ *   sovereign vault retention --persona ID [--vault URL] [--days N | --forever]
+ *                                        (VAULT-05: how long the vault keeps each archive since its last write;
+ *                                        --forever: until deleted, within the operator's maximum; no flag: show it)
+ *   sovereign vault export --persona ID --out FILE [--vault URL]   (open JSON, decrypted here: signed events, group
+ *                                        messages in clear, ledger; no MLS state. `history import` takes it back)
+ *   sovereign vault delete --persona ID --yes [--vault URL]        (delete every archive and the vault account)
  *   sovereign group keypackage --persona ID            (publish MLS key package so others can add you)
  *   sovereign group create --persona ID --name NAME     (Marmot/MLS: forward secrecy + PCS)
  *   sovereign group invite --persona ID --group GID --to NPUB
@@ -198,8 +205,8 @@ async function main() {
       const file = positional()[0];
       if (!file) throw new Error('usage: sovereign history import --persona ID FILE [--dry-run]');
       const r = await client.importHistory(need(), readFileSync(file, 'utf8'), { dryRun: argv.includes('--dry-run') });
-      for (const i of r.invalid) console.log(`línea ${i.line}: ${i.reason}`);
-      console.log(`válidos=${r.valid} inválidos=${r.invalid.length} duplicados=${r.duplicates} publicados=${r.published} rechazados=${r.rejected}`);
+      for (const i of r.invalid) console.log(i.line ? `línea ${i.line}: ${i.reason}` : i.reason);
+      console.log(`válidos=${r.valid} inválidos=${r.invalid.length} duplicados=${r.duplicates} publicados=${r.published} rechazados=${r.rejected}${r.format === 'vault-export' ? ` (exportación del vault; ${r.othersWraps} cifrados para otras personas no se publican)` : ''}`);
     } else if (a === 'channel' && b === 'send') {
       await banner(need());
       const rec = await client.sendChannel(need(), opt('--group')!, positional().join(' '));
@@ -334,7 +341,7 @@ async function main() {
         if (r.mls === 'restored') console.log('grupos: restaurados; ejecuta group rejoin antes de enviar');
         else if (r.mls === 'kept') console.log('grupos: este dispositivo ya tenía grupos, se conservan');
         if (r.savedAt) console.log(`copia guardada el ${new Date(r.savedAt).toISOString()}`);
-        if (r.missing) console.error(`aviso: faltan ${r.missing} archivos que el vault tenía en esa copia: el operador los borró o se perdieron`);
+        if (r.missing) console.error(`aviso: faltan ${r.missing} archivos que el vault tenía en esa copia: caducaron por la retención, se borraron o se perdieron`);
       } else if (b === 'list') {
         const all = await client.vaultList(need(), url);
         for (const m of all) console.log(`${m.id.slice(0, 16)}…  ${String(m.size).padStart(8)} B  ${m.updated_at}`);
@@ -343,7 +350,29 @@ async function main() {
         const r = await client.vaultVerify(need(), url);
         console.log(`${r.opened} de ${r.archives} archivos se abren con la llave de archivo de este dispositivo`);
         if (r.opened < r.archives) process.exitCode = 1;
-      } else throw new Error('usage: sovereign vault push|restore|list|verify --persona ID [--vault URL]');
+      } else if (b === 'retention') {
+        // VAULT-05: the account's retention (--days N or --forever), or what applies now.
+        const days = opt('--days');
+        if (days !== undefined && argv.includes('--forever')) throw new Error('--days N or --forever, not both');
+        if (days !== undefined && !/^[1-9][0-9]*$/.test(days)) throw new Error('--days must be a positive integer');
+        const r = days !== undefined || argv.includes('--forever') ? await client.vaultRetention(need(), url, days === undefined ? null : Number(days)) : (await client.vaultUsage(need(), url)).retention;
+        if (!r) throw new Error('este vault no informa de su retención');
+        console.log(`retención: ${r.effective_days ? `${r.effective_days} días desde la última vez que se guarda cada archivo` : 'hasta que lo borres'}${r.days ? ` (elegida: ${r.days} días)` : ''}${r.max_days ? `; máximo del operador: ${r.max_days} días` : ''}`);
+      } else if (b === 'export') {
+        const out = opt('--out');
+        if (!out) throw new Error('--out FILE required');
+        const { export: data, skipped } = await client.vaultExport(need(), url);
+        writeFileSync(out, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+        console.log(`vault exportado a ${out} (${data.format} v${data.version}): ${data.events.length} eventos firmados, ${data.groupMessages.length} mensajes de grupo, ${data.ledger.length} operaciones del ledger`);
+        if (skipped) console.error(`aviso: ${skipped} archivos no se abren con esta llave o no son de esta persona: no van en la exportación`);
+        console.error(`aviso: ${CONTINUITY_VAULT_TEXTS.export}`);
+      } else if (b === 'delete') {
+        if (!argv.includes('--yes')) throw new Error(`borra todos los archivos de esta persona en el vault y su cuenta; repite con --yes. ${CONTINUITY_VAULT_TEXTS.deletion}`);
+        const deleted = await client.vaultDelete(need(), url);
+        console.log(`vault: ${deleted} archivos borrados y cuenta eliminada`);
+        console.error(`aviso: ${CONTINUITY_VAULT_TEXTS.deletion}`);
+        if ((await client.profile(need())).continuity !== 'off') console.error('aviso: la copia automática de cada envío sigue encendida: los próximos envíos vuelven a guardarse en el vault (persona continuity off para apagarla)');
+      } else throw new Error('usage: sovereign vault push|restore|list|verify|retention|export|delete --persona ID [--vault URL]');
     } else if (a === 'disclose') {
       for (const d of await client.disclosures(need())) console.log(`• [${d.control}=${d.option}] ${d.statement}`);
     } else {

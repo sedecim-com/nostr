@@ -8,7 +8,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, nip19, nip98, randomByt
 import { ArchiveVaultClient, ArchiveVaultError, archiveAuthKey, archiveId, archiveKeyId, archiveOwnerPubkey, generateArchiveKey, openArchiveText, sealArchive } from '@sedecim/continuity';
 import { createPgPool, createTestCognito, migrate, resetScope, type Pool } from '@sedecim/service-kit';
 import { createLogger } from '@sedecim/telemetry-policy';
-import { createContinuityVaultApi, FileObjectStore, MemoryArchiveRepository, MemoryObjectStore, PgArchiveRepository, type ArchiveRepository, type ContinuityVaultOptions, type ObjectStore } from '../src/index';
+import { createContinuityVaultApi, FileObjectStore, MemoryArchiveRepository, MemoryObjectStore, PgArchiveRepository, VaultSweeper, type ArchiveRepository, type ContinuityVaultOptions, type ObjectStore } from '../src/index';
 
 const MIGRATIONS = fileURLToPath(new URL('../migrations', import.meta.url));
 const acceso = createTestCognito();
@@ -223,6 +223,75 @@ function suite(name: string, open: () => Promise<Backend>) {
       expect((await vault.list({ limit: 5 })).next).toBeUndefined();
       expect((await vault.listAll()).map((m) => m.id)).toEqual(sorted);
       expect(await vault.remove()).toBe(5);
+    });
+
+    it('VAULT-05: an account chooses how long its archives are kept, within the operator maximum', async () => {
+      const unlimited = new ArchiveVaultClient({ baseUrl: await start(), auth: { archiveKey: generateArchiveKey() } });
+      expect((await unlimited.usage()).retention).toEqual({ days: null, max_days: null, effective_days: null });
+      expect(await unlimited.setRetention(30)).toEqual({ days: 30, max_days: null, effective_days: 30 });
+      expect(await unlimited.setRetention(null)).toEqual({ days: null, max_days: null, effective_days: null });
+
+      const base = await start({ retentionDays: 90 });
+      const key = generateArchiveKey();
+      const vault = new ArchiveVaultClient({ baseUrl: base, auth: { archiveKey: key } });
+      expect((await vault.usage()).retention).toEqual({ days: null, max_days: 90, effective_days: 90 });
+      expect(await vault.setRetention(30)).toEqual({ days: 30, max_days: 90, effective_days: 30 });
+      await expect(vault.setRetention(91)).rejects.toMatchObject({ status: 400 });
+      for (const body of ['{"days":0}', '{"days":1.5}', '{"days":"30"}', '{}', 'nope']) expect((await call(key, base, 'PUT', '/v1/retention', body)).status, body).toBe(400);
+      // The choice survives an archive coming and going, and goes with the account when everything is deleted.
+      const id = archiveId(key, 'ledger');
+      await vault.put(id, sealArchive(key, id, 'x'));
+      await vault.remove(id);
+      expect((await vault.usage()).retention!.days).toBe(30);
+      await vault.put(id, sealArchive(key, id, 'x'));
+      expect(await vault.remove()).toBe(1);
+      expect((await vault.usage()).retention).toEqual({ days: null, max_days: 90, effective_days: 90 });
+    });
+
+    it('VAULT-05: the sweep deletes what outlived its retention, row and object, and objects no row points to', async () => {
+      const base = await start({ retentionDays: 365 });
+      const later = (days: number) => () => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      const shortKey = generateArchiveKey();
+      const short = new ArchiveVaultClient({ baseUrl: base, auth: { archiveKey: shortKey } });
+      const longKey = generateArchiveKey();
+      const long = new ArchiveVaultClient({ baseUrl: base, auth: { archiveKey: longKey } });
+      await short.setRetention(30);
+      for (const label of ['a', 'b']) {
+        const id = archiveId(shortKey, label);
+        await short.put(id, sealArchive(shortKey, id, label));
+      }
+      const kept = archiveId(longKey, 'a');
+      await long.put(kept, sealArchive(longKey, kept, 'a'));
+      const before = await keysOf(backend.objects);
+
+      // Day 10: nothing is old enough. Day 31: the 30-day account loses its archives, the other keeps them.
+      expect(await new VaultSweeper(backend.repo, backend.objects, { retentionDays: 365, now: later(10) }).sweep()).toMatchObject({ expired: 0 });
+      const sweeper = new VaultSweeper(backend.repo, backend.objects, { retentionDays: 365, now: later(31) });
+      expect((await sweeper.sweep()).expired).toBe(2);
+      expect(await short.listAll()).toEqual([]);
+      expect(await short.usage()).toMatchObject({ archives: 0, bytes: 0, retention: { days: 30 } });
+      expect((await long.listAll()).map((a) => a.id)).toEqual([kept]);
+      const after = await keysOf(backend.objects);
+      expect(before.length - after.length).toBe(2);
+      // Past the operator's maximum everything goes, whatever the account chose.
+      await long.setRetention(null);
+      expect((await new VaultSweeper(backend.repo, backend.objects, { retentionDays: 365, now: later(366) }).sweep()).expired).toBe(1);
+      expect(await long.listAll()).toEqual([]);
+
+      // An object no row points to (a crash between object and row) goes on the second sweep that finds it, never the first.
+      const orphan = 'ab'.repeat(16);
+      await backend.objects.put(orphan, utf8ToBytes('huérfano'));
+      const orphans = new VaultSweeper(backend.repo, backend.objects);
+      expect((await orphans.sweep()).orphans).toBe(0);
+      expect(await keysOf(backend.objects)).toContain(orphan);
+      // An upload that completes between two sweeps is not an orphan.
+      const late = archiveId(shortKey, 'late');
+      await short.put(late, sealArchive(shortKey, late, 'late'));
+      expect((await orphans.sweep()).orphans).toBe(1);
+      expect(await keysOf(backend.objects)).not.toContain(orphan);
+      expect(openArchiveText(shortKey, late, (await short.get(late)).envelope)).toBe('late');
+      expect((await orphans.sweep()).orphans).toBe(0);
+      await short.remove();
     });
 
     it('VAULT-02: neither the database nor the object store holds readable text, events or keys', async () => {

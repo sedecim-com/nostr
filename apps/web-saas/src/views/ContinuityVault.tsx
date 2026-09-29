@@ -1,12 +1,18 @@
 import { useState } from 'react';
-import { Alert, Button, Card, CardContent, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Button, Card, CardContent, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItem, ListItemText, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { VAULT_EXPORT_FORMAT, type ArchiveRetention } from '@sedecim/continuity';
 import { openArchiveKeyBackup } from '@sedecim/identity/key-backup';
 import { CONTINUITY_VAULT_TEXTS, continuityPolicy } from '@sedecim/profiles';
-import { pushVault, restoreVault, vaultUsage, verifyVault } from '../lib/continuity';
+import { deleteVault, exportVault, pushVault, restoreVault, setVaultRetention, vaultUsage, verifyVault } from '../lib/continuity';
 import { ensureArchiveKey, setArchiveKey } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
 
 const kb = (bytes: number) => `${Math.ceil(bytes / 1024)} KB`;
+
+/** VAULT-05: what the vault account keeps, in words. */
+const retentionText = (r: ArchiveRetention) =>
+  `La cuenta del vault conserva cada archivo ${r.effective_days ? `${r.effective_days} días desde que se guardó por última vez` : 'hasta que lo borres'}${r.max_days ? ` (el operador no guarda nada más de ${r.max_days} días)` : ''}.`;
+const RETENTION_CHOICES = [30, 90, 365];
 
 /**
  * VAULT-02, VAULT-03 and VAULT-07 (ADR 0011): the persona's Continuity Vault. What the operator can see is shown
@@ -23,6 +29,9 @@ export function ContinuityVault({ url }: { url: string }) {
   const [pass, setPass] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // VAULT-05: the account's retention as the vault last said it (unknown until the vault is used: no request on open).
+  const [retention, setRetention] = useState<ArchiveRetention>();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -47,6 +56,7 @@ export function ContinuityVault({ url }: { url: string }) {
       const p = await persona();
       const r = await pushVault(url, { ...s, persona: p }, ws.book.store);
       const u = await vaultUsage(url, p);
+      if (u.retention) setRetention(u.retention);
       const invalid = r.events.invalid ? ` ${r.events.invalid} eventos con firma inválida no se guardaron.` : '';
       setStatus(
         `Historial sellado en este navegador y guardado: ${r.events.uploaded} eventos nuevos (${r.events.kept} ya estaban), ${r.groupMessages.uploaded} mensajes de grupo nuevos, ledger de ${r.operations} operaciones${r.snapshots.includes('mls') ? ' y estado de los grupos' : ''}.${invalid} Tu cuenta del vault tiene ${u.archives} archivos, ${kb(u.bytes)} de ${kb(u.limits.max_bytes)}.`,
@@ -59,7 +69,7 @@ export function ContinuityVault({ url }: { url: string }) {
       const groups = r.mls === 'restored' ? ' Los grupos seguros vuelven como copia del otro dispositivo: entra otra vez en cada uno para escribir.' : r.mls === 'kept' ? ' El estado de los grupos de este navegador se mantiene.' : '';
       const skipped = r.skipped ? ` ${r.skipped} archivos no se abren con esta llave o no son de esta persona.` : '';
       const saved = r.savedAt ? ` La copia se guardó el ${new Date(r.savedAt).toLocaleString()}.` : '';
-      const missing = r.missing ? ` Faltan ${r.missing} archivos que el vault tenía en esa copia: el operador los borró o se perdieron.` : '';
+      const missing = r.missing ? ` Faltan ${r.missing} archivos que el vault tenía en esa copia: caducaron por la retención, se borraron o se perdieron.` : '';
       setStatus(
         `Restaurado desde el vault: ${r.events} eventos verificados, ${r.published} publicados otra vez en tus relays${r.rejected ? ` y ${r.rejected} rechazados` : ''}${r.othersWraps ? ` (${r.othersWraps} mensajes cifrados para otras personas siguen en el vault)` : ''}; ${r.groupMessages} mensajes de grupo; ledger: ${r.ledger} operaciones añadidas.${saved}${missing}${skipped}${groups}`,
       );
@@ -70,6 +80,37 @@ export function ContinuityVault({ url }: { url: string }) {
       const r = await verifyVault(url, await persona());
       setStatus(r.archives ? `${r.opened} de ${r.archives} archivos se abren con la llave de archivo de este navegador.` : 'El vault no tiene archivos de esta persona.');
     });
+  // VAULT-05: retention, portable export and deletion.
+  const changeRetention = (choice: string) =>
+    void run(async () => {
+      const r = await setVaultRetention(url, await persona(), choice === 'max' ? null : Number(choice));
+      setRetention(r);
+      setStatus(retentionText(r));
+    });
+  const exportAll = () =>
+    void run(async () => {
+      const { export: data, skipped } = await exportVault(url, await persona());
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      a.download = `acceso-nostr-vault-${s.persona.label}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setStatus(
+        `Exportado (${VAULT_EXPORT_FORMAT}): ${data.events.length} eventos firmados, ${data.groupMessages.length} mensajes de grupo y ${data.ledger.length} operaciones del ledger.${skipped ? ` ${skipped} archivos no se abren con esta llave y no van en el archivo.` : ''} ${CONTINUITY_VAULT_TEXTS.export}`,
+      );
+    });
+  const removeAll = () => {
+    setConfirmDelete(false);
+    void run(async () => {
+      const deleted = await deleteVault(url, await persona());
+      setRetention(undefined);
+      setStatus(
+        `Se borraron ${deleted} archivos y la cuenta del vault de esta persona.${policy !== 'off' ? ' La copia automática sigue encendida: los próximos envíos volverán a guardarse en el vault. Apágala en Soberanía y privacidad si no quieres más copias.' : ''}`,
+      );
+      ws.notify('Vault borrado', 'success');
+    });
+  };
+
   const restoreKey = () =>
     void run(async () => {
       const key = await openArchiveKeyBackup(file!, pass, s.pubkey);
@@ -92,7 +133,7 @@ export function ContinuityVault({ url }: { url: string }) {
             Continuity Vault
           </Typography>
           <List dense id="vault-facts">
-            {[CONTINUITY_VAULT_TEXTS.what, CONTINUITY_VAULT_TEXTS.sealed, CONTINUITY_VAULT_TEXTS.metadata, CONTINUITY_VAULT_TEXTS.key, CONTINUITY_VAULT_TEXTS.groups].map((t) => (
+            {[CONTINUITY_VAULT_TEXTS.what, CONTINUITY_VAULT_TEXTS.sealed, CONTINUITY_VAULT_TEXTS.metadata, CONTINUITY_VAULT_TEXTS.key, CONTINUITY_VAULT_TEXTS.groups, CONTINUITY_VAULT_TEXTS.retention].map((t) => (
               <ListItem key={t} disableGutters>
                 <ListItemText primary={t} />
               </ListItem>
@@ -120,8 +161,47 @@ export function ContinuityVault({ url }: { url: string }) {
               <Button id="vault-restore" onClick={restore} disabled={busy}>
                 Restaurar desde el vault
               </Button>
+              <Button id="vault-export" onClick={exportAll} disabled={busy}>
+                Exportar el vault
+              </Button>
+              <Button id="vault-delete" color="error" onClick={() => setConfirmDelete(true)} disabled={busy}>
+                Borrar todo el vault
+              </Button>
+              <TextField
+                select
+                size="small"
+                id="vault-retention"
+                label="Conservar los archivos"
+                value={retention ? (retention.days === null ? 'max' : String(retention.days)) : ''}
+                onChange={(e) => changeRetention(e.target.value)}
+                disabled={busy}
+                sx={{ minWidth: 240 }}
+              >
+                <MenuItem value="max">{retention?.max_days ? `El máximo del vault (${retention.max_days} días)` : 'Hasta que los borre'}</MenuItem>
+                {[...new Set([...RETENTION_CHOICES, ...(retention?.days ? [retention.days] : [])])]
+                  .filter((d) => d === retention?.days || !retention?.max_days || d < retention.max_days)
+                  .sort((a, b) => a - b)
+                  .map((d) => (
+                    <MenuItem key={d} value={String(d)}>
+                      {d === 365 ? '1 año' : `${d} días`}
+                    </MenuItem>
+                  ))}
+              </TextField>
             </Stack>
           )}
+          <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)} aria-labelledby="vault-delete-title">
+            <DialogTitle id="vault-delete-title">¿Borrar todo el vault de esta persona?</DialogTitle>
+            <DialogContent>
+              <DialogContentText>Se borran todos sus archivos y su cuenta del vault. Sin ellos, una restauración con relays vacíos no recupera nada.</DialogContentText>
+              <DialogContentText sx={{ mt: 1 }}>{CONTINUITY_VAULT_TEXTS.deletion}</DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirmDelete(false)}>Cancelar</Button>
+              <Button id="vault-delete-confirm" color="error" onClick={removeAll}>
+                Borrar
+              </Button>
+            </DialogActions>
+          </Dialog>
           {status && (
             <Typography variant="body2" id="vault-status" role="status">
               {status}

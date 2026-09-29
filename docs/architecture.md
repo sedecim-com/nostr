@@ -42,7 +42,7 @@ firmados; las bases de datos son índices derivados.
 | `qr` | Codificador QR propio (ISO/IEC 18004, modo byte) sin dependencias ni red, salida SVG (generador offline, `nostrconnect` en la web) |
 | `rotation-worker` | Worker de revocación (FR-024): rotación MLS pendiente del policy-engine y propagación de revocaciones al managed-signer; hoy corre desde el CLI (`sovereign group rotation-worker`) |
 | `sync` | Reconstrucción de historial: NIP-77 (Negentropy) con detección NIP-11/sonda y fallback automático a REQ por ventanas; `rebuildHistory` (canales, DMs, evidencia para el outbox); export/import JSONL |
-| `continuity` | Continuity Vault (ADR 0011): llave de archivo por persona distinta de la nsec, sobres XChaCha20-Poly1305 con relleno y AAD ligado al id, validador compartido que rechaza texto plano, cliente del vault, y archivo y restauración del historial de la persona (eventos, mensajes de grupo, ledger y estado MLS; VAULT-03) |
+| `continuity` | Continuity Vault (ADR 0011): llave de archivo por persona distinta de la nsec, sobres XChaCha20-Poly1305 con relleno y AAD ligado al id, validador compartido que rechaza texto plano, cliente del vault, y archivo y restauración del historial de la persona (eventos, mensajes de grupo, ledger y estado MLS; VAULT-03), y su exportación portable (`sedecim-vault-export`, VAULT-05) |
 | `service-kit` | HTTP mínimo con NIP-98/bearer, anti-replay NIP-98, límites de tasa, verificación de tokens de Acceso (Cognito) y migraciones SQL |
 | `test-relay` | Relay/Blossom/SOCKS en memoria para E2E con inyección de fallos |
 

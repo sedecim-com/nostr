@@ -2,7 +2,7 @@
 
 - **Estado:** Propuesto. Pendiente de la revisión de seguridad y de la aprobación de alguien distinto del
   autor, como los threat models por perfil (DEC-10).
-- **Tareas:** VAULT-01, VAULT-02, VAULT-03, VAULT-04, VAULT-07 · **Decisión:** [ADR 0011](../adr/0011-continuity-vault.md) ·
+- **Tareas:** VAULT-01, VAULT-02, VAULT-03, VAULT-04, VAULT-05, VAULT-07 · **Decisión:** [ADR 0011](../adr/0011-continuity-vault.md) ·
   **Fecha:** 2026-09-28
 
 **Qué es.** `services/continuity-vault` guarda sobres de archivo sellados en el cliente para que el historial no
@@ -14,6 +14,9 @@ dependa solo de los relays.
 - **VAULT-04.** Cada envío se copia al vault según la política de la persona. Con `off` no se copia nada. Con
   `best-effort` el envío nunca espera. Con `required-for-resilient` no sale hacia los relays hasta que la copia
   existe. El estado `CONTINUITY_BACKED_UP` va aparte de los ACK de los relays.
+- **VAULT-05.** Cada cuenta elige cuánto se guardan sus archivos, dentro del máximo del operador; un barrido
+  borra lo caducado y los objetos huérfanos. La persona puede exportar el vault a un JSON abierto y borrarlo
+  entero, cuenta incluida.
 
 ## Activos
 - **El contenido de los archivos:** el historial de conversaciones, el estado MLS de los grupos y el ledger de
@@ -46,7 +49,9 @@ dependa solo de los relays.
 | Un backup con un coste scrypt enorme agota el dispositivo que lo restaura | Se rechaza un logN mayor que 20 antes de ejecutar scrypt; el generador offline no escribe más | `identity.test.ts` |
 | Una persona Tor-only sale por clearnet | El CLI habla con el vault a través del guard de la persona: Tor o nada. La web no admite Tor-only | `apps/sovereign-client/test/vault.test.ts` |
 | Abuso del almacenamiento | Cuotas por cuenta comprobadas con la fila bloqueada, límites de tasa y política NIP-98 `allowlist` u `off` | `continuity-vault.test.ts` (cuotas, 12 subidas simultáneas) |
-| Inconsistencia entre la base y los objetos | Primero el objeto, después la fila. Un fallo deja objetos huérfanos, nunca filas sin objeto. Al descargar se comprueba el sha256 | `continuity-vault.test.ts` (reinicio, reemplazo sin huérfanos) |
+| Inconsistencia entre la base y los objetos | Primero el objeto, después la fila. Un fallo deja objetos huérfanos, nunca filas sin objeto. Al descargar se comprueba el sha256. El barrido de VAULT-05 borra un objeto sin fila cuando lo encuentra así dos veces seguidas, así que nunca el de una subida en curso | `continuity-vault.test.ts` (reinicio, reemplazo sin huérfanos, barrido en dos fases con memoria, archivos y Postgres) |
+| El vault guarda más de lo que la persona quiere | Retención por cuenta (`PUT /v1/retention`) dentro del máximo del operador (`VAULT_RETENTION_DAYS`); el barrido borra fila y objeto al vencer. Borrar todo elimina los archivos y la cuenta con su retención. La web y el CLI avisan si la copia automática sigue encendida | `continuity-vault.test.ts` (retención y barrido), `apps/web-saas/test/continuity.test.ts`, `apps/sovereign-client/test/vault.test.ts`, E2E `web-saas` |
+| Quedar atado al vault (portabilidad, NFR-008) | Exportación a un JSON abierto (`sedecim-vault-export`) con los eventos firmados tal cual, que otra implementación de Nostr verifica, y que `history import` vuelve a publicar | `apps/web-saas/test/continuity.test.ts` y `apps/sovereign-client/test/vault.test.ts` (verificado con nostr-tools), E2E `web-saas` |
 
 ## Riesgos residuales
 | Riesgo | Nivel | Nota |
@@ -59,8 +64,10 @@ dependa solo de los relays.
 | Pérdida de la llave de archivo | Alto para la continuidad | Sin el backup y sin el dispositivo no hay forma de recuperarla; el operador tampoco puede. Se declara |
 | Robo del backup de identidad | Medio | Fuerza bruta offline de NIP-49 (scrypt) contra la contraseña del backup; depende de su fortaleza |
 | Cuentas NIP-98 ilimitadas con la política `open` | Bajo en self-hosted, Medio en SaaS | El SaaS usa `allowlist` u `off` |
-| Copias de seguridad del operador | Bajo | Conservan metadatos y sobres cifrados hasta que caducan; la retención se documenta en VAULT-05 |
-| Hora de cada envío visible al operador | Medio | Con `best-effort` o `required-for-resilient` cada envío es una subida: el operador ve cuándo envías y cuántos eventos, no su contenido. v1 no agrupa subidas. Se declara en el texto de cada política (disclosures 1.6.0) |
+| Copias de seguridad del operador | Bajo | Borrar y caducar actúan sobre la base y el object store en uso: sus copias de seguridad conservan metadatos y sobres cifrados hasta que caducan. En el módulo de Terraform de referencia, RDS guarda backups y PITR `rds_backup_retention_days` (14 días por defecto) y el bucket de backups expira a los `backup_retention_days` (35 días por defecto). Ese módulo y `scripts/backup.sh` aún no incluyen el vault (VAULT-06): quien lo opere declara la retención de sus copias. Se declara antes de borrar (`CONTINUITY_VAULT_TEXTS.deletion`) |
+| Exportación en claro | Medio | El archivo exportado no va cifrado: los mensajes de grupo quedan legibles para quien lo obtenga. El CLI lo escribe con modo 0600 y no sobrescribe; la web y el CLI lo avisan (`CONTINUITY_VAULT_TEXTS.export`). No lleva el estado MLS ni llaves |
+| La retención borra historial que los relays ya perdieron | Medio para la continuidad | El plazo cuenta desde la última escritura: un evento se sube una vez y caduca aunque la persona siga guardando; si los relays ya no lo tienen, se pierde. Es la elección de la persona o el máximo del operador, y se declara (`CONTINUITY_VAULT_TEXTS.retention`); la restauración cuenta los archivos que faltan |
+| Hora de cada envío visible al operador | Medio | Con `best-effort` o `required-for-resilient` cada envío es una subida: el operador ve cuándo envías y cuántos eventos, no su contenido. v1 no agrupa subidas. Se declara en el texto de cada política (desde disclosures 1.6.0) |
 | Un vault caído retiene los envíos | Medio para la disponibilidad | Solo con `required-for-resilient`, que la persona elige (lo trae private-resilient). El outbox dice por qué está retenido cada envío; relajar la política lo libera (VAULT-04) |
 | Personas creadas antes de VAULT-04 | Bajo | Su configuración no tiene política y vale `off`: nada se copia hasta que alguien lo elige en el panel o con `persona continuity` |
 

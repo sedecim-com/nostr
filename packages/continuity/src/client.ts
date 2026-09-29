@@ -17,10 +17,22 @@ export interface ArchiveVaultOptions {
   fetch?: typeof fetch;
 }
 
+/**
+ * VAULT-05: how long the account's archives are kept since their last write. `days` is the account's choice (null:
+ * the operator's maximum), `max_days` the operator's, `effective_days` what applies (null: kept until deleted).
+ */
+export interface ArchiveRetention {
+  days: number | null;
+  max_days: number | null;
+  effective_days: number | null;
+}
+
 export interface ArchiveUsage {
   archives: number;
   bytes: number;
   limits: { max_archives: number; max_bytes: number; max_envelope_bytes: number };
+  /** Absent on vaults older than VAULT-05. */
+  retention?: ArchiveRetention;
 }
 
 export class ArchiveVaultError extends Error {
@@ -119,5 +131,10 @@ export class ArchiveVaultClient {
   /** What the account uses and the limits of this vault. */
   async usage(): Promise<ArchiveUsage> {
     return (await this.request<ArchiveUsage>('/v1/usage')).json;
+  }
+
+  /** VAULT-05: keep the account's archives `days` since their last write (null: the operator's maximum). */
+  async setRetention(days: number | null): Promise<ArchiveRetention> {
+    return (await this.request<{ retention: ArchiveRetention }>('/v1/retention', 'PUT', JSON.stringify({ days }))).json.retention;
   }
 }

@@ -1,6 +1,6 @@
 # ADR 0011 · Continuity Vault: sobres de archivo sellados en el cliente
 
-- **Estado:** Propuesto · **Tarea:** VAULT-01 (#237); cubre también VAULT-02 (#238), VAULT-03 (#246), VAULT-04 (#247) y VAULT-07 (#239) · **Fecha:** 2026-09-28
+- **Estado:** Propuesto · **Tarea:** VAULT-01 (#237); cubre también VAULT-02 (#238), VAULT-03 (#246), VAULT-04 (#247), VAULT-05 (#248) y VAULT-07 (#239) · **Fecha:** 2026-09-28
 - **Aprobación:** pendiente (responsable de producto)
 
 ## Contexto
@@ -37,7 +37,8 @@ Tampoco vive en identity-service, por dos razones:
 | `GET` | `/v1/archives?after=&limit=` | Metadatos por páginas, en orden de id (máximo 1000 por página) |
 | `GET` | `/v1/archives/:id` | El texto exacto del sobre y sus metadatos |
 | `DELETE` | `/v1/archives/:id` · `/v1/archives` | Borra uno, o todos junto con la cuenta |
-| `GET` | `/v1/usage` | Uso de la cuenta y límites del vault |
+| `GET` | `/v1/usage` | Uso de la cuenta, límites del vault y retención (VAULT-05) |
+| `PUT` | `/v1/retention` | `{"days": N \| null}`: cuántos días guarda la cuenta cada archivo, dentro del máximo del operador (VAULT-05) |
 
 De cada archivo el vault guarda solo seis datos: `id`, `key_id`, `size`, `sha256`, `created_at` y `updated_at`.
 
@@ -101,7 +102,7 @@ VAULT-02: ni la base ni el object store contienen texto, eventos ni llaves legib
   objeto son aleatorias: ni la ruta ni la llave dicen de quién es un sobre.
 - **Orden de escritura.** Primero el objeto, después la fila. El objeto reemplazado o borrado se elimina
   tras el commit. Si el proceso cae en medio, queda un objeto huérfano (ninguna fila lo apunta), nunca una
-  fila sin objeto. El barrido de huérfanos llega con la retención (VAULT-05).
+  fila sin objeto. El barrido de VAULT-05 borra esos huérfanos (abajo).
 - **Cuotas por cuenta.** Por defecto, 1 MiB por sobre, 100 000 archivos y 256 MiB; se cambian con
   `VAULT_MAX_*`.
   - Se comprueban con la fila de la cuenta bloqueada, así que las subidas simultáneas desde cualquier
@@ -195,12 +196,67 @@ política de la persona es un control más del panel: `continuity` (`packages/pr
   política tiene que ser `off`. En el CLI, `persona continuity` enciende las dos.
 - **Qué se revela.** Con `best-effort` o `required-for-resilient` el operador ve una subida por cada envío:
   cuándo envías y cuántos eventos, no su contenido. v1 no agrupa subidas. Se declara en los textos de cada
-  política (disclosures 1.6.0).
+  política (desde disclosures 1.6.0).
 - **Dónde.**
   - Web: control `continuity` del panel, columna «Vault» de Entrega y la política en la tarjeta del vault.
   - CLI: `sovereign persona continuity --persona ID <política> [--vault URL]`. `--vault` o
     `SOVEREIGN_VAULT_URL` dan el vault de cada ejecución. La copia sale por el guard de la persona: Tor-only
     por Tor, y onion-only solo a un vault `.onion`.
+
+### Retención, borrado y exportación (VAULT-05)
+- **Retención.** Cada archivo se conserva un plazo contado desde su última escritura (`updated_at`):
+  - el operador fija el máximo con `VAULT_RETENTION_DAYS`. Sin él, nada caduca solo;
+  - cada cuenta puede elegir menos con `PUT /v1/retention {"days": N}`. Con `null` vuelve al máximo del
+    operador, o a «hasta que lo borres» si no hay máximo. Pedir más que el máximo devuelve 400;
+  - `GET /v1/usage` devuelve `retention`: `days` (lo elegido), `max_days` y `effective_days`, el menor de los
+    dos (`null`: sin plazo).
+- **Qué caduca.** Un evento o un mensaje de grupo se sube una sola vez (VAULT-03), así que caduca a los N días
+  de subirlo aunque la persona siga guardando. Si sus relays aún lo tienen, el siguiente push lo sube otra
+  vez. El ledger y el estado MLS se reemplazan en cada push: duran mientras la persona siga guardando. Una
+  restauración cuenta como `missing` los archivos que caducaron desde el último ledger.
+- **El barrido.** `VaultSweeper` corre en cada réplica al arrancar y cada `VAULT_SWEEP_INTERVAL_MS` (1 h por
+  defecto, mínimo 60 000):
+  - borra las filas que pasaron su plazo y después sus objetos. Ajusta los contadores con la fila de la cuenta
+    bloqueada, como una subida;
+  - una cuenta que se queda sin archivos y no eligió retención desaparece;
+  - un objeto que ninguna fila apunta se marca como sospechoso y se borra en el barrido siguiente si sigue sin
+    fila. Como el objeto se escribe antes que la fila, así nunca se borra el de una subida en curso;
+  - un objeto que no se pudo borrar queda huérfano y lo recoge un barrido posterior.
+- **Borrar todo.** `DELETE /v1/archives` borra todas las filas y objetos de la cuenta, y la cuenta con su
+  retención. En la web es «Borrar todo el vault», con confirmación; en el CLI, `sovereign vault delete --yes`.
+  Si la copia automática (VAULT-04) sigue encendida, el siguiente envío abre la cuenta otra vez: la web y el
+  CLI lo avisan.
+- **Copias de seguridad del operador.** Borrar y caducar actúan sobre la base y el object store en uso. Las
+  copias de seguridad que el operador haga de ellos conservan filas y sobres, cifrados, hasta que caducan por
+  su propia política:
+  - en el módulo de Terraform de referencia (`deploy/terraform/modules/acceso-nostr`), los backups
+    automáticos de RDS y su PITR duran `rds_backup_retention_days` (14 días por defecto, de 7 a 35), y el
+    bucket de backups expira sus objetos y sus versiones no actuales a los `backup_retention_days` (35 días
+    por defecto);
+  - ese módulo y `scripts/backup.sh` todavía no despliegan ni copian el vault (VAULT-06). Quien lo opere
+    declara la retención de sus copias;
+  - el texto `deletion` de los disclosures lo dice antes de borrar.
+- **Exportación portable (NFR-008).** La web («Exportar el vault») y el CLI (`sovereign vault export --out
+  FILE`) descargan y abren todo en el dispositivo, y escriben un JSON abierto:
+
+  ```json
+  {
+    "format": "sedecim-vault-export",
+    "version": 1,
+    "pubkey": "<hex de la persona>",
+    "exportedAt": "<ISO 8601>",
+    "events": ["<eventos NIP-01 firmados, solo sus campos NIP-01>"],
+    "groupMessages": ["<mensajes Marmot descifrados: groupId, rumorId, sender, kind, content, createdAt>"],
+    "ledger": ["<registros del outbox del último ledger>"]
+  }
+  ```
+
+  - No necesita el vault ni la llave de archivo. Cualquier cliente Nostr verifica y publica los eventos, y
+    `sovereign history import` lo acepta igual que el JSONL, sin publicar los gift wraps para otras personas.
+  - No lleva el estado MLS: son secretos de grupo de un dispositivo y solo sirven dentro de un cliente. Para
+    eso están el backup de identidad y la restauración desde el vault.
+  - No va cifrado: los mensajes de grupo quedan en claro. El texto `export` de los disclosures lo dice.
+  - El CLI lo escribe con modo 0600 y nunca sobrescribe un archivo.
 
 ### Lo que ve el operador (VAULT-07)
 - **Ve:**
@@ -211,12 +267,12 @@ política de la persona es un control más del panel: `continuity` (`packages/pr
   - la IP de cada petición, como en cualquier servicio HTTP.
 - **No ve:** el contenido, los ids de evento, las etiquetas, con quién hablas, la pubkey de la persona ni la
   llave de archivo.
-- **Borrar** elimina la fila y el objeto en el acto. Las copias de seguridad de la base del operador
-  conservan los metadatos hasta que caduca su propia retención (se documenta en VAULT-05).
+- **Borrar** elimina la fila y el objeto en el acto. Las copias de seguridad del operador conservan los
+  metadatos y los sobres cifrados hasta que caduca su propia retención (ver VAULT-05, arriba).
 
 ## Consecuencias
-- VAULT-03 y VAULT-04 se construyen sobre este contrato (arriba): la restauración con relays vacíos, y
-  `CONTINUITY_BACKED_UP` en la máquina de estados.
+- VAULT-03, VAULT-04 y VAULT-05 se construyen sobre este contrato (arriba): la restauración con relays
+  vacíos, `CONTINUITY_BACKED_UP` en la máquina de estados, y la retención, el borrado y la exportación.
 - VAULT-06 añade:
   - el `ObjectStore` S3-compatible (SeaweedFS del compose);
   - el servicio en el compose y en Kubernetes;

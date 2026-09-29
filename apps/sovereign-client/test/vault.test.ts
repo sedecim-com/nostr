@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { verifyEvent as ntVerifyEvent } from 'nostr-tools';
 import { spawn } from 'node:child_process';
+import { readFileSync, statSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { archiveOwnerPubkey } from '@sedecim/continuity';
+import { archiveOwnerPubkey, type VaultExport } from '@sedecim/continuity';
 import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '@sedecim/continuity-vault';
 import { CONTINUITY_VAULT_TEXTS } from '@sedecim/profiles';
 import { createLogger } from '@sedecim/telemetry-policy';
@@ -119,6 +121,75 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
     expect(noUrl.status).not.toBe(0);
     expect(noUrl.stderr).toMatch(/--vault URL or SOVEREIGN_VAULT_URL required/);
   }, 90_000);
+
+  it('VAULT-05: the CLI sets the retention, exports the vault to an open file that `history import` takes back, and deletes it', async () => {
+    // An operator that keeps nothing more than 90 days, and relays of this persona alone.
+    const cappedRepo = new MemoryArchiveRepository();
+    const capped = createContinuityVaultApi(cappedRepo, new MemoryObjectStore(), { name: 'vault-cli-05', logger: silent, retentionDays: 90 });
+    const cappedUrl = await capped.listen();
+    const own = new TestRelay({ requireAuth: true });
+    await own.start();
+    try {
+      const dir = await mkdtemp(join(tmpdir(), 'sovereign-vault-05-'));
+      const env = { ...process.env, SOVEREIGN_DATA_DIR: dir, SOVEREIGN_PASSPHRASE: 'cli-vault-05', SOVEREIGN_VAULT_URL: cappedUrl };
+      const created = await run(['persona', 'create', '--label', 'Portable', '--relay', own.url], env);
+      expect(created.status, created.stderr).toBe(0);
+      const id = (JSON.parse(created.stdout) as { id: string }).id;
+
+      const shown = await run(['vault', 'retention', '--persona', id], env);
+      expect(shown.stdout, shown.stderr).toContain('retención: 90 días desde la última vez que se guarda cada archivo; máximo del operador: 90 días');
+      const chosen = await run(['vault', 'retention', '--persona', id, '--days', '30'], env);
+      expect(chosen.stdout, chosen.stderr).toContain('retención: 30 días desde la última vez que se guarda cada archivo (elegida: 30 días); máximo del operador: 90 días');
+      const tooLong = await run(['vault', 'retention', '--persona', id, '--days', '400'], env);
+      expect(tooLong.status).not.toBe(0);
+      expect(tooLong.stderr).toMatch(/from 1 to 90/);
+
+      expect((await run(['channel', 'send', '--persona', id, '--group', 'general', 'para llevar 9914'], env)).status).toBe(0);
+      expect((await run(['vault', 'push', '--persona', id], env)).status).toBe(0);
+      const file = join(dir, 'vault.json');
+      const exported = await run(['vault', 'export', '--persona', id, '--out', file], env);
+      expect(exported.status, exported.stderr).toBe(0);
+      expect(exported.stdout).toMatch(/\(sedecim-vault-export v1\): 2 eventos firmados, 0 mensajes de grupo, 2 operaciones del ledger/);
+      expect(exported.stderr).toContain(`aviso: ${CONTINUITY_VAULT_TEXTS.export}`);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      const data = JSON.parse(readFileSync(file, 'utf8')) as VaultExport;
+      expect(data).toMatchObject({ format: 'sedecim-vault-export', version: 1 });
+      const note = data.events.find((e) => e.content === 'para llevar 9914')!;
+      expect(note).toBeTruthy();
+      // Signed events as they were: another Nostr implementation verifies them.
+      for (const e of data.events) expect(ntVerifyEvent({ ...e })).toBe(true);
+      expect((await run(['vault', 'export', '--persona', id, '--out', file], env)).status, 'an export never overwrites a file').not.toBe(0);
+
+      // The relays lose everything: `history import` takes the export and puts its events back.
+      own.events.clear();
+      const imported = await run(['history', 'import', '--persona', id, file], env);
+      expect(imported.status, imported.stderr).toBe(0);
+      expect(imported.stdout).toContain('válidos=2 inválidos=0 duplicados=0 publicados=2 rechazados=0 (exportación del vault; 0 cifrados para otras personas no se publican)');
+      expect(new Set(own.events.keys())).toEqual(new Set(data.events.map((e) => e.id)));
+      // Another persona's export is not taken.
+      const other = await run(['persona', 'create', '--label', 'Otra', '--relay', own.url], env);
+      const otherId = (JSON.parse(other.stdout) as { id: string }).id;
+      const wrong = await run(['history', 'import', '--persona', otherId, file], env);
+      expect(wrong.status).not.toBe(0);
+      expect(wrong.stderr).toContain('esta exportación del vault es de otra persona');
+
+      // Delete asks for --yes, and then removes every archive and the account (its retention choice included).
+      const unconfirmed = await run(['vault', 'delete', '--persona', id], env);
+      expect(unconfirmed.status).not.toBe(0);
+      expect(unconfirmed.stderr).toContain('repite con --yes');
+      expect(cappedRepo.rows().length).toBe(3);
+      const deleted = await run(['vault', 'delete', '--persona', id, '--yes'], env);
+      expect(deleted.status, deleted.stderr).toBe(0);
+      expect(deleted.stdout).toContain('vault: 3 archivos borrados y cuenta eliminada');
+      expect(deleted.stderr).toContain(`aviso: ${CONTINUITY_VAULT_TEXTS.deletion}`);
+      expect(deleted.stderr).not.toContain('copia automática');
+      expect(cappedRepo.rows()).toEqual([]);
+      expect((await run(['vault', 'retention', '--persona', id], env)).stdout).toContain('retención: 90 días desde la última vez que se guarda cada archivo; máximo del operador: 90 días');
+    } finally {
+      await capped.close();
+      await own.stop();
+    }
+  }, 240_000);
 
   it('a Tor persona reaches the vault only through Tor and fails closed without it', async () => {
     const c = await newClient();

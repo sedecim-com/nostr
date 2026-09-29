@@ -2,10 +2,12 @@
  * VAULT-02: in the web every persona has an archive key that is not its nsec, its backup file (v2) carries it, and a
  * persona whose key lives in a signer backs up the archive key alone. VAULT-03: the persona's history (canonical
  * events, group chat, ledger, MLS state) is sealed in the browser before it reaches the Continuity Vault, and a clean
- * browser with nothing but the backup gets it back with empty relays.
+ * browser with nothing but the backup gets it back with empty relays. VAULT-05: the persona chooses the retention of its
+ * archives, exports them in an open format and deletes them.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { archiveOwnerPubkey } from '@sedecim/continuity';
+import { verifyEvent as ntVerifyEvent } from 'nostr-tools';
+import { archiveOwnerPubkey, parseVaultExport } from '@sedecim/continuity';
 import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '@sedecim/continuity-vault';
 import { EncryptedStore, MemoryBackend, type Vault } from '@sedecim/encrypted-store';
 import { openArchiveKeyBackup, openKeyBackup, parseKeyBackup } from '@sedecim/identity/key-backup';
@@ -17,7 +19,7 @@ import { TestRelay } from '@sedecim/test-relay';
 import { CONTINUITY_HELD } from '@sedecim/delivery-engine';
 import { createServer } from 'node:net';
 import { createDirectMessage } from '@sedecim/messaging';
-import { pushVault, restoreVault, vaultUsage, verifyVault } from '../src/lib/continuity';
+import { deleteVault, exportVault, pushVault, restoreVault, setVaultRetention, vaultUsage, verifyVault } from '../src/lib/continuity';
 import { GroupHistory } from '../src/lib/groups';
 import { backupJson, createPersona, ensureArchiveKey, openPersona, publishDmRelays, setArchiveKey } from '../src/lib/session';
 import { PersonaBook, type PersonaRecord } from '../src/lib/vault';
@@ -190,6 +192,50 @@ describe('web archive key and Continuity Vault (VAULT-02)', () => {
       expect(relay.received.some((e) => e.content === text)).toBe(true);
     } finally {
       held.close();
+    }
+  });
+
+  it('VAULT-05: the persona chooses how long the vault keeps its archives, takes them out in an open format and deletes them', async () => {
+    // An operator that keeps nothing more than 90 days.
+    const capped = createContinuityVaultApi(new MemoryArchiveRepository(), new MemoryObjectStore(), { name: 'vault-web-05', logger: createLogger({ write: () => {} }), retentionDays: 90 });
+    const cappedUrl = await capped.listen();
+    const book = newBook();
+    const p = await createPersona(book, { kind: 'create' }, { label: 'Portable', relays: [relay.url], preset: 'convenience' });
+    const s = await openPersona(book, p);
+    try {
+      expect((await vaultUsage(cappedUrl, p)).retention).toEqual({ days: null, max_days: 90, effective_days: 90 });
+      expect(await setVaultRetention(cappedUrl, p, 30)).toEqual({ days: 30, max_days: 90, effective_days: 30 });
+      await expect(setVaultRetention(cappedUrl, p, 365)).rejects.toThrow(/from 1 to 90/);
+      expect((await vaultUsage(cappedUrl, p)).retention).toEqual({ days: 30, max_days: 90, effective_days: 30 });
+
+      const rec = await s.engine.submit({ template: { kind: 9, content: 'para llevar 6621', tags: [['h', 'general']] } }, { relays: [relay.url], quorum: 1, wait: true });
+      await new GroupHistory(book.store, p.id).append('g5', [{ id: 'rumor-5', sender: p.pubkey, content: 'grupo exportado 3307', createdAt: 1_700_000_500 }]);
+      await book.store.collection<unknown>(`mls-${p.id}-groups`).put('g5', { state: 'estado-mls-g5' });
+      const pushed = await pushVault(cappedUrl, s, book.store);
+      const archives = (await vaultUsage(cappedUrl, p)).archives;
+
+      // The export: the signed events as they are (any Nostr client verifies them), the chat and the ledger; no MLS state.
+      const { export: data, skipped } = await exportVault(cappedUrl, p);
+      expect(skipped).toBe(0);
+      expect(data).toMatchObject({ format: 'sedecim-vault-export', version: 1, pubkey: p.pubkey });
+      expect(data.events).toHaveLength(pushed.events.uploaded);
+      expect(data.events.map((e) => e.id)).toContain(rec.event!.id);
+      for (const e of data.events) expect(ntVerifyEvent({ ...e })).toBe(true);
+      expect(data.groupMessages).toEqual([{ groupId: 'g5', rumorId: 'rumor-5', sender: p.pubkey, kind: 9, content: 'grupo exportado 3307', createdAt: 1_700_000_500 }]);
+      expect(data.ledger.map((r) => (r as { opId: string }).opId)).toContain(rec.opId);
+      const text = JSON.stringify(data);
+      expect(text).not.toContain('estado-mls');
+      expect(text).not.toContain(p.archiveKeyHex!);
+      // It reads back as it was written.
+      expect(parseVaultExport(text)).toEqual({ export: data, invalid: 0 });
+
+      // Delete: every archive and the account, its retention choice included.
+      expect(await deleteVault(cappedUrl, p)).toBe(archives);
+      expect(await vaultUsage(cappedUrl, p)).toMatchObject({ archives: 0, bytes: 0, retention: { days: null, max_days: 90, effective_days: 90 } });
+      expect(await exportVault(cappedUrl, p)).toMatchObject({ export: { events: [], groupMessages: [], ledger: [] } });
+    } finally {
+      s.close();
+      await capped.close();
     }
   });
 

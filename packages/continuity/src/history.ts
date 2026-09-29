@@ -9,7 +9,7 @@
  *   epochs, so a group ciphertext read once cannot be read again; the vault keeps the rumor instead.
  * - Snapshots, replaced on every push: the delivery ledger (`ledger`) and the MLS group state (`mls`). Each one
  *   also seals the date and how many archives the account holds after that push, so a restore can tell when the
- *   copy is from and whether archives went missing since (deleted by the operator, or lost).
+ *   copy is from and whether archives went missing since (expired by the retention, deleted, or lost).
  *
  * Labels never reach the vault: `archiveId` turns them into opaque ids with the archive key.
  */
@@ -69,7 +69,7 @@ export interface RestoredHistory {
   archives: number;
   /** Archives that do not open with this archive key, or do not hold a valid entry of this persona. */
   skipped: number;
-  /** Archives the latest snapshot counted that the vault no longer lists: deleted by the operator, or lost. */
+  /** Archives the latest snapshot counted that the vault no longer lists: expired (VAULT-05), deleted, or lost. */
   missing: number;
 }
 
@@ -101,6 +101,62 @@ export async function archiveEvent(client: ArchiveVaultClient, key: Uint8Array, 
  */
 export function belongsOnPersonaRelays(event: NostrEvent, pubkey: string): boolean {
   return event.kind !== 1059 || event.tags.some((t) => t[0] === 'p' && t[1] === pubkey);
+}
+
+/** VAULT-05: the portable export of a persona's vault (`vaultExport`), an open JSON format. */
+export const VAULT_EXPORT_FORMAT = 'sedecim-vault-export';
+
+export interface VaultExport {
+  format: typeof VAULT_EXPORT_FORMAT;
+  version: 1;
+  /** Hex pubkey of the persona. */
+  pubkey: string;
+  exportedAt: string;
+  /** Signed NIP-01 events (only their NIP-01 fields), oldest first: any Nostr client can verify and publish them. */
+  events: NostrEvent[];
+  /** Decrypted Marmot messages (rumors, unsigned): readable text. */
+  groupMessages: ArchivedGroupMessage[];
+  /** The delivery ledger (outbox records) of the latest snapshot. */
+  ledger: unknown[];
+}
+
+/**
+ * VAULT-05: what a persona takes out of the vault, in an open format that needs neither the vault nor its archive
+ * key: the verified events, the group messages and the ledger. The MLS state is left out on purpose: it holds the
+ * group secrets of a device and only works inside a client.
+ */
+export function vaultExport(restored: RestoredHistory, pubkey: string, now: () => number = Date.now): VaultExport {
+  return {
+    format: VAULT_EXPORT_FORMAT,
+    version: 1,
+    pubkey,
+    exportedAt: new Date(now()).toISOString(),
+    events: restored.events.map((e) => ({ id: e.id, pubkey: e.pubkey, created_at: e.created_at, kind: e.kind, tags: e.tags, content: e.content, sig: e.sig })),
+    groupMessages: restored.groupMessages,
+    ledger: restored.ledger?.outbox ?? [],
+  };
+}
+
+/**
+ * Reads a vault export back (e.g. to publish its events again). Only verified events and well-formed group messages
+ * come out; the others are counted in `invalid`.
+ */
+export function parseVaultExport(text: string): { export: VaultExport; invalid: number } {
+  let raw: Partial<VaultExport>;
+  try {
+    raw = JSON.parse(text) as Partial<VaultExport>;
+  } catch {
+    throw new Error('not a vault export: malformed JSON');
+  }
+  if (!raw || raw.format !== VAULT_EXPORT_FORMAT || raw.version !== 1 || typeof raw.pubkey !== 'string' || !HEX64.test(raw.pubkey)) throw new Error('not a vault export (format sedecim-vault-export, version 1)');
+  const events = Array.isArray(raw.events) ? raw.events : [];
+  const messages = Array.isArray(raw.groupMessages) ? raw.groupMessages : [];
+  const okEvents = events.filter((e) => verifyEvent(e));
+  const okMessages = messages.filter(isGroupMessage);
+  return {
+    export: { format: VAULT_EXPORT_FORMAT, version: 1, pubkey: raw.pubkey, exportedAt: String(raw.exportedAt ?? ''), events: okEvents, groupMessages: okMessages, ledger: Array.isArray(raw.ledger) ? raw.ledger : [] },
+    invalid: events.length - okEvents.length + (messages.length - okMessages.length),
+  };
 }
 
 /** Ledger entries as outbox records keyed by `opId` (the CLI pushed `{ id, value }` store entries before VAULT-03). */
