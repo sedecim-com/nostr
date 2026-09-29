@@ -66,7 +66,8 @@ describe('sovereign client — Marmot/MLS high-security groups (FR-025)', () => 
     const files = await readdir(dir, { recursive: true });
     for (const f of files.filter((x) => String(x).includes('mls-'))) {
       const raw = await readFile(join(dir, String(f)), 'utf8').catch(() => '');
-      expect(raw).not.toMatch(/Redacción|privatePackage|\$u8/);
+      // Markers as the serializer writes them: a bare `$u8` (3 bytes) turns up in random ciphertext.
+      expect(raw).not.toMatch(/Redacción|privatePackage|"\$u8"/);
     }
     const restarted = new SovereignClient({ dataDir: dir, passphrase: 'pass', scryptLogN: 4 });
     try {
