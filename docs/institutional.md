@@ -219,6 +219,30 @@ Pruebas:
 - `tests/e2e/institutional-policy.test.ts`;
 - `tests/browser/admin-console.e2e.ts`.
 
+## Navegadores como dispositivos de la organización (FR024-03)
+
+La persona gestionada de la web firma por una sesión de dispositivo del navegador (FR005-11). Por defecto su id es
+aleatorio (`web-…`) y la organización no lo conoce, así que revocar un dispositivo en el policy-engine no la afecta.
+
+Con `organizationDevices: true` en el `config.json` de la web, la tarjeta «Actividad de tu llave gestionada» ofrece
+«Dispositivo de tu organización»:
+1. El admin registra el dispositivo en la consola («Dispositivos») y le da su id a la persona.
+2. La persona lo pega en «Vincular este navegador». El navegador cierra su sesión actual y abre las siguientes con ese
+   id.
+3. Si la organización revoca el dispositivo, el worker de rotaciones lleva la revocación al managed-signer:
+   - la sesión abierta cae y el login no puede abrir otra;
+   - la tarjeta dice que la organización revocó el dispositivo.
+
+La vinculación la hace la persona: un id equivocado deja al navegador fuera de la revocación. Ante un dispositivo
+perdido que no estaba vinculado, sigue valiendo cerrar su sesión y cambiar la contraseña de Acceso
+(`docs/runbooks/device-loss.md`).
+
+Pruebas:
+- `apps/web-saas/test/managed-session.test.ts`, contra el managed-signer real;
+- `tests/browser/web-saas.e2e.ts`: un navegador se vincula, firma con el id de la organización y, tras la revocación
+  (policy-engine real y el feed del worker), no firma ni abre otra sesión. El otro navegador de la misma persona sigue
+  firmando.
+
 ## Worker de rotaciones (FR024-05)
 
 El servicio `rotation-worker` (`services/rotation-worker`) hace sin que nadie deje un CLI abierto lo que antes
