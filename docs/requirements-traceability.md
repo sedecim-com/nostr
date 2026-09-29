@@ -495,7 +495,7 @@ Un requisito está **Hecho** si lo están todas sus tareas del programa, sin con
 | [NFR010-01](https://github.com/sedecim-com/nostr/issues/189) SBOM por release | Hecho | .github/workflows/ci.yml | — |
 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) Firma de releases y provenance (SLSA/cosign) | Parcial (S9) | .github/workflows/release.yml: imágenes a GHCR por digest firmadas con cosign keyless, provenance SLSA y SBOM atestados; verificación en scripts/verify-release.sh. Falta la primera release firmada | — |
 | [NFR010-03](https://github.com/sedecim-com/nostr/issues/191) Imágenes Docker reproducibles | Hecho | Bases fijadas por digest, paquetes apk con versión exacta en tor (Alpine 3.24, sin /var/log/apk.log), scripts/build-image.sh único (BuildKit fijado, sin caché, SOURCE_DATE_EPOCH, rewrite-timestamp), scripts/image-diff.sh y rebuild-image.sh; reproducible-images.yml construye las 8 imágenes dos veces y compara digests: las 8 idénticas en la PR #215 (run 36338419319); release.yml usa el mismo camino; docs/building.md | [build-image.test.ts](../tests/scripts/build-image.test.ts) |
-| [NFR010-04](https://github.com/sedecim-com/nostr/issues/261) SBOM fiel a cada imagen | Pendiente (S9) | — | — |
+| [NFR010-04](https://github.com/sedecim-com/nostr/issues/261) SBOM fiel a cada imagen | Pendiente (S9) | — | [image-sbom.test.ts](../tests/scripts/image-sbom.test.ts) |
 
 ## Tareas sin requisito FR o NFR
 

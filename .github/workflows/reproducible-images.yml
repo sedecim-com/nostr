@@ -5,6 +5,8 @@ name: reproducible-images
 # no cache, and the manifest digests are compared. On a mismatch scripts/image-diff.sh prints where the
 # images differ and both archives are uploaded. The weekly run also catches pins that stopped resolving
 # (Alpine drops superseded package builds: docs/building.md, "Imagen tor").
+# NFR010-04: the SBOM of each image comes from the image itself (syft, scripts/image-sbom.sh), and no
+# devDependency may be in its runtime (scripts/image-sbom-check.mjs); the SBOM is kept as an artifact.
 on:
   pull_request:
     paths:
@@ -15,6 +17,8 @@ on:
       - package-lock.json
       - scripts/build-image.sh
       - scripts/image-diff.sh
+      - scripts/image-sbom.sh
+      - scripts/image-sbom-check.mjs
       - .github/workflows/reproducible-images.yml
   push:
     branches: [main]
@@ -26,6 +30,8 @@ on:
       - package-lock.json
       - scripts/build-image.sh
       - scripts/image-diff.sh
+      - scripts/image-sbom.sh
+      - scripts/image-sbom-check.mjs
       - .github/workflows/reproducible-images.yml
   schedule:
     - cron: '41 5 * * 1'
@@ -46,6 +52,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
       - name: Build twice in clean builders and compare the digests
         env:
           NAME: ${{ matrix.name }}
@@ -63,6 +72,17 @@ jobs:
             exit 1
           fi
           echo "nostr-$NAME reproducible: $first"
+      - name: SBOM of the image (syft) and no devDependency in its runtime (NFR010-04)
+        env:
+          NAME: ${{ matrix.name }}
+        run: |
+          sh scripts/image-sbom.sh oci-archive:first.tar "sbom-$NAME.cdx.json"
+          node scripts/image-sbom-check.mjs "sbom-$NAME.cdx.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ matrix.name }}
+          path: sbom-${{ matrix.name }}.cdx.json
+          if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
