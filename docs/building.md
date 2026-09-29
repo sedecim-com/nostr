@@ -43,6 +43,26 @@ gh attestation verify oci://ghcr.io/sedecim-com/nostr-indexer@sha256:<digest> --
   --predicate-type https://cyclonedx.org/bom                # el SBOM atestado de una imagen publicada
 ```
 
+## Cadena de suministro (OPS-13)
+
+- **Acciones** de GitHub fijadas por el SHA de su commit, con la versión en un comentario (Dependabot las sube).
+- **Imágenes** de terceros por digest, con la versión en el tag o en un comentario:
+  - `docker-compose.yml`, `compose.tls.yml` y los servicios de CI;
+  - `deploy/k8s` y `deploy/monitoring`, en los `images:` de kustomize;
+  - `deploy/k8s/scripts/mirror-ecr-deps.sh`, que copia a ECR esos mismos digests.
+- **Herramientas descargadas** en CI (gitleaks, promtool, syft) contrastadas con el sha256 que publica su
+  release antes de ejecutarse.
+- **Dependabot** vigila npm, las acciones, los dos Dockerfile (raíz e `infra/tor`) y las imágenes del compose.
+  Buzz queda fuera: se actualiza con `buzz-upstream.yml` y el gate de interoperabilidad (ADR 0003).
+- **Gates:**
+  - `npm audit` en el job `test` falla con una vulnerabilidad alta en las dependencias de producción, o
+    crítica en cualquiera;
+  - en una PR, el check «CodeQL» falla con una alerta nueva;
+  - el release exige el análisis de CodeQL del commit y ninguna alerta abierta alta o crítica
+    (`release-gate.mjs codeql`).
+
+`tests/scripts/supply-chain.test.ts` hace cumplir todo lo anterior.
+
 ## Verificar un release
 
 Requisitos: [GitHub CLI](https://cli.github.com/) (`gh`, autenticado con `gh auth login`) y

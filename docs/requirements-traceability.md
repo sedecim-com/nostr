@@ -557,7 +557,7 @@ Decisiones, operación, seguridad, panel y gates, con la referencia que citan (P
 | [SEC-11](https://github.com/sedecim-com/nostr/issues/257) Tag de auditoría firmado y v1.0.0-rc.1 | §20.3, PRD GC-A04, GC-F05 | Pendiente (S12) | — | — |
 | [SEC-12](https://github.com/sedecim-com/nostr/issues/258) Inventario de la superficie de ataque de Buzz desplegado | §20.3, PRD GC-A07 | Pendiente (S11) | — | — |
 | [OPS-19](https://github.com/sedecim-com/nostr/issues/260) README con el estado por release, no con checkmarks | PRD GC-F04 | Pendiente (S9) | — | — |
-| [OPS-13](https://github.com/sedecim-com/nostr/issues/262) Higiene de la cadena de suministro en CI | §21.2 | Pendiente (S9) | — | — |
+| [OPS-13](https://github.com/sedecim-com/nostr/issues/262) Higiene de la cadena de suministro en CI | §21.2 | Pendiente (S9) | — | [release-gate.test.ts](../tests/scripts/release-gate.test.ts), [supply-chain.test.ts](../tests/scripts/supply-chain.test.ts) |
 | [FR023-12](https://github.com/sedecim-com/nostr/issues/266) Auditoría y retención legal coherentes con el modelo de confidencialidad | §16, §12.2 | Pendiente (S10) | — | — |
 | [FR011-05](https://github.com/sedecim-com/nostr/issues/268) Identificador de operación estable en la UI | §11.2 | Pendiente (S10) | — | — |
 | [DEC-15](https://github.com/sedecim-com/nostr/issues/273) Estructura de repositorios | §21.1 | Pendiente (S10) | — | — |
