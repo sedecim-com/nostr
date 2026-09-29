@@ -32,3 +32,6 @@ decidir la región a partir de los repositorios de Sedecim. Evidencia encontrada
 - Operación: la llave KMS (rotación anual) y la política IAM del managed-signer están en `deploy/terraform/modules/acceso-nostr/main.tf`, que consume el repositorio `infrastructure`: `kms:GenerateDataKey`/`kms:Decrypt` sobre esa llave y `secretsmanager:CreateSecret`, `GetSecretValue`, `DeleteSecret`, `DescribeSecret` y `TagResource` sobre el prefijo. Falta validarlos en la cuenta real (FR005-13).
 - Los usuarios fuera de México no tienen, por ahora, garantías adicionales como el GDPR. Si se abre a la UE, este ADR se revisa.
 - La aprobación legal de los términos y del aviso de privacidad se sigue en DEC-12; sin ella, managed no se habilita en producción.
+  Se registra en [`docs/legal/approvals/custodia-managed.md`](../legal/approvals/custodia-managed.md) con la huella del texto
+  aprobado. El gate de release (OPS-20) no deja que la configuración de producción ofrezca managed sin esa aprobación y sin
+  los informes de SEC-01 y SEC-02.

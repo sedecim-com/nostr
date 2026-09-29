@@ -148,3 +148,7 @@ Encaja con la app nativa (ADR 0004), no con la web.
   - el gateway comprueba sus relays con el canario y expone el resultado en `GET /v1/relays`;
   - la web solo ofrece el control donde algún relay de la persona es observable;
   - el job `stack` de CI mide la matriz por relay contra las imágenes fijadas.
+- OPS-20: con los relays de referencia no hay disparador seguro, así que la configuración de producción del SaaS
+  (`infra/web/config.saas.example.json`) no define `notificationGateway` ni despliega el componente. El gate de
+  release lo comprueba con `safeTrigger: false` en [`deploy/production-gates.json`](../../deploy/production-gates.json).
+  Pasarlo a `true` exige una fila de la matriz que lo demuestre para un relay de producción, con su test de interop.

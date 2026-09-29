@@ -1,6 +1,10 @@
 # Custodia managed en enclave Nitro (FR005-05)
 
 - **Estado:** prototipo. **Tarea:** FR005-05 (P3), **Parcial**.
+- **Madurez:** Preview. Va apagado en producción, igual que su exportación: el gate de release (OPS-20,
+  [`deploy/production-gates.json`](../deploy/production-gates.json)) falla si la configuración de producción usa
+  `MANAGED_SIGNER_BACKEND=enclave`, `ENCLAVE_ALLOW_EXPORT=1` o `enable_enclave_signer = true`. Para salir de
+  Preview hacen falta FR005-05 en AWS real, FR005-09 y su auditoría.
 - **Criterio:** "Prototipo con attestation verificada; backend general sin llave en claro".
 - **Depende de:** [ADR 0009](adr/0009-custodia-managed-region-y-marco-legal.md) (custodia managed en `us-east-1`,
   KMS + Secrets Manager) y [`docs/disclosures.md`](disclosures.md) (modo `managed-enclave`).

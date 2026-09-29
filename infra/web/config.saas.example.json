@@ -6,7 +6,6 @@
   "blobStore": "https://blobs.nostr.acce.so",
   "identityService": "https://id.nostr.acce.so",
   "backupVault": "https://id.nostr.acce.so",
-  "notificationGateway": "https://push.nostr.acce.so",
   "cognito": {
     "region": "us-east-1",
     "userPoolId": "us-east-1_XXXXXXXXX",
