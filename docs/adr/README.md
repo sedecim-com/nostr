@@ -19,5 +19,6 @@ tarea correspondiente del backlog como `Hecho` (`docs/backlog/backlog.json`, lue
 | [0009](0009-custodia-managed-region-y-marco-legal.md) | Región (us-east-1) y marco legal (LFPDPPP) de la custodia managed | DEC-09 | Aceptado (términos pendientes de legal) |
 | [0010](0010-notificaciones-push-por-perfil.md) | Notificaciones push opacas por perfil | DEC-08 | Aceptado |
 | [0011](0011-continuity-vault.md) | Continuity Vault: sobres de archivo sellados en el cliente | VAULT-01 | Propuesto |
+| [0012](0012-estructura-de-repositorios.md) | Un monorepo en lugar de los seis repositorios del scope | DEC-15 | Propuesto |
 
 Los threat models por perfil (DEC-10) están en [`../threat-models/`](../threat-models/README.md).
