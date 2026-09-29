@@ -18,7 +18,11 @@ interface Caller extends Actor {
   owner: string;
   /** Authenticated with a device session token. */
   viaDeviceSession?: boolean;
+  /** That session's public id (FR005-11). */
+  sessionId?: string;
 }
+
+const SESSION_ID = /^[0-9a-f]{32}$/;
 
 const DEVICE_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 
@@ -113,6 +117,26 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
     log.info('device session opened', { device_id: body.device_id });
     return { status: 201, body: { token: s.token, device_id: body.device_id, expires_at: new Date(s.expiresAt).toISOString() } };
   }, false), 'none', { rateClass: 'auth' });
+  // FR005-11: the user's own sessions. Listed with the Acceso login or any of them; closed with the Acceso login, or
+  // one by itself (sign out). Closing one never revokes its device (that is the organisation's call, below).
+  svc.get('/v1/device-sessions', route(async (_req, c) => ({ sessions: await core.listDeviceSessions(c.owner, c.sessionId) }), false));
+  svc.delete('/v1/device-sessions/:id', route(async (req, c) => {
+    const id = req.params.id!;
+    if (!SESSION_ID.test(id)) throw new HttpError(400, 'invalid session id');
+    if (c.viaDeviceSession && id !== c.sessionId) throw new HttpError(403, 'a device session can only close itself: close the others with the Acceso login');
+    const closed = await core.closeDeviceSessions(c.owner, { ids: [id] });
+    if (closed === 0) throw new HttpError(404, 'no such session');
+    log.info('device session closed', { by: c.viaDeviceSession ? 'itself' : 'owner' });
+    return { closed };
+  }, false));
+  svc.delete('/v1/device-sessions', route(async (req, c) => {
+    if (c.viaDeviceSession) throw new HttpError(403, 'closing every session needs the Acceso login');
+    const except = req.query.get('except') ?? undefined;
+    if (except !== undefined && !SESSION_ID.test(except)) throw new HttpError(400, 'invalid except');
+    const closed = await core.closeDeviceSessions(c.owner, except === undefined ? {} : { except });
+    log.info('device sessions closed', { closed, kept: except ? 1 : 0 });
+    return { closed };
+  }, false));
   // Called by the policy side when a device is revoked (idempotent). Revocation tokens only.
   svc.post('/v1/devices/:id/revoke', (req) =>
     mapErrors(async () => {

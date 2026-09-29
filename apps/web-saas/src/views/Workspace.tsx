@@ -6,6 +6,7 @@ import { receiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
 import type { AccesoUser } from '../lib/acceso';
 import type { DeploymentConfig } from '../lib/config';
 import { custodyLabel, openDmInbox, openPersona, personaConfig, publishDmRelays, shortNpub, type ManagedEnv, type PersonaSession } from '../lib/session';
+import { BrowserManagedSession } from '../lib/managed-session';
 import type { PersonaBook, PersonaRecord } from '../lib/vault';
 import { sendBlockedReason, WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
 import { onSignerAuthUrl } from '../lib/authUrl';
@@ -55,11 +56,13 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
   const tabNow = useRef<TabId>(tab);
   tabNow.current = tab;
 
-  // Managed personas authorize each signature with the Acceso access token (FR005-04); Amplify loads lazily.
-  const managedEnv = useMemo<ManagedEnv>(
-    () => (cfg.mode === 'saas' && cfg.managedSigner && user ? { baseUrl: cfg.managedSigner, token: async () => (await import('../lib/acceso')).accesoAccessToken() } : {}),
-    [cfg, user],
-  );
+  // Managed personas sign through this browser's device session, opened with the Acceso login (FR005-04, FR005-11);
+  // Amplify loads lazily.
+  const managedEnv = useMemo<ManagedEnv>(() => {
+    if (!(cfg.mode === 'saas' && cfg.managedSigner && user)) return {};
+    const token = async () => (await import('../lib/acceso')).accesoAccessToken();
+    return { baseUrl: cfg.managedSigner, token, session: new BrowserManagedSession(book.store, cfg.managedSigner, token) };
+  }, [cfg, user, book]);
 
   const reloadPersonas = useCallback(async () => setPersonas(await book.list()), [book]);
 

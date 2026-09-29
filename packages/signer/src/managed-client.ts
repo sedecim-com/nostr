@@ -7,6 +7,11 @@ export interface ManagedSignerConnection {
   baseUrl: string;
   token: AccessTokenProvider;
   fetch?: typeof fetch;
+  /**
+   * FR005-11: called when the service answers 401 (e.g. a device session that expired or its owner closed), before
+   * the request is sent once more with `token()`. A 401 means nothing was done, so the retry cannot repeat anything.
+   */
+  renew?: () => Promise<void>;
 }
 
 export interface ManagedSignerClientOptions extends ManagedSignerConnection {
@@ -29,9 +34,31 @@ export interface ManagedKeyInfo {
   /** FR005-08: the version of the texts and terms its owner accepted, and when. */
   consentVersion?: string;
   consentAt?: number;
-  custody: 'managed';
+  custody: 'managed' | 'managed-enclave';
   custodial: true;
   disclosure: string;
+}
+
+/** FR005-11: one entry of a managed key's usage log (DEC-09: kept 12 months). Metadata only, never content. */
+export interface ManagedKeyUsage {
+  at: number;
+  keyId: string;
+  action: string;
+  kind?: number;
+  eventId?: string;
+  principal: string;
+  /** The device whose session did it, when the call came through one. */
+  deviceId?: string;
+}
+
+/** FR005-11: a device session of the caller as the managed-signer lists it: never its token. */
+export interface ManagedDeviceSession {
+  id: string;
+  deviceId: string;
+  createdAt: number;
+  expiresAt: number;
+  /** The session the listing was asked with. */
+  current?: true;
 }
 
 export class ManagedSignerHttpError extends Error {
@@ -40,7 +67,7 @@ export class ManagedSignerHttpError extends Error {
   }
 }
 
-async function request<T>(conn: ManagedSignerConnection, method: string, path: string, body?: unknown, prefix = '/v1/keys'): Promise<T> {
+async function request<T>(conn: ManagedSignerConnection, method: string, path: string, body?: unknown, prefix = '/v1/keys', renewed = false): Promise<T> {
   const token = await conn.token();
   if (!token) throw new ManagedSignerHttpError(401, 'managed signer: no Acceso session');
   const f = conn.fetch ?? fetch;
@@ -49,6 +76,10 @@ async function request<T>(conn: ManagedSignerConnection, method: string, path: s
     headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (res.status === 401 && conn.renew && !renewed) {
+    await conn.renew();
+    return request<T>(conn, method, path, body, prefix, true);
+  }
   if (!res.ok) {
     const text = await res.text();
     let message = text;
@@ -91,6 +122,29 @@ export class ManagedSignerClient implements Signer {
   static async openDeviceSession(conn: ManagedSignerConnection, deviceId: string, opts: { ttlSeconds?: number } = {}): Promise<{ token: string; deviceId: string; expiresAt: string }> {
     const r = await request<{ token: string; device_id: string; expires_at: string }>(conn, 'POST', '', { device_id: deviceId, ...(opts.ttlSeconds ? { ttl_seconds: opts.ttlSeconds } : {}) }, '/v1/device-sessions');
     return { token: r.token, deviceId: r.device_id, expiresAt: r.expires_at };
+  }
+
+  /**
+   * FR005-11: the caller's open device sessions. `current` marks the one `conn` uses, when it is one. With the Acceso
+   * login or any of the caller's sessions.
+   */
+  static async listDeviceSessions(conn: ManagedSignerConnection): Promise<ManagedDeviceSession[]> {
+    return (await request<{ sessions: ManagedDeviceSession[] }>(conn, 'GET', '', undefined, '/v1/device-sessions')).sessions;
+  }
+
+  /** FR005-11: closes one of the caller's sessions: any of them with the Acceso login, or a session itself. */
+  static async closeDeviceSession(conn: ManagedSignerConnection, id: string): Promise<void> {
+    await request(conn, 'DELETE', `/${encodeURIComponent(id)}`, undefined, '/v1/device-sessions');
+  }
+
+  /** FR005-11: closes every session of the caller but `except` (Acceso login only). Returns how many were closed. */
+  static async closeDeviceSessions(conn: ManagedSignerConnection, opts: { except?: string } = {}): Promise<number> {
+    return (await request<{ closed: number }>(conn, 'DELETE', opts.except ? `?except=${encodeURIComponent(opts.except)}` : '', undefined, '/v1/device-sessions')).closed;
+  }
+
+  /** FR005-11: this key's usage log, oldest first: what was signed or decrypted with it, when and from which device. */
+  async usage(): Promise<ManagedKeyUsage[]> {
+    return (await this.call<{ usage: ManagedKeyUsage[] }>('/usage')).usage;
   }
 
   private call<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
