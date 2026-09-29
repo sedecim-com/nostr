@@ -217,16 +217,18 @@ export function ManagedActivity() {
   const [usage, setUsage] = useState<ManagedKeyUsage[] | undefined>();
   const [sessions, setSessions] = useState<ManagedDeviceSession[] | undefined>();
   const [thisDevice, setThisDevice] = useState('');
+  const [orgDevice, setOrgDevice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
+    // The device first: shown even when the managed-signer turns this browser away (FR024-03).
+    setThisDevice((await ws.managedEnv.session?.deviceId()) ?? '');
     const conn = managedConnection(ws.managedEnv);
     const client = new ManagedSignerClient({ ...conn, keyId: s.persona.managedKeyId! });
-    const [u, list, device] = await Promise.all([client.usage(), ManagedSignerClient.listDeviceSessions(conn), ws.managedEnv.session?.deviceId()]);
+    const [u, list] = await Promise.all([client.usage(), ManagedSignerClient.listDeviceSessions(conn)]);
     setUsage(u.slice(-20).reverse());
     setSessions(list);
-    setThisDevice(device ?? '');
   }, [ws.managedEnv, s.persona.managedKeyId]);
 
   const run = async (fn: () => Promise<void>) => {
@@ -264,6 +266,16 @@ export function ManagedActivity() {
       ws.notify(closed === 1 ? 'Se cerró 1 sesión.' : `Se cerraron ${closed} sesiones.`, 'success');
     });
   const others = (sessions ?? []).filter((x) => !x.current).length;
+  // FR024-03: the session carries the device id the organisation registered, so revoking it reaches this browser.
+  const bind = () =>
+    run(async () => {
+      if (!ws.managedEnv.session) throw new Error('sin sesión de Acceso');
+      await ws.managedEnv.session.bindDevice(orgDevice);
+      setOrgDevice('');
+      await load();
+      ws.notify('Este navegador firma ahora como el dispositivo de tu organización: si lo revoca, deja de firmar.', 'success');
+    });
+  const bound = !!thisDevice && !thisDevice.startsWith('web-');
 
   return (
     <Card id="managed-activity">
@@ -297,6 +309,38 @@ export function ManagedActivity() {
           <Typography variant="caption" color="text.secondary">
             Cerrar una sesión corta la firma en ese navegador hasta que vuelva a entrar con tu login de Acceso. Si perdiste un dispositivo, cambia también tu contraseña de Acceso.
           </Typography>
+          {ws.cfg.organizationDevices && (
+            <Stack spacing={1} id="managed-org">
+              <Typography variant="subtitle1" component="h3">
+                Dispositivo de tu organización
+              </Typography>
+              {bound ? (
+                <Typography variant="body2" id="managed-org-bound">
+                  Este navegador firma como el dispositivo {thisDevice} de tu organización. Si lo revoca, deja de firmar con tu llave gestionada, también al volver a entrar con tu login.
+                </Typography>
+              ) : (
+                <>
+                  <Typography variant="body2" color="text.secondary">
+                    Tu organización registra cada dispositivo. Vincula este navegador al suyo para que, si lo pierdes y lo revoca, deje de poder firmar.
+                  </Typography>
+                  <Stack
+                    component="form"
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void bind();
+                    }}
+                  >
+                    <TextField id="managed-org-device" label="Id del dispositivo que te dio tu organización" size="small" value={orgDevice} onChange={(e) => setOrgDevice(e.target.value)} />
+                    <Button type="submit" variant="outlined" disabled={busy || !orgDevice.trim()}>
+                      Vincular este navegador
+                    </Button>
+                  </Stack>
+                </>
+              )}
+            </Stack>
+          )}
           <Typography variant="subtitle1" component="h3" id="managed-usage-h">
             Uso de la llave (últimos 20; el registro se guarda 12 meses)
           </Typography>

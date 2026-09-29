@@ -25,8 +25,10 @@ dispositivo (`sds_…`, 12 h), que se puede cerrar desde otro navegador.
 3. Pulsa «Cerrar las demás sesiones», o «Cerrar» en la del dispositivo perdido.
 4. **Cambia la contraseña de Acceso.** Cerrar una sesión no basta si el dispositivo sigue con el login abierto: en
    su siguiente firma abriría otra.
-5. En modo institucional, además, sigue la sección 3: la organización revoca el dispositivo y el managed-signer lo
-   rechaza para siempre, aunque tenga el login.
+5. En modo institucional, además, sigue la sección 3. Si ese navegador estaba vinculado al dispositivo de la
+   organización («Dispositivo de tu organización» en la misma tarjeta), revocarlo hace que el managed-signer lo rechace
+   para siempre, aunque tenga el login. Si no lo estaba, la revocación no le llega: los pasos 3 y 4 son los que
+   cuentan.
 
 ## 2. Persona local (la llave estaba en el dispositivo)
 
@@ -61,6 +63,10 @@ La organización revoca el dispositivo en el policy-engine, y desde ahí todo lo
 3. **Firmantes.** El worker lleva la revocación al managed-signer: se borran las sesiones de ese dispositivo y se
    rechazan las nuevas, también con el login de Acceso. Un bunker NIP-46 conectado a él suelta la sesión del
    dispositivo y rota su secreto.
+   - En la web, esto alcanza al navegador que la persona vinculó al dispositivo de la organización (FR024-03). Ese
+     navegador ya no firma, y la tarjeta «Actividad de tu llave gestionada» explica que la organización lo revocó.
+   - Un navegador sin vincular firma con un id propio (`web-…`) que la organización no conoce. Para cortarlo, la
+     persona cierra su sesión desde otro navegador y cambia su contraseña de Acceso (sección 1).
 4. **Comprobar.**
    - «Auditoría»: la entrada `device.revoke` con el motivo.
    - «Accesos»: las peticiones posteriores de ese dispositivo aparecen como «Denegado».
