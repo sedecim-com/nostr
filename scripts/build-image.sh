@@ -17,7 +17,7 @@ set -eu
 # Layer compression and image metadata depend on the BuildKit version: pinned by digest.
 BUILDKIT_IMAGE=moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
 PLATFORM=linux/amd64
-SERVICES="indexer identity-service policy-engine blob-store managed-signer notification-gateway web tor"
+SERVICES="indexer identity-service policy-engine blob-store managed-signer notification-gateway continuity-vault web tor"
 
 usage() {
   echo "uso: sh scripts/build-image.sh <servicio> <salida.tar>   (servicio: $SERVICES)" >&2
@@ -30,7 +30,7 @@ if [ -z "$service" ] || [ -z "$out" ]; then usage; fi
 
 # Same context / target / SERVICE as docker-compose.yml.
 case "$service" in
-  indexer | identity-service | policy-engine | blob-store | managed-signer | notification-gateway)
+  indexer | identity-service | policy-engine | blob-store | managed-signer | notification-gateway | continuity-vault)
     context=. target=service arg="SERVICE=$service" ;;
   web) context=. target=web arg='' ;;
   tor) context=infra/tor target='' arg='' ;;

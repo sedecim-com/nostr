@@ -269,6 +269,7 @@ jobs:
           MARMOT_RELAY_URL: ws://localhost:7000
           STACK_INDEXER_URL: http://localhost:8081
           STACK_BLOB_URL: http://localhost:8085
+          STACK_VAULT_URL: http://localhost:8088
           STACK_WEB_URL: http://localhost:8080
         run: npx vitest run tests/interop
       - name: Deployment flags match the gate result (FR-017)

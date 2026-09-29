@@ -77,6 +77,7 @@ describe('every compose service has a Kubernetes workload', () => {
     ...readdirSync(join(root, 'deploy/k8s/base')).filter((f) => f.endsWith('.yaml')).map((f) => read(`deploy/k8s/base/${f}`)),
     read('deploy/k8s/components/managed-signer/managed-signer.yaml'),
     read('deploy/k8s/components/notification-gateway/notification-gateway.yaml'),
+    read('deploy/k8s/components/continuity-vault/continuity-vault.yaml'),
     read('deploy/k8s/components/institutional/relay-allowlist.yaml'),
   ].join('\n---\n');
   const servicesBlock = compose.slice(compose.indexOf('\nservices:\n'), compose.indexOf('\nvolumes:\n'));

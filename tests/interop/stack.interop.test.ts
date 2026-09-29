@@ -1,7 +1,8 @@
 /**
- * Full-stack checks against the Docker Compose deployment (OPS-01, FR-014, FR-018, FR-017).
+ * Full-stack checks against the Docker Compose deployment (OPS-01, FR-014, FR-018, FR-017, VAULT-06).
  *   docker compose up -d && STACK_INDEXER_URL=http://localhost:8081 BUZZ_RELAY_URL=ws://localhost:3000 \
- *     STACK_BLOB_URL=http://localhost:8085 STACK_WEB_URL=http://localhost:8080 npm run test:interop
+ *     STACK_BLOB_URL=http://localhost:8085 STACK_VAULT_URL=http://localhost:8088 STACK_WEB_URL=http://localhost:8080 \
+ *     npm run test:interop
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -12,11 +13,13 @@ import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { chatMessage, createGroup, parseGroupMetadata } from '@sedecim/messaging';
 import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
 import { nip98Fetch } from '@sedecim/service-kit';
+import { ArchiveVaultClient, archiveEvent, generateArchiveKey, restoreHistory } from '@sedecim/continuity';
 
 const RELAY = process.env.BUZZ_RELAY_URL;
 const INDEXER = process.env.STACK_INDEXER_URL;
 const BLOBS = process.env.STACK_BLOB_URL;
 const WEB = process.env.STACK_WEB_URL;
+const VAULT = process.env.STACK_VAULT_URL;
 const factory = (u: string) => new WebSocket(u) as unknown as WebSocketLike;
 
 async function eventually<T>(fn: () => Promise<T | undefined>, ms: number): Promise<T | undefined> {
@@ -74,6 +77,21 @@ describe.skipIf(!BLOBS)('stack: encrypted attachments via blob-store (FR-018)', 
     const blob = prepareBlob(new TextEncoder().encode('adjunto cifrado del stack'), { sanitize: false, encrypt: true });
     const d = await client.upload(blob);
     expect(new TextDecoder().decode(await client.download(d.sha256, { decrypt: blob.encryption! }))).toBe('adjunto cifrado del stack');
+  });
+});
+
+describe.skipIf(!VAULT)('stack: Continuity Vault on the compose SeaweedFS (VAULT-06)', () => {
+  it('keeps a sealed envelope in its bucket, gives it back and deletes the account', async () => {
+    const key = generateArchiveKey();
+    const vault = new ArchiveVaultClient({ baseUrl: VAULT!, auth: { archiveKey: key } });
+    const note = await new LocalSigner(generateSecretKey()).signEvent({ kind: 1, content: 'copia en el vault del stack', tags: [] });
+    await archiveEvent(vault, key, note);
+    const restored = await restoreHistory(vault, key, { pubkey: note.pubkey });
+    expect(restored).toMatchObject({ archives: 1, skipped: 0 });
+    expect(restored.events.map((e) => e.id)).toEqual([note.id]);
+    expect((await vault.usage()).retention).toMatchObject({ days: null });
+    expect(await vault.remove()).toBe(1);
+    expect(await vault.listAll()).toEqual([]);
   });
 });
 

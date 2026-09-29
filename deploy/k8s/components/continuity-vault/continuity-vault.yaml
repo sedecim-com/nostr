@@ -1,0 +1,167 @@
+# Stateless: rows in the platform database, envelopes in SeaweedFS. Replicas share the NIP-98 replay store
+# (Postgres) and each runs the retention and orphan sweep (VAULT-05), which is idempotent.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: continuity-vault
+  labels:
+    app: continuity-vault
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: continuity-vault
+  template:
+    metadata:
+      labels:
+        app: continuity-vault
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: continuity-vault
+          image: acceso-nostr-service
+          ports:
+            - name: http
+              containerPort: 8088
+          envFrom:
+            - configMapRef:
+                name: acceso-nostr-config
+          env:
+            - name: SERVICE
+              value: continuity-vault
+            - name: PORT
+              value: "8088"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(PLATFORM_DB)$(POSTGRES_URL_QUERY)
+            - name: VAULT_S3_ENDPOINT
+              value: http://seaweedfs:8333
+            - name: VAULT_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: VAULT_S3_ACCESS_KEY
+                  optional: true
+            - name: VAULT_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: VAULT_S3_SECRET_KEY
+                  optional: true
+            - name: PUBLIC_BASE_URL
+              value: $(VAULT_PUBLIC_URL)
+            - name: CORS_ORIGINS
+              value: $(WEB_ORIGIN)
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: continuity-vault
+  labels:
+    app: continuity-vault
+spec:
+  selector:
+    app: continuity-vault
+  ports:
+    - name: http
+      port: 8088
+      targetPort: 8088
+---
+# One-shot creation of the vault's bucket (compose: seaweedfs-init). Idempotent: "already exists" counts.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: continuity-vault-bucket
+  labels:
+    app: continuity-vault-bucket
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: continuity-vault-bucket
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: init
+          image: seaweedfs
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              for i in $(seq 1 60); do
+                if echo "s3.bucket.create -name $VAULT_S3_BUCKET" | weed shell -master=seaweedfs:9333 2>&1 | grep -Eq "created bucket|already exists"; then echo "bucket $VAULT_S3_BUCKET ready"; exit 0; fi
+                sleep 2
+              done
+              echo "could not create bucket $VAULT_S3_BUCKET"; exit 1
+          envFrom:
+            - configMapRef:
+                name: acceso-nostr-config
+          env:
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: tmp
+          emptyDir: {}

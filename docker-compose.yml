@@ -102,13 +102,19 @@ services:
     command:
       - |
         set -eu
-        case "$$S3_ACCESS_KEY$$S3_SECRET_KEY" in *[!A-Za-z0-9]*) echo "S3 keys must be alphanumeric"; exit 1;; esac
+        case "$$S3_ACCESS_KEY$$S3_SECRET_KEY$$VAULT_S3_ACCESS_KEY$$VAULT_S3_SECRET_KEY" in *[!A-Za-z0-9]*) echo "S3 keys must be alphanumeric"; exit 1;; esac
+        case "$$VAULT_S3_BUCKET" in *[!a-z0-9-]* | '') echo "VAULT_S3_BUCKET: lowercase letters, digits and -"; exit 1;; esac
         umask 077
-        printf '{"identities":[{"name":"buzz","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}' "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" > /tmp/s3.json
+        # Buzz, and the Continuity Vault (VAULT-06) with keys of its own that reach its bucket only.
+        printf '{"identities":[{"name":"buzz","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]},{"name":"continuity-vault","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s"]}]}' \
+          "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" "$$VAULT_S3_ACCESS_KEY" "$$VAULT_S3_SECRET_KEY" "$$VAULT_S3_BUCKET" "$$VAULT_S3_BUCKET" "$$VAULT_S3_BUCKET" > /tmp/s3.json
         exec weed server -dir=/data -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=/tmp/s3.json
     environment:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY}
+      VAULT_S3_ACCESS_KEY: ${VAULT_S3_ACCESS_KEY:?set VAULT_S3_ACCESS_KEY (sh scripts/init-env.sh generates it)}
+      VAULT_S3_SECRET_KEY: ${VAULT_S3_SECRET_KEY:?set VAULT_S3_SECRET_KEY (sh scripts/init-env.sh generates it)}
+      VAULT_S3_BUCKET: ${VAULT_S3_BUCKET:-continuity-vault}
     volumes: [seaweedfs-data:/data]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status"]
@@ -124,13 +130,18 @@ services:
     command:
       - |
         set -eu
-        for i in $$(seq 1 30); do
-          if echo "s3.bucket.create -name $$S3_BUCKET" | weed shell -master=seaweedfs:9333 2>&1 | grep -Eq "created bucket|already exists"; then echo "bucket $$S3_BUCKET ready"; exit 0; fi
-          sleep 2
+        # Buzz media, and the Continuity Vault's envelopes (VAULT-06).
+        for bucket in "$$S3_BUCKET" "$$VAULT_S3_BUCKET"; do
+          ready=
+          for i in $$(seq 1 30); do
+            if echo "s3.bucket.create -name $$bucket" | weed shell -master=seaweedfs:9333 2>&1 | grep -Eq "created bucket|already exists"; then ready=1; echo "bucket $$bucket ready"; break; fi
+            sleep 2
+          done
+          [ -n "$$ready" ] || { echo "could not create bucket $$bucket"; exit 1; }
         done
-        echo "could not create bucket $$S3_BUCKET"; exit 1
     environment:
       S3_BUCKET: ${S3_BUCKET:-buzz-media}
+      VAULT_S3_BUCKET: ${VAULT_S3_BUCKET:-continuity-vault}
     restart: "no"
     networks: [nostr]
 
@@ -236,6 +247,30 @@ services:
     ports: ["${SECURE_RELAY_PORT:-7000}:8080"]
     restart: unless-stopped
     networks: [nostr]
+
+  # Continuity Vault (ADR 0011, VAULT-06): envelopes sealed on each device, in a SeaweedFS bucket of their own; their
+  # metadata in the platform database. The operator sees accounts, sizes and times, never content or keys.
+  continuity-vault:
+    <<: *service
+    build: { context: ., target: service, args: { SERVICE: continuity-vault } }
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_DB:-sedecim}
+      VAULT_S3_ENDPOINT: http://seaweedfs:8333
+      VAULT_S3_BUCKET: ${VAULT_S3_BUCKET:-continuity-vault}
+      VAULT_S3_ACCESS_KEY: ${VAULT_S3_ACCESS_KEY:?set VAULT_S3_ACCESS_KEY (sh scripts/init-env.sh generates it)}
+      VAULT_S3_SECRET_KEY: ${VAULT_S3_SECRET_KEY:?set VAULT_S3_SECRET_KEY (sh scripts/init-env.sh generates it)}
+      PUBLIC_BASE_URL: ${VAULT_PUBLIC_URL:-http://localhost:8088}
+      CORS_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
+      # Who may open an account: open (any Nostr key), allowlist (VAULT_ALLOWED_PUBKEYS) or off (Acceso logins only).
+      VAULT_NIP98: ${VAULT_NIP98:-open}
+      VAULT_ALLOWED_PUBKEYS: ${VAULT_ALLOWED_PUBKEYS:-}
+      # VAULT-05: the most days an archive is kept since its last write (empty: until deleted).
+      VAULT_RETENTION_DAYS: ${VAULT_RETENTION_DAYS:-}
+      PORT: "8088"
+    ports: ["${VAULT_PORT:-8088}:8088"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      seaweedfs-init: { condition: service_completed_successfully }
 
   # Content-agnostic Blossom for client-encrypted attachments (Buzz /media only accepts images/video).
   blob-store:

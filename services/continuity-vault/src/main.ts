@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, type ReplayStore } from '@sedecim/service-kit';
-import { CognitoVerifier, createContinuityVaultApi, FileObjectStore, MemoryArchiveRepository, MemoryObjectStore, PgArchiveRepository, VaultSweeper, type ArchiveRepository, type Nip98Policy, type ObjectStore, type VaultLimits } from './index';
+import { CognitoVerifier, createContinuityVaultApi, FileObjectStore, MemoryArchiveRepository, MemoryObjectStore, PgArchiveRepository, S3ObjectStore, VaultSweeper, type ArchiveRepository, type Nip98Policy, type ObjectStore, type VaultLimits } from './index';
 
 const env = process.env;
 
@@ -12,9 +12,13 @@ function positive(name: string): number | undefined {
   return n;
 }
 
-// Metadata and envelopes must survive together: both persistent (DATABASE_URL + VAULT_OBJECTS_DIR) or both
+// Where the envelopes go: a directory (VAULT_OBJECTS_DIR) or an S3-compatible bucket (VAULT_S3_BUCKET, VAULT-06).
+if (env.VAULT_OBJECTS_DIR && env.VAULT_S3_BUCKET) throw new Error('set VAULT_OBJECTS_DIR or VAULT_S3_BUCKET, not both');
+const persistentObjects = !!(env.VAULT_OBJECTS_DIR || env.VAULT_S3_BUCKET);
+// Metadata and envelopes must survive together: both persistent (DATABASE_URL + a directory or a bucket) or both
 // in memory for development. A persistent half would leave rows without objects, or objects without rows.
-if (!!env.DATABASE_URL !== !!env.VAULT_OBJECTS_DIR) throw new Error('set both DATABASE_URL and VAULT_OBJECTS_DIR, or neither (in-memory development mode)');
+if (!!env.DATABASE_URL !== persistentObjects) throw new Error('set DATABASE_URL together with VAULT_OBJECTS_DIR or VAULT_S3_BUCKET, or none of them (in-memory development mode)');
+if (!!env.VAULT_S3_ACCESS_KEY !== !!env.VAULT_S3_SECRET_KEY) throw new Error('set both VAULT_S3_ACCESS_KEY and VAULT_S3_SECRET_KEY, or neither (default AWS credentials)');
 let repo: ArchiveRepository;
 let objects: ObjectStore;
 // IR-2026-09-04: used NIP-98 ids shared by every replica through Postgres; per process without it.
@@ -25,9 +29,23 @@ if (env.DATABASE_URL) {
   await migrateReplayStore(pool);
   repo = new PgArchiveRepository(pool);
   replayStore = new PgReplayStore(pool);
-  objects = new FileObjectStore(env.VAULT_OBJECTS_DIR!);
+  if (env.VAULT_S3_BUCKET) {
+    const s3 = new S3ObjectStore({
+      bucket: env.VAULT_S3_BUCKET,
+      ...(env.VAULT_S3_ENDPOINT ? { endpoint: env.VAULT_S3_ENDPOINT } : {}),
+      ...(env.VAULT_S3_REGION ? { region: env.VAULT_S3_REGION } : {}),
+      ...(env.VAULT_S3_ACCESS_KEY ? { credentials: { accessKeyId: env.VAULT_S3_ACCESS_KEY, secretAccessKey: env.VAULT_S3_SECRET_KEY! } } : {}),
+      ...(env.VAULT_S3_FORCE_PATH_STYLE ? { forcePathStyle: env.VAULT_S3_FORCE_PATH_STYLE === 'true' } : {}),
+      ...(env.VAULT_S3_PREFIX ? { prefix: env.VAULT_S3_PREFIX } : {}),
+    });
+    // A missing bucket or wrong credentials stop the start, not the first upload.
+    await s3.check();
+    objects = s3;
+  } else {
+    objects = new FileObjectStore(env.VAULT_OBJECTS_DIR!);
+  }
 } else {
-  console.warn('DATABASE_URL and VAULT_OBJECTS_DIR not set: archives kept in memory and lost on restart');
+  console.warn('DATABASE_URL and VAULT_OBJECTS_DIR / VAULT_S3_BUCKET not set: archives kept in memory and lost on restart');
   repo = new MemoryArchiveRepository();
   objects = new MemoryObjectStore();
 }

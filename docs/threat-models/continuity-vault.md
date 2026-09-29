@@ -2,7 +2,7 @@
 
 - **Estado:** Propuesto. Pendiente de la revisión de seguridad y de la aprobación de alguien distinto del
   autor, como los threat models por perfil (DEC-10).
-- **Tareas:** VAULT-01, VAULT-02, VAULT-03, VAULT-04, VAULT-05, VAULT-07 · **Decisión:** [ADR 0011](../adr/0011-continuity-vault.md) ·
+- **Tareas:** VAULT-01, VAULT-02, VAULT-03, VAULT-04, VAULT-05, VAULT-06, VAULT-07 · **Decisión:** [ADR 0011](../adr/0011-continuity-vault.md) ·
   **Fecha:** 2026-09-28
 
 **Qué es.** `services/continuity-vault` guarda sobres de archivo sellados en el cliente para que el historial no
@@ -17,6 +17,8 @@ dependa solo de los relays.
 - **VAULT-05.** Cada cuenta elige cuánto se guardan sus archivos, dentro del máximo del operador; un barrido
   borra lo caducado y los objetos huérfanos. La persona puede exportar el vault a un JSON abierto y borrarlo
   entero, cuenta incluida.
+- **VAULT-06.** El compose lo despliega sin el SaaS de Sedecim: filas en la base de la plataforma y sobres en un
+  bucket propio de SeaweedFS (o en un directorio, o en cualquier S3-compatible). El operador es quien despliega.
 
 ## Activos
 - **El contenido de los archivos:** el historial de conversaciones, el estado MLS de los grupos y el ledger de
@@ -49,7 +51,8 @@ dependa solo de los relays.
 | Un backup con un coste scrypt enorme agota el dispositivo que lo restaura | Se rechaza un logN mayor que 20 antes de ejecutar scrypt; el generador offline no escribe más | `identity.test.ts` |
 | Una persona Tor-only sale por clearnet | El CLI habla con el vault a través del guard de la persona: Tor o nada. La web no admite Tor-only | `apps/sovereign-client/test/vault.test.ts` |
 | Abuso del almacenamiento | Cuotas por cuenta comprobadas con la fila bloqueada, límites de tasa y política NIP-98 `allowlist` u `off` | `continuity-vault.test.ts` (cuotas, 12 subidas simultáneas) |
-| Inconsistencia entre la base y los objetos | Primero el objeto, después la fila. Un fallo deja objetos huérfanos, nunca filas sin objeto. Al descargar se comprueba el sha256. El barrido de VAULT-05 borra un objeto sin fila cuando lo encuentra así dos veces seguidas, así que nunca el de una subida en curso | `continuity-vault.test.ts` (reinicio, reemplazo sin huérfanos, barrido en dos fases con memoria, archivos y Postgres) |
+| Inconsistencia entre la base y los objetos | Primero el objeto, después la fila. Un fallo deja objetos huérfanos, nunca filas sin objeto. Al descargar se comprueba el sha256. El barrido de VAULT-05 borra un objeto sin fila cuando lo encuentra así dos veces seguidas, así que nunca el de una subida en curso. En el compose, `backup.sh` pausa el vault desde antes de los dumps hasta copiar `seaweedfs-data`: un backup nunca tiene una fila sin su sobre (VAULT-06) | `continuity-vault.test.ts` (reinicio, reemplazo sin huérfanos, barrido en dos fases con memoria, archivos, S3 y Postgres); restore drill (backup, host limpio y restore del sobre sembrado) |
+| El vault del compose toca otros datos del bucket | Llaves S3 propias, que SeaweedFS solo acepta para leer, escribir y listar el bucket `continuity-vault`: el vault no puede leer ni borrar la media de Buzz. Bucket propio, creado por `seaweedfs-init` | `docker-compose.yml` (identidades de SeaweedFS); interop del stack contra el vault del compose (`tests/interop/stack.interop.test.ts`) |
 | El vault guarda más de lo que la persona quiere | Retención por cuenta (`PUT /v1/retention`) dentro del máximo del operador (`VAULT_RETENTION_DAYS`); el barrido borra fila y objeto al vencer. Borrar todo elimina los archivos y la cuenta con su retención. La web y el CLI avisan si la copia automática sigue encendida | `continuity-vault.test.ts` (retención y barrido), `apps/web-saas/test/continuity.test.ts`, `apps/sovereign-client/test/vault.test.ts`, E2E `web-saas` |
 | Quedar atado al vault (portabilidad, NFR-008) | Exportación a un JSON abierto (`sedecim-vault-export`) con los eventos firmados tal cual, que otra implementación de Nostr verifica, y que `history import` vuelve a publicar | `apps/web-saas/test/continuity.test.ts` y `apps/sovereign-client/test/vault.test.ts` (verificado con nostr-tools), E2E `web-saas` |
 
@@ -63,8 +66,9 @@ dependa solo de los relays.
 | Estado MLS copiado de otro dispositivo | Bajo | Restaurado, cada grupo es una copia de la hoja del dispositivo anterior y no puede enviar hasta entrar otra vez como hoja nueva (FR025-06): dos dispositivos nunca envían con la misma hoja. Los key packages privados no se guardan en el vault |
 | Pérdida de la llave de archivo | Alto para la continuidad | Sin el backup y sin el dispositivo no hay forma de recuperarla; el operador tampoco puede. Se declara |
 | Robo del backup de identidad | Medio | Fuerza bruta offline de NIP-49 (scrypt) contra la contraseña del backup; depende de su fortaleza |
-| Cuentas NIP-98 ilimitadas con la política `open` | Bajo en self-hosted, Medio en SaaS | El SaaS usa `allowlist` u `off` |
-| Copias de seguridad del operador | Bajo | Borrar y caducar actúan sobre la base y el object store en uso: sus copias de seguridad conservan metadatos y sobres cifrados hasta que caducan. En el módulo de Terraform de referencia, RDS guarda backups y PITR `rds_backup_retention_days` (14 días por defecto) y el bucket de backups expira a los `backup_retention_days` (35 días por defecto). Ese módulo y `scripts/backup.sh` aún no incluyen el vault (VAULT-06): quien lo opere declara la retención de sus copias. Se declara antes de borrar (`CONTINUITY_VAULT_TEXTS.deletion`) |
+| Cuentas NIP-98 ilimitadas con la política `open` | Bajo en self-hosted, Medio en SaaS o si el compose lo publica en internet | El SaaS usa `allowlist` u `off`. El compose trae `open` (`VAULT_NIP98`): publicado en un dominio, cualquiera abre cuentas, cada una dentro de las cuotas `VAULT_MAX_*`. `allowlist` pide la llave que cada cliente deriva de su llave de archivo, y los clientes todavía no la muestran |
+| Pausa del vault durante el backup del compose | Bajo para la disponibilidad | Las subidas esperan lo que tarden los dumps y la copia de SeaweedFS; los clientes reintentan. Una copia `best-effort` no retrasa ningún envío; una `required-for-resilient` lo retiene ese rato |
+| Copias de seguridad del operador | Bajo | Borrar y caducar actúan sobre la base y el object store en uso: sus copias de seguridad conservan metadatos y sobres cifrados hasta que caducan. En el módulo de Terraform de referencia, RDS guarda backups y PITR `rds_backup_retention_days` (14 días por defecto) y el bucket de backups expira a los `backup_retention_days` (35 días por defecto). Ese módulo aún no despliega el vault. En el compose, `scripts/backup.sh` lo copia (VAULT-06) y esas copias duran lo que el operador las conserve. Se declara antes de borrar (`CONTINUITY_VAULT_TEXTS.deletion`) |
 | Exportación en claro | Medio | El archivo exportado no va cifrado: los mensajes de grupo quedan legibles para quien lo obtenga. El CLI lo escribe con modo 0600 y no sobrescribe; la web y el CLI lo avisan (`CONTINUITY_VAULT_TEXTS.export`). No lleva el estado MLS ni llaves |
 | La retención borra historial que los relays ya perdieron | Medio para la continuidad | El plazo cuenta desde la última escritura: un evento se sube una vez y caduca aunque la persona siga guardando; si los relays ya no lo tienen, se pierde. Es la elección de la persona o el máximo del operador, y se declara (`CONTINUITY_VAULT_TEXTS.retention`); la restauración cuenta los archivos que faltan |
 | Hora de cada envío visible al operador | Medio | Con `best-effort` o `required-for-resilient` cada envío es una subida: el operador ve cuándo envías y cuántos eventos, no su contenido. v1 no agrupa subidas. Se declara en el texto de cada política (desde disclosures 1.6.0) |

@@ -1,8 +1,9 @@
 name: restore-drill
 
 # NFR003-02: nightly restore drill of the self-hosted stack (docs/runbooks/restore.md, docs/rpo-rto.md).
-# Stack up → known data written into every stateful component → scripts/backup.sh → clean host
-# (docker compose down -v, no .env) → scripts/restore.sh → the data is back → interop gate.
+# Stack up → known data written into every stateful component (the Continuity Vault included, VAULT-06) →
+# scripts/backup.sh → clean host (docker compose down -v, no .env) → scripts/restore.sh → the data is back →
+# interop gate.
 # On failure an issue is opened (or commented) so the broken drill is not lost.
 on:
   schedule:
@@ -36,6 +37,7 @@ env:
   MARMOT_RELAY_URL: ws://localhost:7000
   STACK_INDEXER_URL: http://localhost:8081
   STACK_BLOB_URL: http://localhost:8085
+  STACK_VAULT_URL: http://localhost:8088
   STACK_WEB_URL: http://localhost:8080
 
 jobs:
@@ -59,7 +61,7 @@ jobs:
         run: |
           docker compose up -d
           sh scripts/wait-stack.sh
-      - name: Seed known data (Buzz, mirror, media, blob-store, secure relay)
+      - name: Seed known data (Buzz, mirror, media, blob-store, secure relay, Continuity Vault)
         run: npx tsx scripts/drill-data.ts seed "$RUNNER_TEMP/drill-state.json"
       - name: Backup (scripts/backup.sh, as the runbook prescribes)
         run: sh scripts/backup.sh "$RUNNER_TEMP/backup"
