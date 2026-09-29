@@ -2,6 +2,7 @@
 
 > Base: `main@5f39e73` (revisión del backlog contra el código) y `main@d479bc5` (tras las PR #216 y #217), los issues del backlog a 2026-09-27, *Scope_Plataforma_Nostr_Soberana_SaaS_v0.1* (25/09/2026) y el *PRD de cierre de brechas y preparación para release* v0.3 (27/09/2026).
 > `backlog.json`, `README.md` y `backlog.csv` se generan desde GitHub Issues; este documento explica el replanteo que llevan. La sección *Cómo se aplicó* describe cómo pasó a los issues.
+> **Actualizado el 29/09/2026** por [replanteo-2026-09-29.md](replanteo-2026-09-29.md): sprints S9–S16, releases y gates G1 y G2. Donde este documento asigna tareas a sprints, manda el del 29 de septiembre y los issues.
 
 ## Resumen
 
