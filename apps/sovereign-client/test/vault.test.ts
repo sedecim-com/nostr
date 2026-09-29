@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { verifyEvent as ntVerifyEvent } from 'nostr-tools';
 import { spawn } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -151,8 +151,15 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
       expect(exported.status, exported.stderr).toBe(0);
       expect(exported.stdout).toMatch(/\(sedecim-vault-export v1\): 2 eventos firmados, 0 mensajes de grupo, 2 operaciones del ledger/);
       expect(exported.stderr).toContain(`aviso: ${CONTINUITY_VAULT_TEXTS.export}`);
-      expect(statSync(file).mode & 0o777).toBe(0o600);
-      const data = JSON.parse(readFileSync(file, 'utf8')) as VaultExport;
+      // One descriptor for the mode and the content: both read from the same file.
+      const fd = openSync(file, 'r');
+      let data: VaultExport;
+      try {
+        expect(fstatSync(fd).mode & 0o777).toBe(0o600);
+        data = JSON.parse(readFileSync(fd, 'utf8')) as VaultExport;
+      } finally {
+        closeSync(fd);
+      }
       expect(data).toMatchObject({ format: 'sedecim-vault-export', version: 1 });
       const note = data.events.find((e) => e.content === 'para llevar 9914')!;
       expect(note).toBeTruthy();
