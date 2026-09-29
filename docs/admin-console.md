@@ -65,9 +65,9 @@ npx vitest run apps/admin-console
 npm run test:browser     # incluye tests/browser/admin-console.e2e.ts
 ```
 
-El E2E levanta un policy-engine simulado en memoria que implementa el contrato del API
-(`tests/browser/policy-engine-stub.ts`, con verificación NIP-98 real), el identity-service real y un
-relay de prueba para el bunker NIP-46. Recorre el alta, la edición, la revocación y la reactivación, las rotaciones, la
+El E2E levanta el policy-engine real en el mismo proceso (su API y su motor, con repositorio en memoria y la
+verificación WebAuthn incluida; FR023-13), el identity-service real y un relay de prueba para el bunker NIP-46. Lo
+que guarda cada acción se comprueba leyendo el propio motor, nunca a través de la consola. Recorre el alta, la edición, la revocación y la reactivación, las rotaciones, la
 paginación de la auditoría, el aviso de retención y el alta de una passkey con el autenticador virtual
 de Chromium (CDP `WebAuthn.addVirtualAuthenticator`). También pasa axe sin violaciones graves o
 críticas y comprueba que no haya ids duplicados, violaciones de CSP ni errores de página.
