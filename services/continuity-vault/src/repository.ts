@@ -47,10 +47,29 @@ export interface ArchiveRepository {
   /** Deletes one archive, or every archive of the owner; returns the object keys to delete. */
   delete(owner: string, archiveId?: string): Promise<string[]>;
   usage(owner: string): Promise<VaultUsage>;
+  /** VAULT-05: the days the owner keeps an archive since its last write (null: the operator's maximum). */
+  retention(owner: string): Promise<number | null>;
+  setRetention(owner: string, days: number | null): Promise<void>;
+  /**
+   * VAULT-05: deletes every archive not written for longer than its owner's retention (never more than `maxDays`,
+   * the operator's), keeping the counters exact; returns the object keys to delete. Without either, nothing expires.
+   */
+  expire(now: Date, maxDays: number | undefined): Promise<string[]>;
+  /** Every object key a row points to (the orphan sweep keeps these). */
+  objectKeys(): Promise<Set<string>>;
 }
+
+/** The days an archive of an account is kept: the account's choice, never above the operator's maximum. */
+export function effectiveRetention(accountDays: number | null | undefined, maxDays: number | undefined): number | undefined {
+  if (accountDays == null) return maxDays;
+  return maxDays === undefined ? accountDays : Math.min(accountDays, maxDays);
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export class MemoryArchiveRepository implements ArchiveRepository {
   private readonly owners = new Map<string, Map<string, ArchiveRow>>();
+  private readonly retentions = new Map<string, number>();
 
   async upsert(a: NewArchive, quota: VaultQuota, at: string) {
     const mine = this.owners.get(a.owner) ?? new Map<string, ArchiveRow>();
@@ -77,6 +96,8 @@ export class MemoryArchiveRepository implements ArchiveRepository {
   }
 
   async delete(owner: string, archiveId?: string) {
+    // Deleting everything deletes the account, its retention choice included.
+    if (archiveId === undefined) this.retentions.delete(owner);
     const mine = this.owners.get(owner);
     if (!mine) return [];
     const gone = archiveId === undefined ? [...mine.values()] : mine.has(archiveId) ? [mine.get(archiveId)!] : [];
@@ -87,6 +108,35 @@ export class MemoryArchiveRepository implements ArchiveRepository {
 
   async usage(owner: string) {
     return sum(this.owners.get(owner) ?? new Map());
+  }
+
+  async retention(owner: string) {
+    return this.retentions.get(owner) ?? null;
+  }
+
+  async setRetention(owner: string, days: number | null) {
+    if (days === null) this.retentions.delete(owner);
+    else this.retentions.set(owner, days);
+  }
+
+  async expire(now: Date, maxDays: number | undefined) {
+    const gone: string[] = [];
+    for (const [owner, mine] of this.owners) {
+      const days = effectiveRetention(this.retentions.get(owner), maxDays);
+      if (days === undefined) continue;
+      const cutoff = now.getTime() - days * DAY_MS;
+      for (const r of [...mine.values()]) {
+        if (Date.parse(r.updatedAt) >= cutoff) continue;
+        mine.delete(r.archiveId);
+        gone.push(r.objectKey);
+      }
+      if (!mine.size) this.owners.delete(owner);
+    }
+    return gone;
+  }
+
+  async objectKeys() {
+    return new Set([...this.owners.values()].flatMap((m) => [...m.values()].map((r) => r.objectKey)));
   }
 
   /** Every stored row: what an operator could read from this repository (audits and tests). */
@@ -168,8 +218,8 @@ export class PgArchiveRepository implements ArchiveRepository {
       const { rows } = await q('DELETE FROM vault_archives WHERE owner = $1 AND archive_id = $2 RETURNING size, object_key', [owner, archiveId]);
       if (!rows.length) return [];
       await q('UPDATE vault_owners SET archives = archives - 1, bytes = bytes - $2 WHERE owner = $1', [owner, Number(rows[0].size)]);
-      // An account with nothing stored leaves no row behind.
-      await q('DELETE FROM vault_owners WHERE owner = $1 AND archives = 0', [owner]);
+      // An account with nothing stored leaves no row behind, unless it chose a retention (VAULT-05).
+      await q('DELETE FROM vault_owners WHERE owner = $1 AND archives = 0 AND retention_days IS NULL', [owner]);
       return [rows[0].object_key as string];
     });
   }
@@ -177,6 +227,51 @@ export class PgArchiveRepository implements ArchiveRepository {
   async usage(owner: string) {
     const { rows } = await this.pool.query('SELECT archives, bytes FROM vault_owners WHERE owner = $1', [owner]);
     return rows[0] ? { archives: Number(rows[0].archives), bytes: Number(rows[0].bytes) } : { archives: 0, bytes: 0 };
+  }
+
+  async retention(owner: string) {
+    const { rows } = await this.pool.query('SELECT retention_days FROM vault_owners WHERE owner = $1', [owner]);
+    return rows[0]?.retention_days == null ? null : Number(rows[0].retention_days);
+  }
+
+  async setRetention(owner: string, days: number | null) {
+    await this.tx(async (q) => {
+      await q('INSERT INTO vault_owners (owner, retention_days) VALUES ($1, $2) ON CONFLICT (owner) DO UPDATE SET retention_days = EXCLUDED.retention_days', [owner, days]);
+      await q('DELETE FROM vault_owners WHERE owner = $1 AND archives = 0 AND retention_days IS NULL', [owner]);
+    });
+  }
+
+  async expire(now: Date, maxDays: number | undefined) {
+    const max = maxDays ?? null;
+    // LEAST ignores NULLs: the account's days capped by the operator's, either alone, or neither (nothing expires).
+    const { rows: owners } = await this.pool.query(
+      `SELECT DISTINCT a.owner FROM vault_archives a JOIN vault_owners o ON o.owner = a.owner
+       WHERE a.updated_at < $1::timestamptz - make_interval(days => LEAST(COALESCE(o.retention_days, $2::integer), $2::integer))`,
+      [now.toISOString(), max],
+    );
+    const gone: string[] = [];
+    for (const { owner } of owners) {
+      // Per account, with its row locked like any other change: uploads and the counters cannot race the sweep.
+      const keys = await this.tx(async (q) => {
+        const o = (await q('SELECT retention_days FROM vault_owners WHERE owner = $1 FOR UPDATE', [owner])).rows[0];
+        if (!o) return [];
+        const days = effectiveRetention(o.retention_days == null ? null : Number(o.retention_days), maxDays);
+        if (days === undefined) return [];
+        const { rows } = await q("DELETE FROM vault_archives WHERE owner = $1 AND updated_at < $2::timestamptz - make_interval(days => $3::integer) RETURNING size, object_key", [owner, now.toISOString(), days]);
+        if (!rows.length) return [];
+        const bytes = rows.reduce((n: number, r: { size: unknown }) => n + Number(r.size), 0);
+        await q('UPDATE vault_owners SET archives = archives - $2, bytes = bytes - $3 WHERE owner = $1', [owner, rows.length, bytes]);
+        await q('DELETE FROM vault_owners WHERE owner = $1 AND archives = 0 AND retention_days IS NULL', [owner]);
+        return rows.map((r: { object_key: unknown }) => r.object_key as string);
+      });
+      gone.push(...keys);
+    }
+    return gone;
+  }
+
+  async objectKeys() {
+    const { rows } = await this.pool.query('SELECT object_key FROM vault_archives');
+    return new Set(rows.map((r) => r.object_key as string));
   }
 }
 

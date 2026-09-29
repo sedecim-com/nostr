@@ -394,7 +394,35 @@ Falta que el threat model lo apruebe alguien distinto del autor, como los de DEC
 - `tests/browser/web-groups.e2e.ts`: los 5 mensajes del grupo vuelven. El navegador entra otra vez como dispositivo nuevo y escribe. Corre en el job `browser` y en el job `stack` contra el secure relay real.
 
 Documentado en ADR 0011 (sección VAULT-03), el threat model del vault y el disclosure v1.5.0.","https://github.com/sedecim-com/nostr/issues/246"
-"VAULT-04","VAULT · Encrypted Continuity Vault","PRD GC-B04, FR-008, FR-011","El vault en la máquina de estados de entrega","Publicación en relays y subida al vault independientes; política off / best-effort / required-for-resilient en el panel; estado CONTINUITY_BACKED_UP separado del ACK de relays; solo required-for-resilient puede retener el envío","Dev","P1","3","VAULT-02","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/247"
+"VAULT-04","VAULT · Encrypted Continuity Vault","PRD GC-B04, FR-008, FR-011","El vault en la máquina de estados de entrega","Publicación en relays y subida al vault independientes; política off / best-effort / required-for-resilient en el panel; estado CONTINUITY_BACKED_UP separado del ACK de relays; solo required-for-resilient puede retener el envío","Dev","P1","3","VAULT-02","S11","2026-11-06","Hecho","Commit 408d8df (PR #322).
+
+**Dos pistas independientes.** `packages/delivery-engine` separa la publicación en relays y la copia en el vault:
+- cada operación guarda su `continuity`: la política con la que se envió, el estado (`PENDING`, `CONTINUITY_BACKED_UP` o `FAILED`) y los intentos;
+- ese estado va aparte de la máquina DRAFT→…→READ y de los ACK de los relays;
+- la copia es el archivo `event:<id>` de VAULT-03.
+
+**Política en el panel.** El control `continuity` de `packages/profiles` tiene tres valores: `off`, `best-effort` y `required-for-resilient`:
+- private-resilient exige la copia; convenience e institutional copian en best-effort; los perfiles sovereign no copian;
+- una configuración guardada antes vale `off`;
+- la validación rechaza `required-for-resilient` sin vault y la copia con el backup en la nube apagado;
+- los textos de cada política están en disclosures 1.6.0.
+
+**Solo `required-for-resilient` retiene el envío.** No publica en ningún relay hasta que la copia existe, y `blockedReason` dice por qué. `best-effort` publica sin esperar y reintenta la copia con su propio backoff. Relajar la política libera los envíos retenidos.
+
+**Dónde se ve:**
+- web: control del panel, columna «Vault» en Entrega y política en la tarjeta del vault;
+- CLI: `sovereign persona continuity --persona ID <política> [--vault URL]`.
+
+**Tests:**
+- `packages/delivery-engine/test/continuity.test.ts`;
+- `apps/sovereign-client/test/vault-continuity.test.ts`;
+- `apps/web-saas/test/continuity.test.ts`;
+- `packages/profiles/test/profiles.test.ts`;
+- `packages/identity/test/identity.test.ts`;
+- `services/continuity-vault/test/history.test.ts`;
+- `tests/browser/web-saas.e2e.ts`: `CONTINUITY_BACKED_UP` en Entrega antes de cualquier guardado manual.
+
+Documentado en ADR 0011 (sección VAULT-04) y en los threat models del vault y de private-resilient.","https://github.com/sedecim-com/nostr/issues/247"
 "VAULT-05","VAULT · Encrypted Continuity Vault","PRD GC-B05, NFR-008","Retención, borrado y exportación del vault","Retención configurable; exportación portable; borrar elimina las copias del servidor según la política y queda documentado","Dev","P1","3","VAULT-03","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/248"
 "VAULT-06","VAULT · Encrypted Continuity Vault","PRD GC-B06, NFR-003","Backend self-hosted del vault","El mismo contrato sobre almacenamiento local o S3-compatible (SeaweedFS del compose) sin depender del SaaS de Sedecim; incluido en el compose y en el restore drill","Infra","P1","3","VAULT-01","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/249"
 "OPS-18","OPS · Despliegue y DevSecOps","PRD GC-F03","Trazabilidad y estado generados desde la fuente, con check en CI","requirements-traceability.md y un tablero de estado se regeneran desde los issues y el código; CI falla si una referencia o evidencia (archivo, prueba, SHA o ADR) no existe","Infra","P0","5","OPS-17","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/250"

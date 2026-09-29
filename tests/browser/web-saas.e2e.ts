@@ -11,6 +11,8 @@ import { extname, join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { chromium, type Page, type Route } from 'playwright';
 import WebSocket from 'ws';
+import { verifyEvent as ntVerifyEvent } from 'nostr-tools';
+import type { VaultExport } from '@sedecim/continuity';
 import { bytesToHex, finalizeEvent, generateSecretKey, getPublicKey, getTagValue, nip19, npubEncode, toUnsigned } from '@sedecim/nostr-core';
 import { LocalSigner, Nip46Bunker } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
@@ -405,6 +407,37 @@ try {
     await cleanCtx.close();
     await emptyRelay.stop();
   }
+
+  // --- VAULT-05: the persona chooses how long the vault keeps its archives, takes them out in an open format any
+  // Nostr client reads, and deletes them (the vault account with them).
+  await tab(page, 'Personas');
+  assert((await page.textContent('#vault-facts'))?.includes('hasta que vence su plazo'), 'the vault card says how long the archives are kept (VAULT-05)');
+  await page.locator('#vault-retention').click();
+  await page.getByRole('option', { name: '90 días' }).click();
+  await page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.includes('conserva cada archivo 90 días'), undefined, { timeout: 15_000 });
+  const vaultOwner = vaultRepo.rows()[0]!.owner;
+  assert((await vaultRepo.retention(vaultOwner)) === 90, 'the vault keeps the retention the persona chose (VAULT-05)');
+  const [vaultDownload] = await Promise.all([page.waitForEvent('download'), page.locator('#vault-export').click()]);
+  const bundle = JSON.parse(await readFile((await vaultDownload.path())!, 'utf8')) as VaultExport;
+  await page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.startsWith('Exportado'), undefined, { timeout: 30_000 });
+  const bundleText = JSON.stringify(bundle);
+  assert(
+    vaultDownload.suggestedFilename() === 'acceso-nostr-vault-Trabajo.json' && bundle.format === 'sedecim-vault-export' && bundle.pubkey === webPub && bundle.events.length >= pushedEvents && bundle.events.every((e) => ntVerifyEvent({ ...e })) && bundle.ledger.length >= operations,
+    `the export is an open JSON of the persona's signed events (verified by another Nostr implementation) and its ledger (VAULT-05, NFR-008: ${bundle.events.length} events, ${bundle.ledger.length} operations)`,
+  );
+  assert(bundle.events.some((e) => e.kind === 9 && e.content === 'hola desde la web') && !bundleText.includes('"mls"') && !bundleText.includes(bytesToHex(knownSk)), 'the export carries the channel messages as they were signed, and neither MLS state nor keys');
+  await page.locator('#vault-delete').click();
+  await page.locator('#vault-delete-title').waitFor();
+  assert((await page.textContent('[role="dialog"]'))?.includes('las copias de seguridad del operador pueden conservar'), 'deleting says what the operator backups may still keep (VAULT-05)');
+  const deletedAt = Date.now();
+  await page.locator('#vault-delete-confirm').click();
+  await page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.startsWith('Se borraron'), undefined, { timeout: 15_000 });
+  const deleteStatus = (await page.textContent('#vault-status')) ?? '';
+  // A best-effort copy of a send after the deletion would open the account again: only rows from before are checked.
+  assert(
+    vaultRepo.rows().every((r) => r.owner !== vaultOwner || Date.parse(r.createdAt) >= deletedAt) && (await vaultRepo.retention(vaultOwner)) === null && deleteStatus.includes('La copia automática sigue encendida'),
+    `deleting removes every archive of the persona and its vault account, and says new sends are still copied while best-effort is on (VAULT-05: ${deleteStatus})`,
+  );
 
   // --- panel applies and persists per persona (PANEL-02/03)
   await tab(page, 'Soberanía y privacidad');

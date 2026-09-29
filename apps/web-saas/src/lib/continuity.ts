@@ -1,4 +1,4 @@
-import { ArchiveVaultClient, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, restoreHistory, type ArchiveUsage, type HistoryArchiveResult } from '@sedecim/continuity';
+import { ArchiveVaultClient, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, restoreHistory, vaultExport, type ArchiveRetention, type ArchiveUsage, type HistoryArchiveResult, type VaultExport } from '@sedecim/continuity';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import type { EncryptedStore } from '@sedecim/encrypted-store/browser';
 import { hexToBytes, wipe, type NostrEvent } from '@sedecim/nostr-core';
@@ -124,4 +124,23 @@ export function verifyVault(url: string, persona: PersonaRecord): Promise<{ arch
 
 export function vaultUsage(url: string, persona: PersonaRecord): Promise<ArchiveUsage> {
   return withVault(url, persona, (client) => client.usage());
+}
+
+/** VAULT-05: keep this persona's archives `days` since their last write (null: the vault operator's maximum). */
+export function setVaultRetention(url: string, persona: PersonaRecord, days: number | null): Promise<ArchiveRetention> {
+  return withVault(url, persona, (client) => client.setRetention(days));
+}
+
+/**
+ * VAULT-05: the persona's vault in an open, portable format, decrypted in this browser: signed NIP-01 events any
+ * Nostr client can verify and publish, the group messages and the ledger. The MLS state stays out.
+ */
+export async function exportVault(url: string, persona: PersonaRecord): Promise<{ export: VaultExport; skipped: number }> {
+  const restored = await withVault(url, persona, (client, key) => restoreHistory(client, key, { pubkey: persona.pubkey }));
+  return { export: vaultExport(restored, persona.pubkey), skipped: restored.skipped };
+}
+
+/** VAULT-05: deletes every archive of the persona and its vault account (its retention choice included). */
+export function deleteVault(url: string, persona: PersonaRecord): Promise<number> {
+  return withVault(url, persona, (client) => client.remove());
 }

@@ -3370,8 +3370,8 @@
     "VAULT-02"
    ],
    "sprint": "S11",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Commit 408d8df (PR #322).\n\n**Dos pistas independientes.** `packages/delivery-engine` separa la publicación en relays y la copia en el vault:\n- cada operación guarda su `continuity`: la política con la que se envió, el estado (`PENDING`, `CONTINUITY_BACKED_UP` o `FAILED`) y los intentos;\n- ese estado va aparte de la máquina DRAFT→…→READ y de los ACK de los relays;\n- la copia es el archivo `event:<id>` de VAULT-03.\n\n**Política en el panel.** El control `continuity` de `packages/profiles` tiene tres valores: `off`, `best-effort` y `required-for-resilient`:\n- private-resilient exige la copia; convenience e institutional copian en best-effort; los perfiles sovereign no copian;\n- una configuración guardada antes vale `off`;\n- la validación rechaza `required-for-resilient` sin vault y la copia con el backup en la nube apagado;\n- los textos de cada política están en disclosures 1.6.0.\n\n**Solo `required-for-resilient` retiene el envío.** No publica en ningún relay hasta que la copia existe, y `blockedReason` dice por qué. `best-effort` publica sin esperar y reintenta la copia con su propio backoff. Relajar la política libera los envíos retenidos.\n\n**Dónde se ve:**\n- web: control del panel, columna «Vault» en Entrega y política en la tarjeta del vault;\n- CLI: `sovereign persona continuity --persona ID <política> [--vault URL]`.\n\n**Tests:**\n- `packages/delivery-engine/test/continuity.test.ts`;\n- `apps/sovereign-client/test/vault-continuity.test.ts`;\n- `apps/web-saas/test/continuity.test.ts`;\n- `packages/profiles/test/profiles.test.ts`;\n- `packages/identity/test/identity.test.ts`;\n- `services/continuity-vault/test/history.test.ts`;\n- `tests/browser/web-saas.e2e.ts`: `CONTINUITY_BACKED_UP` en Entrega antes de cualquier guardado manual.\n\nDocumentado en ADR 0011 (sección VAULT-04) y en los threat models del vault y de private-resilient.",
    "issue": 247
   },
   {

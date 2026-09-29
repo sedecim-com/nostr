@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { ArchiveEnvelopeError, isArchiveId, MAX_ARCHIVE_ENVELOPE_BYTES, validateArchiveEnvelope, type ArchiveMeta } from '@sedecim/continuity';
 import { CognitoTokenError, HttpError, isHex64, Service, type CognitoVerifier, type Req, type ServiceOptions } from '@sedecim/service-kit';
 import { newObjectKey, type ObjectStore } from './objects';
-import { QuotaExceededError, type ArchiveRepository, type ArchiveRow } from './repository';
+import { effectiveRetention, QuotaExceededError, type ArchiveRepository, type ArchiveRow } from './repository';
 
 /** Who may open a vault account with NIP-98 (ADR 0011). Acceso logins are accepted whenever `cognito` is set. */
 export type Nip98Policy = 'open' | 'allowlist' | 'off';
@@ -26,7 +26,15 @@ export interface ContinuityVaultOptions extends ServiceOptions {
   /** Hex pubkeys allowed when `nip98` is 'allowlist'. */
   allowedPubkeys?: string[];
   limits?: Partial<VaultLimits>;
+  /**
+   * VAULT-05: the most days an archive is kept since its last write (the sweep deletes it after). Accounts may
+   * choose fewer. Undefined: kept until deleted, unless the account chooses a retention.
+   */
+  retentionDays?: number;
 }
+
+/** VAULT-05: the longest retention an account can choose when the operator sets no maximum (100 years). */
+export const MAX_ACCOUNT_RETENTION_DAYS = 36_500;
 
 const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 
@@ -46,6 +54,8 @@ export function createContinuityVaultApi(repo: ArchiveRepository, objects: Objec
   for (const pk of allowed) if (!isHex64(pk)) throw new Error('allowedPubkeys must be hex pubkeys');
   if (nip98 === 'allowlist' && !allowed.size) throw new Error("nip98 'allowlist' needs at least one allowed pubkey");
   if (nip98 === 'off' && !opts.cognito) throw new Error('a vault without NIP-98 needs Acceso (cognito) logins');
+  const maxDays = opts.retentionDays;
+  if (maxDays !== undefined && (!Number.isSafeInteger(maxDays) || maxDays <= 0)) throw new Error('retentionDays must be a positive integer');
 
   const svc = new Service({ ...opts, maxBodyBytes: limits.maxEnvelopeBytes });
   const quota = { maxArchives: limits.maxArchives, maxBytes: limits.maxBytes };
@@ -173,9 +183,37 @@ export function createContinuityVaultApi(repo: ArchiveRepository, objects: Objec
   svc.delete('/v1/archives', remove, 'nip98-or-token');
   svc.delete('/v1/archives/:id', remove, 'nip98-or-token');
 
+  // VAULT-05: what the account chose, the operator's maximum, and what applies (null: kept until deleted).
+  const retention = async (account: string) => {
+    const days = await repo.retention(account);
+    return { days, max_days: maxDays ?? null, effective_days: effectiveRetention(days, maxDays) ?? null };
+  };
+
   svc.get(
     '/v1/usage',
-    async (req) => ({ ...(await repo.usage(await owner(req))), limits: { max_archives: limits.maxArchives, max_bytes: limits.maxBytes, max_envelope_bytes: limits.maxEnvelopeBytes } }),
+    async (req) => {
+      const account = await owner(req);
+      return { ...(await repo.usage(account)), limits: { max_archives: limits.maxArchives, max_bytes: limits.maxBytes, max_envelope_bytes: limits.maxEnvelopeBytes }, retention: await retention(account) };
+    },
+    'nip98-or-token',
+  );
+
+  svc.put(
+    '/v1/retention',
+    async (req) => {
+      const account = await owner(req);
+      let body: { days?: unknown };
+      try {
+        body = JSON.parse(req.rawBody || 'null') ?? {};
+      } catch {
+        throw new HttpError(400, 'body must be JSON: {"days": <days> | null}');
+      }
+      const days = body.days;
+      const ceiling = maxDays ?? MAX_ACCOUNT_RETENTION_DAYS;
+      if (days !== null && !(Number.isSafeInteger(days) && (days as number) >= 1 && (days as number) <= ceiling)) throw new HttpError(400, `days must be null or an integer from 1 to ${ceiling}`);
+      await repo.setRetention(account, days as number | null);
+      return { retention: await retention(account) };
+    },
     'nip98-or-token',
   );
 

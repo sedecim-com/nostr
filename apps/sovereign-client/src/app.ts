@@ -29,7 +29,7 @@ import {
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
 import { downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
-import { ArchiveVaultClient, archiveEvent, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, restoreHistory, type ArchiveMeta, type ArchivedGroupMessage, type HistoryArchiveResult, type MlsSnapshot, type RestoredHistory } from '@sedecim/continuity';
+import { ArchiveVaultClient, archiveEvent, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, parseVaultExport, restoreHistory, VAULT_EXPORT_FORMAT, vaultExport, type ArchiveMeta, type ArchiveRetention, type ArchiveUsage, type ArchivedGroupMessage, type HistoryArchiveResult, type MlsSnapshot, type RestoredHistory, type VaultExport } from '@sedecim/continuity';
 
 /** VAULT-03: decrypted group messages this device read or sent, kept because MLS deletes the keys of past epochs. */
 const GROUP_HISTORY = 'group-history';
@@ -39,6 +39,16 @@ const CHANNEL_STATE_KINDS = [39000, 39001, 39002, 39003];
 const OWN_LIST_KINDS = [0, 3, 10002, 10050, 10063];
 /** Written as the owner of MLS state restored from the vault: no device has this id, so its groups need a rejoin. */
 const RESTORED_MLS_OWNER = 'vault-restore';
+
+/** VAULT-05: a vault export is one JSON document of its own format; anything else is read as JSONL. */
+function isVaultExport(text: string): boolean {
+  try {
+    const doc = JSON.parse(text) as { format?: unknown } | null;
+    return !!doc && typeof doc === 'object' && doc.format === VAULT_EXPORT_FORMAT;
+  } catch {
+    return false;
+  }
+}
 
 export interface SovereignOptions {
   dataDir: string;
@@ -354,20 +364,39 @@ export class SovereignClient {
     return exportEventsJsonl([...history.own, ...Object.values(history.channels).flat(), ...history.wraps]);
   }
 
-  /** Verifies a JSONL export and (unless dryRun) republishes the valid events to the persona's relays. */
-  async importHistory(personaId: string, jsonl: string, opts: { dryRun?: boolean } = {}): Promise<{ valid: number; invalid: JsonlImportIssue[]; duplicates: number; published: number; rejected: number }> {
-    const parsed = importEventsJsonl(jsonl);
+  /**
+   * Verifies an export and (unless dryRun) republishes the valid events to the persona's relays. It reads a JSONL of
+   * signed events (NFR008-02) or a vault export (VAULT-05, `vault export`), whose gift wraps for other people stay
+   * out: their place is those people's DM relays.
+   */
+  async importHistory(personaId: string, text: string, opts: { dryRun?: boolean } = {}): Promise<{ format: 'jsonl' | 'vault-export'; valid: number; invalid: JsonlImportIssue[]; duplicates: number; published: number; rejected: number; othersWraps: number }> {
+    let events: NostrEvent[];
+    let invalid: JsonlImportIssue[];
+    let duplicates = 0;
+    let othersWraps = 0;
+    const format = isVaultExport(text) ? 'vault-export' : 'jsonl';
+    if (format === 'vault-export') {
+      const parsed = parseVaultExport(text);
+      const { pubkey } = await (await this.identities()).get(personaId);
+      if (parsed.export.pubkey !== pubkey) throw new Error('esta exportación del vault es de otra persona');
+      events = parsed.export.events.filter((e) => belongsOnPersonaRelays(e, pubkey));
+      othersWraps = parsed.export.events.length - events.length;
+      invalid = parsed.invalid ? [{ line: 0, reason: `${parsed.invalid} eventos o mensajes de grupo inválidos en la exportación` }] : [];
+    } else {
+      const parsed = importEventsJsonl(text);
+      ({ events, invalid, duplicates } = parsed);
+    }
     let published = 0;
     let rejected = 0;
     if (!opts.dryRun) {
       const s = await this.session(personaId);
-      for (const e of parsed.events) {
+      for (const e of events) {
         const results = await s.pool.publish(e, s.persona.relays);
         if (results.some((r) => r.ok)) published++;
         else rejected++;
       }
     }
-    return { valid: parsed.events.length, invalid: parsed.invalid, duplicates: parsed.duplicates, published, rejected };
+    return { format, valid: events.length, invalid, duplicates, published, rejected, othersWraps };
   }
 
   async readChannel(personaId: string, groupId: string, limit = 50): Promise<NostrEvent[]> {
@@ -786,6 +815,51 @@ export class SovereignClient {
         }
       }
       return { archives: all.length, opened };
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  /** VAULT-05: what the persona's vault account uses, its limits and its retention. */
+  async vaultUsage(personaId: string, url: string): Promise<ArchiveUsage> {
+    const { client, key } = await this.vault(personaId, url);
+    try {
+      return await client.usage();
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  /** VAULT-05: keeps the persona's archives `days` since their last write (null: until deleted, within the operator's maximum). */
+  async vaultRetention(personaId: string, url: string, days: number | null): Promise<ArchiveRetention> {
+    const { client, key } = await this.vault(personaId, url);
+    try {
+      return await client.setRetention(days);
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  /**
+   * VAULT-05: the persona's vault in an open, portable format, decrypted on this device: signed NIP-01 events any
+   * Nostr client can verify and publish (and `history import` takes back), the group messages and the ledger. The
+   * MLS state stays out.
+   */
+  async vaultExport(personaId: string, url: string): Promise<{ export: VaultExport; skipped: number }> {
+    const { client, key, session: s } = await this.vault(personaId, url);
+    try {
+      const restored = await restoreHistory(client, key, { pubkey: s.persona.pubkey });
+      return { export: vaultExport(restored, s.persona.pubkey), skipped: restored.skipped };
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  /** VAULT-05: deletes every archive of the persona and its vault account (its retention choice included). */
+  async vaultDelete(personaId: string, url: string): Promise<number> {
+    const { client, key } = await this.vault(personaId, url);
+    try {
+      return await client.remove();
     } finally {
       key.fill(0);
     }
