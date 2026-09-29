@@ -49,11 +49,36 @@ export interface SubmitOptions {
 
 const PERMANENT_PREFIXES = ['invalid:', 'blocked:', 'restricted:', 'pow:', 'unsupported:'];
 
+/**
+ * What other writers stored while a round held its copy of a record, carried over before the round saves: the relays
+ * `reconcile` found holding the event, and a later state (a receipt's RECIPIENT_ACKED or READ, a reconciled
+ * REPLICATED) with its history. A round never undoes either.
+ */
+function keepConcurrent(rec: OutboxRecord, stored: OutboxRecord) {
+  for (const s of Object.values(rec.relayStatus)) {
+    const theirs = stored.relayStatus[s.relay];
+    if (s.acceptedAt || !theirs?.acceptedAt) continue;
+    s.acceptedAt = theirs.acceptedAt;
+    if (theirs.ackMessage !== undefined) s.ackMessage = theirs.ackMessage;
+    s.permanent = false;
+    delete s.lastError;
+  }
+  const known = new Set(rec.history.map((h) => `${h.state}@${h.at}`));
+  const added = stored.history.filter((h) => !known.has(`${h.state}@${h.at}`));
+  if (added.length) rec.history = [...rec.history, ...added].sort((a, b) => a.at - b.at);
+  if (stateRank(stored.state) > stateRank(rec.state)) {
+    rec.state = stored.state;
+    delete rec.failureReason;
+  }
+  if (stored.meta?.receiptBeforeQuorum && !rec.meta?.receiptBeforeQuorum) rec.meta = { ...rec.meta, receiptBeforeQuorum: stored.meta.receiptBeforeQuorum };
+}
+
 export class DeliveryEngine {
   private readonly retry: RetryPolicy;
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly running = new Map<string, Promise<OutboxRecord>>();
   private readonly rerun = new Set<string>();
+  private readonly writers = new Map<string, Promise<unknown>>();
   private readonly listeners = new Set<(r: OutboxRecord) => void>();
   private readonly attemptListeners = new Set<(a: AttemptEvent) => void>();
   private stopped = false;
@@ -268,10 +293,10 @@ export class DeliveryEngine {
     if (copy?.policy === 'required-for-resilient') {
       await this.backup(rec, copy);
       if (copy.state !== 'CONTINUITY_BACKED_UP') {
-        rec.blockedReason = this.opts.continuity?.sink ? CONTINUITY_HELD : CONTINUITY_HELD_NO_VAULT;
-        this.scheduleNext(rec, []);
-        await this.save(rec);
-        return rec;
+        return this.commitRound(rec, (r) => {
+          r.blockedReason = this.opts.continuity?.sink ? CONTINUITY_HELD : CONTINUITY_HELD_NO_VAULT;
+          this.scheduleNext(r, []);
+        });
       }
       if (rec.blockedReason === CONTINUITY_HELD || rec.blockedReason === CONTINUITY_HELD_NO_VAULT) delete rec.blockedReason;
     }
@@ -283,60 +308,92 @@ export class DeliveryEngine {
     if (pending.length === 0) {
       if (copying || policyChanged || copy) {
         await copying;
-        this.scheduleNext(rec, []);
-        await this.save(rec);
+        return this.commitRound(rec, (r) => this.scheduleNext(r, []));
       }
       return rec;
     }
-    if (stateRank(rec.state) < stateRank('PUBLISHING')) this.transition(rec, 'PUBLISHING');
-    await this.save(rec);
+    await this.commitRound(rec, (r) => {
+      if (stateRank(r.state) < stateRank('PUBLISHING')) this.transition(r, 'PUBLISHING');
+    });
 
-    const [results] = await Promise.all([Promise.all(pending.map(async (s) => ({ s, res: await this.opts.publisher.publishTo(rec.event!, s.relay) }))), copying]);
-    let anyBlocked = false;
-    for (const { s, res } of results) {
-      s.attemptCount++;
-      s.lastAttemptAt = this.now();
-      s.latencyMs = res.latencyMs;
-      s.blocked = !!res.blocked;
-      if (res.ok) {
-        s.acceptedAt = this.now();
-        s.ackMessage = res.message;
-        delete s.lastError;
-      } else {
-        s.lastError = res.message;
-        if (res.blocked) anyBlocked = true;
-        else if (PERMANENT_PREFIXES.some((p) => res.message.startsWith(p))) s.permanent = true;
-        if (this.retry.maxAttempts !== undefined && s.attemptCount >= this.retry.maxAttempts) s.permanent = true;
-      }
-      const attempt: AttemptEvent = { relay: s.relay, ok: res.ok, latencyMs: res.latencyMs, permanent: !!s.permanent, ...(res.ok ? {} : { failure: classifyFailure(res.message, res.blocked) }) };
-      for (const l of this.attemptListeners) {
-        try {
-          l(attempt);
-        } catch {
-          /* observers never break delivery */
+    const [results] = await Promise.all([Promise.all(pending.map(async (s) => ({ relay: s.relay, res: await this.opts.publisher.publishTo(rec.event!, s.relay) }))), copying]);
+    return this.commitRound(rec, (r) => {
+      let anyBlocked = false;
+      for (const { relay, res } of results) {
+        const s = r.relayStatus[relay]!;
+        s.attemptCount++;
+        s.lastAttemptAt = this.now();
+        s.latencyMs = res.latencyMs;
+        s.blocked = !!res.blocked;
+        if (res.ok) {
+          s.acceptedAt = this.now();
+          s.ackMessage = res.message;
+          delete s.lastError;
+        } else if (!s.acceptedAt) {
+          // (A relay `reconcile` found holding the event meanwhile stays accepted.)
+          s.lastError = res.message;
+          if (res.blocked) anyBlocked = true;
+          else if (PERMANENT_PREFIXES.some((p) => res.message.startsWith(p))) s.permanent = true;
+          if (this.retry.maxAttempts !== undefined && s.attemptCount >= this.retry.maxAttempts) s.permanent = true;
+        }
+        const attempt: AttemptEvent = { relay, ok: res.ok, latencyMs: res.latencyMs, permanent: !!s.permanent, ...(res.ok ? {} : { failure: classifyFailure(res.message, res.blocked) }) };
+        for (const l of this.attemptListeners) {
+          try {
+            l(attempt);
+          } catch {
+            /* observers never break delivery */
+          }
         }
       }
-    }
-    rec.blockedReason = anyBlocked ? results.find((r) => r.res.blocked)!.res.message.replace(/^error: /, '') : undefined;
-    if (!rec.blockedReason) delete rec.blockedReason;
+      r.blockedReason = anyBlocked ? results.find((x) => x.res.blocked)!.res.message.replace(/^error: /, '') : undefined;
+      if (!r.blockedReason) delete r.blockedReason;
 
-    const accepted = this.accepted(rec);
-    const stillPending = Object.values(rec.relayStatus).filter((s) => !s.acceptedAt && !s.permanent);
-    if (accepted >= rec.quorum) {
-      if (stateRank(rec.state) < stateRank('REPLICATED')) this.transition(rec, 'REPLICATED');
-    } else if (accepted + stillPending.length < rec.quorum) {
-      this.transition(rec, 'FAILED');
-      rec.failureReason = `quorum ${rec.quorum} unreachable: ${Object.values(rec.relayStatus)
-        .filter((s) => s.permanent)
-        .map((s) => `${s.relay}: ${s.lastError}`)
-        .join('; ')}`;
-    } else {
-      this.transition(rec, 'QUEUED');
-    }
+      const accepted = this.accepted(r);
+      const stillPending = Object.values(r.relayStatus).filter((s) => !s.acceptedAt && !s.permanent);
+      // A receipt proves delivery: relays still pending are retried, but the state never moves back from it.
+      if (stateRank(r.state) < stateRank('RECIPIENT_ACKED')) {
+        if (accepted >= r.quorum) {
+          if (stateRank(r.state) < stateRank('REPLICATED')) this.transition(r, 'REPLICATED');
+        } else if (accepted + stillPending.length < r.quorum) {
+          this.transition(r, 'FAILED');
+          r.failureReason = `quorum ${r.quorum} unreachable: ${Object.values(r.relayStatus)
+            .filter((s) => s.permanent)
+            .map((s) => `${s.relay}: ${s.lastError}`)
+            .join('; ')}`;
+        } else {
+          this.transition(r, 'QUEUED');
+        }
+      }
+      this.scheduleNext(r, stillPending);
+    });
+  }
 
-    this.scheduleNext(rec, stillPending);
-    await this.save(rec);
-    return rec;
+  /**
+   * One writer at a time per operation, for the short read-modify-write of its record: never held across a wait for
+   * relays, the vault or a signer, so a receipt is never delayed by a slow relay.
+   */
+  private exclusive<T>(opId: string, fn: () => Promise<T>): Promise<T> {
+    const run = (this.writers.get(opId) ?? Promise.resolve()).then(fn);
+    const tail = run.catch(() => undefined);
+    this.writers.set(opId, tail);
+    void tail.then(() => {
+      if (this.writers.get(opId) === tail) this.writers.delete(opId);
+    });
+    return run;
+  }
+
+  /**
+   * Saves a round's copy of a record. A round holds its copy while it waits for relays, the vault or the router, and
+   * other writers may store a newer one meanwhile: under the operation's lock, what they stored is carried over
+   * first (`keepConcurrent`), then `update` applies the round's own results.
+   */
+  private commitRound(rec: OutboxRecord, update: (rec: OutboxRecord) => void): Promise<OutboxRecord> {
+    return this.exclusive(rec.opId, async () => {
+      const stored = await this.opts.store.get(rec.opId);
+      if (stored) keepConcurrent(rec, stored);
+      update(rec);
+      return this.save(rec);
+    });
   }
 
   private async reroute(rec: OutboxRecord) {
@@ -396,42 +453,54 @@ export class DeliveryEngine {
   async reconcile(): Promise<void> {
     const lookup = this.opts.lookup;
     if (!lookup) return;
-    for (const rec of await this.list()) {
-      if (!rec.event) continue;
-      let changed = false;
-      for (const s of Object.values(rec.relayStatus)) {
+    for (const snapshot of await this.list()) {
+      const event = snapshot.event;
+      if (!event) continue;
+      const found: string[] = [];
+      for (const s of Object.values(snapshot.relayStatus)) {
         if (s.acceptedAt) continue;
         try {
-          if (await lookup.has(s.relay, rec.event.id)) {
-            s.acceptedAt = this.now();
-            s.ackMessage = 'reconciled: event present on relay';
-            s.permanent = false;
-            changed = true;
-          }
+          if (await lookup.has(s.relay, event.id)) found.push(s.relay);
         } catch {
           /* relay unreachable: keep state */
         }
       }
-      if (changed) {
+      if (found.length === 0) continue;
+      // Applied to the record as stored now: a round or a receipt may have moved it on during the lookups.
+      await this.exclusive(snapshot.opId, async () => {
+        const rec = await this.opts.store.get(snapshot.opId);
+        if (!rec) return;
+        let changed = false;
+        for (const relay of found) {
+          const s = rec.relayStatus[relay];
+          if (!s || s.acceptedAt) continue;
+          s.acceptedAt = this.now();
+          s.ackMessage = 'reconciled: event present on relay';
+          s.permanent = false;
+          changed = true;
+        }
+        if (!changed) return;
         if (this.accepted(rec) >= rec.quorum && stateRank(rec.state) < stateRank('REPLICATED')) {
           if (rec.state === 'FAILED') delete rec.failureReason;
           this.transition(rec, 'REPLICATED');
         }
         await this.save(rec);
-      }
+      });
     }
   }
 
-  private async advance(opId: string, state: 'RECIPIENT_ACKED' | 'READ') {
-    const rec = await this.opts.store.get(opId);
-    if (!rec) throw new Error(`unknown operation ${opId}`);
-    if (stateRank(rec.state) >= stateRank(state)) return rec;
-    if (stateRank(rec.state) < stateRank('REPLICATED')) {
-      // A receipt proves delivery even if our own relay acks were lost; record it but keep the ledger honest.
-      rec.meta = { ...rec.meta, receiptBeforeQuorum: 'true' };
-    }
-    this.transition(rec, state);
-    return this.save(rec);
+  private advance(opId: string, state: 'RECIPIENT_ACKED' | 'READ') {
+    return this.exclusive(opId, async () => {
+      const rec = await this.opts.store.get(opId);
+      if (!rec) throw new Error(`unknown operation ${opId}`);
+      if (stateRank(rec.state) >= stateRank(state)) return rec;
+      if (stateRank(rec.state) < stateRank('REPLICATED')) {
+        // A receipt proves delivery even if our own relay acks were lost; record it but keep the ledger honest.
+        rec.meta = { ...rec.meta, receiptBeforeQuorum: 'true' };
+      }
+      this.transition(rec, state);
+      return this.save(rec);
+    });
   }
 
   /** Application-level receipt from the recipient (optional feature). */

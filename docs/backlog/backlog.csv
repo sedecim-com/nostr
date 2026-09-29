@@ -423,7 +423,42 @@ Documentado en ADR 0011 (sección VAULT-03), el threat model del vault y el disc
 - `tests/browser/web-saas.e2e.ts`: `CONTINUITY_BACKED_UP` en Entrega antes de cualquier guardado manual.
 
 Documentado en ADR 0011 (sección VAULT-04) y en los threat models del vault y de private-resilient.","https://github.com/sedecim-com/nostr/issues/247"
-"VAULT-05","VAULT · Encrypted Continuity Vault","PRD GC-B05, NFR-008","Retención, borrado y exportación del vault","Retención configurable; exportación portable; borrar elimina las copias del servidor según la política y queda documentado","Dev","P1","3","VAULT-03","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/248"
+"VAULT-05","VAULT · Encrypted Continuity Vault","PRD GC-B05, NFR-008","Retención, borrado y exportación del vault","Retención configurable; exportación portable; borrar elimina las copias del servidor según la política y queda documentado","Dev","P1","3","VAULT-03","S11","2026-11-06","Hecho","Commit eb20688 (PR #324).
+
+**Retención configurable.** En `services/continuity-vault`, cada archivo se conserva un plazo contado desde su última escritura:
+- `VAULT_RETENTION_DAYS` fija el máximo del operador;
+- cada cuenta puede elegir menos con `PUT /v1/retention {""days"": N | null}`;
+- `GET /v1/usage` devuelve `retention: {days, max_days, effective_days}`;
+- la migración es `002_retention.sql`.
+
+**El barrido.** `VaultSweeper` corre al arrancar y cada `VAULT_SWEEP_INTERVAL_MS`:
+- borra las filas caducadas y sus objetos, y ajusta los contadores con la fila de la cuenta bloqueada;
+- borra un objeto huérfano solo si dos barridos seguidos lo encuentran sin fila.
+
+**Borrar.** `DELETE /v1/archives` elimina los archivos y la cuenta, incluida su retención:
+- en la web es «Borrar todo el vault», con confirmación; en el CLI, `sovereign vault delete --yes`;
+- ambos avisan si la copia automática sigue encendida.
+
+Lo que conservan las copias de seguridad del operador está documentado en ADR 0011 y en el threat model:
+- en el Terraform de referencia: PITR de RDS de 14 días por defecto y bucket de backups de 35 días;
+- el vault aún no está en ese módulo (llega con VAULT-06);
+- los disclosures lo avisan (`deletion`).
+
+**Exportación portable (NFR-008).** La web y `sovereign vault export --out FILE` escriben un JSON abierto, `sedecim-vault-export` v1:
+- contiene los eventos NIP-01 firmados sin cambios, los mensajes de grupo y el ledger;
+- no incluye el estado MLS ni llaves;
+- `sovereign history import` lo vuelve a publicar sin los gift wraps enviados a otras personas.
+
+Los disclosures pasan a la versión 1.7.0, con los textos `retention` y `export`.
+
+**Tests:**
+- `services/continuity-vault/test/continuity-vault.test.ts` (memoria, archivos y Postgres);
+- `apps/web-saas/test/continuity.test.ts`;
+- `apps/sovereign-client/test/vault.test.ts` (CLI real; exportación verificada con nostr-tools);
+- `packages/profiles/test/profiles.test.ts`;
+- `tests/browser/web-saas.e2e.ts`: retención, descarga de la exportación y borrado con confirmación.
+
+Documentado en ADR 0011 (sección VAULT-05), en el threat model del vault y en la trazabilidad (NFR-008, FR-027).","https://github.com/sedecim-com/nostr/issues/248"
 "VAULT-06","VAULT · Encrypted Continuity Vault","PRD GC-B06, NFR-003","Backend self-hosted del vault","El mismo contrato sobre almacenamiento local o S3-compatible (SeaweedFS del compose) sin depender del SaaS de Sedecim; incluido en el compose y en el restore drill","Infra","P1","3","VAULT-01","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/249"
 "OPS-18","OPS · Despliegue y DevSecOps","PRD GC-F03","Trazabilidad y estado generados desde la fuente, con check en CI","requirements-traceability.md y un tablero de estado se regeneran desde los issues y el código; CI falla si una referencia o evidencia (archivo, prueba, SHA o ADR) no existe","Infra","P0","5","OPS-17","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/250"
 "NFR003-03","NFR · Requisitos no funcionales","NFR-003, PRD GC-C05","Simulacro completo de RPO/RTO en stage","Restore nocturno de RDS (PITR) y del almacenamiento S3 con interop, más un drill manual en un entorno limpio con los tiempos reales documentados","Infra","P0","3","NFR001-03","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/251"
