@@ -278,8 +278,8 @@ a invitarlo: sigue en la lista de admins, así que vuelve como admin. El procedi
 está en `docs/runbooks/device-loss.md`.
 
 Pruebas:
-- `services/rotation-worker/test/service.test.ts`, con un relay que exige NIP-42 y se conoce por una URL pública que
-  el worker no marca, el policy-engine real (el worker no es admin) y el managed-signer:
+- `services/rotation-worker/test/service.test.ts`, con un relay que exige NIP-42 y se conoce por una URL pública a la
+  que el worker no se conecta, el policy-engine real (el worker no es admin) y el managed-signer:
   - entra en el grupo que lo tiene como admin, saca al miembro revocado y propaga la revocación;
   - lo que se envía después no llega al dispositivo revocado;
   - tras reiniciar sobre el mismo estado sigue en el grupo y rota la revocación siguiente;
