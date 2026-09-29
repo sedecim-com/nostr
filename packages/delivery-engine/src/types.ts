@@ -26,6 +26,32 @@ export interface RelayAttempt {
   blocked?: boolean;
 }
 
+/**
+ * VAULT-04 (ADR 0011): the copy of each sent event in the Continuity Vault. `best-effort` backs it up beside the
+ * relay publishing and never delays it; `required-for-resilient` publishes to relays only once the copy exists.
+ */
+export type ContinuityPolicy = 'off' | 'best-effort' | 'required-for-resilient';
+
+/**
+ * The Continuity Vault track of an operation, kept apart from the relay ACKs: a message can be REPLICATED without
+ * a copy in the vault yet, and CONTINUITY_BACKED_UP before any relay accepted it.
+ */
+export interface ContinuityStatus {
+  /** The policy the operation was sent under. */
+  policy: Exclude<ContinuityPolicy, 'off'>;
+  /** `FAILED`: a best-effort copy given up after `RetryPolicy.maxAttempts`; a required one is never given up. */
+  state: 'PENDING' | 'CONTINUITY_BACKED_UP' | 'FAILED';
+  attemptCount: number;
+  lastAttemptAt?: number;
+  backedUpAt?: number;
+  lastError?: string;
+}
+
+/** Stores the signed event of an operation in the Continuity Vault; resolves once the vault holds it. */
+export interface ContinuitySink {
+  backup(event: NostrEvent): Promise<void>;
+}
+
 export interface OutboxRecord {
   /** Stable client_operation_id: survives UI retries and app restarts (spec §11.2). */
   opId: string;
@@ -47,6 +73,8 @@ export interface OutboxRecord {
   failureReason?: string;
   history: Array<{ state: DeliveryState; at: number }>;
   meta?: Record<string, string>;
+  /** VAULT-04: absent when the operation was sent with the Continuity Vault off. */
+  continuity?: ContinuityStatus;
 }
 
 export interface Publisher {
@@ -111,4 +139,6 @@ export interface OutboxStats {
   failed: number;
   /** operations per delivery state */
   byState: Partial<Record<DeliveryState, number>>;
+  /** VAULT-04: operations whose copy is not yet in the Continuity Vault (FAILED operations aside) */
+  continuityPending: number;
 }

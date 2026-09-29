@@ -14,6 +14,8 @@ import { preset } from '@sedecim/profiles';
 import { createLogger } from '@sedecim/telemetry-policy';
 import { LocalSigner } from '@sedecim/signer';
 import { TestRelay } from '@sedecim/test-relay';
+import { CONTINUITY_HELD } from '@sedecim/delivery-engine';
+import { createServer } from 'node:net';
 import { createDirectMessage } from '@sedecim/messaging';
 import { pushVault, restoreVault, vaultUsage, verifyVault } from '../src/lib/continuity';
 import { GroupHistory } from '../src/lib/groups';
@@ -21,6 +23,15 @@ import { backupJson, createPersona, ensureArchiveKey, openPersona, publishDmRela
 import { PersonaBook, type PersonaRecord } from '../src/lib/vault';
 
 const newBook = () => new PersonaBook({ store: EncryptedStore.withKey(new MemoryBackend(), new Uint8Array(32).fill(5)) } as unknown as Vault);
+
+/** A local port nobody listens on (yet). */
+async function freePort(): Promise<number> {
+  const probe = createServer();
+  await new Promise<void>((r) => probe.listen(0, '127.0.0.1', () => r()));
+  const { port } = probe.address() as { port: number };
+  await new Promise<void>((r) => probe.close(() => r()));
+  return port;
+}
 
 describe('web archive key and Continuity Vault (VAULT-02)', () => {
   const relay = new TestRelay();
@@ -67,6 +78,8 @@ describe('web archive key and Continuity Vault (VAULT-02)', () => {
     expect(withKey.archiveKeyHex).toMatch(/^[0-9a-f]{64}$/);
     expect((await book.get('nip46'))!.archiveKeyHex).toBe(withKey.archiveKeyHex);
     expect(await ensureArchiveKey(book, withKey)).toBe(withKey);
+    // VAULT-04: a stale copy of the persona (made before the vault copy of a send made its key) gets that key, not a new one.
+    expect((await ensureArchiveKey(book, legacy)).archiveKeyHex).toBe(withKey.archiveKeyHex);
 
     const json = await backupJson(withKey, 'contraseña del backup');
     const parsed = parseKeyBackup(json);
@@ -139,5 +152,51 @@ describe('web archive key and Continuity Vault (VAULT-02)', () => {
       s2?.close();
       await empty.stop();
     }
+  });
+
+  it('VAULT-04: each send is copied to the vault as the persona policy says, apart from the relay ACKs', async () => {
+    const book = newBook();
+    const p = await createPersona(book, { kind: 'create' }, { label: 'Continua', relays: [relay.url], preset: 'convenience' });
+    expect(p.config.continuity).toBe('best-effort');
+    let config = { ...p.config };
+    const s = await openPersona(book, p, {}, { continuityVault: vaultUrl, config: () => config });
+    try {
+      const rec = await s.engine.submit({ template: { kind: 9, content: 'copia best-effort', tags: [['h', 'general']] } }, { relays: [relay.url], wait: true });
+      expect(rec).toMatchObject({ state: 'REPLICATED', continuity: { policy: 'best-effort', state: 'CONTINUITY_BACKED_UP' } });
+      expect(await verifyVault(vaultUrl, (await book.get(p.id))!)).toMatchObject({ opened: expect.any(Number) });
+      const restored = await restoreVault(vaultUrl, s, book.store);
+      expect(restored.events).toBeGreaterThanOrEqual(1);
+
+      // Off: nothing is copied.
+      config = { ...config, continuity: 'off' };
+      expect((await s.engine.submit({ template: { kind: 9, content: 'sin copia', tags: [['h', 'general']] } }, { relays: [relay.url], wait: true })).continuity).toBeUndefined();
+    } finally {
+      s.close();
+    }
+
+    // Required, with a vault that is not up: the send is held, and relaxing the policy releases it.
+    const port = await freePort();
+    config = { ...config, continuity: 'required-for-resilient' };
+    const held = await openPersona(book, p, {}, { continuityVault: `http://127.0.0.1:${port}`, config: () => config });
+    try {
+      const text = `retenido ${Date.now()}`;
+      const rec = await held.engine.submit({ template: { kind: 9, content: text, tags: [['h', 'general']] } }, { relays: [relay.url], wait: true });
+      expect(rec).toMatchObject({ state: 'QUEUED', blockedReason: CONTINUITY_HELD, continuity: { state: 'PENDING' } });
+      expect(relay.received.some((e) => e.content === text)).toBe(false);
+      config = { ...config, continuity: 'best-effort' };
+      await held.engine.resume();
+      const sent = (await held.engine.get(rec.opId))!;
+      expect(sent).toMatchObject({ state: 'REPLICATED', continuity: { policy: 'best-effort', state: 'PENDING' } });
+      expect(relay.received.some((e) => e.content === text)).toBe(true);
+    } finally {
+      held.close();
+    }
+  });
+
+  it('VAULT-04: without a vault in the deployment, a profile that requires one copies best-effort instead', async () => {
+    const p = await createPersona(newBook(), { kind: 'create' }, { label: 'Sin vault', relays: [relay.url, 'ws://127.0.0.1:1'], preset: 'private-resilient', continuityVault: false });
+    expect(p.config.continuity).toBe('best-effort');
+    const q = await createPersona(newBook(), { kind: 'create' }, { label: 'Con vault', relays: [relay.url, 'ws://127.0.0.1:1'], preset: 'private-resilient', continuityVault: true });
+    expect(q.config.continuity).toBe('required-for-resilient');
   });
 });

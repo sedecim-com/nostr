@@ -24,7 +24,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
-| Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md), [threat model](docs/threat-models/continuity-vault.md) | 🟡 servicio y sobres (VAULT-01); la llave de archivo viaja en los backups de la web y del CLI (VAULT-02); la web y el CLI sellan el historial (canales, DMs, mensajes de grupo, ledger y estado MLS) y un dispositivo limpio lo recupera con relays vacíos (VAULT-03); faltan el estado en el envío (VAULT-04) y el compose (VAULT-06) |
+| Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md), [threat model](docs/threat-models/continuity-vault.md) | 🟡 servicio y sobres (VAULT-01); la llave de archivo viaja en los backups de la web y del CLI (VAULT-02); la web y el CLI sellan el historial (canales, DMs, mensajes de grupo, ledger y estado MLS) y un dispositivo limpio lo recupera con relays vacíos (VAULT-03); cada envío se copia según la política de la persona (off, best-effort o required-for-resilient), con `CONTINUITY_BACKED_UP` aparte de los ACK (VAULT-04); faltan la retención (VAULT-05) y el compose (VAULT-06) |
 | Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma y NIP-44 en el servidor autorizados con el token de Acceso o una sesión de dispositivo, consentimiento registrado con su versión) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
 | Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (Postgres, tablas `policy_*`; sin `DATABASE_URL`, en memoria) |
 | Consola de administración web (NIP-98; personas, recursos, dispositivos y passkeys, rotaciones, directorio, retención, auditoría) | `apps/admin-console`, [docs/admin-console.md](docs/admin-console.md) | ✅ servida por la imagen web en `/admin/` |
@@ -79,7 +79,9 @@ La web lee `config.json` (compose monta `infra/web/config.json`; otro archivo co
   tarjeta «Continuity Vault» explica qué ve el operador, sella el historial de la persona en el navegador con su llave
   de archivo (canales, DMs, mensajes de grupo, ledger de entrega y estado MLS) y comprueba que se abre. En un
   navegador limpio, tras importar el backup, «Restaurar desde el vault» lo recupera aunque los relays lo hayan
-  perdido. La llave viaja en el backup de la persona (v2), también cuando su llave vive en un signer.
+  perdido. La llave viaja en el backup de la persona (v2), también cuando su llave vive en un signer. VAULT-04: el
+  control `continuity` del panel copia cada envío (`best-effort`) o lo retiene hasta tener su copia
+  (`required-for-resilient`, el de private-resilient). La columna «Vault» de Entrega muestra el estado.
 - `"discoveryRelays"` (opcional): relays donde también se buscan las listas de relays de DM de los destinatarios
   (kinds 10050 y 10002), además de los de la persona. Cada búsqueda les dice a qué npub vas a escribir. Si al
   escribir un DM no se encuentra la lista (por ejemplo, sin red), cada reintento la vuelve a buscar antes de
@@ -112,6 +114,7 @@ npm run sovereign -- outbox --persona <id>      # estado por relay: aceptado ≠
 npm run sovereign -- disclose --persona <id>    # consecuencias de cada ajuste
 npm run sovereign -- vault push --persona <id> --vault URL   # sella aquí el historial y lo guarda en el Continuity Vault
 npm run sovereign -- vault restore --persona <id> --vault URL   # lo recupera y lo vuelve a publicar en tus relays
+npm run sovereign -- persona continuity --persona <id> best-effort --vault URL   # copia cada envío (o required-for-resilient)
 npm run sovereign -- group history --persona <id>   # mensajes de grupo leídos, enviados o restaurados
 npm run sovereign -- dm send --persona <id> --to NPUB "hola"  # a los relays de DM (10050) del destinatario, como la web
 npm run sovereign -- dm watch --persona <id>    # DMs y acuses según llegan a tus relays de DM (Ctrl-C para salir)

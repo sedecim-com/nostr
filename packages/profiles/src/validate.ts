@@ -46,6 +46,15 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
     if (c.quorum > ctx.relays) err('QUORUM_RELAYS', `El quorum (${c.quorum}) supera los relays de esta persona (${ctx.relays}): lo que publiques en ellos nunca tendría ${c.quorum} aceptaciones. Baja el quorum o añade relays.`, ['quorum']);
   } else if (c.network === 'direct' && c.quorum > 1) warn('QUORUM_SINGLE', 'Quorum > 1 requiere varios relays configurados.', ['quorum', 'network']);
   if (c.persistence === 'device' && c.cloudBackup === 'off' && c.custody !== 'offline') warn('LOSS_RISK', 'Sin backup ni replicación: perder el dispositivo implica perder historial y, posiblemente, la identidad.', ['persistence', 'cloudBackup']);
+  // VAULT-04: the Continuity Vault is a cloud copy, and `required-for-resilient` needs one to send at all.
+  const continuity = c.continuity ?? 'off';
+  if (continuity !== 'off') {
+    if (c.cloudBackup === 'off') err('CONTINUITY_CLOUD_OFF', 'Con el backup en la nube apagado no se usa el Continuity Vault: pon la continuidad en off o enciende el backup en la nube.', ['continuity', 'cloudBackup']);
+    if (ctx.continuityVault === false) {
+      if (continuity === 'required-for-resilient') err('CONTINUITY_NO_VAULT', 'Esta persona exige una copia en el Continuity Vault antes de enviar, pero no hay vault configurado: todos los envíos quedarían retenidos.', ['continuity']);
+      else warn('CONTINUITY_NO_VAULT', 'No hay Continuity Vault configurado: los envíos salen, pero sin copia en el vault.', ['continuity']);
+    }
+  }
   return issues;
 }
 

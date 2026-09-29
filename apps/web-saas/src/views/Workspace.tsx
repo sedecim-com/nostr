@@ -79,7 +79,9 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
       const p = await book.get(id);
       if (!p) return;
       current.current?.close();
-      const s = await openPersona(book, p, managedEnv, { discoveryRelays: cfg.discoveryRelays });
+      // VAULT-04: the engine reads the persona's Continuity Vault policy as the panel leaves it.
+      const config = () => personaConfig(current.current?.persona.id === p.id ? current.current.persona : p);
+      const s = await openPersona(book, p, managedEnv, { discoveryRelays: cfg.discoveryRelays, continuityVault: cfg.continuityVault, config });
       current.current = s;
       setSession(s);
       // FR007-05: the banner's link level, read again from the identity service when the persona already has an
@@ -147,6 +149,8 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
       const s = { ...session, persona };
       current.current = s;
       setSession(s);
+      // VAULT-04: a relaxed Continuity Vault policy releases the sends it was holding.
+      void s.engine.resume();
       await reloadPersonas();
     },
     [book, session, reloadPersonas],

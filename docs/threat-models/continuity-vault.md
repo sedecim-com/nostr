@@ -2,7 +2,7 @@
 
 - **Estado:** Propuesto. Pendiente de la revisión de seguridad y de la aprobación de alguien distinto del
   autor, como los threat models por perfil (DEC-10).
-- **Tareas:** VAULT-01, VAULT-02, VAULT-03, VAULT-07 · **Decisión:** [ADR 0011](../adr/0011-continuity-vault.md) ·
+- **Tareas:** VAULT-01, VAULT-02, VAULT-03, VAULT-04, VAULT-07 · **Decisión:** [ADR 0011](../adr/0011-continuity-vault.md) ·
   **Fecha:** 2026-09-28
 
 **Qué es.** `services/continuity-vault` guarda sobres de archivo sellados en el cliente para que el historial no
@@ -11,7 +11,9 @@ dependa solo de los relays.
   NIP-29, los gift wraps de sus DMs (los recibidos y la copia propia de los enviados), los mensajes Marmot ya
   descifrados, el estado MLS de sus grupos y el ledger de entrega. Un dispositivo limpio con el backup lo recupera
   aunque los relays lo hayan perdido.
-- **VAULT-04 (S11).** Añade el estado `CONTINUITY_BACKED_UP` en el envío.
+- **VAULT-04.** Cada envío se copia al vault según la política de la persona. Con `off` no se copia nada. Con
+  `best-effort` el envío nunca espera. Con `required-for-resilient` no sale hacia los relays hasta que la copia
+  existe. El estado `CONTINUITY_BACKED_UP` va aparte de los ACK de los relays.
 
 ## Activos
 - **El contenido de los archivos:** el historial de conversaciones, el estado MLS de los grupos y el ledger de
@@ -34,6 +36,7 @@ dependa solo de los relays.
 | Riesgo | Mitigación | Evidencia |
 |---|---|---|
 | El operador lee el contenido | Sellado XChaCha20-Poly1305 en el cliente con una llave aleatoria de 256 bits que el servidor nunca recibe. La llave solo viaja dentro del backup de identidad, cifrada con la contraseña del usuario | `services/continuity-vault/test`: ni la base, ni el object store, ni los logs contienen el texto, el evento, su id, la npub, la nsec ni las etiquetas. Lo mismo en `apps/sovereign-client/test/vault.test.ts` y `vault-restore.test.ts`, `apps/web-saas/test/continuity.test.ts` y los E2E `web-saas` y `web-groups` (canal, DMs, mensajes de grupo y nombre del grupo) |
+| Un envío sale sin copia cuando la persona la exige | Con `required-for-resilient` el motor no publica en ningún relay hasta que el vault confirma la copia; sin vault configurado el envío queda retenido y el panel (y el CLI sin `--vault`) rechazan esa política | `packages/delivery-engine/test/continuity.test.ts`, `apps/sovereign-client/test/vault-continuity.test.ts`, `apps/web-saas/test/continuity.test.ts` |
 | Un archivo manipulado entra en el historial restaurado | Solo se acepta lo que abre con la llave, está guardado bajo el id que implica su contenido, tiene firma válida (eventos) y es de la persona (snapshots y mensajes); lo demás se cuenta como omitido | `services/continuity-vault/test/history.test.ts` |
 | Un cliente sube texto plano por error | El validador compartido rechaza campos de más, una nsec o 64 dígitos hex, sobres cortos o sin relleno y un «ciphertext» legible. El servidor lo aplica venga del cliente que venga | `packages/continuity/test/continuity.test.ts`; `continuity-vault.test.ts` (peticiones directas) |
 | Ligar la cuenta del vault a la persona | NIP-98 con una llave derivada de la llave de archivo, no con la de la persona; ids opacos (HMAC de una etiqueta) | Tests: la cuenta es `nostr:<llave derivada>`, distinta de la npub; ninguna etiqueta llega al servidor |
@@ -57,7 +60,9 @@ dependa solo de los relays.
 | Robo del backup de identidad | Medio | Fuerza bruta offline de NIP-49 (scrypt) contra la contraseña del backup; depende de su fortaleza |
 | Cuentas NIP-98 ilimitadas con la política `open` | Bajo en self-hosted, Medio en SaaS | El SaaS usa `allowlist` u `off` |
 | Copias de seguridad del operador | Bajo | Conservan metadatos y sobres cifrados hasta que caducan; la retención se documenta en VAULT-05 |
-| El vault aún no participa en el envío | — | VAULT-04 (S11). Hasta entonces private-resilient no se declara GA |
+| Hora de cada envío visible al operador | Medio | Con `best-effort` o `required-for-resilient` cada envío es una subida: el operador ve cuándo envías y cuántos eventos, no su contenido. v1 no agrupa subidas. Se declara en el texto de cada política (disclosures 1.6.0) |
+| Un vault caído retiene los envíos | Medio para la disponibilidad | Solo con `required-for-resilient`, que la persona elige (lo trae private-resilient). El outbox dice por qué está retenido cada envío; relajar la política lo libera (VAULT-04) |
+| Personas creadas antes de VAULT-04 | Bajo | Su configuración no tiene política y vale `off`: nada se copia hasta que alguien lo elige en el panel o con `persona continuity` |
 
 ## Supuestos
 - XChaCha20-Poly1305, HKDF-SHA256, HMAC-SHA256 y scrypt (NIP-49) de `@noble` son correctos.

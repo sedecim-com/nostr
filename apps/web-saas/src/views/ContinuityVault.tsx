@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Card, CardContent, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import { openArchiveKeyBackup } from '@sedecim/identity/key-backup';
-import { CONTINUITY_VAULT_TEXTS } from '@sedecim/profiles';
+import { CONTINUITY_VAULT_TEXTS, continuityPolicy } from '@sedecim/profiles';
 import { pushVault, restoreVault, vaultUsage, verifyVault } from '../lib/continuity';
 import { ensureArchiveKey, setArchiveKey } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
@@ -17,6 +17,7 @@ export function ContinuityVault({ url }: { url: string }) {
   const ws = useWorkspace();
   const s = ws.session!;
   const off = s.persona.config.cloudBackup === 'off';
+  const policy = continuityPolicy(s.persona.config);
   const [status, setStatus] = useState('');
   const [file, setFile] = useState<string>();
   const [pass, setPass] = useState('');
@@ -60,7 +61,7 @@ export function ContinuityVault({ url }: { url: string }) {
       const saved = r.savedAt ? ` La copia se guardó el ${new Date(r.savedAt).toLocaleString()}.` : '';
       const missing = r.missing ? ` Faltan ${r.missing} archivos que el vault tenía en esa copia: el operador los borró o se perdieron.` : '';
       setStatus(
-        `Restaurado desde el vault: ${r.events} eventos verificados, ${r.published} publicados otra vez en tus relays${r.rejected ? ` y ${r.rejected} rechazados` : ''}; ${r.groupMessages} mensajes de grupo; ledger: ${r.ledger} operaciones añadidas.${saved}${missing}${skipped}${groups}`,
+        `Restaurado desde el vault: ${r.events} eventos verificados, ${r.published} publicados otra vez en tus relays${r.rejected ? ` y ${r.rejected} rechazados` : ''}${r.othersWraps ? ` (${r.othersWraps} mensajes cifrados para otras personas siguen en el vault)` : ''}; ${r.groupMessages} mensajes de grupo; ledger: ${r.ledger} operaciones añadidas.${saved}${missing}${skipped}${groups}`,
       );
       ws.notify('Historial restaurado desde el Continuity Vault', 'success');
     });
@@ -103,6 +104,13 @@ export function ContinuityVault({ url }: { url: string }) {
             </Alert>
           ) : (
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+              <Typography variant="body2" id="vault-policy" sx={{ flexBasis: '100%' }}>
+                {policy === 'off'
+                  ? 'Copia automática de cada envío: apagada. Puedes guardar el historial a mano o encenderla en Soberanía y privacidad.'
+                  : policy === 'best-effort'
+                    ? 'Copia automática de cada envío: best-effort. Cada envío sale aunque el vault no responda, y su copia se reintenta.'
+                    : 'Copia automática de cada envío: required-for-resilient. Un envío no sale hacia los relays hasta que su copia está en el vault.'}
+              </Typography>
               <Button id="vault-push" variant="outlined" onClick={push} disabled={busy}>
                 Guardar el historial en el vault
               </Button>

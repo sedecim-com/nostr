@@ -2,10 +2,10 @@ import { bytesToHex, hexToBytes, nip19, nip49, generateSecretKey, getPublicKey, 
 import { NetworkBlockedError, RelayPool, type WebSocketFactory } from '@sedecim/relay-pool';
 import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS, type AccessTokenProvider } from '@sedecim/signer';
 import { raiseSignerAuthUrl } from './authUrl';
-import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
+import { DeliveryEngine, type ContinuitySink, type OutboxRecord } from '@sedecim/delivery-engine';
 import { DmInbox, dmRouter, publishDmRelayList, type DirectMessage, type Receipt, type WrapOptions } from '@sedecim/messaging';
-import { preset, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
-import { assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
+import { continuityPolicy, preset, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
+import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
 
 /**
@@ -57,17 +57,24 @@ export function realCustody(custody: PersonaCustody): SovereigntyConfig['custody
   return custody === 'local' ? 'local' : custody === 'managed' ? 'managed' : 'external';
 }
 
-/** The panel configuration of a persona with its real custody (older personas stored the preset's). */
+/**
+ * The panel configuration of a persona with its real custody (older personas stored the preset's). VAULT-04: a
+ * configuration stored before the Continuity Vault policy existed has none, which is `off`.
+ */
 export function personaConfig(p: PersonaRecord): SovereigntyConfig {
-  return { ...p.config, custody: realCustody(p.custody) };
+  return { ...p.config, continuity: continuityPolicy(p.config), custody: realCustody(p.custody) };
 }
 
 const newId = () => bytesToHex(crypto.getRandomValues(new Uint8Array(8)));
 
-export async function createPersona(book: PersonaBook, input: NewPersona, opts: { label: string; relays: string[]; preset: PresetName; deviceKey?: boolean }): Promise<PersonaRecord> {
+export async function createPersona(book: PersonaBook, input: NewPersona, opts: { label: string; relays: string[]; preset: PresetName; deviceKey?: boolean; continuityVault?: boolean }): Promise<PersonaRecord> {
   // PANEL-05: validated before anything is created (a managed key, a signer connection): e.g. Tor-only is refused
   // in a browser and a quorum above the relays is refused.
-  const config = { ...preset(opts.preset), custody: realCustody(CUSTODY_OF_INPUT[input.kind]), ...(opts.deviceKey ? { localProtection: 'device' as const } : {}) };
+  const base = preset(opts.preset);
+  // VAULT-04: where the deployment has no Continuity Vault, a profile that requires it would hold every send; its
+  // copies wait for a vault instead (best-effort), as the panel says.
+  const continuity = opts.continuityVault === false && base.continuity === 'required-for-resilient' ? ('best-effort' as const) : base.continuity;
+  const config = { ...base, continuity, custody: realCustody(CUSTODY_OF_INPUT[input.kind]), ...(opts.deviceKey ? { localProtection: 'device' as const } : {}) };
   const errors = validateConfig(config, 'web', { relays: opts.relays.length }).filter((i) => i.severity === 'error');
   if (errors.length) throw new Error(`El perfil ${opts.preset} no es válido para esta persona: ${errors.map((i) => i.message).join(' ')}`);
   let custody: PersonaRecord['custody'];
@@ -148,8 +155,11 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
 /** VAULT-02: the persona with its archive key, creating one for a persona made before the vault existed. */
 export async function ensureArchiveKey(book: PersonaBook, persona: PersonaRecord): Promise<PersonaRecord> {
   if (persona.archiveKeyHex) return persona;
+  // VAULT-04: the vault copy of a send may have made the key already: a second one would orphan what it sealed.
+  const stored = (await book.get(persona.id)) ?? persona;
+  if (stored.archiveKeyHex) return { ...persona, archiveKeyHex: stored.archiveKeyHex };
   const key = generateArchiveKey();
-  const next = { ...persona, archiveKeyHex: bytesToHex(key) };
+  const next = { ...stored, archiveKeyHex: bytesToHex(key) };
   wipe(key);
   await book.save(next);
   return next;
@@ -177,7 +187,43 @@ export interface ManagedEnv {
   token?: AccessTokenProvider;
 }
 
-export async function openPersona(book: PersonaBook, persona: PersonaRecord, managed: ManagedEnv = {}, routing: { discoveryRelays?: string[] } = {}): Promise<PersonaSession> {
+/**
+ * VAULT-04: the Continuity Vault copy of each sent event, sealed in this browser with the persona's archive key (read
+ * from the vault record each time, so a key made for an older persona on first use is never made twice).
+ */
+function continuitySink(url: string, book: PersonaBook, personaId: string): ContinuitySink {
+  let making: Promise<PersonaRecord> | undefined;
+  const keyed = async () => {
+    const stored = await book.get(personaId);
+    if (!stored) throw new Error('esta persona ya no existe en este navegador');
+    if (stored.archiveKeyHex) return stored;
+    // Two sends at once of an older persona: the first makes its archive key, the other waits for it.
+    making ??= ensureArchiveKey(book, stored).finally(() => (making = undefined));
+    return making;
+  };
+  return {
+    backup: async (event) => {
+      const persona = await keyed();
+      const key = hexToBytes(persona.archiveKeyHex!);
+      try {
+        await archiveEvent(new ArchiveVaultClient({ baseUrl: url, auth: { archiveKey: key } }), key, event);
+      } finally {
+        wipe(key);
+      }
+    },
+  };
+}
+
+export interface OpenPersonaOptions {
+  /** FR010-03: extra relays where recipients' DM relay lists are looked up. */
+  discoveryRelays?: string[];
+  /** VAULT-04: the deployment's Continuity Vault, where each sent event is copied as the persona's policy says. */
+  continuityVault?: string;
+  /** The persona's configuration now (the panel may change it while the session is open); defaults to the one it opened with. */
+  config?: () => SovereigntyConfig;
+}
+
+export async function openPersona(book: PersonaBook, persona: PersonaRecord, managed: ManagedEnv = {}, routing: OpenPersonaOptions = {}): Promise<PersonaSession> {
   let signer: Signer;
   const blocked = persona.config.network === 'tor-only' ? torOnlyBlocked : undefined;
   if (persona.custody === 'local') {
@@ -205,7 +251,9 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
   const dmDiscovery = [...new Set([...persona.relays, ...(routing.discoveryRelays ?? [])])];
   // FR010-03: a DM wrap that could not be routed when it was written (offline) goes to the recipient's DM relays on retry.
   const router = dmRouter(pool, { discoveryRelays: dmDiscovery, fallback: persona.relays });
-  const engine = new DeliveryEngine({ store: book.store.collection<OutboxRecord>(`outbox-${persona.id}`), publisher: pool, signer, retry: { baseMs: 2000, maxMs: 60_000 }, router });
+  const config = routing.config ?? (() => personaConfig(persona));
+  const continuity = { policy: () => continuityPolicy(config()), ...(routing.continuityVault ? { sink: continuitySink(routing.continuityVault, book, persona.id) } : {}) };
+  const engine = new DeliveryEngine({ store: book.store.collection<OutboxRecord>(`outbox-${persona.id}`), publisher: pool, signer, retry: { baseMs: 2000, maxMs: 60_000 }, router, continuity });
   void engine.resume();
   // FR011-02: a relay coming back resumes pending deliveries (the window 'online' event does too).
   const offReconnect = pool.onReconnect(() => void engine.resume());

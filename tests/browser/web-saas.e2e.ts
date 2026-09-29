@@ -203,6 +203,9 @@ try {
   await tab(page, 'Entrega');
   await page.locator('#outbox-rows td', { hasText: 'REPLICATED' }).first().waitFor({ timeout: 10_000 });
   assert(true, 'outbox shows REPLICATED state');
+  // VAULT-04: the convenience profile copies each send to the Continuity Vault best-effort, a state of its own.
+  await page.locator('#outbox-rows td.outbox-vault', { hasText: 'CONTINUITY_BACKED_UP' }).first().waitFor({ timeout: 10_000 });
+  assert(vaultRepo.rows().length > 0, 'each send is copied to the Continuity Vault (CONTINUITY_BACKED_UP beside the relay ACK), before any manual push (VAULT-04)');
   await page.locator('#relay-health-rows tr', { hasText: 'OK' }).first().waitFor({ timeout: 10_000 });
   assert((await page.locator('.relay-degraded').count()) === 0, 'relay health: a healthy relay is shown as OK with its P95 (NFR004-02)');
   // A slow relay is surfaced as degraded with its P95, not hidden behind silent retries (NFR004-02).
@@ -328,17 +331,20 @@ try {
   await tab(page, 'Personas');
   assert((await page.textContent('#vault-facts'))?.includes('El operador sí ve tu cuenta del vault'), 'the vault card says what its operator sees before anything is uploaded (VAULT-07)');
   assert((await page.textContent('#backup-facts'))?.includes('llave de archivo del Continuity Vault'), 'the backup says it carries the archive key (VAULT-02)');
+  assert((await page.textContent('#vault-policy'))?.includes('best-effort'), 'the vault card says each send is copied best-effort (VAULT-04)');
   await page.locator('#vault-push').click();
   await page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.includes('operaciones'), undefined, { timeout: 30_000 });
   const pushStatus = (await page.textContent('#vault-status')) ?? '';
-  const pushed = /(\d+) eventos nuevos \(0 ya estaban\), 0 mensajes de grupo nuevos, ledger de (\d+) operaciones\./.exec(pushStatus);
-  const pushedEvents = Number(pushed?.[1] ?? 0);
-  const operations = Number(pushed?.[2] ?? 0);
-  assert(pushedEvents >= 5 && operations >= 5, `the push seals the persona's canonical events and its ledger (VAULT-03: ${pushStatus})`);
+  const pushed = /(\d+) eventos nuevos \((\d+) ya estaban\), 0 mensajes de grupo nuevos, ledger de (\d+) operaciones\./.exec(pushStatus);
+  // The canonical events of the persona: those its sends already copied (VAULT-04) are kept, the rest uploaded.
+  const pushedEvents = Number(pushed?.[1] ?? 0) + Number(pushed?.[2] ?? 0);
+  const operations = Number(pushed?.[3] ?? 0);
+  assert(Number(pushed?.[1] ?? 0) >= 1 && Number(pushed?.[2] ?? 0) >= 3 && operations >= 5, `the push seals the persona's canonical events and its ledger, finding its sends already copied (VAULT-03/04: ${pushStatus})`);
   let vaultHeld = JSON.stringify(vaultRepo.rows());
   for await (const k of vaultObjects.list()) vaultHeld += new TextDecoder().decode((await vaultObjects.get(k))!);
   const archives = vaultRepo.rows().length;
-  assert(archives === pushedEvents + 1 && vaultRepo.rows().every((r) => !r.owner.includes(webPub)), 'one archive per event plus the ledger, under a vault account that is not the npub');
+  // Besides the canonical events and the ledger, the copies of what was sent to others (Bob's wraps and receipts).
+  assert(archives > pushedEvents + 1 && vaultRepo.rows().every((r) => !r.owner.includes(webPub)), `one archive per event plus the ledger and the copies of what went to others, under a vault account that is not the npub (${archives})`);
   assert(!['dm desde la web', 'hola web, soy bob', 'hola desde la web', 'mensaje lento', 'Canal de pruebas', webPub, 'REPLICATED', relay.url].some((t) => vaultHeld.includes(t)), 'the vault holds no text, event, npub or relay of the history (sealed in the browser)');
   await page.locator('#vault-verify').click();
   await page.waitForFunction((n) => document.querySelector('#vault-status')?.textContent?.includes(`${n} de ${n} archivos se abren`), archives, { timeout: 15_000 });
@@ -371,7 +377,15 @@ try {
     await clean.locator('#vault-restore').click();
     await clean.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.startsWith('Restaurado desde el vault'), undefined, { timeout: 30_000 });
     const restoreStatus = (await clean.textContent('#vault-status')) ?? '';
-    assert(restoreStatus.includes(`${pushedEvents} eventos verificados, ${pushedEvents} publicados otra vez en tus relays;`) && restoreStatus.includes(`ledger: ${operations} operaciones añadidas`) && !/rechazados|no se abren/.test(restoreStatus), `a clean browser with the backup restores every event and the ledger from the vault (VAULT-03: ${restoreStatus})`);
+    const back = /(\d+) eventos verificados, (\d+) publicados otra vez en tus relays \((\d+) mensajes cifrados para otras personas siguen en el vault\);/.exec(restoreStatus);
+    const verified = Number(back?.[1] ?? -1);
+    const republished = Number(back?.[2] ?? -1);
+    const forOthers = Number(back?.[3] ?? -1);
+    // Every event the push found comes back, plus the copies of sends the relay no longer had (an older 10050 list).
+    assert(republished >= pushedEvents && verified === republished + forOthers && forOthers >= 1 && restoreStatus.includes(`ledger: ${operations} operaciones añadidas`) && !/rechazados|no se abren/.test(restoreStatus), `a clean browser with the backup restores every event and the ledger from the vault, and keeps what went to others there (VAULT-03/04: ${restoreStatus})`);
+    // (The restored browser's own new receipts to Bob may land there: his DM relay list is not on the empty relay.)
+    const sentToBob = bobRelay.query([{ kinds: [1059], '#p': [getPublicKey(bobKey)] }]).map((e) => e.id);
+    assert(sentToBob.length >= 2 && !emptyRelay.query([{ kinds: [1059], '#p': [getPublicKey(bobKey)] }]).some((e) => sentToBob.includes(e.id)), "the gift wraps sent to Bob, copied to the vault, are not republished on the persona's relays (VAULT-04)");
     const ids = (events: Array<{ id: string }>) => events.map((e) => e.id).sort().join();
     assert(ids(emptyRelay.query([{ kinds: [9], '#h': ['general'] }])) === ids(relay.query([{ kinds: [9], '#h': ['general'] }])), 'the empty relay holds the whole channel again, messages of other clients included');
     const wrapsFor = (r: TestRelay) => r.query([{ kinds: [1059], '#p': [webPub] }]);
