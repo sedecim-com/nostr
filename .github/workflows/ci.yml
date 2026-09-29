@@ -28,6 +28,8 @@ permissions:
 env:
   # gitleaks CLI (MIT): repository scan (`secrets`) and service logs scan (`stack`, NFR006-03).
   GITLEAKS_VERSION: 8.28.0
+  # OPS-13: sha256 of gitleaks_8.28.0_linux_x64.tar.gz (gitleaks_8.28.0_checksums.txt of the release).
+  GITLEAKS_SHA256: a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
 
 jobs:
   test:
@@ -35,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17.11-alpine3.24@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: sedecim
           POSTGRES_PASSWORD: sedecim
@@ -51,12 +53,17 @@ jobs:
       TEST_DATABASE_URL: postgres://sedecim:sedecim@localhost:5432/sedecim_test
       MOTO_ENDPOINT: http://localhost:5055
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
+      # OPS-13: known vulnerabilities stop the build: high or above in what ships, critical in the tooling.
+      - name: npm audit (high in production dependencies, critical in all)
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm audit --audit-level=critical
       - run: npm run typecheck
       - name: Backlog is valid and generated files are up to date
         run: node scripts/backlog.mjs --check
@@ -81,7 +88,7 @@ jobs:
           npm run test:keygen-html
       - name: SBOM
         run: npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-artifacts
           path: |
@@ -95,13 +102,14 @@ jobs:
     if: ${{ !inputs.stack_only }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Secret scanning (blocks CI, NFR-006)
         # gitleaks CLI (MIT) directly: the gitleaks-action requires a paid license for organizations.
         run: |
           curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
           tar -xzf gitleaks.tgz gitleaks
           ./gitleaks git --config .gitleaks.toml --redact --exit-code 1 .
 
@@ -109,7 +117,7 @@ jobs:
     if: ${{ !inputs.stack_only }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate docker compose (all profiles, TLS override)
         run: |
           sh scripts/init-env.sh
@@ -125,9 +133,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PROMETHEUS_VERSION: 3.5.0
+      # OPS-13: sha256 of prometheus-3.5.0.linux-amd64.tar.gz (sha256sums.txt of the release).
+      PROMETHEUS_SHA256: e811827af26d822afb09a4f28314f61b618b12cff5369835a67f674d8b46f39a
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
       - name: Render the stage overlay
@@ -141,11 +151,12 @@ jobs:
       - name: SLO rules and their unit tests (promtool)
         run: |
           curl -sSfL -o prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+          echo "${PROMETHEUS_SHA256}  prometheus.tgz" | sha256sum -c -
           tar -xzf prometheus.tgz --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
           ./promtool check config deploy/monitoring/prometheus/prometheus.yml
           ./promtool check rules deploy/monitoring/prometheus/rules/*.rules.yml
           ./promtool test rules deploy/monitoring/prometheus/tests/*.test.yml
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.9.8
       - name: Terraform fmt + validate
@@ -163,13 +174,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index/
@@ -185,7 +196,7 @@ jobs:
         env:
           MDK_INTEROP_REQUIRED: "1"
         run: npx vitest run tests/interop/marmot-mdk.interop.test.ts
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: marmot-mdk-report
@@ -199,8 +210,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -213,7 +224,7 @@ jobs:
         env:
           LEAK_REQUIRE_IPV6: "1"
         run: bash scripts/leak-test.sh
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: leak-results
@@ -227,15 +238,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
       - name: Compose tor profile end to end (relay + secure-relay .onion)
         run: bash scripts/tor-profile-check.sh
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: tor-profile-results
@@ -250,8 +261,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -320,9 +331,10 @@ jobs:
         if: always()
         run: |
           curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
           tar -xzf gitleaks.tgz gitleaks
           GITLEAKS="$PWD/gitleaks" sh scripts/scan-logs.sh compose.log .env
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: interop-reports
