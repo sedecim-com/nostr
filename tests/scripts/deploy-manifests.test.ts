@@ -80,6 +80,7 @@ describe('every compose service has a Kubernetes workload', () => {
     read('deploy/k8s/components/notification-gateway/notification-gateway.yaml'),
     read('deploy/k8s/components/continuity-vault/continuity-vault.yaml'),
     read('deploy/k8s/components/institutional/relay-allowlist.yaml'),
+    read('deploy/k8s/components/institutional/rotation-worker.yaml'),
   ].join('\n---\n');
   const servicesBlock = compose.slice(compose.indexOf('\nservices:\n'), compose.indexOf('\nvolumes:\n'));
   const services = [...servicesBlock.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((m) => m[1]!);
@@ -160,6 +161,22 @@ describe.skipIf(!hasKubectl)('kubectl kustomize base + components/institutional 
     expect(out.stdout).toContain('event_admission_server = "http://relay-allowlist:50051"');
     expect(out.stdout).toMatch(/BUZZ_PUBKEY_ALLOWLIST: "true"/);
     expect(out.stdout).toMatch(/INDEXER_POLICY_ENGINE_URL: http:\/\/policy-engine:8083/);
+  });
+
+  // FR024-05: one writer of the MLS state, on its own volume; its secrets only by reference.
+  it('runs the rotation worker as a single replica with its state on a volume and its secrets by reference', () => {
+    const worker = docs.find((d) => /^kind: Deployment$/m.test(d) && /^  name: rotation-worker$/m.test(d));
+    expect(worker).toBeDefined();
+    expect(worker).toMatch(/replicas: 1\n/);
+    expect(worker).toMatch(/strategy:\n\s+type: Recreate/);
+    expect(worker).toMatch(/claimName: rotation-worker-state/);
+    expect(worker).toMatch(/runAsNonRoot: true/);
+    expect(worker).toMatch(/readOnlyRootFilesystem: true/);
+    for (const key of ['ROTATION_WORKER_POLICY_TOKEN', 'ROTATION_WORKER_NSEC', 'ROTATION_STATE_KEY', 'ROTATION_MANAGED_SIGNER_TOKEN']) {
+      expect(worker).toMatch(new RegExp(`secretKeyRef:\\n\\s+key: ${key}\\n\\s+name: acceso-nostr-secrets`));
+    }
+    expect(docs.some((d) => /^kind: PersistentVolumeClaim$/m.test(d) && /^  name: rotation-worker-state$/m.test(d))).toBe(true);
+    expect(out.stdout).toMatch(/ROTATION_WORKER_RELAYS: ws:\/\/localhost:7000=ws:\/\/secure-relay:8080/);
   });
 });
 

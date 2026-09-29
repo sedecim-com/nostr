@@ -131,12 +131,13 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
   }, 'bearer');
   svc.get('/v1/relay/allowlist', async () => ({ pubkeys: await engine.relayAllowlist() }), 'bearer');
 
+  // FR024-05: the rotation worker reads them with its service token, so its Nostr key need not be a policy admin.
   svc.get('/v1/rotations', async (req) => {
-    admin(req.pubkey);
+    adminOrService(req);
     const status = req.query.get('status');
     if (status !== null && status !== 'pending' && status !== 'done') throw new HttpError(400, "status must be 'pending' or 'done'");
     return { rotations: await engine.listRotations((status ?? undefined) as Rotation['status'] | undefined) };
-  }, 'nip98');
+  }, 'nip98-or-token');
   svc.post('/v1/rotations/:id/done', async (req) => {
     const actor = adminOrService(req);
     // Wrapped: a Rotation has a `status` field, which Service would read as the HTTP status.

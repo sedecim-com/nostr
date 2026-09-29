@@ -99,7 +99,10 @@ Flujo completo de un dispositivo perdido o robado, probado de punta a punta en
      `sovereign group list`): `PUT /v1/resources/<groupId>` con `{kind: 'group', members: [...]}`. Sin esa
      convención el worker no sabe qué grupo rotar (falla y reintenta; nunca marca la rotación como hecha).
 2. **Worker de rotación** (`packages/rotation-worker`, FR024-02). Lo ejecuta una identidad que es **admin del
-   grupo** (MIP-03: solo los admins hacen commit) y admin del policy-engine (NIP-98):
+   grupo** (MIP-03: solo los admins hacen commit). En modo institucional corre como servicio `rotation-worker`
+   (FR024-05, docs/institutional.md «Worker de rotaciones»): entra solo en los grupos que lo invitan y lee el
+   policy-engine con su token de servicio, sin ser admin de él. También se puede ejecutar desde el CLI, con un
+   token de servicio o como admin del policy-engine (NIP-98):
    ```bash
    SOVEREIGN_POLICY_BEARER=… SOVEREIGN_REVOCATION_TOKEN=… \
    sovereign group rotation-worker --persona ADMIN --policy https://policy.example \
@@ -121,8 +124,8 @@ Flujo completo de un dispositivo perdido o robado, probado de punta a punta en
    hasta que todos los destinos lo aceptan.
    - **Sin pérdidas** (FR024-04). El worker lee `GET /v1/revocations?after=<cursor>`: solo las entradas
      `device.revoke` de la auditoría, de la más antigua a la más nueva y por páginas. Así, ningún volumen de
-     otras entradas de la auditoría (cada `evaluate` escribe una) desplaza una revocación fuera de la
-     página, como pasaba al leer las últimas 100 de `GET /v1/audit`.
+     otras entradas de la auditoría desplaza una revocación fuera de la página, como pasaba al leer las últimas
+     100 de `GET /v1/audit`.
      - Una revocación que falla no deja pasar el cursor y se reintenta en cada ciclo. Las siguientes se
        propagan igual.
      - El cursor tampoco pasa una revocación con menos de 60 s según el reloj del policy-engine. El id de

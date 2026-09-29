@@ -80,8 +80,8 @@
  *      SOVEREIGN_VAULT_URL (Continuity Vault URL, when --vault is not given),
  *      SOVEREIGN_DISCOVERY_RELAYS (comma-separated relays where recipients' DM relay lists are also looked up),
  *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present),
- *      SOVEREIGN_POLICY_BEARER (optional service bearer for POST /v1/rotations/:id/done and GET /v1/revocations;
- *        NIP-98 otherwise),
+ *      SOVEREIGN_POLICY_BEARER (optional service bearer for GET /v1/rotations, POST /v1/rotations/:id/done and
+ *        GET /v1/revocations; NIP-98 otherwise),
  *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer)
  */
 import { createHash, randomBytes } from 'node:crypto';

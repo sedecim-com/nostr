@@ -172,12 +172,25 @@ export function GroupsView() {
   const create = (e: FormEvent) => {
     e.preventDefault();
     void act(async () => {
-      const g = await exclusive(gs!, (x) => x.createGroup({ name: name.trim(), description: description.trim(), relays }));
+      // FR024-05: the organisation's rotation worker is an admin of every group, so that it can remove revoked devices.
+      const worker = ws.cfg.rotationWorker;
+      const g = await exclusive(gs!, (x) => x.createGroup({ name: name.trim(), description: description.trim(), relays, ...(worker ? { admins: [s.pubkey, worker] } : {}) }));
       setName('');
       setDescription('');
+      let workerError: string | undefined;
+      if (worker) {
+        try {
+          const keyPackage = await exclusive(gs!, (x) => x.findKeyPackage(worker, relays));
+          if (!keyPackage) throw new Error('no tiene key package en el relay de grupos');
+          await exclusive(gs!, (x) => x.invite(g.groupId, keyPackage));
+        } catch (err) {
+          workerError = (err as Error).message;
+        }
+      }
       await reloadGroups(gs!);
       setOpenId(g.groupId);
-      ws.notify(`Grupo "${g.name}" creado.`, 'success');
+      if (workerError) ws.notify(`Grupo "${g.name}" creado, pero sin el worker de rotaciones de tu organización (${workerError}): no podrá sacar del grupo un dispositivo revocado. Invítalo con «Invitar»: ${npubEncode(worker!)}.`, 'warning');
+      else ws.notify(`Grupo "${g.name}" creado${worker ? ' con el worker de rotaciones de tu organización como admin' : ''}.`, 'success');
     });
   };
 
@@ -429,7 +442,10 @@ export function GroupsView() {
                           ) : undefined
                         }
                       >
-                        <ListItemText primary={m === s.pubkey ? `${shortNpub(m)} (tú)` : shortNpub(m)} secondary={current.admins.includes(m) ? 'admin' : 'miembro'} />
+                        <ListItemText
+                          primary={m === s.pubkey ? `${shortNpub(m)} (tú)` : m === ws.cfg.rotationWorker ? `${shortNpub(m)} · worker de rotaciones de la organización` : shortNpub(m)}
+                          secondary={`${current.admins.includes(m) ? 'admin' : 'miembro'}${m === ws.cfg.rotationWorker ? ' · puede descifrar el grupo mientras esté en él; saca a los dispositivos que la organización revoca' : ''}`}
+                        />
                       </ListItem>
                     ))}
                   </List>

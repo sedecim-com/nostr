@@ -10,8 +10,8 @@ export interface RotationFeedItem {
 }
 
 /**
- * Test double of the policy-engine rotation contract (tests only): `GET /v1/rotations?status=` (admin
- * NIP-98), and `POST /v1/rotations/:id/done` and `GET /v1/revocations` (admin NIP-98 or bearer). Rotations
+ * Test double of the policy-engine rotation contract (tests only): `GET /v1/rotations?status=`,
+ * `POST /v1/rotations/:id/done` and `GET /v1/revocations` (admin NIP-98 or bearer). Rotations
  * come from `feed` (e.g. an in-memory PolicyEngine's `rotations`) and get ids by position; revocations from
  * `revocations`, oldest first.
  */
@@ -30,16 +30,16 @@ export class StubPolicyApi {
       if (!pubkey || !opts.adminPubkeys.includes(pubkey)) throw new HttpError(403, 'admin only');
     };
     this.rotations = () => opts.feed().map((r, i) => ({ ...r, id: `rot-${i + 1}`, status: this.done.has(`rot-${i + 1}`) ? 'done' : 'pending' }));
-    svc.get('/v1/rotations', (req) => {
-      admin(req.pubkey);
-      const status = req.query.get('status');
-      return { rotations: this.rotations().filter((r) => !status || r.status === status) };
-    }, 'nip98');
     const adminOrService = (req: Req) => {
       const bearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : undefined;
       if (bearer === undefined) admin(req.pubkey);
       else if (!Object.keys(opts.bearerTokens ?? {}).includes(bearer)) throw new HttpError(401, 'invalid bearer token');
     };
+    svc.get('/v1/rotations', (req) => {
+      adminOrService(req);
+      const status = req.query.get('status');
+      return { rotations: this.rotations().filter((r) => !status || r.status === status) };
+    }, 'nip98-or-token');
     svc.post('/v1/rotations/:id/done', (req) => {
       adminOrService(req);
       if (this.failDone > 0) {

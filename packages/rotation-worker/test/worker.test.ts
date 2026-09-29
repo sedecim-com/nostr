@@ -197,8 +197,11 @@ describe('device revocation propagation (FR024-03, FR024-04)', () => {
       ],
     });
     expect(await p.runOnce()).toEqual(['d2']);
+    // FR024-05: what failed is reported (the service's health shows it).
+    expect([p.failing, p.lastError]).toEqual([1, 'bunker offline']);
     failD3 = false;
     expect(await p.runOnce()).toEqual(['d3']);
+    expect(p.failing).toBe(0);
     expect(await p.runOnce()).toEqual([]);
     expect(calls).toEqual(['signer:d2:lost phone', 'bunker:d2', 'signer:d3:', 'signer:d3:', 'bunker:d3']);
   });

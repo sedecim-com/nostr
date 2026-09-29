@@ -396,6 +396,33 @@ services:
       postgres: { condition: service_healthy }
       policy-engine: { condition: service_started }
 
+  # --- optional: institutional rotation worker (FR024-02/04/05). Its identity joins the groups that list it as an admin
+  # and invite it, removes the members the policy-engine revokes, and propagates device revocations to the managed-signer.
+  # It can decrypt those groups while it is in them (it keeps no messages): docs/institutional.md, «Worker de rotaciones».
+  # One replica only: the MLS state in the volume has a single writer.
+  rotation-worker:
+    <<: *service
+    profiles: [institutional]
+    build: { context: ., target: service, args: { SERVICE: rotation-worker } }
+    environment:
+      ROTATION_WORKER_NSEC: ${ROTATION_WORKER_NSEC:-}
+      # `public=dial`: the URL clients use for the secure relay (web config secureRelays), and where the worker reaches it.
+      ROTATION_WORKER_RELAYS: ${ROTATION_WORKER_RELAYS:-ws://localhost:7000=ws://secure-relay:8080}
+      POLICY_ENGINE_URL: http://policy-engine:8083
+      # One of the tokens in POLICY_SERVICE_TOKENS: rotations and revocations are read with it (not a policy admin).
+      POLICY_ENGINE_TOKEN: ${ROTATION_WORKER_POLICY_TOKEN:-}
+      ROTATION_STATE_DIR: /data
+      ROTATION_STATE_KEY: ${ROTATION_STATE_KEY:-}
+      ROTATION_INTERVAL_MS: ${ROTATION_INTERVAL_MS:-15000}
+      # Device revocations to the managed-signer (--profile managed): one of MANAGED_SIGNER_REVOCATION_TOKENS. Empty = off.
+      ROTATION_MANAGED_SIGNER_URL: ${ROTATION_MANAGED_SIGNER_URL:-}
+      ROTATION_MANAGED_SIGNER_TOKEN: ${ROTATION_MANAGED_SIGNER_TOKEN:-}
+      PORT: "8089"
+    volumes: [rotation-state:/data]
+    depends_on:
+      policy-engine: { condition: service_started }
+      secure-relay: { condition: service_started }
+
   # --- optional: Sovereign Tor Mode (SOCKS for clients + onion services for the relays)
   tor:
     profiles: [tor]
@@ -434,6 +461,7 @@ volumes:
   tor-data:
   onion-names:
   secure-relay-onion-data:
+  rotation-state:
 
 networks:
   nostr:
