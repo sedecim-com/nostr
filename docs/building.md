@@ -53,7 +53,8 @@ gh attestation verify oci://ghcr.io/sedecim-com/nostr-indexer@sha256:<digest> --
 - **Herramientas descargadas** en CI (gitleaks, promtool, syft) contrastadas con el sha256 que publica su
   release antes de ejecutarse.
 - **Dependabot** vigila npm, las acciones, los dos Dockerfile (raíz e `infra/tor`) y las imágenes del compose.
-  Buzz queda fuera: se actualiza con `buzz-upstream.yml` y el gate de interoperabilidad (ADR 0003).
+  Buzz queda fuera: se actualiza con `buzz-upstream.yml` y el gate de interoperabilidad (ADR 0003). Tampoco
+  propone versiones mayores de postgres ni de redis: exigen migrar los datos y el mismo cambio en `deploy/k8s`.
 - **Gates:**
   - `npm audit` en el job `test` falla con una vulnerabilidad alta en las dependencias de producción, o
     crítica en cualquiera;
