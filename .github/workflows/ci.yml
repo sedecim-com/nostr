@@ -250,6 +250,9 @@ jobs:
         env:
           LEAK_REQUIRE_IPV6: "1"
         run: bash scripts/leak-test.sh
+      # FR020-05: with ts-mls 2.0.0-rc.10 swapped in, the MLS self-test must fail closed; restored, it must pass.
+      - name: MLS negative control (ts-mls rc.10)
+        run: bash scripts/mls-negative-control.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
