@@ -99,6 +99,8 @@ const managedCore = new ManagedSigner(new MemoryVault());
 const managed = createManagedSignerApi(managedCore, {
   name: 'managed-e2e',
   corsOrigins: [base],
+  // FR005-11: as a strict deployment runs it: keys only through device sessions, never the bare Acceso token.
+  requireDeviceSession: true,
   cognito: new CognitoVerifier({ region: cognito.region, userPoolId: cognito.userPoolId, clientId: cognito.userPoolClientId, fetch: (async () => new Response(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'e2e', alg: 'RS256' }] }))) as typeof fetch }),
 });
 const managedUrl = await managed.listen();
@@ -784,6 +786,58 @@ try {
   })();
   assert(managedMsg?.pubkey === managedKey!.pubkey, 'channel message signed by the managed signer with the Acceso token');
   assert((await managedCore.usageOf(managedKey!.keyId, owner)).some((u) => u.action === 'sign' && u.principal === owner), 'each managed signature is audited under the Acceso user');
+  const signedFrom = (await managedCore.usageOf(managedKey!.keyId, owner)).filter((u) => u.action === 'sign').map((u) => u.deviceId);
+  assert(signedFrom.length > 0 && signedFrom.every((d) => d?.startsWith('web-')), 'the web signs through a device session of this browser, never with the bare Acceso token (FR005-11)');
+
+  // --- FR005-11: the usage log and the sessions of the managed key; a new browser recovers the persona with the login
+  const channelMessage = async (text: string) => {
+    for (let i = 0; i < 60; i++) {
+      const e = (await pool.query([relay.url], [{ kinds: [9], '#h': ['general'] }], 2000)).find((x) => x.content === text);
+      if (e) return e;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  };
+  await tab(saas, 'Personas');
+  await saas.locator('#managed-usage').getByText('Firma · kind 9').first().waitFor({ timeout: 15_000 });
+  assert((await saas.locator('#managed-usage').textContent())?.includes('este navegador') && (await saas.locator('#managed-sessions li').count()) === 1 && (await saas.locator('#managed-sessions').textContent())?.includes('(este navegador)'), 'the managed persona shows its usage log (signed from this browser) and its one session (FR005-11)');
+  const recCtx = await browser.newContext();
+  await recCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(saasConfig) }));
+  await recCtx.route(`https://cognito-idp.${cognito.region}.amazonaws.com/**`, accesoRoute);
+  const rec = await recCtx.newPage();
+  rec.on('pageerror', (e) => errors.push(`recovered: ${e.message}`));
+  await rec.goto(base);
+  await rec.fill('#acceso-user', 'ana');
+  await rec.fill('#acceso-pass', 'acceso-pass');
+  await rec.getByRole('button', { name: 'Entrar con Acceso' }).click();
+  await rec.getByText('Crear almacén').waitFor({ timeout: 15_000 });
+  await rec.fill('#local-pass', PASS);
+  await rec.getByRole('button', { name: 'Crear almacén' }).click();
+  await rec.fill('#persona-label', 'Gestionada recuperada');
+  await rec.getByLabel('Recuperar mi persona gestionada (con este login de Acceso)').check();
+  assert(await rec.getByRole('button', { name: 'Recuperar persona' }).isDisabled(), 'nothing is recovered before a key is chosen');
+  await rec.locator('#managed-recovery-search').click();
+  await rec.locator('#managed-recovery').getByText(npubEncode(managedKey!.pubkey).slice(0, 12)).waitFor({ timeout: 15_000 });
+  await rec.getByRole('button', { name: 'Recuperar persona' }).click();
+  await rec.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Gestionada recuperada'), undefined, { timeout: 20_000 });
+  assert((await rec.getByRole('heading', { name: /^Gestionada recuperada · / }).textContent())?.includes(npubEncode(managedKey!.pubkey).slice(0, 12)) && (await managedCore.list(owner)).length === 1, 'a new browser reopens the same managed key with the Acceso login: same npub, no new key (FR005-11)');
+  await tab(rec, 'Canales');
+  await rec.locator('#channel-list').getByText('General').click();
+  await rec.fill('#channel-text', 'desde el navegador recuperado');
+  await rec.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  assert((await channelMessage('desde el navegador recuperado'))?.pubkey === managedKey!.pubkey, 'the recovered persona signs with its managed key');
+  await tab(rec, 'Personas');
+  await rec.locator('#managed-sessions li').nth(1).waitFor({ timeout: 15_000 });
+  assert((await rec.locator('#managed-sessions li').count()) === 2 && (await rec.locator('#managed-usage').textContent())?.includes('este navegador'), 'the new browser sees both sessions and its own signature in the usage log');
+  await rec.locator('#managed-close-others').click();
+  await rec.waitForFunction(() => document.querySelectorAll('#managed-sessions li').length === 1, undefined, { timeout: 15_000 });
+  assert((await managedCore.listDeviceSessions(owner)).length === 1, 'the user closes the other browser’s session from the new one (FR005-11)');
+  await recCtx.close();
+  // The first browser, still logged in, opens another session with its login on its next signature.
+  await tab(saas, 'Canales');
+  await saas.locator('#channel-list').getByText('General').click();
+  await saas.fill('#channel-text', 'después de cerrar mi sesión');
+  await saas.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  assert((await channelMessage('después de cerrar mi sesión'))?.pubkey === managedKey!.pubkey, 'a browser whose session was closed opens another one with the Acceso login and signs again');
 
   // --- migration back to local custody with verification (FR026-03)
   await tab(saas, 'Personas');

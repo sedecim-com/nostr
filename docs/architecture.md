@@ -75,6 +75,48 @@ la interfaz no duplique nada (§11.2). Cada envío de la web y del CLI es una op
   el id `<operación>:<pubkey>`. Un reintento usa el mismo rumor, reenvía los wraps ya encolados y crea solo los que
   falten; si el firmante falló a mitad, el destinatario que ya tenía su wrap no recibe otro.
 
+## Custodia gestionada: sesiones del navegador y recuperación (FR005-11)
+
+**Sesión de dispositivo.** La web firma por una persona gestionada con una sesión de dispositivo de ese navegador, no
+con el token de Acceso:
+- la abre con el login de Acceso (`POST /v1/device-sessions`, 12 h) y la guarda en el almacén cifrado;
+- su id de dispositivo es aleatorio (`web-…`) y es el mismo para todas las personas del navegador;
+- si el managed-signer la rechaza (caducada o cerrada), la reabre con el login y repite la petición una vez. Un 401
+  significa que no se hizo nada, así que repetirla no duplica nada.
+
+La web funciona igual con `MANAGED_SIGNER_REQUIRE_DEVICE_SESSION=true`: el E2E corre así.
+
+**Sesiones propias** (`services/managed-signer`). Nunca se muestra un token.
+- `GET /v1/device-sessions` lista las del usuario: dispositivo, apertura y caducidad. Acepta el login o cualquiera de
+  sus sesiones, y marca la de la llamada como `current`.
+- `DELETE /v1/device-sessions/:id` cierra una. Con el login, cualquiera de las suyas; con una sesión, solo esa misma.
+- `DELETE /v1/device-sessions?except=<id>` cierra todas menos una. Solo con el login.
+- Otro usuario no ve ni cierra las sesiones ajenas.
+- El id público se deriva del hash del token: nombra la sesión, no sirve para abrirla.
+- Cerrar una sesión no revoca el dispositivo: eso lo decide la organización (FR024-03). Un navegador que sigue con el
+  login abierto abre otra sesión en su siguiente firma. Ante un dispositivo perdido hay que cambiar también la
+  contraseña de Acceso.
+
+**Recuperación en otro navegador.**
+1. Se entra con el mismo login de Acceso.
+2. En «Nueva persona», «Recuperar mi persona gestionada» lista las llaves gestionadas que aún firman (`GET /v1/keys`,
+   por la sesión del navegador) y no están ya en ese navegador.
+3. Se abre la elegida: misma npub, ninguna llave nueva y el consentimiento registrado con la llave.
+
+No se vuelve a publicar la lista de relays de DM (kind 10050), que es la del otro navegador. La llave de archivo del
+Continuity Vault vuelve desde el archivo de backup, en su tarjeta.
+
+**Registro de uso.** La tarjeta «Actividad de tu llave gestionada» muestra:
+- las 20 operaciones más recientes (`GET /v1/keys/:id/usage`), con el dispositivo que las hizo. El registro se
+  guarda 12 meses (DEC-09);
+- las sesiones abiertas, con «Cerrar» y «Cerrar las demás sesiones».
+
+**Pruebas.**
+- `services/managed-signer/test/own-sessions.test.ts`;
+- `registry.test.ts`, en memoria y Postgres;
+- `tests/browser/web-saas.e2e.ts`: un segundo navegador recupera la persona, firma, ve las dos sesiones y cierra la
+  del primero, que vuelve a firmar tras abrir otra.
+
 ## Grupos MLS sin red (FR025-12)
 
 Los mensajes y commits de grupos Marmot tienen su propio outbox en el adaptador (`packages/marmot-adapter`), sellado
