@@ -37,7 +37,14 @@ describe('scripts/stack-profiles.sh configure', () => {
     expect(value(env, 'NOTIFY_VAPID_PRIVATE_KEY')).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const token = value(env, 'RELAY_ALLOWLIST_POLICY_TOKEN')!;
     expect(token).toMatch(/^[0-9a-f]{48}$/);
-    expect(value(env, 'POLICY_SERVICE_TOKENS')).toBe(`ops-token-123:ops,${token}:relay-allowlist`);
+    // FR024-05: the rotation worker's own service token, and its revocation token for the managed-signer.
+    const worker = value(env, 'ROTATION_WORKER_POLICY_TOKEN')!;
+    expect(worker).toMatch(/^[0-9a-f]{48}$/);
+    expect(value(env, 'POLICY_SERVICE_TOKENS')).toBe(`ops-token-123:ops,${token}:relay-allowlist,${worker}:rotation-worker`);
+    const revocation = value(env, 'ROTATION_MANAGED_SIGNER_TOKEN')!;
+    expect(revocation).toMatch(/^[0-9a-f]{48}$/);
+    expect(value(env, 'MANAGED_SIGNER_REVOCATION_TOKENS')).toBe(`${revocation}:rotation-worker`);
+    expect(value(env, 'ROTATION_MANAGED_SIGNER_URL')).toBe('http://managed-signer:8084');
     // A placeholder Acceso pool: the signer starts and nobody can sign in.
     expect(value(env, 'COGNITO_USER_POOL_ID')).toBe('us-east-1_stackci');
     expect(value(env, 'POSTGRES_PASSWORD')).toBe('abc');
@@ -48,6 +55,14 @@ describe('scripts/stack-profiles.sh configure', () => {
     expect(value(env, 'ALLOWLIST_SYNC_INTERVAL_MS')).toBe('2000');
   });
 
+  it('lets the institutional secure relay admit the rotation worker (FR024-05)', () => {
+    const sk = 'cd'.repeat(32);
+    const { file } = envFile(`ROTATION_WORKER_NSEC=${sk}\nALLOWLIST_EXTRA_PUBKEYS=${'ef'.repeat(32)}\n`);
+    expect(run(['configure', file]).status).toBe(0);
+    run(['configure', file]);
+    expect(value(readFileSync(file, 'utf8'), 'ALLOWLIST_EXTRA_PUBKEYS')).toBe(`${'ef'.repeat(32)},${getPublicKey(hexToBytes(sk))}`);
+  });
+
   it('is idempotent and keeps what was already set, other profiles included', () => {
     const { file } = envFile('COMPOSE_PROFILES=scale\nMANAGED_SIGNER_KEK=' + 'ab'.repeat(32) + '\n');
     run(['configure', file]);
@@ -56,8 +71,9 @@ describe('scripts/stack-profiles.sh configure', () => {
     const second = readFileSync(file, 'utf8');
     expect(value(second, 'COMPOSE_PROFILES')).toBe('scale,managed,push,institutional,tor');
     expect(value(second, 'MANAGED_SIGNER_KEK')).toBe('ab'.repeat(32));
-    for (const name of ['NOTIFY_NSEC', 'NOTIFY_VAPID_PRIVATE_KEY', 'RELAY_ALLOWLIST_POLICY_TOKEN', 'POLICY_SERVICE_TOKENS', 'POLICY_ADMIN_SECRET_KEY', 'POLICY_ADMIN_PUBKEYS']) expect(value(second, name), name).toBe(value(first, name));
-    expect(value(second, 'POLICY_SERVICE_TOKENS')!.split(',')).toHaveLength(1);
+    for (const name of ['NOTIFY_NSEC', 'NOTIFY_VAPID_PRIVATE_KEY', 'RELAY_ALLOWLIST_POLICY_TOKEN', 'POLICY_SERVICE_TOKENS', 'POLICY_ADMIN_SECRET_KEY', 'POLICY_ADMIN_PUBKEYS', 'ROTATION_WORKER_POLICY_TOKEN', 'ROTATION_MANAGED_SIGNER_TOKEN', 'MANAGED_SIGNER_REVOCATION_TOKENS']) expect(value(second, name), name).toBe(value(first, name));
+    expect(value(second, 'POLICY_SERVICE_TOKENS')!.split(',')).toHaveLength(2);
+    expect(value(second, 'MANAGED_SIGNER_REVOCATION_TOKENS')!.split(',')).toHaveLength(1);
     expect(value(second, 'POLICY_ADMIN_PUBKEYS')!.split(',')).toHaveLength(1);
   });
 
@@ -66,7 +82,7 @@ describe('scripts/stack-profiles.sh configure', () => {
     run(['configure', file]);
     writeFileSync(file, readFileSync(file, 'utf8') + 'STACK_CANARY_TOKEN=' + 'c4'.repeat(24) + '\n');
     const env = readFileSync(file, 'utf8');
-    const names = ['MANAGED_SIGNER_KEK', 'NOTIFY_NSEC', 'NOTIFY_VAPID_PRIVATE_KEY', 'RELAY_ALLOWLIST_POLICY_TOKEN', 'POLICY_ADMIN_SECRET_KEY', 'STACK_CANARY_TOKEN'];
+    const names = ['MANAGED_SIGNER_KEK', 'NOTIFY_NSEC', 'NOTIFY_VAPID_PRIVATE_KEY', 'RELAY_ALLOWLIST_POLICY_TOKEN', 'POLICY_ADMIN_SECRET_KEY', 'ROTATION_WORKER_POLICY_TOKEN', 'ROTATION_MANAGED_SIGNER_TOKEN', 'STACK_CANARY_TOKEN'];
     const log = join(dir, 'compose.log');
     writeFileSync(log, names.map((n) => `managed-signer-1  | leaked ${value(env, n)}`).join('\n') + '\n');
     const scan = spawnSync('sh', [join(root, 'scripts/scan-logs.sh'), '--no-gitleaks', log, file], { encoding: 'utf8' });
