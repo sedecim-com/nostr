@@ -691,7 +691,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
       }
       const pending = Object.keys(g.state.unappliedProposals).length;
       if (pending) throw new PendingProposalsError(pending);
-      const res = await g.sendApplicationRumor(this.rumor(DEVICE_ROSTER_KIND, JSON.stringify({ v: 1, devices })) as never);
+      const res = await this.sendRumor(g, this.rumor(DEVICE_ROSTER_KIND, JSON.stringify({ v: 1, devices })));
       if (!ok(res)) throw new Error('not accepted');
       this.needsAnnounce.delete(g.idStr);
     } catch {
@@ -723,6 +723,21 @@ export class MarmotTsSession implements ExtendedGroupSession {
     await this.opts.storage.put(NS.roster, g.idStr, roster);
   }
 
+  /**
+   * Encrypts and publishes an application rumor. Encrypting advances this member's ratchet, whether or not a relay
+   * then takes the message, and marmot-ts only stores the group state on its next commit or ingest. It is stored here
+   * at once. Otherwise, after a restart before either, the next message would use the same generation again: the same
+   * key (only RFC 9420's random reuse guard keeps the nonces apart), and the members, who already used up that
+   * generation, could not read it.
+   */
+  private async sendRumor(g: MarmotGroup<any, any>, rumor: ReturnType<MarmotTsSession['rumor']>) {
+    try {
+      return await g.sendApplicationRumor(rumor as never);
+    } finally {
+      await g.save();
+    }
+  }
+
   async send(groupId: string, content: string, tags: string[][] = []): Promise<GroupMessage> {
     const g = await this.load(groupId);
     this.assertNotRestored(g);
@@ -733,7 +748,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
     // cannot decrypt its own ciphertext later (VAULT-03 archives what the persona read and sent).
     const rumor = this.rumor(9, content, tags);
     const epoch = Number(getEpoch(g.state));
-    const res = await g.sendApplicationRumor(rumor);
+    const res = await this.sendRumor(g, rumor);
     if (!ok(res)) throw new Error('group message not accepted by any relay');
     const sent: GroupMessage = { groupId: g.idStr, sender: this.pubkey, content, kind: rumor.kind, createdAt: rumor.created_at, rumorId: rumor.id, epoch, senderLeaf: g.state.privatePath.leafIndex, tags };
     await this.opts.onMessage?.(sent);
