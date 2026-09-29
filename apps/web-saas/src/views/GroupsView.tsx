@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Alert, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
-import type { GroupHandle, GroupSession } from '@sedecim/marmot-adapter';
+import type { GroupHandle, GroupSession, PendingGroupOperation } from '@sedecim/marmot-adapter';
 import { normalizePubkey, npubEncode } from '@sedecim/nostr-core';
-import { exclusive, forgetRemovedGroup, GroupHistory, groupRelays, openGroupSession, rejoinRestoredGroup, type StoredGroupMessage } from '../lib/groups';
+import { discardPendingGroupOperation, exclusive, forgetRemovedGroup, GroupHistory, groupRelays, openGroupSession, rejoinRestoredGroup, retryPendingGroupOperations, type StoredGroupMessage } from '../lib/groups';
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 import { MaturityChip } from './MaturityChip';
@@ -10,6 +10,16 @@ import { MaturityChip } from './MaturityChip';
 const POLL_MS = 4000;
 
 type Confirm = { kind: 'remove'; member: string } | { kind: 'leave' };
+
+/** FR025-12: what a pending group operation is, in the words of the view. */
+const PENDING_LABELS: Record<PendingGroupOperation['type'], string> = {
+  message: 'Mensaje',
+  add: 'Invitación (commit)',
+  remove: 'Expulsión (commit)',
+  rotate: 'Rotación de claves (commit)',
+  proposals: 'Propuestas aceptadas (commit)',
+  welcome: 'Invitación cifrada al nuevo miembro',
+};
 
 /**
  * High-security groups (FR025-07): Marmot over MLS (RFC 9420) through the adapter's GroupSession. MLS state
@@ -38,6 +48,7 @@ export function GroupsView() {
 
   const current = groups.find((g) => g.groupId === openId);
   const isAdmin = !!current?.admins.includes(s.pubkey);
+  const pendingMessages = new Set((current?.pending ?? []).flatMap((p) => (p.type === 'message' && p.rumorId ? [p.rumorId] : [])));
 
   const reloadGroups = useCallback(async (session: GroupSession) => setGroups(await exclusive(session, (g) => g.groups())), []);
 
@@ -56,6 +67,12 @@ export function GroupsView() {
         if (!alive) return;
         setGs(session);
         await reloadGroups(session);
+        // FR025-12: what an earlier visit left without a relay goes out now, in the background.
+        void exclusive(session, (g) => retryPendingGroupOperations(g))
+          .then(async () => {
+            if (alive) await reloadGroups(session);
+          })
+          .catch(() => undefined);
         const own = await exclusive(session, (g) => g.findKeyPackage(s.pubkey, relays));
         if (alive) setKp(own ? 'published' : 'missing');
       } catch (e) {
@@ -96,6 +113,25 @@ export function GroupsView() {
     },
     [s.pubkey],
   );
+
+  // FR025-12: when the browser is back online, the pending group operations go out without waiting for a poll.
+  useEffect(() => {
+    if (!gs) return;
+    const online = () =>
+      void exclusive(gs, (g) => retryPendingGroupOperations(g))
+        .then(() => reloadGroups(gs))
+        .catch(() => undefined);
+    window.addEventListener('online', online);
+    return () => window.removeEventListener('online', online);
+  }, [gs, reloadGroups]);
+
+  /** The open group's state and log as stored here, without asking the relay (it may be unreachable). */
+  const refresh = async (session: GroupSession, groupId: string) => {
+    const handle = await exclusive(session, (g) => g.group(groupId));
+    setGroups((gs0) => gs0.map((g) => (g.groupId === groupId ? handle : g)));
+    setMessages(await history.current.list(groupId));
+    return handle;
+  };
 
   // While a group is open, poll the secure relay for new group messages.
   useEffect(() => {
@@ -173,7 +209,9 @@ export function GroupsView() {
       setMissingKp(missing);
       setInvitees(missing.map((p) => npubEncode(p)).join('\n'));
       await sync(gs!, openId);
-      if (added) ws.notify(added === 1 ? 'Miembro añadido: recibirá la invitación cifrada.' : `${added} miembros añadidos.`, 'success');
+      const waiting = (await refresh(gs!, openId)).pending?.some((p) => (p.type === 'add' || p.type === 'welcome') && !p.failed);
+      if (added && waiting) ws.notify('Sin conexión con el relay de grupos: la invitación quedó pendiente y se enviará sola cuando vuelva la conexión.', 'info');
+      else if (added) ws.notify(added === 1 ? 'Miembro añadido: recibirá la invitación cifrada.' : `${added} miembros añadidos.`, 'success');
     });
   };
 
@@ -185,9 +223,11 @@ export function GroupsView() {
       // Catch up first: a message must be encrypted for the current epoch.
       await sync(gs!, openId);
       // The session keeps the sent message under its rumor id (an MLS sender cannot decrypt its own ciphertext).
-      await exclusive(gs!, (g) => g.send(openId, content));
-      setMessages(await history.current.list(openId));
+      const sent = await exclusive(gs!, (g) => g.send(openId, content));
       setText('');
+      await refresh(gs!, openId);
+      // FR025-12: no relay took it; it is kept and goes out on its own (next poll, back online, next visit).
+      if (sent.pending) ws.notify('Sin conexión con el relay de grupos: el mensaje quedó pendiente y se enviará solo cuando vuelva la conexión.', 'info');
     });
   };
 
@@ -197,9 +237,14 @@ export function GroupsView() {
     void act(async () => {
       if (c.kind === 'remove') {
         await sync(gs!, openId);
-        await exclusive(gs!, (g) => g.removeMember(openId, c.member));
-        await sync(gs!, openId);
-        ws.notify(`${shortNpub(c.member)} fue expulsado: la época avanzó y ya no puede leer los mensajes nuevos.`, 'success');
+        const h = await exclusive(gs!, (g) => g.removeMember(openId, c.member));
+        if (h.members.includes(c.member)) {
+          await refresh(gs!, openId);
+          ws.notify(`Sin conexión con el relay de grupos: la expulsión de ${shortNpub(c.member)} quedó pendiente y se aplicará sola. Los mensajes que escribas mientras tanto esperan detrás de ella: no los leerá.`, 'info');
+        } else {
+          await sync(gs!, openId);
+          ws.notify(`${shortNpub(c.member)} fue expulsado: la época avanzó y ya no puede leer los mensajes nuevos.`, 'success');
+        }
       } else {
         await exclusive(gs!, (g) => g.leave(openId));
         await history.current.forget(openId);
@@ -216,6 +261,12 @@ export function GroupsView() {
       const r = await exclusive(gs!, (g) => rejoinRestoredGroup(g, openId, relays));
       await reloadGroups(gs!);
       ws.notify(r.status === 'joined' ? 'Volviste a entrar en el grupo como dispositivo nuevo: ya puedes escribir.' : 'Pediste volver a entrar: un admin del grupo debe aceptar tu nuevo dispositivo.', r.status === 'joined' ? 'success' : 'info');
+    });
+
+  const discard = (id: string) =>
+    act(async () => {
+      await exclusive(gs!, (g) => discardPendingGroupOperation(g, id));
+      await refresh(gs!, openId);
     });
 
   const forgetRemoved = () =>
@@ -397,13 +448,41 @@ export function GroupsView() {
                     </Alert>
                   )}
 
+                  {!!current.pending?.length && (
+                    <Alert severity={current.pending.some((p) => p.failed) ? 'warning' : 'info'} id="group-pending">
+                      Pendiente de un relay: se reintenta solo en cada actualización del grupo y al volver la conexión. Nada escrito después de un commit pendiente sale antes que él.
+                      <List dense aria-label="Operaciones pendientes">
+                        {current.pending.map((p) => (
+                          <ListItem
+                            key={p.id}
+                            secondaryAction={
+                              p.failed ? (
+                                <Button size="small" color="inherit" disabled={busy} onClick={() => void discard(p.id)}>
+                                  Descartar
+                                </Button>
+                              ) : undefined
+                            }
+                          >
+                            <ListItemText
+                              primary={`${PENDING_LABELS[p.type]}${p.target ? ` · ${shortNpub(p.target)}` : ''}`}
+                              secondary={p.failed ? `Rechazada por los relays: ${p.failed}` : `${p.attempts} ${p.attempts === 1 ? 'intento' : 'intentos'}${p.lastError ? ` · ${p.lastError}` : ''}`}
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Alert>
+                  )}
+
                   <Typography variant="subtitle1" component="h3" id="group-log-h">
                     Mensajes
                   </Typography>
                   <List id="group-log" aria-labelledby="group-log-h" aria-live="polite">
                     {messages.map((m) => (
                       <ListItem key={m.id} alignItems="flex-start">
-                        <ListItemText primary={m.content} secondary={`${m.sender === s.pubkey ? 'tú' : shortNpub(m.sender)} · ${new Date(m.createdAt * 1000).toLocaleString()}`} />
+                        <ListItemText
+                          primary={m.content}
+                          secondary={`${m.sender === s.pubkey ? 'tú' : shortNpub(m.sender)} · ${new Date(m.createdAt * 1000).toLocaleString()}${pendingMessages.has(m.id) ? ' · pendiente de enviar' : ''}`}
+                        />
                       </ListItem>
                     ))}
                   </List>

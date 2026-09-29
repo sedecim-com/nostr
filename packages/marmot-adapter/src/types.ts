@@ -47,6 +47,33 @@ export interface GroupHandle {
    * must not be used to send: run `rejoin` so this device joins as a new leaf and the old one is removed.
    */
   restored?: boolean;
+  /** FR025-12: operations on this group that no relay has taken yet (see `PendingGroupOperation`). */
+  pending?: PendingGroupOperation[];
+}
+
+/**
+ * FR025-12: a group message or commit that no relay has taken yet (network or Tor down). Instead of failing, it is kept
+ * with the MLS state, sealed like it, and sent again on the next sync of its group or `retryPending`.
+ */
+export interface PendingGroupOperation {
+  id: string;
+  groupId: string;
+  /**
+   * `message`: an application message. `add`, `remove`, `rotate` and `proposals`: a commit (an admin's, or this
+   * member's self-update). `welcome`: the invitation of someone a commit already added.
+   */
+  type: 'message' | 'add' | 'remove' | 'rotate' | 'proposals' | 'welcome';
+  /** Unix ms. Operations of a group go out in this order: nothing overtakes a pending commit. */
+  createdAt: number;
+  attempts: number;
+  lastAttemptAt?: number;
+  lastError?: string;
+  /** Every relay refused it for good (`invalid:`, `restricted:`…): it is no longer retried, only shown until discarded. */
+  failed?: string;
+  /** message: the rumor id the members will see (the sender's own copy is kept under it). */
+  rumorId?: string;
+  /** add, remove, welcome: whom it is about. */
+  target?: string;
 }
 
 /** One MLS leaf of the group. */
@@ -86,6 +113,8 @@ export interface GroupMediaReference {
   attachment: GroupMediaAttachment;
   sender: string;
   rumorId: string;
+  /** FR025-12: the message carrying it waits for a relay (see `GroupMessage.pending`). */
+  pending?: boolean;
 }
 
 export type GroupProposalType = 'add' | 'remove' | 'update' | 'group-context-extensions' | 'other';
@@ -131,6 +160,8 @@ export interface GroupMessage {
   tags?: string[][];
   /** Valid MIP-04 attachments (`imeta` tags). */
   media?: GroupMediaAttachment[];
+  /** FR025-12: sent by this device while no relay could take it: it is kept and goes out on a later sync. */
+  pending?: boolean;
 }
 
 /** Transport the provider uses to talk to relays (implemented over our RelayPool). */
@@ -178,12 +209,18 @@ export interface GroupSession {
   /** Find the newest key package of a user on the given relays. */
   findKeyPackage(pubkey: string, relays: string[]): Promise<NostrEvent | undefined>;
   createGroup(opts: { name: string; description?: string; relays: string[]; admins?: string[] }): Promise<GroupHandle>;
-  /** Add a member by key package (commit + gift-wrapped Welcome). */
+  /**
+   * Add a member by key package (commit + gift-wrapped Welcome). Like every commit here, a provider with an outbox
+   * (FR025-12) keeps it pending when no relay takes it: the handle is then unchanged and lists it in `pending`.
+   */
   invite(groupId: string, keyPackage: NostrEvent): Promise<GroupHandle>;
   removeMember(groupId: string, pubkey: string): Promise<GroupHandle>;
   /** Self-update commit: rotates this member's leaf keys (post-compromise security). */
   rotate(groupId: string): Promise<GroupHandle>;
-  /** Sends an application message; returns it as sent (its rumor id is the one recipients see). */
+  /**
+   * Sends an application message; returns it as sent (its rumor id is the one recipients see). With an outbox
+   * (FR025-12), a message no relay takes comes back with `pending` instead of failing.
+   */
   send(groupId: string, content: string, tags?: string[][]): Promise<GroupMessage>;
   /** Fetch and process new kind 445 events for a group; returns decrypted application messages. */
   sync(groupId: string): Promise<GroupMessage[]>;
@@ -250,10 +287,19 @@ export interface ExtendedGroupSession extends GroupSession {
   decryptMedia(groupId: string, ciphertext: Uint8Array, attachment: GroupMediaAttachment, epoch: number): Promise<Uint8Array>;
   /** Attachment received (or sent) in this group, by plaintext SHA-256. */
   mediaReference(groupId: string, sha256: string): Promise<GroupMediaReference | undefined>;
+  /** FR025-12: messages and commits still waiting for a relay (every group, or one), oldest first. */
+  pendingOperations(groupId?: string): Promise<PendingGroupOperation[]>;
+  /**
+   * FR025-12: syncs each group with pending operations (a commit of ours may have reached a relay after all) and sends
+   * them again. Also done by every sync. Returns what is still pending.
+   */
+  retryPending(groupId?: string): Promise<PendingGroupOperation[]>;
+  /** FR025-12: forgets a pending operation (e.g. one every relay refused). A commit already on a relay is still applied. */
+  discardPending(id: string): Promise<void>;
 }
 
 export function isExtendedGroupSession(s: GroupSession): s is ExtendedGroupSession {
-  return typeof (s as Partial<ExtendedGroupSession>).rejoin === 'function' && typeof (s as Partial<ExtendedGroupSession>).sendMedia === 'function';
+  return typeof (s as Partial<ExtendedGroupSession>).rejoin === 'function' && typeof (s as Partial<ExtendedGroupSession>).sendMedia === 'function' && typeof (s as Partial<ExtendedGroupSession>).retryPending === 'function';
 }
 
 /** The local MLS state of a group is a clone of another device's leaf: sending from it is refused. */

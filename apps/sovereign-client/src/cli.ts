@@ -49,7 +49,7 @@
  *   sovereign group create --persona ID --name NAME     (Marmot/MLS: forward secrecy + PCS)
  *   sovereign group invite --persona ID --group GID --to NPUB
  *   sovereign group accept --persona ID                 (join groups from pending Welcomes)
- *   sovereign group send --persona ID --group GID "text"
+ *   sovereign group send --persona ID --group GID "text"   (without a relay it stays pending and goes out later, FR025-12)
  *   sovereign group read --persona ID --group GID
  *   sovereign group history --persona ID --group GID    (messages kept on this device, restored ones included)
  *   sovereign group remove --persona ID --group GID --member NPUB
@@ -64,6 +64,10 @@
  *   sovereign group proposals --persona ID --group GID
  *   sovereign group commit --persona ID --group GID [--ref REF ...]          (admin commits proposals)
  *   sovereign group rejoin --persona ID [--group GID]            (after backup restore: new leaf, old removed)
+ *   sovereign group pending --persona ID [--group GID]           (FR025-12: messages and commits waiting for a relay;
+ *                                        they go out on the next sync and at the end of any command of the persona)
+ *   sovereign group retry --persona ID [--group GID]             (sync and send them again now)
+ *   sovereign group discard --persona ID --op ID                 (forget one, e.g. one every relay refused)
  *   sovereign group send-file --persona ID --group GID --file PATH [--mime TYPE] [--server URL] ["caption"]
  *   sovereign group fetch-file --persona ID --group GID --sha HEX --out FILE (MIP-04 download + decrypt)
  *   sovereign group rotation-worker --persona ID --policy URL [--managed-signer URL] [--interval S] [--once]
@@ -84,6 +88,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
+import type { PendingGroupOperation } from '@sedecim/marmot-adapter';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
 import { CONTINUITY_VAULT_TEXTS, configMaturity, disclose, MATURITY, MATURITY_LABELS } from '@sedecim/profiles';
 import { SovereignClient } from './app';
@@ -271,12 +276,27 @@ async function main() {
     } else if (a === 'group') {
       const id = need();
       const gid = opt('--group');
-      const show = (g: { groupId: string; name: string; epoch: number; members: string[] }) => console.log(`${g.groupId}  ${g.name}  epoch=${g.epoch}  members=${g.members.length}`);
+      const pendingLine = (p: PendingGroupOperation) =>
+        `${p.id}  ${p.type.padEnd(9)} ${new Date(p.createdAt).toISOString()}  intentos=${p.attempts}${p.target ? `  ${p.target.slice(0, 8)}` : ''}${p.failed ? `  RECHAZADA: ${p.failed}` : p.lastError ? `  (${p.lastError})` : ''}`;
+      const show = (g: { groupId: string; name: string; epoch: number; members: string[]; pending?: PendingGroupOperation[] }) => {
+        console.log(`${g.groupId}  ${g.name}  epoch=${g.epoch}  members=${g.members.length}`);
+        // FR025-12: what no relay took yet is not lost: it goes out on the next sync (group pending / group retry).
+        if (g.pending?.length) console.log(`pendiente sin relay (se reintenta solo; group pending para verlo):\n${g.pending.map((p) => `  ${pendingLine(p)}`).join('\n')}`);
+      };
       if (b === 'keypackage') console.log(`key package publicado: ${(await client.groupPublishKeyPackage(id)).id}`);
       else if (b === 'create') show(await client.groupCreate(id, opt('--name') ?? 'grupo'));
       else if (b === 'invite') show(await client.groupInvite(id, gid!, opt('--to')!));
       else if (b === 'accept') (await client.groupAccept(id)).forEach(show);
-      else if (b === 'send') await banner(id).then(() => client.groupSend(id, gid!, positional().join(' ')));
+      else if (b === 'send') {
+        await banner(id);
+        const m = await client.groupSend(id, gid!, positional().join(' '));
+        if (m.pending) console.log(`pendiente: ningún relay lo tomó; se reintenta en la próxima sincronización o comando (group pending --persona ${id})`);
+      } else if (b === 'pending') for (const p of await client.groupPending(id, gid)) console.log(pendingLine(p));
+      else if (b === 'retry') {
+        const left = await client.groupRetry(id, gid);
+        console.log(left.length ? `siguen pendientes ${left.length}:` : 'nada pendiente');
+        for (const p of left) console.log(`  ${pendingLine(p)}`);
+      } else if (b === 'discard') await client.groupDiscard(id, opt('--op')!);
       else if (b === 'read')
         for (const m of await client.groupSync(id, gid!)) {
           console.log(`[${new Date(m.createdAt * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.content}`);

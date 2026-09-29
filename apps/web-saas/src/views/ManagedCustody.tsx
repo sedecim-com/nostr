@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Link, Stack, Step, StepLabel, Stepper, TextField, Typography } from '@mui/material';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Link, List, ListItem, ListItemText, Radio, RadioGroup, Stack, Step, StepLabel, Stepper, TextField, Typography } from '@mui/material';
 import { disclose, MANAGED_CONSENT_TEXTS, managedConsentVersion, preset } from '@sedecim/profiles';
-import { ManagedSignerClient } from '@sedecim/signer';
-import { migrateManagedToLocal } from '../lib/session';
+import { ManagedSignerClient, type ManagedDeviceSession, type ManagedKeyInfo, type ManagedKeyUsage } from '@sedecim/signer';
+import { managedConnection, migrateManagedToLocal, shortNpub } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
 import { MaturityChip } from './MaturityChip';
 
@@ -56,7 +56,7 @@ export function MigrationWizard() {
   const [destroyAfter, setDestroyAfter] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [client] = useState(() => new ManagedSignerClient({ baseUrl: ws.managedEnv.baseUrl!, keyId: s.persona.managedKeyId!, token: ws.managedEnv.token! }));
+  const [client] = useState(() => new ManagedSignerClient({ ...managedConnection(ws.managedEnv), keyId: s.persona.managedKeyId! }));
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -140,6 +140,181 @@ export function MigrationWizard() {
             </>
           )}
           {step === 3 && <Alert severity="info" id="migration-done">Copia gestionada borrada. Se destruirá definitivamente el {new Date(destroyAfter).toLocaleDateString()}.</Alert>}
+          {error && <Alert severity="error">{error}</Alert>}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * FR005-11: a new browser, the same Acceso login: the managed keys its owner already has, to open one here. Only
+ * keys that still sign are offered, and none this browser already holds.
+ */
+export function ManagedRecovery({ selected, onSelect }: { selected?: ManagedKeyInfo; onSelect(key: ManagedKeyInfo | undefined): void }) {
+  const ws = useWorkspace();
+  const [keys, setKeys] = useState<ManagedKeyInfo[] | undefined>();
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const search = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const held = new Set(ws.personas.flatMap((p) => [p.managedKeyId, p.pubkey]));
+      const all = await ManagedSignerClient.listKeys(managedConnection(ws.managedEnv));
+      const usable = all.filter((k) => k.state === 'active' && !held.has(k.keyId) && !held.has(k.pubkey));
+      setKeys(usable);
+      onSelect(usable.length === 1 ? usable[0] : undefined);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Stack spacing={1} id="managed-recovery">
+      <Alert severity="warning">{MANAGED_DISCLOSURE}</Alert>
+      <Typography variant="body2">Con tu login de Acceso, este navegador vuelve a firmar con la llave gestionada que ya tienes. No se crea otra llave ni cambia tu npub.</Typography>
+      <Box>
+        <Button id="managed-recovery-search" variant="outlined" onClick={() => void search()} disabled={busy}>
+          Buscar mis llaves gestionadas
+        </Button>
+      </Box>
+      {keys && keys.length === 0 && <Alert severity="info">No tienes llaves gestionadas que recuperar en este navegador.</Alert>}
+      {keys && keys.length > 0 && (
+        <RadioGroup value={selected?.keyId ?? ''} onChange={(e) => onSelect(keys.find((k) => k.keyId === e.target.value))} aria-label="Llave gestionada">
+          {keys.map((k) => (
+            <FormControlLabel key={k.keyId} value={k.keyId} control={<Radio />} label={`${shortNpub(k.pubkey)} · creada el ${new Date(k.createdAt).toLocaleDateString()}${k.consentVersion ? ` · aceptaste «${k.consentVersion}»` : ''}`} />
+          ))}
+        </RadioGroup>
+      )}
+      {error && <Alert severity="error">{error}</Alert>}
+    </Stack>
+  );
+}
+
+/** FR005-11: what each usage log action means, in the words of the view. */
+const USAGE_LABELS: Record<string, string> = {
+  created: 'Llave creada',
+  imported: 'Llave importada',
+  sign: 'Firma',
+  nip44_encrypt: 'Cifrado de un mensaje (NIP-44)',
+  nip44_decrypt: 'Descifrado de un mensaje (NIP-44)',
+  export: 'Exportación',
+  'migration-confirmed': 'Migración confirmada',
+  deleted: 'Llave borrada',
+  destroyed: 'Material destruido',
+  'rate-limited': 'Firma rechazada por el límite de ritmo',
+};
+
+/**
+ * FR005-11: what the managed-signer did with this persona's key (the usage log it keeps 12 months, DEC-09) and the
+ * device sessions of this Acceso login, which the user closes here.
+ */
+export function ManagedActivity() {
+  const ws = useWorkspace();
+  const s = ws.session!;
+  const [usage, setUsage] = useState<ManagedKeyUsage[] | undefined>();
+  const [sessions, setSessions] = useState<ManagedDeviceSession[] | undefined>();
+  const [thisDevice, setThisDevice] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const conn = managedConnection(ws.managedEnv);
+    const client = new ManagedSignerClient({ ...conn, keyId: s.persona.managedKeyId! });
+    const [u, list, device] = await Promise.all([client.usage(), ManagedSignerClient.listDeviceSessions(conn), ws.managedEnv.session?.deviceId()]);
+    setUsage(u.slice(-20).reverse());
+    setSessions(list);
+    setThisDevice(device ?? '');
+  }, [ws.managedEnv, s.persona.managedKeyId]);
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    void run(load);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load]);
+
+  const login = () => {
+    if (!ws.managedEnv.session) throw new Error('sin sesión de Acceso');
+    return ws.managedEnv.session.login();
+  };
+  const closeOne = (x: ManagedDeviceSession) =>
+    run(async () => {
+      await ManagedSignerClient.closeDeviceSession(login(), x.id);
+      if (x.current) await ws.managedEnv.session?.forget();
+      await load();
+      ws.notify(x.current ? 'Sesión de este navegador cerrada: la próxima firma abre otra con tu login de Acceso.' : `Sesión de ${x.deviceId} cerrada.`, 'success');
+    });
+  const closeOthers = () =>
+    run(async () => {
+      const current = sessions?.find((x) => x.current);
+      const closed = await ManagedSignerClient.closeDeviceSessions(login(), current ? { except: current.id } : {});
+      await load();
+      ws.notify(closed === 1 ? 'Se cerró 1 sesión.' : `Se cerraron ${closed} sesiones.`, 'success');
+    });
+  const others = (sessions ?? []).filter((x) => !x.current).length;
+
+  return (
+    <Card id="managed-activity">
+      <CardContent>
+        <Stack spacing={2}>
+          <Typography variant="h6" component="h2">
+            Actividad de tu llave gestionada
+          </Typography>
+          <Typography variant="subtitle1" component="h3" id="managed-sessions-h">
+            Sesiones que pueden firmar
+          </Typography>
+          <List id="managed-sessions" dense aria-labelledby="managed-sessions-h">
+            {(sessions ?? []).map((x) => (
+              <ListItem
+                key={x.id}
+                secondaryAction={
+                  <Button size="small" disabled={busy} aria-label={`Cerrar la sesión de ${x.current ? 'este navegador' : x.deviceId}`} onClick={() => void closeOne(x)}>
+                    Cerrar
+                  </Button>
+                }
+              >
+                <ListItemText primary={x.current ? `${x.deviceId} (este navegador)` : x.deviceId} secondary={`abierta el ${new Date(x.createdAt).toLocaleString()} · caduca el ${new Date(x.expiresAt).toLocaleString()}`} />
+              </ListItem>
+            ))}
+          </List>
+          <Box>
+            <Button id="managed-close-others" variant="outlined" disabled={busy || others === 0} onClick={() => void closeOthers()}>
+              Cerrar las demás sesiones
+            </Button>
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            Cerrar una sesión corta la firma en ese navegador hasta que vuelva a entrar con tu login de Acceso. Si perdiste un dispositivo, cambia también tu contraseña de Acceso.
+          </Typography>
+          <Typography variant="subtitle1" component="h3" id="managed-usage-h">
+            Uso de la llave (últimos 20; el registro se guarda 12 meses)
+          </Typography>
+          <List id="managed-usage" dense aria-labelledby="managed-usage-h">
+            {(usage ?? []).map((u, i) => (
+              <ListItem key={`${u.at}-${i}`}>
+                <ListItemText
+                  primary={`${USAGE_LABELS[u.action] ?? u.action}${u.kind !== undefined ? ` · kind ${u.kind}` : ''}`}
+                  secondary={`${new Date(u.at).toLocaleString()} · ${u.deviceId ? (u.deviceId === thisDevice ? 'este navegador' : u.deviceId) : 'sin sesión de dispositivo'}`}
+                />
+              </ListItem>
+            ))}
+          </List>
+          <Box>
+            <Button id="managed-activity-refresh" disabled={busy} onClick={() => void run(load)}>
+              Actualizar
+            </Button>
+          </Box>
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
       </CardContent>
