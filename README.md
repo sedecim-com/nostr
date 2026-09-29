@@ -52,7 +52,7 @@ Antes de v1.0 nada es GA: falta la revisión externa (SEC-01 y SEC-02). La web, 
 | Notificaciones push | Función | Experimental | Con Buzz y el secure relay, el gateway no puede ver la actividad sin leer DMs, así que no se ofrecen. | Experimental, detrás de un flag. |
 <!-- maturity:end -->
 
-Trazabilidad completa FR/NFR → tests: [docs/requirements-traceability.md](docs/requirements-traceability.md).
+Trazabilidad FR/NFR → tareas → tests y tablero de estado, generados desde los issues y el código (CI comprueba que toda la evidencia citada exista): [docs/requirements-traceability.md](docs/requirements-traceability.md) · [docs/status.md](docs/status.md).
 Backlog con tareas atómicas, prioridad, dependencias y sprint: vive en [GitHub Issues](https://github.com/sedecim-com/nostr/issues?q=label%3Abacklog) (milestones = sprints, epics con sub-issues) y se sincroniza a [docs/backlog/](docs/backlog/README.md) con una PR automática (ver [GITHUB.md](docs/backlog/GITHUB.md)).
 Arquitectura: [docs/architecture.md](docs/architecture.md) · Threat model: [docs/threat-model.md](docs/threat-model.md).
 Releases firmados (cosign keyless + provenance SLSA), imágenes reproducibles, build desde source y verificación: [docs/building.md](docs/building.md) (`sh scripts/verify-release.sh <tag>`, `sh scripts/rebuild-image.sh <tag> <servicio>`). Definition of Done de un release: [docs/release-checklist.md](docs/release-checklist.md); notas: [docs/releases/](docs/releases/).

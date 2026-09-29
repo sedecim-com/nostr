@@ -148,7 +148,47 @@
    }
   ],
   "assumedVelocitySP": 50,
-  "github": "sedecim-com/nostr"
+  "github": "sedecim-com/nostr",
+  "requirements": {
+   "FR-001": "Crear identidad local",
+   "FR-002": "Importar identidad",
+   "FR-003": "Generador offline",
+   "FR-004": "External signer NIP-46",
+   "FR-005": "Managed key",
+   "FR-006": "Múltiples personas",
+   "FR-007": "Identity linking",
+   "FR-008": "Persistir antes de transmitir",
+   "FR-009": "Relay ack ≠ recepción",
+   "FR-010": "Multi-relay + quorum",
+   "FR-011": "Reintento desde outbox",
+   "FR-012": "Deduplicación",
+   "FR-013": "Sync tras reinstalar",
+   "FR-014": "SaaS mirror",
+   "FR-015": "SaaS send",
+   "FR-016": "NIP-42",
+   "FR-017": "NIP-17 con gate",
+   "FR-018": "Blossom",
+   "FR-019": "Saneamiento EXIF",
+   "FR-020": "Tor-only fail closed",
+   "FR-021": "Relay .onion",
+   "FR-022": "Sin telemetría",
+   "FR-023": "RBAC/ABAC",
+   "FR-024": "Revocación",
+   "FR-025": "Grupo Marmot",
+   "FR-026": "Migración de custodia",
+   "FR-027": "Backup restore",
+   "FR-028": "Disclosures",
+   "NFR-001": "Disponibilidad SaaS",
+   "NFR-002": "0 pérdidas LOCAL_PERSISTED",
+   "NFR-003": "RPO/RTO",
+   "NFR-004": "Latencia P95",
+   "NFR-005": "Escalabilidad",
+   "NFR-006": "Sin secretos en logs",
+   "NFR-007": "Telemetría por perfil",
+   "NFR-008": "Portabilidad",
+   "NFR-009": "Accesibilidad",
+   "NFR-010": "Auditabilidad"
+  }
  },
  "tasks": [
   {
@@ -178,7 +218,7 @@
    "deps": [],
    "sprint": "S1",
    "status": "Hecho",
-   "evidence": "docs/adr/0002-subset-y-pin-de-buzz.md (Aceptado: Buzz upstream sin fork, pin 02c6309 por digest)",
+   "evidence": "docs/adr/0002-subset-y-pin-de-buzz.md (Aceptado: Buzz upstream sin fork, pin buzz@02c6309 por digest)",
    "issue": 36
   },
   {
@@ -405,7 +445,7 @@
    ],
    "sprint": "S2",
    "status": "Hecho",
-   "evidence": ".github/workflows/buzz-upstream.yml + scripts/buzz-upstream.sh. Primera ejecución en main (run 36219631189): digest nuevo 8096413eb360, gate verde contra él, rama del pin + issue #21 (Actions aún sin permiso para abrir PRs); PR #23 del pin fusionada. Los flags se regeneran con el pin (PR #22)",
+   "evidence": ".github/workflows/buzz-upstream.yml + scripts/buzz-upstream.sh. Primera ejecución en main (run 36219631189): digest nuevo `sha256:8096413eb360…`, gate verde contra él, rama del pin + issue #21 (Actions aún sin permiso para abrir PRs); PR #23 del pin fusionada. Los flags se regeneran con el pin (PR #22)",
    "issue": 50
   },
   {
@@ -520,7 +560,8 @@
    "sprint": "S10",
    "status": "Hecho",
    "evidence": "Commit b1d405b (PR #320). Completa lo ya hecho en `services/notification-gateway`:\n- Web Push: VAPID + RFC 8291, con el vector del RFC byte a byte.\n- Push opaco: sin contenido, remitente ni conteo, y con retardo aleatorio por perfil.\n- Rechazo de sovereign/Tor y de relays `.onion`.\n- Suscripción por persona en la web.\n\nLo nuevo:\n- **Flag por relay, apagado por defecto.**\n  - El gateway publica en cada relay un canario: un gift wrap entre dos claves desechables que caduca a los 10 minutos.\n  - Solo acepta registros donde lo ve llegar con su identidad NIP-42. En los demás responde 409 (503 antes de comprobar).\n  - No se puede forzar, así que el gateway nunca tiene lectura de DMs.\n  - `GET /v1/relays` expone el resultado.\n- **La web** consulta `/v1/relays`. Si ningún relay de la persona es observable, no ofrece el interruptor y explica por qué (`#notifications-unobservable`).\n- **REQ de vigilancia con `limit: 1`.** nostr-rs-relay nunca cerraba con EOSE un REQ con `limit: 0`, así que el gateway no contaba nada allí.\n- **ADR 0010, «Matriz real por relay»:**\n  - Buzz `ac4521f3e464` no es observable.\n  - El secure relay (nostr-rs-relay con `nip42_dms`) tampoco. Con el stack de referencia no hay push web.\n  - La misma imagen de nostr-rs-relay con `nip42_dms = false` sí es observable: un DM NIP-17 produce el aviso opaco.\n- **Tests:**\n  - `services/notification-gateway/test/gateway.test.ts`;\n  - `apps/web-saas/test/push.test.ts`;\n  - `tests/browser/web-saas.e2e.ts`;\n  - `tests/interop/notification-gateway.interop.test.ts`, en el job `stack`: Buzz y el secure relay no son observables, y el relay sin `nip42_dms` produce el aviso.",
-   "issue": 57
+   "issue": 57,
+   "evidenceState": "merged"
   },
   {
    "id": "OPS-07",
@@ -584,7 +625,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit 8e97d37 (PR #316): último cambio de `.github/workflows/backlog-sync.yml` en main. El workflow hace tres cosas:\n- regenera `docs/backlog` desde los issues;\n- abre o actualiza la PR de sincronización;\n- la cierra cuando main ya coincide.\n\nCon Actions autorizado a abrir PRs (Settings → Actions → Workflow permissions), la sincronización abre sola su PR, con autor github-actions[bot]:\n- **#318**, creada por la ejecución 296 de backlog-sync, disparada por un evento `issues` (2026-09-28 20:08:12 UTC). El log termina con `gh pr create` imprimiendo la URL de la PR: https://github.com/sedecim-com/nostr/actions/runs/36477018172\n- **#312**, creada por la ejecución 287 (18:59:16 UTC) y fusionada.\n\nAdemás: `scripts/backlog-github.mjs`, `.github/ISSUE_TEMPLATE/backlog-task.yml` y `docs/backlog/GITHUB.md`. La última ejecución (304) lee 246 tareas desde los issues, con 12 epics y 18 milestones.",
-   "issue": 61
+   "issue": 61,
+   "evidenceState": "merged"
   },
   {
    "id": "PANEL-01",
@@ -699,7 +741,7 @@
    ],
    "sprint": "v0.1",
    "status": "Hecho",
-   "evidence": "apps/web-saas/src/session.ts",
+   "evidence": "apps/web-saas/src/lib/session.ts (`createPersona`), con la llave guardada cifrada en apps/web-saas/src/lib/vault.ts",
    "issue": 68
   },
   {
@@ -2931,7 +2973,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit 1c531c5 (PR #304): backlog-sync solo acepta Hecho si la evidencia cita un commit de main (API compare) y avisa del resto. Labels evidencia:* (de Proposed a Production Enabled): los crea seed y pull pone evidencia:merged. Estados documentados en docs/backlog/GITHUB.md. Tests: tests/scripts/backlog-github.test.ts.",
-   "issue": 221
+   "issue": 221,
+   "evidenceState": "merged"
   },
   {
    "id": "SEC-06",
@@ -2946,7 +2989,8 @@
    "sprint": "S9",
    "status": "Pendiente",
    "evidence": "El payload sellado del mirror lleva como AAD `acceso-nostr/mirror/v2/<event_id>` y `seal_version` 2 (migración `services/indexer/migrations/005_seal_version.sql`): movido a otra fila no autentica, y no se puede leer como el formato sin AAD. Toda lectura exige además que el evento sea el que nombra el `event_id` de su fila. Las filas selladas antes se siguen leyendo, solo en su propia fila, y el indexer las vuelve a sellar al arrancar (`PgEventRepository.resealLegacy`, seguro con varias réplicas). Tests en `services/indexer/test/seal.test.ts`: intercambio entre filas en Postgres, y un mirror en las migraciones 001–004 con filas antiguas (una manipulada) actualizado a 005 y re-sellado. IR-2026-09-15 queda Corregido en `docs/security/internal-review-2026-09.md`; actualizados el inventario criptográfico y los threat models. Commit 39c456c (PR #329).",
-   "issue": 222
+   "issue": 222,
+   "evidenceState": "merged"
   },
   {
    "id": "SEC-07",
@@ -2963,7 +3007,8 @@
    "sprint": "S9",
    "status": "Pendiente",
    "evidence": "",
-   "issue": 223
+   "issue": 223,
+   "evidenceState": "merged"
   },
   {
    "id": "FR025-11",
@@ -2981,7 +3026,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit 330d9fa (PR #304): relay-pool se autentica (NIP-42) antes de pedir los kinds 4, 44 y 1059, también en on-demand y al reconectar (packages/relay-pool/test/pool.test.ts). E2E de grupos contra el nostr-rs-relay real en el job stack de CI: web (tests/browser/web-groups.e2e.ts) y CLI (tests/interop/sovereign-secure-relay.interop.test.ts). Perfil tor: secure-relay-onion con relay_url = onion (infra/secure-relay/onion-entrypoint.sh) y un DM leído por ese onion en scripts/tor-profile-check.sh.",
-   "issue": 224
+   "issue": 224,
+   "evidenceState": "merged"
   },
   {
    "id": "FR005-12",
@@ -2998,7 +3044,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit 7cb7d44 (PR #305): el managed-signer rechaza x-account-id (403) para cualquier llamante y solo firma con el token de Acceso del usuario o una sesión de dispositivo abierta con él. No arranca si MANAGED_SIGNER_SERVICE_TOKENS está definida; la variable sale de compose, Kubernetes, el generador de secretos y .env.example. Tests: services/managed-signer/test/managed-signer.test.ts («refuses the retired service-token mode»).",
-   "issue": 225
+   "issue": 225,
+   "evidenceState": "merged"
   },
   {
    "id": "FR023-09",
@@ -3015,7 +3062,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit eb0f69b (PR #304): PUT /v1/subjects conserva suspended; POST /v1/subjects/:pubkey/reactivate (404 si no existe, 409 si no está revocada) deja la entrada subject.reactivate en la auditoría, y los dispositivos siguen revocados. Consola: «Reactivar» con confirmación. Tests: services/policy-engine/test/policy-engine.test.ts (memoria y Postgres) y tests/browser/admin-console.e2e.ts.",
-   "issue": 226
+   "issue": 226,
+   "evidenceState": "merged"
   },
   {
    "id": "FR024-04",
@@ -3032,7 +3080,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit 0a92758 (PR #304): GET /v1/revocations con cursor sobre la auditoría (migración 002_audit_action_idx) y RevocationPropagator por páginas. El cursor no pasa una revocación fallida ni una de menos de 60 s, y se guarda por policy-engine en el almacén cifrado de la persona. Tests: tests/security/device-loss.test.ts (150 entradas de auditoría entre revocación y propagación), packages/rotation-worker/test/worker.test.ts (250 revocaciones por HTTP), services/policy-engine/test/policy-engine.test.ts y apps/sovereign-client/test/revocations.test.ts.",
-   "issue": 227
+   "issue": 227,
+   "evidenceState": "merged"
   },
   {
    "id": "FR010-03",
@@ -3049,7 +3098,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit c213a18 (PR #307):\n\n- `resolveDmRelays` solo cachea listas encontradas.\n- El motor recibe un router que se consulta antes de cada reintento de un registro que ningún relay aceptó. `dmRouter` vuelve a resolver los relays de DM del destinatario al publicar: es el mismo evento firmado y se conserva el quorum pedido.\n- La web busca en los relays de la persona y en `discoveryRelays` de config.json (README).\n- Test sin red → con red con relays reales: packages/messaging/test/dm-routing.test.ts (el wrap acaba en el inbox del destinatario, nunca en el relay del emisor). Router: packages/delivery-engine/test/engine.test.ts.",
-   "issue": 228
+   "issue": 228,
+   "evidenceState": "merged"
   },
   {
    "id": "FR011-04",
@@ -3066,7 +3116,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commits 478f107 y 31eb7d2 (PR #306):\n\n- Al abrir una persona, el CLI lanza `resume()` en segundo plano.\n- Al salir, espera hasta 20 s a que termine (`settle`).\n- `syncHistory` espera ese reintento antes de reconciliar.\n- Test entre dos procesos: apps/sovereign-client/test/resume.test.ts. Un proceso envía con el relay caído; otro, con un comando cualquiera, lo entrega una sola vez sin ejecutar `resume`.\n- tests/e2e/reinstall-history.test.ts refleja el comportamiento nuevo.",
-   "issue": 229
+   "issue": 229,
+   "evidenceState": "merged"
   },
   {
    "id": "FR019-03",
@@ -3083,7 +3134,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit 5dbaa90 (PR #307):\n\n- `requireSanitizable: 'images'` (packages/blossom-client). Rechaza:\n  - HEIC/HEIF/AVIF y TIFF/RAW, sea cual sea el tipo declarado;\n  - un `image/*` en un formato desconocido.\n\n  Los demás documentos pasan cifrados.\n- Los DMs de la web lo aplican con stripFileMetadata antes de subir nada, con un mensaje en castellano; `group send-file` del CLI aplica la misma regla.\n- E2E con un HEIC con GPS rechazado sin subir nada: tests/browser/web-saas.e2e.ts. En el CLI: apps/sovereign-client/test/groups.test.ts. Reglas: packages/blossom-client/test/blossom.test.ts.",
-   "issue": 230
+   "issue": 230,
+   "evidenceState": "merged"
   },
   {
    "id": "FR010-04",
@@ -3100,7 +3152,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit 3a02ab8 (PR #307):\n\n- **Motor:** el registro guarda `requestedQuorum` cuando el quorum supera los relays. La web lo muestra en «Entrega» y avisa tras el envío.\n- **Panel:** `validateConfig` recibe los relays de la persona y un quorum mayor es el error bloqueante `QUORUM_RELAYS`.\n- **Tests:**\n  - packages/delivery-engine/test/engine.test.ts\n  - packages/profiles/test/profiles.test.ts\n  - rechazo del panel en tests/browser/web-saas.e2e.ts",
-   "issue": 231
+   "issue": 231,
+   "evidenceState": "merged"
   },
   {
    "id": "FR004-06",
@@ -3117,7 +3170,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit aac7167 (PR #306):\n\n- `WEB_SIGNED_KINDS` (packages/signer/src/nip46.ts) lista los kinds que la web firma con la llave de la persona, y `WEB_NIP46_PERMISSIONS` sale de esa lista. Suma 10063, 30078 y 30443 y ya no pide 5 ni 7.\n- Test: apps/web-saas/test/nip46-permissions.test.ts pasa todos los caminos de firma de la web por un signer que registra lo que firma y contrasta la lista en los dos sentidos.",
-   "issue": 232
+   "issue": 232,
+   "evidenceState": "merged"
   },
   {
    "id": "PANEL-05",
@@ -3135,7 +3189,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit 44c3284 (PR #308):\n\n- **Al crear persona:** la web valida el perfil antes de crear nada.\n- **Tor-only:** la web no abre ninguna conexión a relays (apps/web-saas/test/tor-only.test.ts).\n- **Custodia real** en la web (config.custody desde la llave o el signer; el panel la muestra sin dejar cambiarla) y en el CLI (`local`).\n- **Disclosures 1.2.0:**\n  - sin «Marmot fijada y auditada»;\n  - telemetría y crash reports dicen que esta versión no envía ninguno;\n  - los presets ya no eligen crash reports;\n  - texto para stripFileMetadata.\n- **Avisos de riesgos residuales:** para Tor-only (`--high-risk`, sovereign-tor) y, sin Tor, sobre la IP. El CLI los imprime al crear o importar.\n- **Tests:**\n  - packages/profiles/test/profiles.test.ts\n  - apps/sovereign-client/test/sovereign.test.ts\n  - apps/sovereign-client/test/cli-warnings.test.ts\n  - tests/browser/web-saas.e2e.ts",
-   "issue": 233
+   "issue": 233,
+   "evidenceState": "merged"
   },
   {
    "id": "FR005-08",
@@ -3152,7 +3207,8 @@
    "sprint": "S9",
    "status": "Hecho",
    "evidence": "Commit d018c32 (PR #309):\n\n- El login SaaS no promete que la llave no sale del navegador cuando hay custodia gestionada.\n- Disclosures 1.3.0 y opt-in avisan del descifrado NIP-44 en el servidor. Los textos del consentimiento están en docs/disclosures.md.\n- El opt-in enlaza `managedTerms` (config.json).\n- El managed-signer exige y guarda `consent_version` al crear o importar (migración 003), y la persona web guarda el mismo consentimiento.\n- Tests:\n  - services/managed-signer/test/managed-signer.test.ts\n  - services/managed-signer/test/registry.test.ts (Postgres)\n  - packages/profiles/test/profiles.test.ts\n  - tests/browser/web-saas.e2e.ts",
-   "issue": 234
+   "issue": 234,
+   "evidenceState": "merged"
   },
   {
    "id": "OPS-11",
@@ -3166,8 +3222,9 @@
    "deps": [],
    "sprint": "S9",
    "status": "Hecho",
-   "evidence": "Commit 59a187c (PR #310):\n\n- README, notas v0.1.0, architecture.md, ADR 0002/0003/0004/0006/0009, buzz-integration.md, threat-model.md, los threat models por perfil y SECURITY.md revisados contra main@75a18e5. Entre otros:\n  - Postgres del policy-engine;\n  - pin de Buzz;\n  - versiones de @noble;\n  - waiver pendiente;\n  - descifrado NIP-44 en managed;\n  - reporte privado sin activar (OPS-12).\n- institutional.md ya coincidía.\n- internal-review cita 6642ff6 (PR #215) y b43dff4 (PR #216, 9355003) en lugar del inexistente a6b968c.\n- Baseline del backlog: meta.baseline main@75a18e5.",
-   "issue": 235
+   "evidence": "Commit 59a187c (PR #310):\n\n- README, notas v0.1.0, architecture.md, ADR 0002/0003/0004/0006/0009, buzz-integration.md, threat-model.md, los threat models por perfil y SECURITY.md revisados contra main@75a18e5. Entre otros:\n  - Postgres del policy-engine;\n  - pin de Buzz;\n  - versiones de @noble;\n  - waiver pendiente;\n  - descifrado NIP-44 en managed;\n  - reporte privado sin activar (OPS-12).\n- institutional.md ya coincidía.\n- internal-review cita 6642ff6 (PR #215) y b43dff4 (PR #216, 9355003) en lugar del inexistente `a6b968c`.\n- Baseline del backlog: meta.baseline main@75a18e5.",
+   "issue": 235,
+   "evidenceState": "merged"
   },
   {
    "id": "BUZZ-07",
@@ -3183,8 +3240,9 @@
    ],
    "sprint": "S9",
    "status": "Hecho",
-   "evidence": "Commit cd7ff40 (PR #309):\n\n- Pin de Buzz `ghcr.io/block/buzz@sha256:ac4521f3e464…` (upstream b0d6fb8) en infra/buzz/PIN, compose, kustomize e infra/web/flags.json, con el informe docs/interop/buzz-upstream-ac4521f3e464-report.json.\n- Changelog revisado (ADR 0003): `781d395..b0d6fb8` solo añade docs/nips/NIP-AR.md, sin cambios en el relay. Los adaptadores siguen justificados.\n- El gate pasó contra la candidata (run 36257595164) y de nuevo en el CI de la PR (job stack).",
-   "issue": 236
+   "evidence": "Commit cd7ff40 (PR #309):\n\n- Pin de Buzz `ghcr.io/block/buzz@sha256:ac4521f3e464…` (upstream buzz@b0d6fb8) en infra/buzz/PIN, compose, kustomize e infra/web/flags.json, con el informe docs/interop/buzz-upstream-ac4521f3e464-report.json.\n- Changelog revisado (ADR 0003): `781d395..b0d6fb8` solo añade la NIP-AR a la documentación de Buzz, sin cambios en el relay. Los adaptadores siguen justificados.\n- El gate pasó contra la candidata (run 36257595164) y de nuevo en el CI de la PR (job stack).",
+   "issue": 236,
+   "evidenceState": "merged"
   },
   {
    "id": "VAULT-01",
@@ -3201,7 +3259,8 @@
    "sprint": "S10",
    "status": "Hecho",
    "evidence": "Commit 33ad788 (PR #311):\n\n- ADR 0011 (Propuesto): docs/adr/0011-continuity-vault.md.\n- services/continuity-vault, separado del indexer y de identity-service:\n  - PUT/GET/DELETE /v1/archives y GET /v1/usage;\n  - cuenta NIP-98 (open/allowlist/off) o Acceso;\n  - metadatos en Postgres y sobres en un ObjectStore con llaves aleatorias;\n  - cuotas por cuenta con bloqueo.\n- packages/continuity: validateArchiveEnvelope, compartido con el cliente. Rechaza campos de más, nsec/hex, sobres cortos o sin relleno y «ciphertext» legible.\n- Tests: packages/continuity/test/continuity.test.ts y services/continuity-vault/test/continuity-vault.test.ts (memoria, archivos y Postgres; concurrencia; nada legible en la base, el object store ni los logs).",
-   "issue": 237
+   "issue": 237,
+   "evidenceState": "merged"
   },
   {
    "id": "VAULT-02",
@@ -3218,7 +3277,8 @@
    "sprint": "S10",
    "status": "Hecho",
    "evidence": "Commit 1c2b537 (PR #313):\n\n- Llave de archivo por persona (32 bytes aleatorios, nunca la nsec):\n  - en el CLI viaja en `BackupContents.archiveKey`;\n  - en la web viaja en el backup v2 (`archiveKey` NIP-49), también para personas con signer;\n  - se rechaza si es la nsec.\n- Restaurar rechaza un logN mayor que 20 antes de ejecutar scrypt (`MAX_BACKUP_LOG_N`). `exportBackup` y el generador offline no escriben más.\n- Web y CLI sellan el ledger de entrega en el cliente y lo suben con NIP-98 firmado con la llave derivada: `sovereign vault push|list|verify` (con el guard de Tor) y la tarjeta «Continuity Vault».\n- Tests:\n  - `packages/identity/test/identity.test.ts`;\n  - `apps/web-saas/test/continuity.test.ts`;\n  - `apps/sovereign-client/test/vault.test.ts`;\n  - `tests/browser/web-saas.e2e.ts`.\n\n  Muestran que ni la base, ni el object store, ni los logs contienen texto, eventos, npub ni etiquetas. El test del servicio es `services/continuity-vault/test`.",
-   "issue": 238
+   "issue": 238,
+   "evidenceState": "merged"
   },
   {
    "id": "VAULT-07",
@@ -3252,7 +3312,8 @@
    "sprint": "S10",
    "status": "Hecho",
    "evidence": "Commit 6e93978 (PR #315):\n\n- `DirectMessenger.receipt` enruta el acuse como un DM, a los 10050 de quien envió el mensaje (si no, NIP-65 o un fallback declarado). El registro lleva `meta.recipient`, `meta.dmRelaySource` y `meta.receipt`, así que un reintento vuelve a resolver la ruta (FR010-03).\n- `DmInbox` (`packages/messaging/src/inbox.ts`) lee los relays de DM propios (los de la persona más los de su 10050), una vez o en segundo plano con una suscripción viva. Aplica los acuses del destinatario al outbox (`RECIPIENT_ACKED`, `READ`) y responde a cada mensaje con los acuses que permite el perfil, como mucho uno de cada tipo.\n- Web: el inbox corre en segundo plano mientras NIP-17 está activo, salvo con NIP-07 (lee al pulsar «Actualizar»). Los acuses se aplican desde cualquier vista y los DMs nuevos se cuentan en la pestaña.\n- CLI: `sovereign dm inbox` aplica los acuses; `sovereign dm watch` los recibe en vivo.\n- Tests:\n  - `packages/messaging/test/inbox.test.ts`;\n  - `tests/e2e/web-cli-dm.test.ts` (web ↔ CLI y `dm watch`);\n  - `tests/browser/web-saas.e2e.ts` (acuse aplicado desde otra vista, DM contado en la pestaña, acuse en el relay de DM del emisor y no en el de la web).",
-   "issue": 240
+   "issue": 240,
+   "evidenceState": "merged"
   },
   {
    "id": "FR017-06",
@@ -3269,7 +3330,8 @@
    "sprint": "S10",
    "status": "Hecho",
    "evidence": "Commit a7f268a (PR #314):\n\n- `SovereignClient.sendDm` usa `DirectMessenger`, como la web:\n  - el wrap del destinatario va a sus relays 10050 (si no, a sus relays de lectura NIP-65, y si tampoco, a los de la persona como fallback declarado en `meta.dmRelaySource`);\n  - la copia del emisor va a los relays de la persona;\n  - el engine usa `dmRouter`, así que un reintento vuelve a resolver la ruta (FR010-03).\n- Descubrimiento en los relays de la persona más `SOVEREIGN_DISCOVERY_RELAYS`. `NetworkGuard.allowHosts` deja llegar a los relays de DM del destinatario sin saltarse las reglas de esquema ni de onion.\n- `persona create` y `persona import` publican el 10050 de la persona; `sovereign dm relays` lo vuelve a publicar. `dm send` avisa si el destinatario no publicó relays de DM.\n- Tests:\n  - `tests/e2e/web-cli-dm.test.ts`: interoperabilidad web ↔ CLI, cada uno en su relay con NIP-42 y gift wraps restringidos al destinatario. Cada DM llega solo a los relays de DM del destinatario y lo lee el otro cliente; el fallback queda marcado.\n  - `packages/tor-network/test/tor.test.ts` (`allowHosts`).\n  - `apps/sovereign-client/test/vault.test.ts` (el proceso real del CLI publica su 10050).",
-   "issue": 241
+   "issue": 241,
+   "evidenceState": "merged"
   },
   {
    "id": "FR014-05",
@@ -3286,7 +3348,8 @@
    "sprint": "S10",
    "status": "Hecho",
    "evidence": "Commit 51a9940 (PR #317):\n\n- Solo miembros: los mensajes de un canal (`h`) y su estado NIP-29 (39000-39003, por su `d`) solo se sirven a quien figura en la 39001 o la 39002 del canal firmadas por la llave del relay. Aplica a `/v1/events`, `/v1/events/:id`, resumen, no leídos, cursor y búsqueda (también sin nombrar canal). En modo institucional también decide el policy-engine.\n- Llaves de relay de confianza: `INDEXER_GROUP_AUTHORITIES` o el NIP-11 `self` de cada relay (Buzz lo publica con `BUZZ_RELAY_PRIVATE_KEY`). Las listas se consultan en cada refresco de canales; una lista nueva sin alguien le quita el acceso.\n- Tombstone para 9005, como en Buzz (autor del objetivo u owner/admin de la 39001, mismo canal). Los 9005 esperan en `moderation_deletions` (migración 004) hasta que se pueden aplicar, en cualquier orden de llegada.\n- Tests:\n  - `services/indexer/test/membership.test.ts` (memoria y Postgres, en claro y sellado; relay como Buzz con NIP-11 `self`);\n  - `services/indexer/test/policy.test.ts`;\n  - `tests/e2e/institutional-policy.test.ts`;\n  - `tests/interop/stack.interop.test.ts` contra el Buzz fijado (no miembro sin acceso, 9005 aplicado).",
-   "issue": 242
+   "issue": 242,
+   "evidenceState": "merged"
   },
   {
    "id": "FR006-06",
@@ -3303,7 +3366,8 @@
    "sprint": "S10",
    "status": "Hecho",
    "evidence": "Commit 8a72012 (PR #319):\n\n- `TestSocksServer` (`packages/test-relay/src/socks-server.ts`) elige usuario/contraseña (RFC 1929) cuando el cliente lo ofrece, como Tor, registra el usuario de cada CONNECT y puede exigirlo (`requireAuth`).\n- `packages/tor-network/test/tor.test.ts`: dos llaves de aislamiento llegan al relay `.onion`, cada una con su usuario, contra un servidor que exige credenciales, por WebSocket y por HTTP. Sin credenciales, el servidor rechaza la conexión.\n- `apps/sovereign-client/test/tor-hardening.test.ts`: dos personas Tor del cliente soberano usan como usuario SOCKS su id de persona, distinto entre ellas.\n- Arnés de fugas: `tests/leak/check.ts` exige (`requireIsolation`) que cada CONNECT del CLI real con persona Tor lleve el id de la persona (job `leak-tests`). La prueba unitaria está en `tests/leak/leak.test.ts`.",
-   "issue": 243
+   "issue": 243,
+   "evidenceState": "merged"
   },
   {
    "id": "FR021-03",
@@ -3320,7 +3384,8 @@
    "sprint": "S10",
    "status": "Hecho",
    "evidence": "Commit 8a72012 (PR #319):\n\n- Onion-only: `sovereign persona create|import --onion-only`. La persona sale por Tor y solo acepta relays `.onion`; la validación está en `IdentityManager`, y el error cuenta los relays sin nombrarlos. El guard rechaza cualquier destino clearnet, también los relays de DM de un destinatario.\n- Mensaje de fallo unificado: cualquier error en la capa SOCKS se convierte en `NetworkBlockedError(\"No enviado: red de privacidad no disponible\")`, por WebSocket y HTTP (`TorAgent` en `packages/tor-network/src/guard.ts`). Cubre el proxy caído o que rechaza, y un circuito o un `.onion` inalcanzables. El relay pool lo mantiene como bloqueo, así que el mensaje espera en el outbox.\n- Sin IPs en los logs: los diagnósticos del CLI (errores, estado por relay en `outbox` y `history sync`) muestran cada IP como `ip-<8 hex>`.\n- Tests:\n  - `packages/tor-network/test/tor.test.ts`;\n  - `apps/sovereign-client/test/tor-hardening.test.ts`, con un proceso real del CLI cuya salida no contiene `127.0.0.1`;\n  - `packages/identity/test/identity.test.ts`.",
-   "issue": 244
+   "issue": 244,
+   "evidenceState": "merged"
   },
   {
    "id": "FR007-05",
@@ -3338,7 +3403,8 @@
    "sprint": "S10",
    "status": "Hecho",
    "evidence": "Commit 8a72012 (PR #319):\n\n- CLI: `IdentityManager.sendingAs` devuelve «Enviando como <etiqueta> (npub…) · <custodia> · <red> · <nivel de vínculo>». Se imprime antes de cada envío (canal, DM y grupo MLS) y con `sovereign whoami`.\n- Web: el banner `#sending-as` añade el nivel de vínculo (sin vínculo, privado, selectivo o público).\n  - Los vínculos hechos en el navegador quedan en las dos personas.\n  - Las personas con cuenta en el servicio de identidad los leen de `/v1/accounts/me` al abrirse. Una persona sin cuenta nunca pregunta al servicio.\n- Tests:\n  - `packages/identity/test/identity.test.ts`;\n  - `apps/sovereign-client/test/tor-hardening.test.ts` (banner del proceso real del CLI);\n  - `tests/browser/web-saas.e2e.ts`: custodia, red y «sin vínculo»; tras vincular, «vínculo selectivo» en las dos personas.",
-   "issue": 245
+   "issue": 245,
+   "evidenceState": "merged"
   },
   {
    "id": "VAULT-03",
@@ -3355,7 +3421,8 @@
    "sprint": "S11",
    "status": "Hecho",
    "evidence": "Commit 7d5e410 (PR #321).\n\n**Qué se guarda.** `packages/continuity/src/history.ts` sella en el cliente:\n- un archivo por evento canónico firmado: canales NIP-29 con su estado, gift wraps de la persona (DMs recibidos y la copia propia de los enviados) y sus listas;\n- un archivo por mensaje Marmot descifrado, porque MLS borra las llaves de épocas pasadas;\n- snapshots del ledger y del estado MLS, que sellan su fecha y el número de archivos de la cuenta.\n\n**Qué se acepta al restaurar.** Solo lo que abre con la llave de archivo, está bajo el id que implica su contenido, tiene firma válida y es de la persona. Se avisa de los archivos borrados desde el último guardado.\n\n**Adaptador Marmot.** `onMessage` guarda cada mensaje que la sesión descifra o envía.\n\n**CLI.**\n- `vault push`.\n- `vault restore`: vuelve a publicar los eventos, une el ledger y escribe el estado MLS solo en un dispositivo sin grupos. Cada grupo pide `group rejoin` antes de enviar.\n\n**Web.** «Guardar el historial en el vault», «Restaurar desde el vault» y, en un grupo restaurado, «Volver a entrar».\n\n**Tests en CI:**\n- `services/continuity-vault/test/history.test.ts`.\n- `apps/sovereign-client/test/vault-restore.test.ts`: relay reiniciado vacío; canal, DMs en los dos sentidos, grupo y ledger al 100 %.\n- `apps/web-saas/test/continuity.test.ts`.\n- `tests/browser/web-saas.e2e.ts`: navegador limpio con el backup descargado y un relay vacío. Vuelven los 13 eventos y las 13 operaciones, el canal completo y todos los gift wraps. La UI muestra el canal, los DMs y el acuse.\n- `tests/browser/web-groups.e2e.ts`: los 5 mensajes del grupo vuelven. El navegador entra otra vez como dispositivo nuevo y escribe. Corre en el job `browser` y en el job `stack` contra el secure relay real.\n\nDocumentado en ADR 0011 (sección VAULT-03), el threat model del vault y el disclosure v1.5.0.",
-   "issue": 246
+   "issue": 246,
+   "evidenceState": "merged"
   },
   {
    "id": "VAULT-04",
@@ -3372,7 +3439,8 @@
    "sprint": "S11",
    "status": "Hecho",
    "evidence": "Commit 408d8df (PR #322).\n\n**Dos pistas independientes.** `packages/delivery-engine` separa la publicación en relays y la copia en el vault:\n- cada operación guarda su `continuity`: la política con la que se envió, el estado (`PENDING`, `CONTINUITY_BACKED_UP` o `FAILED`) y los intentos;\n- ese estado va aparte de la máquina DRAFT→…→READ y de los ACK de los relays;\n- la copia es el archivo `event:<id>` de VAULT-03.\n\n**Política en el panel.** El control `continuity` de `packages/profiles` tiene tres valores: `off`, `best-effort` y `required-for-resilient`:\n- private-resilient exige la copia; convenience e institutional copian en best-effort; los perfiles sovereign no copian;\n- una configuración guardada antes vale `off`;\n- la validación rechaza `required-for-resilient` sin vault y la copia con el backup en la nube apagado;\n- los textos de cada política están en disclosures 1.6.0.\n\n**Solo `required-for-resilient` retiene el envío.** No publica en ningún relay hasta que la copia existe, y `blockedReason` dice por qué. `best-effort` publica sin esperar y reintenta la copia con su propio backoff. Relajar la política libera los envíos retenidos.\n\n**Dónde se ve:**\n- web: control del panel, columna «Vault» en Entrega y política en la tarjeta del vault;\n- CLI: `sovereign persona continuity --persona ID <política> [--vault URL]`.\n\n**Tests:**\n- `packages/delivery-engine/test/continuity.test.ts`;\n- `apps/sovereign-client/test/vault-continuity.test.ts`;\n- `apps/web-saas/test/continuity.test.ts`;\n- `packages/profiles/test/profiles.test.ts`;\n- `packages/identity/test/identity.test.ts`;\n- `services/continuity-vault/test/history.test.ts`;\n- `tests/browser/web-saas.e2e.ts`: `CONTINUITY_BACKED_UP` en Entrega antes de cualquier guardado manual.\n\nDocumentado en ADR 0011 (sección VAULT-04) y en los threat models del vault y de private-resilient.",
-   "issue": 247
+   "issue": 247,
+   "evidenceState": "merged"
   },
   {
    "id": "VAULT-05",
@@ -3389,7 +3457,8 @@
    "sprint": "S11",
    "status": "Hecho",
    "evidence": "Commit eb20688 (PR #324).\n\n**Retención configurable.** En `services/continuity-vault`, cada archivo se conserva un plazo contado desde su última escritura:\n- `VAULT_RETENTION_DAYS` fija el máximo del operador;\n- cada cuenta puede elegir menos con `PUT /v1/retention {\"days\": N | null}`;\n- `GET /v1/usage` devuelve `retention: {days, max_days, effective_days}`;\n- la migración es `002_retention.sql`.\n\n**El barrido.** `VaultSweeper` corre al arrancar y cada `VAULT_SWEEP_INTERVAL_MS`:\n- borra las filas caducadas y sus objetos, y ajusta los contadores con la fila de la cuenta bloqueada;\n- borra un objeto huérfano solo si dos barridos seguidos lo encuentran sin fila.\n\n**Borrar.** `DELETE /v1/archives` elimina los archivos y la cuenta, incluida su retención:\n- en la web es «Borrar todo el vault», con confirmación; en el CLI, `sovereign vault delete --yes`;\n- ambos avisan si la copia automática sigue encendida.\n\nLo que conservan las copias de seguridad del operador está documentado en ADR 0011 y en el threat model:\n- en el Terraform de referencia: PITR de RDS de 14 días por defecto y bucket de backups de 35 días;\n- el vault aún no está en ese módulo (llega con VAULT-06);\n- los disclosures lo avisan (`deletion`).\n\n**Exportación portable (NFR-008).** La web y `sovereign vault export --out FILE` escriben un JSON abierto, `sedecim-vault-export` v1:\n- contiene los eventos NIP-01 firmados sin cambios, los mensajes de grupo y el ledger;\n- no incluye el estado MLS ni llaves;\n- `sovereign history import` lo vuelve a publicar sin los gift wraps enviados a otras personas.\n\nLos disclosures pasan a la versión 1.7.0, con los textos `retention` y `export`.\n\n**Tests:**\n- `services/continuity-vault/test/continuity-vault.test.ts` (memoria, archivos y Postgres);\n- `apps/web-saas/test/continuity.test.ts`;\n- `apps/sovereign-client/test/vault.test.ts` (CLI real; exportación verificada con nostr-tools);\n- `packages/profiles/test/profiles.test.ts`;\n- `tests/browser/web-saas.e2e.ts`: retención, descarga de la exportación y borrado con confirmación.\n\nDocumentado en ADR 0011 (sección VAULT-05), en el threat model del vault y en la trazabilidad (NFR-008, FR-027).",
-   "issue": 248
+   "issue": 248,
+   "evidenceState": "merged"
   },
   {
    "id": "VAULT-06",
@@ -3406,7 +3475,8 @@
    "sprint": "S11",
    "status": "Hecho",
    "evidence": "Commit f20f802 (PR #326).\n\n**Mismo contrato, dos almacenamientos.** `services/continuity-vault` guarda los sobres en un directorio (`VAULT_OBJECTS_DIR`) o en cualquier S3-compatible (`VAULT_S3_BUCKET`, `VAULT_S3_ENDPOINT`, `VAULT_S3_REGION`, `VAULT_S3_PREFIX` y llaves propias o la cadena de AWS). Al arrancar comprueba el bucket.\n\n**En el compose, sin el SaaS:**\n- servicio `continuity-vault` (:8088);\n- filas en la base de la plataforma;\n- sobres en su propio bucket de SeaweedFS (`continuity-vault`), con llaves que SeaweedFS solo acepta para ese bucket;\n- `seaweedfs-init` crea el bucket e `init-env.sh` genera las llaves;\n- la web del despliegue lo usa (`infra/web/config.json`) y con TLS se sirve en `vault.<dominio>`.\n\n**Backup y restore drill:**\n- `backup.sh` pausa el vault desde antes de los dumps hasta copiar `seaweedfs-data`, así un backup nunca tiene una fila sin su sobre;\n- el restore drill siembra un sobre sellado y, tras backup, host limpio y `restore.sh`, comprueba que vuelve y abre con su llave (`scripts/drill-data.ts`);\n- el gate de interop del stack lo usa en cada PR (`tests/interop/stack.interop.test.ts`).\n\n**Además:**\n- imagen de release `nostr-continuity-vault`;\n- componente opt-in de Kubernetes (`deploy/k8s/components/continuity-vault`), que stage no activa: no arranca hasta que el overlay decida quién abre cuentas.\n\n**Tests:**\n- `services/continuity-vault/test/continuity-vault.test.ts`: la suite completa sobre objetos S3 (moto en CI y el SeaweedFS fijado) y el contrato del almacenamiento: páginas, prefijos y bucket inexistente;\n- `tests/interop/stack.interop.test.ts`;\n- `tests/scripts/build-image.test.ts`;\n- `tests/scripts/deploy-manifests.test.ts`;\n- restore drill (`.github/workflows/restore-drill.yml`).\n\nDocumentado en ADR 0011 (sección VAULT-06), el threat model del vault, `docs/runbooks/restore.md`, `docs/rpo-rto.md` y la trazabilidad (NFR-003).",
-   "issue": 249
+   "issue": 249,
+   "evidenceState": "merged"
   },
   {
    "id": "OPS-18",
@@ -3457,7 +3527,8 @@
    "sprint": "S11",
    "status": "Hecho",
    "evidence": "`deploy/production-gates.json` y `node scripts/release-gate.mjs config` (en `all` del job `dod` de release.yml y en el job `deploy-config` de CI; revisa la web, `deploy/k8s` y `deploy/terraform` salvo stage): managed solo con la aprobación legal registrada en `docs/legal/approvals/custodia-managed.md` (SHA-256 del texto aprobado, DEC-12; hoy pendiente) y los informes de SEC-01 y SEC-02, sin waiver; enclave y `ENCLAVE_ALLOW_EXPORT` apagados mientras sean Preview; push apagado con `safeTrigger: false` (matriz de ADR 0010), e `infra/web/config.saas.example.json` ya no lo ofrece. Tests en `tests/scripts/release-gate.test.ts`; gate 9 de `docs/release-checklist.md`. Commit 6fd6686 (PR #327).",
-   "issue": 252
+   "issue": 252,
+   "evidenceState": "merged"
   },
   {
    "id": "FR026-04",
@@ -3589,7 +3660,8 @@
    "sprint": "S9",
    "status": "Pendiente",
    "evidence": "",
-   "issue": 259
+   "issue": 259,
+   "evidenceState": "merged"
   },
   {
    "id": "OPS-19",
