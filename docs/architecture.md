@@ -96,6 +96,9 @@ La web funciona igual con `MANAGED_SIGNER_REQUIRE_DEVICE_SESSION=true`: el E2E c
 - Cerrar una sesión no revoca el dispositivo: eso lo decide la organización (FR024-03). Un navegador que sigue con el
   login abierto abre otra sesión en su siguiente firma. Ante un dispositivo perdido hay que cambiar también la
   contraseña de Acceso.
+- Con `organizationDevices` en la configuración, el navegador puede vincularse al dispositivo que la organización le
+  registró: sus sesiones llevan ese id y revocarlo lo corta (docs/institutional.md, «Navegadores como dispositivos de
+  la organización»).
 
 **Recuperación en otro navegador.**
 1. Se entra con el mismo login de Acceso.

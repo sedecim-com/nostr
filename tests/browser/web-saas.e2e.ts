@@ -25,6 +25,8 @@ import { backupFile, generateKey } from '@sedecim/key-generator';
 import { managedConsentVersion } from '@sedecim/profiles';
 import { createNotificationApi, generateVapidKeys, NotificationGateway, createWebPushSender } from '@sedecim/notification-gateway';
 import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '@sedecim/continuity-vault';
+import { createPolicyApi, PolicyEngine } from '@sedecim/policy-engine';
+import { HttpPolicySource, managedSignerSink, RevocationPropagator } from '@sedecim/rotation-worker';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -96,14 +98,28 @@ const identity = createIdentityApi(identityRepo, {
 const identityUrl = await identity.listen();
 // Custodial managed-signer (SaaS only, ADR 0009): authorized by the same simulated Acceso tokens.
 const managedCore = new ManagedSigner(new MemoryVault());
+// FR024-03: the rotation worker (FR024-05) sends the organisation's device revocations with this token.
+const REVOCATION_TOKEN = 'revocation-token-e2e-0123456789';
 const managed = createManagedSignerApi(managedCore, {
   name: 'managed-e2e',
   corsOrigins: [base],
   // FR005-11: as a strict deployment runs it: keys only through device sessions, never the bare Acceso token.
   requireDeviceSession: true,
+  revocationTokens: { [REVOCATION_TOKEN]: 'rotation-worker' },
   cognito: new CognitoVerifier({ region: cognito.region, userPoolId: cognito.userPoolId, clientId: cognito.userPoolClientId, fetch: (async () => new Response(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'e2e', alg: 'RS256' }] }))) as typeof fetch }),
 });
 const managedUrl = await managed.listen();
+// FR024-03: the organisation's policy-engine, and what its rotation worker service runs (FR024-05): the revocation feed
+// sent to the managed-signer.
+const orgPolicy = new PolicyEngine();
+const orgAdmin = getPublicKey(generateSecretKey());
+const POLICY_TOKEN = 'policy-token-e2e-0123456789';
+const policyApi = createPolicyApi(orgPolicy, { name: 'policy-e2e', adminPubkeys: [orgAdmin], bearerTokens: { [POLICY_TOKEN]: 'rotation-worker' } });
+const policyUrl = await policyApi.listen();
+const propagator = new RevocationPropagator({
+  feed: new HttpPolicySource({ baseUrl: policyUrl, signer: new LocalSigner(generateSecretKey()), bearer: POLICY_TOKEN }),
+  sinks: [managedSignerSink({ baseUrl: managedUrl, token: REVOCATION_TOKEN })],
+});
 // Opaque push gateway (ADR 0010): the web only offers the opt-in control; nothing registers unless clicked. OPS-06: it
 // authenticates with its own identity, as deployed, and checks with a canary whether it can see activity on the relay.
 const vapid = generateVapidKeys();
@@ -678,7 +694,7 @@ try {
   // --- SaaS mode (ADR 0008): Acceso login first, then optional linking of a persona
   const saasCtx = await browser.newContext();
   const managedTerms = { url: 'https://legal.example/custodia-gestionada', version: '2026-10' };
-  const saasConfig = { ...selfHosted, mode: 'saas', cognito, managedSigner: managedUrl, managedTerms, backupVault: identityUrl };
+  const saasConfig = { ...selfHosted, mode: 'saas', cognito, managedSigner: managedUrl, managedTerms, backupVault: identityUrl, organizationDevices: true };
   await saasCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(saasConfig) }));
   const cognitoCalls: string[] = [];
   const accesoRoute = async (r: Route) => {
@@ -790,8 +806,8 @@ try {
   assert(signedFrom.length > 0 && signedFrom.every((d) => d?.startsWith('web-')), 'the web signs through a device session of this browser, never with the bare Acceso token (FR005-11)');
 
   // --- FR005-11: the usage log and the sessions of the managed key; a new browser recovers the persona with the login
-  const channelMessage = async (text: string) => {
-    for (let i = 0; i < 60; i++) {
+  const channelMessage = async (text: string, tries = 60) => {
+    for (let i = 0; i < tries; i++) {
       const e = (await pool.query([relay.url], [{ kinds: [9], '#h': ['general'] }], 2000)).find((x) => x.content === text);
       if (e) return e;
       await new Promise((r) => setTimeout(r, 250));
@@ -831,13 +847,35 @@ try {
   await rec.locator('#managed-close-others').click();
   await rec.waitForFunction(() => document.querySelectorAll('#managed-sessions li').length === 1, undefined, { timeout: 15_000 });
   assert((await managedCore.listDeviceSessions(owner)).length === 1, 'the user closes the other browser’s session from the new one (FR005-11)');
+
+  // --- FR024-03: this browser signs as the device the organisation registered for it; revoking that device, sent to
+  // the managed-signer by the rotation worker, turns it away, also when it tries to open another session with the login.
+  const orgDevice = await orgPolicy.registerDevice(orgAdmin, managedKey!.pubkey, 'registered');
+  await rec.fill('#managed-org-device', orgDevice.id);
+  await rec.getByRole('button', { name: 'Vincular este navegador' }).click();
+  await rec.locator('#managed-org-bound').waitFor({ timeout: 15_000 });
+  await rec.locator('#managed-sessions').getByText(`${orgDevice.id} (este navegador)`).waitFor({ timeout: 15_000 });
+  assert((await managedCore.listDeviceSessions(owner)).map((x) => x.deviceId).join() === orgDevice.id, 'binding closes the old session of this browser and opens one as the organisation’s device');
+  await tab(rec, 'Canales');
+  await rec.locator('#channel-list').getByText('General').click();
+  await rec.fill('#channel-text', 'como dispositivo de la organización');
+  await rec.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  assert((await channelMessage('como dispositivo de la organización'))?.pubkey === managedKey!.pubkey && (await managedCore.usageOf(managedKey!.keyId, owner)).some((u) => u.action === 'sign' && u.deviceId === orgDevice.id), 'the managed-signer records the signature under the organisation’s device id');
+  await orgPolicy.revokeDevice(orgAdmin, orgDevice.id, 'perdido');
+  assert((await propagator.runOnce()).join() === orgDevice.id, 'the rotation worker’s feed sends the revocation to the managed-signer');
+  await rec.fill('#channel-text', 'después de la revocación');
+  await rec.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  await tab(rec, 'Personas');
+  await rec.locator('#managed-activity-refresh').click();
+  await rec.locator('#managed-activity').getByText(/Tu organización revocó este dispositivo/).waitFor({ timeout: 15_000 });
+  assert(!(await channelMessage('después de la revocación', 4)) && (await managedCore.listDeviceSessions(owner)).length === 0, 'the revoked browser signs nothing more and cannot open another session with the login; the web says why');
   await recCtx.close();
   // The first browser, still logged in, opens another session with its login on its next signature.
   await tab(saas, 'Canales');
   await saas.locator('#channel-list').getByText('General').click();
   await saas.fill('#channel-text', 'después de cerrar mi sesión');
   await saas.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
-  assert((await channelMessage('después de cerrar mi sesión'))?.pubkey === managedKey!.pubkey, 'a browser whose session was closed opens another one with the Acceso login and signs again');
+  assert((await channelMessage('después de cerrar mi sesión'))?.pubkey === managedKey!.pubkey, 'a browser whose session was closed opens another one with the Acceso login and signs again; the device the organisation revoked was only the other browser’s (FR024-03)');
 
   // --- migration back to local custody with verification (FR026-03)
   await tab(saas, 'Personas');
@@ -857,6 +895,7 @@ try {
   server.close();
   await identity.close();
   await managed.close();
+  await policyApi.close();
   gatewayCore.stop();
   await gateway.close();
   await continuity.close();

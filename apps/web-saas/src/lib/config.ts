@@ -21,6 +21,11 @@ export interface DeploymentConfig {
    */
   secureRelays?: string[];
   /**
+   * FR024-03: the organisation registers each browser as a device in its policy-engine. The managed persona then offers
+   * to bind this browser's session to that device id, so that revoking the device turns this browser away.
+   */
+  organizationDevices?: boolean;
+  /**
    * FR024-05: npub (or hex) of the organisation's rotation worker (services/rotation-worker). Set: every group created
    * here lists it as an admin and invites it, so that it can remove a member whose device the organisation revokes.
    * While in a group it can decrypt it; the group shows it as a member. Unset: groups get no such member.

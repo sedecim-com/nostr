@@ -1,14 +1,27 @@
 import { bytesToHex } from '@sedecim/nostr-core';
 import type { EncryptedStore } from '@sedecim/encrypted-store/browser';
-import { ManagedSignerClient, type AccessTokenProvider, type ManagedSignerConnection } from '@sedecim/signer';
+import { ManagedSignerClient, ManagedSignerHttpError, type AccessTokenProvider, type ManagedSignerConnection } from '@sedecim/signer';
 
 /** How long a device session of this browser lasts before the Acceso login opens another one. */
 const SESSION_TTL_SECONDS = 12 * 3600;
 /** A session this close to its end is replaced before use rather than failing mid-request. */
 const MARGIN_MS = 60_000;
 
+/** Device ids the organisation's policy-engine hands out (and the random `web-…` ones). */
+const DEVICE_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+
+/** FR024-03: the organisation revoked the device this browser is bound to; the login cannot open another session. */
+export class DeviceRevokedError extends Error {
+  constructor(readonly deviceId: string) {
+    super(`Tu organización revocó este dispositivo (${deviceId}): este navegador ya no puede firmar con tu llave gestionada. Pide a tu organización que registre un dispositivo nuevo.`);
+  }
+}
+
 interface Stored {
-  /** This browser as the managed-signer knows it: a random id, the same for every persona of this vault. */
+  /**
+   * This browser as the managed-signer knows it: a random id, the same for every persona of this vault, or the device
+   * its organisation registered for it in the policy-engine (FR024-03), so that revoking that device reaches it.
+   */
   deviceId: string;
   token?: string;
   expiresAt?: number;
@@ -47,6 +60,24 @@ export class BrowserManagedSession {
     return (await this.stored()).deviceId;
   }
 
+  /**
+   * FR024-03: binds this browser to the device its organisation registered for it in the policy-engine. Its sessions
+   * then carry that id, so revoking the device (propagated by the rotation worker) turns this browser away, also when it
+   * tries to open another session with the login. The current session is closed first.
+   */
+  async bindDevice(deviceId: string): Promise<void> {
+    const id = deviceId.trim();
+    if (!DEVICE_ID.test(id)) throw new Error('id de dispositivo no válido: usa el que te dio tu organización');
+    const s = await this.stored();
+    if (s.deviceId === id) return;
+    if (s.token && (s.expiresAt ?? 0) > this.now()) {
+      const current: ManagedSignerConnection = { baseUrl: this.baseUrl, token: async () => s.token! };
+      const own = (await ManagedSignerClient.listDeviceSessions(current).catch(() => [])).find((x) => x.current);
+      if (own) await ManagedSignerClient.closeDeviceSession(current, own.id).catch(() => undefined);
+    }
+    await this.col().put('this', { deviceId: id });
+  }
+
   private async token(): Promise<string> {
     const s = await this.stored();
     if (s.token && (s.expiresAt ?? 0) - MARGIN_MS > this.now()) return s.token;
@@ -58,7 +89,10 @@ export class BrowserManagedSession {
     this.opening ??= (async () => {
       try {
         const s = await this.stored();
-        const opened = await ManagedSignerClient.openDeviceSession(this.login(), s.deviceId, { ttlSeconds: SESSION_TTL_SECONDS });
+        const opened = await ManagedSignerClient.openDeviceSession(this.login(), s.deviceId, { ttlSeconds: SESSION_TTL_SECONDS }).catch((e: unknown) => {
+          if (e instanceof ManagedSignerHttpError && e.status === 403 && /device revoked/.test(e.message)) throw new DeviceRevokedError(s.deviceId);
+          throw e;
+        });
         await this.col().put('this', { deviceId: s.deviceId, token: opened.token, expiresAt: Date.parse(opened.expiresAt) });
         return opened.token;
       } finally {
