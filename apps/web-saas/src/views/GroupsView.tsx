@@ -2,13 +2,11 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Alert, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import type { GroupHandle, GroupSession } from '@sedecim/marmot-adapter';
 import { normalizePubkey, npubEncode } from '@sedecim/nostr-core';
-import { exclusive, forgetRemovedGroup, GroupHistory, groupRelays, openGroupSession, type StoredGroupMessage } from '../lib/groups';
+import { exclusive, forgetRemovedGroup, GroupHistory, groupRelays, openGroupSession, rejoinRestoredGroup, type StoredGroupMessage } from '../lib/groups';
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 
 const POLL_MS = 4000;
-/** Kind of the chat rumor marmot-ts sends inside an MLS application message. */
-const CHAT_KIND = 9;
 
 type Confirm = { kind: 'remove'; member: string } | { kind: 'leave' };
 
@@ -80,13 +78,11 @@ export function GroupsView() {
     }
   };
 
-  /** Fetch new kind 445 events of the open group, persist the decrypted chat and refresh epoch/members. */
+  /** Fetch new kind 445 events of the open group and refresh epoch/members; the session keeps the decrypted chat. */
   const sync = useCallback(
     async (session: GroupSession, groupId: string) => {
-      const fresh = await exclusive(session, (g) => g.sync(groupId));
-      // Own messages are logged when sent (an MLS sender cannot decrypt its own ciphertext).
-      const incoming = fresh.filter((m) => m.kind === CHAT_KIND && m.sender !== s.pubkey).map((m) => ({ id: m.rumorId, sender: m.sender, content: m.content, createdAt: m.createdAt }));
-      const log = await history.current.append(groupId, incoming);
+      await exclusive(session, (g) => g.sync(groupId));
+      const log = await history.current.list(groupId);
       let handle: GroupHandle | undefined;
       try {
         handle = await exclusive(session, (g) => g.group(groupId));
@@ -187,9 +183,9 @@ export function GroupsView() {
       if (!content) return;
       // Catch up first: a message must be encrypted for the current epoch.
       await sync(gs!, openId);
+      // The session keeps the sent message under its rumor id (an MLS sender cannot decrypt its own ciphertext).
       await exclusive(gs!, (g) => g.send(openId, content));
-      const id = `local-${crypto.getRandomValues(new Uint32Array(2)).join('')}`;
-      setMessages(await history.current.append(openId, [{ id, sender: s.pubkey, content, createdAt: Math.floor(Date.now() / 1000) }]));
+      setMessages(await history.current.list(openId));
       setText('');
     });
   };
@@ -212,6 +208,14 @@ export function GroupsView() {
       }
     });
   };
+
+  // VAULT-03: a group restored from the vault is a copy of the other device's leaf; this browser joins as a new one.
+  const rejoin = () =>
+    act(async () => {
+      const r = await exclusive(gs!, (g) => rejoinRestoredGroup(g, openId, relays));
+      await reloadGroups(gs!);
+      ws.notify(r.status === 'joined' ? 'Volviste a entrar en el grupo como dispositivo nuevo: ya puedes escribir.' : 'Pediste volver a entrar: un admin del grupo debe aceptar tu nuevo dispositivo.', r.status === 'joined' ? 'success' : 'info');
+    });
 
   const forgetRemoved = () =>
     act(async () => {
@@ -310,7 +314,7 @@ export function GroupsView() {
                 {groups.map((g) => (
                   <ListItem key={g.groupId} disablePadding>
                     <ListItemButton selected={g.groupId === openId} onClick={() => setOpenId(g.groupId)}>
-                      <ListItemText primary={g.name || 'Grupo sin nombre'} secondary={`Época ${g.epoch} · ${g.members.length} ${g.members.length === 1 ? 'miembro' : 'miembros'} · ${g.admins.includes(s.pubkey) ? 'eres admin' : 'miembro'}`} />
+                      <ListItemText primary={g.name || 'Grupo sin nombre'} secondary={`Época ${g.epoch} · ${g.members.length} ${g.members.length === 1 ? 'miembro' : 'miembros'} · ${g.admins.includes(s.pubkey) ? 'eres admin' : 'miembro'}${g.restored ? ' · restaurado' : ''}`} />
                     </ListItemButton>
                   </ListItem>
                 ))}
@@ -331,6 +335,19 @@ export function GroupsView() {
                   <Typography variant="body2" id="group-state" role="status">
                     Época {current.epoch} · {current.members.length} {current.members.length === 1 ? 'miembro' : 'miembros'} · {current.admins.length} {current.admins.length === 1 ? 'admin' : 'admins'}
                   </Typography>
+                  {current.restored && !removed && (
+                    <Alert
+                      severity="warning"
+                      id="group-restored"
+                      action={
+                        <Button color="inherit" disabled={busy} onClick={() => void rejoin()}>
+                          Volver a entrar
+                        </Button>
+                      }
+                    >
+                      Este grupo se restauró desde el Continuity Vault con la copia de otro dispositivo: puedes leer su historial, pero para escribir este navegador debe entrar otra vez como dispositivo nuevo.
+                    </Alert>
+                  )}
                   {removed && (
                     <Alert
                       severity="warning"
@@ -389,7 +406,7 @@ export function GroupsView() {
                       </ListItem>
                     ))}
                   </List>
-                  {!removed && (
+                  {!removed && !current.restored && (
                     <Stack component="form" id="group-send" direction="row" spacing={1} alignItems="flex-start" onSubmit={send}>
                       <TextField id="group-text" label="Mensaje al grupo" value={text} onChange={(e) => setText(e.target.value)} fullWidth required />
                       <Button type="submit" variant="contained" disabled={busy || !text.trim()}>

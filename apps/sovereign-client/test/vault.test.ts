@@ -68,21 +68,28 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
     await onionRelay.stop();
   });
 
-  it('seals the delivery ledger on the device; the vault holds neither text nor keys, and a restored device opens it', async () => {
+  it('seals the history on the device; the vault holds neither text nor keys, and a restored device opens it', async () => {
     const a = await newClient();
     const alice = await a.createPersona({ label: 'Alice', relays: [relay.url] });
     expect((await a.sendChannel(alice.id, 'general', 'la clave del portal es 4471')).state).toBe('REPLICATED');
+    await a.publishDmRelays(alice.id);
 
+    // VAULT-03: its channel message and its DM relay list (kind 10050), one archive each, plus the ledger.
     const pushed = await a.vaultPush(alice.id, vaultUrl);
     expect(pushed.operations).toBeGreaterThanOrEqual(1);
-    expect((await a.vaultPush(alice.id, vaultUrl)).archive.id).toBe(pushed.archive.id);
-    expect(await a.vaultList(alice.id, vaultUrl)).toHaveLength(1);
-    expect(await a.vaultVerify(alice.id, vaultUrl)).toEqual({ archives: 1, opened: 1 });
+    expect(pushed.events.uploaded).toBeGreaterThanOrEqual(2);
+    expect(pushed.snapshots).toEqual(['ledger']);
+    // A second push writes no event again, only the ledger.
+    const again = await a.vaultPush(alice.id, vaultUrl);
+    expect(again.events).toEqual({ uploaded: 0, kept: pushed.events.uploaded, invalid: 0 });
+    const archives = pushed.events.uploaded + 1;
+    expect(await a.vaultList(alice.id, vaultUrl)).toHaveLength(archives);
+    expect(await a.vaultVerify(alice.id, vaultUrl)).toEqual({ archives, opened: archives });
 
     // The vault account is the key derived from the archive key, not the persona; nothing readable is stored.
     const key = await (await a.identities()).archiveKey(alice.id);
     const rows = repo.rows();
-    expect(rows.map((r) => r.owner)).toEqual([`nostr:${archiveOwnerPubkey(key)}`]);
+    expect(new Set(rows.map((r) => r.owner))).toEqual(new Set([`nostr:${archiveOwnerPubkey(key)}`]));
     const stored = JSON.stringify(rows) + (await objectsText(objects));
     for (const needle of ['4471', 'portal', alice.pubkey, relay.url, 'REPLICATED', '"outbox"', '"kind"']) expect(stored, needle).not.toContain(needle);
 
@@ -90,8 +97,8 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
     const pkg = await a.exportBackup(alice.id, 'contraseña del backup', { scryptLogN: 4 });
     const b = await newClient();
     await b.restoreBackup(pkg, 'contraseña del backup');
-    expect(await b.vaultVerify(alice.id, vaultUrl)).toEqual({ archives: 1, opened: 1 });
-    expect((await b.vaultList(alice.id, vaultUrl)).map((m) => m.id)).toEqual([pushed.archive.id]);
+    expect(await b.vaultVerify(alice.id, vaultUrl)).toEqual({ archives, opened: archives });
+    expect((await b.vaultList(alice.id, vaultUrl)).map((m) => m.id)).toEqual((await a.vaultList(alice.id, vaultUrl)).map((m) => m.id));
   });
 
   it('the CLI tells what the operator sees before it uploads, and verifies with this device key (VAULT-07)', async () => {
@@ -105,9 +112,9 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
     expect(push.status, push.stderr).toBe(0);
     expect(push.stderr).toContain(`aviso: ${CONTINUITY_VAULT_TEXTS.sealed}`);
     expect(push.stderr).toContain(`aviso: ${CONTINUITY_VAULT_TEXTS.metadata}`);
-    expect(push.stdout).toMatch(/sellado y guardado en el vault: 1 operaciones/);
+    expect(push.stdout).toMatch(/historial sellado y guardado en el vault: 1 eventos nuevos \(0 ya estaban\), 0 mensajes de grupo nuevos, ledger de 1 operaciones/);
     const verify = await run(['vault', 'verify', '--persona', id], env);
-    expect(verify.stdout, verify.stderr).toContain('1 de 1 archivos se abren');
+    expect(verify.stdout, verify.stderr).toContain('2 de 2 archivos se abren');
     const noUrl = await run(['vault', 'list', '--persona', id], { ...env, SOVEREIGN_VAULT_URL: '' });
     expect(noUrl.status).not.toBe(0);
     expect(noUrl.stderr).toMatch(/--vault URL or SOVEREIGN_VAULT_URL required/);
@@ -117,9 +124,10 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
     const c = await newClient();
     const anon = await c.createPersona({ label: 'Fuente', relays: [`ws://${RELAY_ONION}`], highRisk: true });
     const before = socks.requests.length;
-    await c.vaultPush(anon.id, `http://${VAULT_ONION}`);
+    const pushed = await c.vaultPush(anon.id, `http://${VAULT_ONION}`);
     expect(socks.requests.slice(before).some((r) => r.addressType === 'domain' && r.host === VAULT_ONION)).toBe(true);
-    expect(onionRepo.rows()).toHaveLength(1);
+    const onionRows = pushed.events.uploaded + 1;
+    expect(onionRepo.rows()).toHaveLength(onionRows);
 
     const offline = await newClient(1);
     const restored = await offline.restoreBackup(await c.exportBackup(anon.id, 'contraseña del backup', { scryptLogN: 4 }), 'contraseña del backup');
@@ -127,7 +135,7 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
     // Nor does it fall back to a clearnet vault.
     const clearnetRows = repo.rows().length;
     await expect(offline.vaultPush(restored.id, vaultUrl)).rejects.toThrow();
-    expect(onionRepo.rows()).toHaveLength(1);
+    expect(onionRepo.rows()).toHaveLength(onionRows);
     expect(repo.rows()).toHaveLength(clearnetRows);
   });
 });

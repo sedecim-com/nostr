@@ -29,7 +29,16 @@ import {
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
 import { downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
-import { ArchiveVaultClient, archiveId, openArchive, sealArchive, type ArchiveMeta } from '@sedecim/continuity';
+import { ArchiveVaultClient, archiveHistory, ledgerRecords, openArchive, restoreHistory, type ArchiveMeta, type ArchivedGroupMessage, type HistoryArchiveResult, type MlsSnapshot, type RestoredHistory } from '@sedecim/continuity';
+
+/** VAULT-03: decrypted group messages this device read or sent, kept because MLS deletes the keys of past epochs. */
+const GROUP_HISTORY = 'group-history';
+/** NIP-29 group state (metadata, admins, members, roles), signed by the relay. */
+const CHANNEL_STATE_KINDS = [39000, 39001, 39002, 39003];
+/** The persona's own lists: profile, contacts, relays, DM relays (NIP-17) and Blossom servers. */
+const OWN_LIST_KINDS = [0, 3, 10002, 10050, 10063];
+/** Written as the owner of MLS state restored from the vault: no device has this id, so its groups need a rejoin. */
+const RESTORED_MLS_OWNER = 'vault-restore';
 
 export interface SovereignOptions {
   dataDir: string;
@@ -72,6 +81,25 @@ export interface DeviceRecord {
   label?: string;
   /** Written by `restoreBackup`: the MLS state here is a copy of another device's. */
   cloned?: boolean;
+}
+
+/** VAULT-03: what `vaultRestore` rebuilt on this device. */
+export interface VaultRestoreResult {
+  archives: number;
+  /** Archives that do not open with this archive key, or do not hold a valid entry of this persona. */
+  skipped: number;
+  /** Verified events found in the vault, and how many of them a relay of the persona accepted again. */
+  events: number;
+  published: number;
+  rejected: number;
+  groupMessages: number;
+  /** Ledger operations added to this device's outbox (those it already had are kept). */
+  ledger: number;
+  /** `restored`: the groups are back, marked restored until `group rejoin`; `kept`: this device already had groups. */
+  mls: 'restored' | 'kept' | 'none';
+  /** When the restored ledger was sealed (ms), and archives it counted that the vault no longer lists. */
+  savedAt?: number;
+  missing: number;
 }
 
 export interface HistorySyncResult {
@@ -428,10 +456,25 @@ export class SovereignClient {
         deviceId: dev.id,
         ...(dev.label ? { deviceLabel: dev.label } : {}),
         ...(dev.cloned ? { clonedState: true } : {}),
+        onMessage: (m) => this.keepGroupMessage(s, m),
       });
     })();
     s.groups.catch(() => (s.groups = undefined));
     return s.groups;
+  }
+
+  /** VAULT-03: keeps a group message this device decrypted or sent: MLS will not decrypt it again. */
+  private async keepGroupMessage(s: Session, m: GroupMessage): Promise<void> {
+    if (!m.rumorId) return;
+    const entry: ArchivedGroupMessage = { groupId: m.groupId, rumorId: m.rumorId, sender: m.sender, kind: m.kind, content: m.content, createdAt: m.createdAt, ...(m.tags?.length ? { tags: m.tags } : {}), ...(m.epoch !== undefined ? { epoch: m.epoch } : {}) };
+    await s.store.collection<ArchivedGroupMessage>(GROUP_HISTORY).put(`${m.groupId}:${m.rumorId}`, entry);
+  }
+
+  /** VAULT-03: the group messages this device read or sent, and those restored from the vault, oldest first. */
+  async groupHistory(personaId: string, groupId?: string): Promise<ArchivedGroupMessage[]> {
+    const s = await this.session(personaId);
+    const all = (await s.store.collection<ArchivedGroupMessage>(GROUP_HISTORY).all()).map((e) => e.value);
+    return all.filter((m) => !groupId || m.groupId === groupId).sort((a, b) => a.createdAt - b.createdAt || (a.rumorId < b.rumorId ? -1 : 1));
   }
 
   async groupPublishKeyPackage(personaId: string): Promise<NostrEvent> {
@@ -552,21 +595,105 @@ export class SovereignClient {
   }
 
   /**
-   * VAULT-02: seals the persona's delivery ledger (every outbox operation with its signed event and state per
-   * relay) on this device and stores it in the vault, replacing the previous copy. The vault only receives
-   * the sealed envelope.
+   * VAULT-03: seals on this device, and stores in the vault, what a clean device needs to rebuild the persona's
+   * history with empty relays (ADR 0011): every canonical event its relays hold for it (its own activity, its
+   * channels with their state, the gift wraps addressed to it), the group messages it read or sent, the delivery
+   * ledger and the MLS group state. Events and messages are written once; the ledger and the MLS state replace
+   * their previous copy. The vault only receives sealed envelopes.
    */
-  async vaultPush(personaId: string, url: string): Promise<{ archive: ArchiveMeta; operations: number }> {
+  async vaultPush(personaId: string, url: string): Promise<HistoryArchiveResult & { operations: number }> {
     const { client, key, session: s } = await this.vault(personaId, url);
     try {
-      const outbox = await s.store.collection<OutboxRecord>('outbox').all();
-      const id = archiveId(key, 'ledger');
-      const plaintext = JSON.stringify({ type: 'ledger', version: 1, pubkey: s.persona.pubkey, at: Date.now(), outbox });
-      const { archive } = await client.put(id, sealArchive(key, id, plaintext));
-      return { archive, operations: outbox.length };
+      const ledger = await s.engine.list();
+      const mls = await this.mlsSnapshot(s);
+      const result = await archiveHistory(client, key, {
+        pubkey: s.persona.pubkey,
+        events: await this.canonicalHistory(s),
+        groupMessages: (await s.store.collection<ArchivedGroupMessage>(GROUP_HISTORY).all()).map((e) => e.value),
+        ledger,
+        ...(Object.keys(mls).length ? { mls } : {}),
+      });
+      return { ...result, operations: ledger.length };
     } finally {
       key.fill(0);
     }
+  }
+
+  /** VAULT-03: every event the persona's relays hold for it: own activity and lists, its channels and their state, its gift wraps. */
+  private async canonicalHistory(s: Session): Promise<NostrEvent[]> {
+    await s.resumed;
+    const now = Math.floor(Date.now() / 1000);
+    const strategies = [new NegentropySync(s.pool, { fetch: s.guard.fetchApi() }), new FilterWindowSync(s.pool, { since: 0, windowSeconds: now + 1, pageLimit: 500 })];
+    const history = await rebuildHistory({ relays: s.persona.relays, pubkey: s.persona.pubkey, strategies });
+    const channels = Object.keys(history.channels);
+    const filters = [{ authors: [s.persona.pubkey], kinds: OWN_LIST_KINDS }, ...(channels.length ? [{ kinds: CHANNEL_STATE_KINDS, '#d': channels }] : [])];
+    const lists = await s.pool.query(s.persona.relays, filters, 10_000);
+    return [...history.own, ...lists, ...Object.values(history.channels).flat(), ...history.wraps];
+  }
+
+  /** VAULT-03: the persona's MLS state by namespace, without private key packages (a copy never joins with them). */
+  private async mlsSnapshot(s: Session): Promise<MlsSnapshot> {
+    const out: MlsSnapshot = {};
+    for (const name of await s.store.collectionNames('mls-')) {
+      const ns = name.slice('mls-'.length);
+      if (ns !== 'keypackages') out[ns] = await s.store.collection<unknown>(name).all();
+    }
+    return out;
+  }
+
+  /**
+   * VAULT-03: rebuilds the persona's history on this device from the vault, with nothing but its archive key (from
+   * the persona's backup), even if every relay lost its events:
+   * - the verified events go back to the persona's relays (unless `republish` is false), so it reads as before;
+   * - the ledger operations this device lacks join its outbox;
+   * - the group messages join this device's group history;
+   * - the MLS state is written only if this device has no groups, owned by no device: its groups count as
+   *   restored, and `group rejoin` makes this device a new leaf before it sends (FR025-06).
+   */
+  async vaultRestore(personaId: string, url: string, opts: { republish?: boolean } = {}): Promise<VaultRestoreResult> {
+    const { client, key, session: s } = await this.vault(personaId, url);
+    let restored: RestoredHistory;
+    try {
+      restored = await restoreHistory(client, key, { pubkey: s.persona.pubkey });
+    } finally {
+      key.fill(0);
+    }
+    let published = 0;
+    let rejected = 0;
+    if (opts.republish ?? true) {
+      for (const e of restored.events) {
+        if ((await s.pool.publish(e, s.persona.relays)).some((r) => r.ok)) published++;
+        else rejected++;
+      }
+    }
+    const outbox = s.store.collection<OutboxRecord>('outbox');
+    let ledger = 0;
+    for (const rec of ledgerRecords<OutboxRecord>(restored.ledger?.outbox ?? [])) {
+      if (await outbox.get(rec.opId)) continue; // never overwrite newer local state
+      await outbox.put(rec.opId, rec);
+      ledger++;
+    }
+    const history = s.store.collection<ArchivedGroupMessage>(GROUP_HISTORY);
+    for (const m of restored.groupMessages) await history.put(`${m.groupId}:${m.rumorId}`, m);
+    const mls = await this.restoreMls(s, restored.mls?.namespaces);
+    return { archives: restored.archives, skipped: restored.skipped, events: restored.events.length, published, rejected, groupMessages: restored.groupMessages.length, ledger, mls, ...(restored.ledger ? { savedAt: restored.ledger.at } : {}), missing: restored.missing };
+  }
+
+  private async restoreMls(s: Session, namespaces: MlsSnapshot | undefined): Promise<VaultRestoreResult['mls']> {
+    if (!namespaces?.groups?.length) return 'none';
+    if ((await s.store.collection<unknown>('mls-groups').all()).length) return 'kept';
+    // An open session would keep the old state in memory: the next one reads what is written here.
+    const open = s.groups;
+    s.groups = undefined;
+    await open?.then((g) => g.close(), () => undefined);
+    for (const [ns, entries] of Object.entries(namespaces)) {
+      if (ns === 'keypackages' || !/^[a-z0-9-]+$/.test(ns)) continue;
+      const col = s.store.collection<unknown>(`mls-${ns}`);
+      for (const e of entries) await col.put(e.id, e.value);
+    }
+    // Owned by no device: the next session marks every group restored (a cloned leaf) until `group rejoin`.
+    await new EncryptedGroupStorage(s.store).put('device', 'owner', RESTORED_MLS_OWNER);
+    return 'restored';
   }
 
   async vaultList(personaId: string, url: string): Promise<ArchiveMeta[]> {
@@ -706,6 +833,7 @@ export class SovereignClient {
     await gs.send(groupId, text);
   }
 
+  /** New messages of the group (each is also kept in this device's group history, VAULT-03). */
   async groupSync(personaId: string, groupId: string): Promise<GroupMessage[]> {
     return (await this.groupSession(personaId)).sync(groupId);
   }

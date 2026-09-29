@@ -723,14 +723,21 @@ export class MarmotTsSession implements ExtendedGroupSession {
     await this.opts.storage.put(NS.roster, g.idStr, roster);
   }
 
-  async send(groupId: string, content: string, tags: string[][] = []): Promise<void> {
+  async send(groupId: string, content: string, tags: string[][] = []): Promise<GroupMessage> {
     const g = await this.load(groupId);
     this.assertNotRestored(g);
     const pending = Object.keys(g.state.unappliedProposals).length;
     if (pending) throw new PendingProposalsError(pending);
     if (this.needsAnnounce.has(g.idStr)) await this.announce(g, this.isAdmin(g));
-    const res = await g.sendChatMessage(content, tags);
+    // The rumor is built here (as sendChatMessage would) so the sender keeps its own message: an MLS sender
+    // cannot decrypt its own ciphertext later (VAULT-03 archives what the persona read and sent).
+    const rumor = this.rumor(9, content, tags);
+    const epoch = Number(getEpoch(g.state));
+    const res = await g.sendApplicationRumor(rumor);
     if (!ok(res)) throw new Error('group message not accepted by any relay');
+    const sent: GroupMessage = { groupId: g.idStr, sender: this.pubkey, content, kind: rumor.kind, createdAt: rumor.created_at, rumorId: rumor.id, epoch, senderLeaf: g.state.privatePath.leafIndex, tags };
+    await this.opts.onMessage?.(sent);
+    return sent;
   }
 
   async sync(groupId: string): Promise<GroupMessage[]> {
@@ -775,6 +782,7 @@ export class MarmotTsSession implements ExtendedGroupSession {
           for (const attachment of media) await this.storeMediaRef({ groupId: g.idStr, epoch, attachment, sender: rumor.pubkey, rumorId: rumor.id });
         }
         report.messages.push(m);
+        await this.opts.onMessage?.(m);
       } else if (wire.privateMessage?.contentType === contentTypes.commit) report.commits++;
       else report.proposals++;
     }
@@ -893,8 +901,8 @@ export class MarmotTsSession implements ExtendedGroupSession {
     const { url } = await upload(ciphertext, ciphertextSha256);
     if (getEpoch(g.state) !== epoch) throw new Error('the group epoch changed during the upload: send the file again');
     const full: GroupMediaAttachment = { ...attachment, url };
-    await this.send(groupId, caption, [buildMediaImetaTag({ ...full, url })]);
-    const ref: GroupMediaReference = { groupId: g.idStr, epoch, attachment: full, sender: this.pubkey, rumorId: '' };
+    const sent = await this.send(groupId, caption, [buildMediaImetaTag({ ...full, url })]);
+    const ref: GroupMediaReference = { groupId: g.idStr, epoch, attachment: full, sender: this.pubkey, rumorId: sent.rumorId };
     await this.storeMediaRef(ref);
     return ref;
   }

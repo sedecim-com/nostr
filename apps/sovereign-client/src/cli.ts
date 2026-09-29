@@ -24,8 +24,11 @@
  *   sovereign history export --persona ID --out FILE [--since UNIX]  (JSONL, one signed NIP-01 event per line)
  *   sovereign history import --persona ID FILE [--dry-run]           (verify signatures, republish valid events)
  *   sovereign disclose --persona ID      (what each setting implies)
- *   sovereign vault push --persona ID [--vault URL]    (seal the delivery ledger here and store it in the
- *                                        Continuity Vault; the operator sees account, size and time, never content)
+ *   sovereign vault push --persona ID [--vault URL]    (seal the history here and store it in the Continuity Vault:
+ *                                        events, group messages, ledger, MLS state; the operator sees account, size
+ *                                        and time, never content)
+ *   sovereign vault restore --persona ID [--vault URL] [--no-republish]   (rebuild the history from the vault,
+ *                                        even with empty relays; run on a device restored from the backup)
  *   sovereign vault list --persona ID [--vault URL]    (archives of this persona's vault account)
  *   sovereign vault verify --persona ID [--vault URL]  (download every archive and open it with this device's key)
  *   sovereign group keypackage --persona ID            (publish MLS key package so others can add you)
@@ -34,6 +37,7 @@
  *   sovereign group accept --persona ID                 (join groups from pending Welcomes)
  *   sovereign group send --persona ID --group GID "text"
  *   sovereign group read --persona ID --group GID
+ *   sovereign group history --persona ID --group GID    (messages kept on this device, restored ones included)
  *   sovereign group remove --persona ID --group GID --member NPUB
  *   sovereign group rotate --persona ID --group GID     (self-update: post-compromise security)
  *   sovereign group list --persona ID
@@ -81,7 +85,7 @@ function relayAdapter() {
 const argv = process.argv.slice(2);
 const opt = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
 const opts = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1]!] : []));
-const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--onion-only', '--dry-run', '--no-mls', '--once'].includes(argv[i - 1]!))).slice(2);
+const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--onion-only', '--dry-run', '--no-mls', '--once', '--no-republish'].includes(argv[i - 1]!))).slice(2);
 const MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.pdf': 'application/pdf', '.txt': 'text/plain' };
 const since = () => (opt('--since') !== undefined ? Number(opt('--since')) : undefined);
 
@@ -233,6 +237,8 @@ async function main() {
           console.log(`[${new Date(m.createdAt * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.content}`);
           for (const f of m.media ?? []) console.log(`   [archivo ${f.filename} ${f.type} ${f.size ?? '?'} B] --sha ${f.sha256}`);
         }
+      else if (b === 'history')
+        for (const m of await client.groupHistory(id, gid!)) console.log(`[${new Date(m.createdAt * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.content}`);
       else if (b === 'remove') show(await client.groupRemove(id, gid!, opt('--member')!));
       else if (b === 'rotate') show(await client.groupRotate(id, gid!));
       else if (b === 'list') (await client.groupList(id)).forEach(show);
@@ -303,9 +309,19 @@ async function main() {
       if (!url) throw new Error('--vault URL or SOVEREIGN_VAULT_URL required');
       if (b === 'push') {
         // VAULT-07: what the operator can and cannot see, every time something is uploaded.
-        for (const t of [CONTINUITY_VAULT_TEXTS.sealed, CONTINUITY_VAULT_TEXTS.metadata]) console.error(`aviso: ${t}`);
+        for (const t of [CONTINUITY_VAULT_TEXTS.sealed, CONTINUITY_VAULT_TEXTS.metadata, CONTINUITY_VAULT_TEXTS.groups]) console.error(`aviso: ${t}`);
         const r = await client.vaultPush(need(), url);
-        console.log(`estado de entrega sellado y guardado en el vault: ${r.operations} operaciones, ${r.archive.size} bytes (archivo ${r.archive.id.slice(0, 12)}…)`);
+        console.log(`historial sellado y guardado en el vault: ${r.events.uploaded} eventos nuevos (${r.events.kept} ya estaban), ${r.groupMessages.uploaded} mensajes de grupo nuevos, ledger de ${r.operations} operaciones${r.snapshots.includes('mls') ? ' y estado de los grupos' : ''}`);
+        if (r.events.invalid) console.error(`aviso: ${r.events.invalid} eventos con firma inválida no se guardaron`);
+      } else if (b === 'restore') {
+        const r = await client.vaultRestore(need(), url, { republish: !argv.includes('--no-republish') });
+        console.log(`vault: ${r.archives} archivos${r.skipped ? ` (${r.skipped} no se abren con esta llave o no son de esta persona)` : ''}`);
+        console.log(`eventos: ${r.events} verificados; ${r.published} vuelven a los relays${r.rejected ? `, ${r.rejected} rechazados` : ''}`);
+        console.log(`mensajes de grupo: ${r.groupMessages} · ledger: ${r.ledger} operaciones añadidas`);
+        if (r.mls === 'restored') console.log('grupos: restaurados; ejecuta group rejoin antes de enviar');
+        else if (r.mls === 'kept') console.log('grupos: este dispositivo ya tenía grupos, se conservan');
+        if (r.savedAt) console.log(`copia guardada el ${new Date(r.savedAt).toISOString()}`);
+        if (r.missing) console.error(`aviso: faltan ${r.missing} archivos que el vault tenía en esa copia: el operador los borró o se perdieron`);
       } else if (b === 'list') {
         const all = await client.vaultList(need(), url);
         for (const m of all) console.log(`${m.id.slice(0, 16)}…  ${String(m.size).padStart(8)} B  ${m.updated_at}`);
@@ -314,7 +330,7 @@ async function main() {
         const r = await client.vaultVerify(need(), url);
         console.log(`${r.opened} de ${r.archives} archivos se abren con la llave de archivo de este dispositivo`);
         if (r.opened < r.archives) process.exitCode = 1;
-      } else throw new Error('usage: sovereign vault push|list|verify --persona ID [--vault URL]');
+      } else throw new Error('usage: sovereign vault push|restore|list|verify --persona ID [--vault URL]');
     } else if (a === 'disclose') {
       for (const d of await client.disclosures(need())) console.log(`• [${d.control}=${d.option}] ${d.statement}`);
     } else {

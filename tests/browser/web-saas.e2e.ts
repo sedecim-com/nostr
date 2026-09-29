@@ -322,20 +322,75 @@ try {
   assert(receipts.includes('delivered') && !receipts.includes('read'), `delivered receipt sent, read receipt not sent (${receipts.join(',')})`);
   assert((await receiptsFor(relay.url)).length === 0, "the receipt goes to the sender's DM relay (10050), not to the web's own relays (FR009-03)");
 
-  // --- VAULT-02/07: the Continuity Vault card says what the operator sees, seals the delivery ledger in this
-  // browser with the persona's archive key and opens it again; the vault holds no text, event or npub.
+  // --- VAULT-02/03/07: the Continuity Vault card says what the operator sees, seals the persona's history (the
+  // channel, DMs both ways, the ledger) in this browser with its archive key and opens it again; the vault holds no
+  // text, event or npub. A clean browser with nothing but the backup file and an empty relay gets it all back.
   await tab(page, 'Personas');
   assert((await page.textContent('#vault-facts'))?.includes('El operador sí ve tu cuenta del vault'), 'the vault card says what its operator sees before anything is uploaded (VAULT-07)');
   assert((await page.textContent('#backup-facts'))?.includes('llave de archivo del Continuity Vault'), 'the backup says it carries the archive key (VAULT-02)');
   await page.locator('#vault-push').click();
-  await page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.includes('operaciones'), undefined, { timeout: 15_000 });
+  await page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.includes('operaciones'), undefined, { timeout: 30_000 });
+  const pushStatus = (await page.textContent('#vault-status')) ?? '';
+  const pushed = /(\d+) eventos nuevos \(0 ya estaban\), 0 mensajes de grupo nuevos, ledger de (\d+) operaciones\./.exec(pushStatus);
+  const pushedEvents = Number(pushed?.[1] ?? 0);
+  const operations = Number(pushed?.[2] ?? 0);
+  assert(pushedEvents >= 5 && operations >= 5, `the push seals the persona's canonical events and its ledger (VAULT-03: ${pushStatus})`);
   let vaultHeld = JSON.stringify(vaultRepo.rows());
   for await (const k of vaultObjects.list()) vaultHeld += new TextDecoder().decode((await vaultObjects.get(k))!);
-  assert(vaultRepo.rows().length === 1 && !vaultRepo.rows()[0]!.owner.includes(webPub), 'one archive, under a vault account that is not the npub');
-  assert(!['dm desde la web', 'mensaje lento', webPub, 'REPLICATED', relay.url].some((t) => vaultHeld.includes(t)), 'the vault holds no text, event, npub or relay of the ledger (sealed in the browser)');
+  const archives = vaultRepo.rows().length;
+  assert(archives === pushedEvents + 1 && vaultRepo.rows().every((r) => !r.owner.includes(webPub)), 'one archive per event plus the ledger, under a vault account that is not the npub');
+  assert(!['dm desde la web', 'hola web, soy bob', 'hola desde la web', 'mensaje lento', 'Canal de pruebas', webPub, 'REPLICATED', relay.url].some((t) => vaultHeld.includes(t)), 'the vault holds no text, event, npub or relay of the history (sealed in the browser)');
   await page.locator('#vault-verify').click();
-  await page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.includes('1 de 1 archivos se abren'), undefined, { timeout: 15_000 });
-  assert(true, 'the archive opens again with the archive key of this browser');
+  await page.waitForFunction((n) => document.querySelector('#vault-status')?.textContent?.includes(`${n} de ${n} archivos se abren`), archives, { timeout: 15_000 });
+  assert(true, 'every archive opens again with the archive key of this browser');
+
+  // The persona's backup file (its key and its archive key), a relay that lost everything and a clean browser.
+  await fill(page, 'backup-pass', 'contraseña-del-backup');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#export-backup').click()]);
+  const backupBytes = await readFile((await download.path())!);
+  const emptyRelay = new TestRelay({ requireAuth: true, pGatedKinds: [1059], host: '127.0.0.1' });
+  await emptyRelay.start();
+  const cleanCtx = await browser.newContext();
+  try {
+    await cleanCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...selfHosted, relays: [emptyRelay.url] }) }));
+    const clean = await cleanCtx.newPage();
+    clean.on('pageerror', (e) => errors.push(`restored browser: ${e.message}`));
+    await clean.goto(base);
+    await clean.getByText('Crear almacén').waitFor();
+    await fill(clean, 'local-pass', PASS);
+    await clean.getByRole('button', { name: 'Crear almacén' }).click();
+    await clean.getByRole('button', { name: 'Crear persona' }).waitFor();
+    await fill(clean, 'persona-label', 'Restaurada');
+    await clean.getByLabel('Importar archivo de backup (generador offline o esta web)').check();
+    await clean.locator('#backup-file').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: backupBytes });
+    await fill(clean, 'import-backup-pass', 'contraseña-del-backup');
+    await fill(clean, 'relays', emptyRelay.url);
+    await clean.getByRole('button', { name: 'Crear persona' }).click();
+    await clean.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Restaurada'), undefined, { timeout: 20_000 });
+    await tab(clean, 'Personas');
+    await clean.locator('#vault-restore').click();
+    await clean.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.startsWith('Restaurado desde el vault'), undefined, { timeout: 30_000 });
+    const restoreStatus = (await clean.textContent('#vault-status')) ?? '';
+    assert(restoreStatus.includes(`${pushedEvents} eventos verificados, ${pushedEvents} publicados otra vez en tus relays;`) && restoreStatus.includes(`ledger: ${operations} operaciones añadidas`) && !/rechazados|no se abren/.test(restoreStatus), `a clean browser with the backup restores every event and the ledger from the vault (VAULT-03: ${restoreStatus})`);
+    const ids = (events: Array<{ id: string }>) => events.map((e) => e.id).sort().join();
+    assert(ids(emptyRelay.query([{ kinds: [9], '#h': ['general'] }])) === ids(relay.query([{ kinds: [9], '#h': ['general'] }])), 'the empty relay holds the whole channel again, messages of other clients included');
+    const wrapsFor = (r: TestRelay) => r.query([{ kinds: [1059], '#p': [webPub] }]);
+    assert(wrapsFor(relay).length >= 4 && wrapsFor(relay).every((w) => wrapsFor(emptyRelay).some((x) => x.id === w.id)), 'and every gift wrap of the persona: DMs received and its own copies of those it sent');
+    await tab(clean, 'Canales');
+    await clean.locator('#channel-list').getByText('General').click();
+    for (const t of ['hola desde desktop', 'hola desde la web', 'mensaje lento']) await clean.locator('#channel-log').getByText(t).waitFor({ timeout: 10_000 });
+    assert(true, 'the restored browser reads the channel as before (NIP-29)');
+    await tab(clean, 'Mensajes directos');
+    for (const t of ['dm desde la web', 'hola web, soy bob']) await clean.locator('#dm-log').getByText(t, { exact: true }).waitFor({ timeout: 10_000 });
+    assert(true, 'and the DMs in both directions (NIP-17, its own copy of the sent one included)');
+    await tab(clean, 'Entrega');
+    await clean.locator('#outbox-rows td', { hasText: 'RECIPIENT_ACKED' }).first().waitFor({ timeout: 10_000 });
+    // The view lists the latest 50 operations.
+    assert((await clean.locator('#outbox-rows tr').count()) >= Math.min(50, operations + 1), 'and the delivery ledger, with the acknowledged DM, next to its own new operations');
+  } finally {
+    await cleanCtx.close();
+    await emptyRelay.stop();
+  }
 
   // --- panel applies and persists per persona (PANEL-02/03)
   await tab(page, 'Soberanía y privacidad');

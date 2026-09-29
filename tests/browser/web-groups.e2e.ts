@@ -6,6 +6,8 @@
  * FR025-11: the secure relay is the real nostr-rs-relay when MARMOT_RELAY_URL is set (CI stack job), and
  * otherwise an in-process relay that behaves like it: a NIP-42 challenge, no OK to a successful AUTH, and
  * gift wraps only for their authenticated recipient, with nothing (not even a CLOSED) for anyone else.
+ * VAULT-03: Alice seals her history in the Continuity Vault; a clean browser with her backup file and an empty
+ * general relay reads the whole group conversation again and, once it joins as a new device, writes to it.
  */
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
@@ -18,6 +20,7 @@ import WebSocket from 'ws';
 import { bytesToHex, generateSecretKey, getPublicKey, nip19, npubEncode, type Filter } from '@sedecim/nostr-core';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestRelay } from '@sedecim/test-relay';
+import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '@sedecim/continuity-vault';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -62,7 +65,9 @@ const server = createServer(async (req, res) => {
 });
 await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-const config = { mode: 'self-hosted', relays: [relay.url], secureRelays: [secureUrl] };
+const vaultObjects = new MemoryObjectStore();
+const continuity = createContinuityVaultApi(new MemoryArchiveRepository(), vaultObjects, { name: 'vault-groups-e2e', corsOrigins: [base] });
+const config = { mode: 'self-hosted', relays: [relay.url], secureRelays: [secureUrl], continuityVault: await continuity.listen() };
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const errors: string[] = [];
@@ -233,9 +238,65 @@ try {
     assert(dump.localStorage.length === 0, `${who}: nothing in localStorage (${dump.localStorage.join(', ')})`);
   }
 
-  assert(errors.length === 0, `no page errors or CSP violations (${errors.join('; ')})`);
+  // --- VAULT-03: Alice seals her history in the vault, with the group chat and its MLS state (MLS will not decrypt
+  // those messages again), and keeps only her backup file: her browser is gone.
+  await alice.page.getByRole('tab', { name: 'Personas' }).click();
+  await alice.page.locator('#vault-push').click();
+  await alice.page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.includes('operaciones'), undefined, { timeout: 30_000 });
+  const pushStatus = (await alice.page.textContent('#vault-status')) ?? '';
+  assert(/ 5 mensajes de grupo nuevos, ledger de \d+ operaciones y estado de los grupos\./.test(pushStatus), `Alice seals the group chat (read and sent) and the MLS state in the vault (${pushStatus})`);
+  let vaultHeld = '';
+  for await (const k of vaultObjects.list()) vaultHeld += new TextDecoder().decode((await vaultObjects.get(k))!);
+  assert(!['hola bob', 'sigo aquí', 'Redacción', alice.pubkey].some((t) => vaultHeld.includes(t)), 'the vault holds no group text, group name or npub (sealed in the browser)');
+  await alice.page.fill('#backup-pass', 'contraseña-del-backup');
+  const [download] = await Promise.all([alice.page.waitForEvent('download'), alice.page.locator('#export-backup').click()]);
+  const backupBytes = await readFile((await download.path())!);
   await alice.ctx.close();
   await bob.ctx.close();
+
+  // A clean browser with that file only, and a general relay that lost everything.
+  const emptyRelay = new TestRelay({ requireAuth: true, pGatedKinds: [1059], host: '127.0.0.1' });
+  await emptyRelay.start();
+  const cleanCtx = await browser.newContext();
+  try {
+    await cleanCtx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...config, relays: [emptyRelay.url] }) }));
+    const clean = await cleanCtx.newPage();
+    clean.on('pageerror', (e) => errors.push(`Alice (restored): ${e.message}`));
+    await clean.goto(base);
+    await clean.getByText('Crear almacén').waitFor();
+    await clean.fill('#local-pass', PASS);
+    await clean.getByRole('button', { name: 'Crear almacén' }).click();
+    await clean.getByLabel('Importar archivo de backup (generador offline o esta web)').check();
+    await clean.fill('#persona-label', 'Alice');
+    await clean.locator('#backup-file').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: backupBytes });
+    await clean.fill('#import-backup-pass', 'contraseña-del-backup');
+    await clean.fill('#relays', emptyRelay.url);
+    await clean.getByRole('button', { name: 'Crear persona' }).click();
+    await clean.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Alice'), undefined, { timeout: 20_000 });
+    await clean.getByRole('tab', { name: 'Personas' }).click();
+    await clean.locator('#vault-restore').click();
+    await clean.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.startsWith('Restaurado desde el vault'), undefined, { timeout: 30_000 });
+    const restoreStatus = (await clean.textContent('#vault-status')) ?? '';
+    assert(restoreStatus.includes('; 5 mensajes de grupo;') && restoreStatus.includes('Los grupos seguros vuelven como copia del otro dispositivo') && !/rechazados|no se abren/.test(restoreStatus), `the clean browser restores the group chat and the MLS state from the vault (${restoreStatus})`);
+    await openGroups(clean);
+    await clean.locator('#group-list').getByText('Redacción').click();
+    for (const t of ['hola bob', 'hola alice', 'después de recargar', 'secreto posterior', 'sigo aquí']) await logHas(clean, t);
+    await waitState(clean, /Época 2 · 1 miembro · 1 admin/);
+    assert(true, 'the restored browser reads the whole group conversation, sent and received messages alike');
+    assert((await clean.locator('#group-restored').isVisible()) && (await clean.locator('#group-send').count()) === 0, 'the restored group is a copy of the other device: readable, but no composer until this browser joins again (FR025-06)');
+    await clean.locator('#group-restored').getByRole('button', { name: 'Volver a entrar' }).click();
+    await clean.locator('#group-send').waitFor({ timeout: 30_000 });
+    assert((await clean.locator('#group-restored').count()) === 0 && /· 1 miembro · 1 admin/.test(await stateText(clean)), `after joining again as a new device the group is writable (${await stateText(clean)})`);
+    await clean.fill('#group-text', 'desde el navegador restaurado');
+    await clean.locator('#group-send').getByRole('button', { name: 'Enviar' }).click();
+    await logHas(clean, 'desde el navegador restaurado');
+    assert(true, 'the restored browser writes to the group with its own leaf');
+  } finally {
+    await cleanCtx.close();
+    await emptyRelay.stop();
+  }
+
+  assert(errors.length === 0, `no page errors or CSP violations (${errors.join('; ')})`);
 
   // --- accessibility (NFR009-01): axe on the groups view, empty and with an open group
   const a11y = await newUser('Auditoría', { bypassCSP: true });
@@ -271,6 +332,7 @@ try {
 } finally {
   await browser.close();
   server.close();
+  await continuity.close();
   await relay.stop();
   probe.close();
   await localSecure?.stop();
