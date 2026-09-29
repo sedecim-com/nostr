@@ -34,3 +34,8 @@ paths = ['''(^|/)Cargo\.lock$''']
 [[allowlists]]
 description = "Official NIP-44 v2 test vectors (github.com/paulmillr/nip44): public test keys, checked against the SHA-256 published in the NIP"
 paths = ['''packages/nostr-core/test/vectors/nip44\.vectors\.json$''']
+
+[[allowlists]]
+description = "Kubernetes secretKeyRef/configMapKeyRef key names (e.g. VAULT_S3_SECRET_KEY): a line holding only an env-style name with underscores, never a value (mixed-case or AWS-style values are still reported)"
+regexTarget = "line"
+regexes = ['''(?-i)^\s*key: [A-Z][A-Z0-9]*(_[A-Z0-9]+)+\s*$''']
