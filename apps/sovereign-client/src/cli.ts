@@ -14,9 +14,11 @@
  *                                        then the maturity of its configuration, PANEL-07)
  *   sovereign maturity                   (maturity of each profile and function today and at v1.0; no passphrase)
  *   sovereign channel join --persona ID --group G         (NIP-29 join request)
- *   sovereign channel send --persona ID --group G "text"
+ *   sovereign channel send --persona ID --group G "text" [--op ID]
  *   sovereign channel read --persona ID --group G
- *   sovereign dm send --persona ID --to NPUB "text"   (to the recipient's DM relays, kind 10050, like the web)
+ *   sovereign dm send --persona ID --to NPUB "text" [--op ID]   (to the recipient's DM relays, kind 10050, like the web)
+ *     (FR011-05: each send is an operation, and its id is printed first; --op ID retries that send, even one cut
+ *      off half way, without another event or rumor. Another text or recipient under the same id is refused)
  *   sovereign dm inbox --persona ID     (reads its DM relays; receipts for its DMs move them to RECIPIENT_ACKED/READ)
  *   sovereign dm watch --persona ID     (keeps reading them: DMs and receipts as they arrive; Ctrl-C to stop)
  *   sovereign dm relays --persona ID     (publish this persona's DM relay list, kind 10050; also on create/import)
@@ -78,7 +80,7 @@
  *        NIP-98 otherwise),
  *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer)
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
@@ -115,6 +117,16 @@ export function maskIps(text: string): string {
 const dmLine = (m: DirectMessage) => `[${new Date(m.rumor.created_at * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.rumor.content}`;
 /** FR009-03: a receipt for one of our DMs, and the state of that operation after it. */
 const receiptLine = (r: Receipt, rec: OutboxRecord) => `acuse (${r.type === 'read' ? 'leído' : 'recibido'}) de ${r.from.slice(0, 8)}: ${rec.state}`;
+
+/**
+ * FR011-05: the operation of a send: --op repeats one (a retry), otherwise a new one. It is printed before anything
+ * is sent, so a send that is cut off half way can still be retried without making it twice.
+ */
+function sendOperation(): string {
+  const op = opt('--op') ?? randomBytes(16).toString('hex');
+  console.error(`operación ${op} (para reintentar este envío sin duplicarlo: --op ${op})`);
+  return op;
+}
 
 /** Password of a backup file: --password-file (first line) or SOVEREIGN_BACKUP_PASSWORD. */
 function backupPassword(): string {
@@ -222,13 +234,13 @@ async function main() {
       console.log(`válidos=${r.valid} inválidos=${r.invalid.length} duplicados=${r.duplicates} publicados=${r.published} rechazados=${r.rejected}${r.format === 'vault-export' ? ` (exportación del vault; ${r.othersWraps} cifrados para otras personas no se publican)` : ''}`);
     } else if (a === 'channel' && b === 'send') {
       await banner(need());
-      const rec = await client.sendChannel(need(), opt('--group')!, positional().join(' '));
+      const rec = await client.sendChannel(need(), opt('--group')!, positional().join(' '), { opId: sendOperation() });
       console.log(`${rec.state}${rec.blockedReason ? ` — ${maskIps(rec.blockedReason)}` : ''} (op ${rec.opId})`);
     } else if (a === 'channel' && b === 'read') {
       for (const e of await client.readChannel(need(), opt('--group')!)) console.log(`[${new Date(e.created_at * 1000).toISOString()}] ${e.pubkey.slice(0, 8)}: ${e.content}`);
     } else if (a === 'dm' && b === 'send') {
       await banner(need());
-      const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '));
+      const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '), { opId: sendOperation() });
       for (const r of recs) console.log(`${r.meta?.recipient?.slice(0, 8)} ${r.state}${r.blockedReason ? ` — ${maskIps(r.blockedReason)}` : ''}`);
       // As in the web: a recipient without DM relays gets the wrap on a guess, and the user is told.
       for (const r of recs) if (r.meta?.dmRelaySource && r.meta.dmRelaySource !== 'self' && r.meta.dmRelaySource !== 'dm-relays') console.error(`aviso: ${r.meta.recipient?.slice(0, 8)} no publicó relays de DM (kind 10050): la entrega es incierta`);

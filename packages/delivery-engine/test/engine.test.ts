@@ -185,6 +185,54 @@ describe('DeliveryEngine', () => {
     expect(await engine.list()).toHaveLength(1);
   });
 
+  // FR011-05 (scope §11.2): the UI keeps one operation id while the user retries the same send.
+  it('retries an operation under its id without building another event, and re-drives it at once', async () => {
+    let up = false;
+    const sent: string[] = [];
+    const publisher: Publisher = {
+      async publishTo(evt, relayUrl) {
+        sent.push(evt.id);
+        return up ? { relay: relayUrl, ok: true, message: '', latencyMs: 1 } : { relay: relayUrl, ok: false, message: 'error: connection failed: x', latencyMs: 1 };
+      },
+    };
+    // No automatic retry within the test: only the UI's retry sends again.
+    const engine = new DeliveryEngine({ store: memStore(), publisher, signer, retry: { baseMs: 60_000, maxMs: 60_000 } });
+    cleanups.push(() => engine.stop());
+    let builds = 0;
+    const build = async () => (builds++, { template: { kind: 1, content: 'retry me' } });
+    const first = await engine.submitOnce('ui-op', build, { relays: ['wss://relay.example'], wait: true });
+    expect(first.state).toBe('QUEUED');
+    expect(first.relayStatus['wss://relay.example']!.lastError).toMatch(/connection failed/);
+    up = true;
+    const retried = await engine.submitOnce('ui-op', build, { relays: ['wss://relay.example'], wait: true });
+    expect(retried.state).toBe('REPLICATED');
+    expect(builds).toBe(1);
+    expect(retried.event!.id).toBe(first.event!.id);
+    expect(new Set(sent)).toEqual(new Set([first.event!.id]));
+    expect(await engine.list()).toHaveLength(1);
+  });
+
+  it('stores one operation and one event when the same id is submitted twice at once (a double click)', async () => {
+    const r = await relay();
+    const engine = new DeliveryEngine({ store: memStore(), publisher: pool(), signer, retry: fast });
+    cleanups.push(() => engine.stop());
+    // Two builds of the same send differ (here in created_at): only the first may become an event.
+    const now = Math.floor(Date.now() / 1000);
+    const [a, b] = await Promise.all([
+      engine.submit({ template: { kind: 1, content: 'double click', created_at: now } }, { relays: [r.url], opId: 'op-2' }),
+      engine.submit({ template: { kind: 1, content: 'double click', created_at: now + 1 } }, { relays: [r.url], opId: 'op-2' }),
+    ]);
+    expect([a.opId, b.opId]).toEqual(['op-2', 'op-2']);
+    await until(async () => (await engine.get('op-2'))!.state === 'REPLICATED');
+    const stored = (await engine.get('op-2'))!;
+    expect(await engine.list()).toHaveLength(1);
+    // The operation is the one the first submit stored and returned; the second only re-drove it.
+    expect(stored.event!.created_at).toBe(now);
+    expect(stored.event!.id).toBe(a.event!.id);
+    expect(r.received.filter((e) => e.content === 'double click').every((e) => e.id === stored.event!.id)).toBe(true);
+    expect([...r.events.values()].filter((e) => e.content === 'double click')).toHaveLength(1);
+  });
+
   it('fails the operation when quorum becomes unreachable', async () => {
     const r = await relay();
     r.faults.rejectReason = 'invalid: rejected';

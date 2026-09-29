@@ -1,7 +1,8 @@
-import type { NostrEvent, Signer } from '@sedecim/nostr-core';
-import { createDirectMessage, openDirectMessage, type DirectMessageInput, type WrappedMessage, type DirectMessage } from './nip17';
-import type { WrapOptions } from './nip59';
+import { getTagValues, type NostrEvent, type Rumor, type Signer } from '@sedecim/nostr-core';
+import { createDirectMessage, directMessageRumor, DM_KIND, fileMessageRumor, openDirectMessage, type DirectMessageInput, type FileMessageInput, type WrappedMessage, type DirectMessage } from './nip17';
+import { wrapRumor, type WrapOptions } from './nip59';
 import { resolveDmRelays, type DmRelayCache, type DmRelaySource, type RelayQuery } from './dm-relays';
+import { OperationMismatchError, wrapOpId, type DmOperation, type DmOperationStore } from './operations';
 import { createReceipt, type ReceiptType } from './receipts';
 
 export interface MessagingFlags {
@@ -21,7 +22,19 @@ export class FeatureDisabledError extends Error {
 
 /** The part of DeliveryEngine used to queue wraps (structural: messaging has no engine dependency). */
 export interface DmOutbox<R> {
-  submit(input: { event: NostrEvent }, opts: { relays: string[]; groupId?: string; meta?: Record<string, string>; quorum?: number; wait?: boolean }): Promise<R>;
+  submit(input: { event: NostrEvent }, opts: { relays: string[]; groupId?: string; meta?: Record<string, string>; quorum?: number; wait?: boolean; opId?: string }): Promise<R>;
+}
+
+/** FR011-05: an outbox that also finds and re-drives what an operation already queued (a DeliveryEngine). */
+export interface OperationOutbox<R> extends DmOutbox<R> {
+  get(opId: string): Promise<R | undefined>;
+  process(opId: string): Promise<R>;
+}
+
+/** What the messenger reads back from a wrap already queued: where it went. */
+export interface QueuedWrap {
+  relays: string[];
+  meta?: Record<string, string>;
 }
 
 export interface DmSendOptions<R> {
@@ -38,6 +51,20 @@ export interface DmSendOptions<R> {
   cache?: DmRelayCache;
   quorum?: number;
   wait?: boolean;
+}
+
+/** FR011-05: sending as a client operation (DmOperation): the outbox re-drives, and the operation store is kept. */
+export interface DmOperationOptions<R> extends Omit<DmSendOptions<R>, 'outbox'> {
+  outbox: OperationOutbox<R>;
+  operations: DmOperationStore;
+}
+
+type RouteOptions = Pick<DmSendOptions<unknown>, 'pool' | 'ownRelays' | 'discoveryRelays' | 'fallback' | 'timeoutMs' | 'cache'>;
+
+/** A stored DM is the retry of `input` only if it says the same to the same people. */
+function sameMessage(rumor: Rumor, input: DirectMessageInput): boolean {
+  const to = new Set(getTagValues(rumor, 'p'));
+  return rumor.kind === DM_KIND && rumor.content === input.content && to.size === new Set(input.recipients).size && input.recipients.every((r) => to.has(r));
 }
 
 export interface DmDelivery<R> {
@@ -64,6 +91,54 @@ export class DirectMessenger {
    */
   async send<R>(input: DirectMessageInput, opts: DmSendOptions<R>): Promise<{ message: WrappedMessage; deliveries: Array<DmDelivery<R>> }> {
     return this.deliver(await this.compose(input), opts);
+  }
+
+  /**
+   * FR011-05 (scope §11.1, §11.2): send() as the client operation `opId` (see DmOperation). The rumor is stored
+   * before any wrap is made; called again with the same id (the user retries), it reuses that rumor, re-drives the
+   * wraps already queued and makes only the missing ones. No other rumor, no other event. Another text or recipient
+   * under the same id is refused (OperationMismatchError): that is a new message, not a retry.
+   */
+  sendDmOnce<R extends QueuedWrap>(opId: string, input: DirectMessageInput, opts: DmOperationOptions<R>): Promise<{ rumor: Rumor; deliveries: Array<DmDelivery<R>> }> {
+    return this.sendOperation(opId, () => directMessageRumor(this.signer, input), opts, (rumor) => sameMessage(rumor, input));
+  }
+
+  /** FR011-05: a file message (kind 15) as a client operation. `input` runs only on the first try: it uploads the file. */
+  sendFileOnce<R extends QueuedWrap>(opId: string, input: () => Promise<FileMessageInput>, opts: DmOperationOptions<R>): Promise<{ rumor: Rumor; deliveries: Array<DmDelivery<R>> }> {
+    return this.sendOperation(opId, async () => fileMessageRumor(this.signer, await input()), opts);
+  }
+
+  private async sendOperation<R extends QueuedWrap>(opId: string, makeRumor: () => Promise<Rumor>, opts: DmOperationOptions<R>, matches?: (rumor: Rumor) => boolean): Promise<{ rumor: Rumor; deliveries: Array<DmDelivery<R>> }> {
+    if (!this.flags.nip17) throw new FeatureDisabledError('nip17');
+    const me = await this.signer.getPublicKey();
+    let op = await opts.operations.get(opId);
+    if (op && matches && !matches(op.rumor)) throw new OperationMismatchError(opId);
+    if (!op) {
+      const rumor = await makeRumor();
+      op = { opId, rumor, targets: [...new Set([...getTagValues(rumor, 'p'), me])], createdAt: Date.now() } satisfies DmOperation;
+      // Stored before any seal or wrap exists: a failed signer or a closed tab leaves this, never half a message.
+      await opts.operations.put(opId, op);
+    }
+    const deliveries: Array<DmDelivery<R>> = [];
+    for (const target of op.targets) {
+      const id = wrapOpId(opId, target);
+      const queued = await opts.outbox.get(id);
+      if (queued) {
+        // Queued by an earlier try: sent again now, the retry the user asked for, and never wrapped again.
+        let record = queued;
+        if (opts.wait) record = await opts.outbox.process(id);
+        else void opts.outbox.process(id).catch(() => undefined);
+        const source = target === me ? 'self' : ((queued.meta?.dmRelaySource as DmRelaySource | undefined) ?? 'fallback');
+        deliveries.push({ recipient: target, relays: queued.relays, source, record });
+        continue;
+      }
+      const route = target === me ? { relays: opts.ownRelays, source: 'self' as const } : await this.route(target, opts);
+      const event = await wrapRumor(this.signer, op.rumor, target, this.wrapOptions);
+      const record = await opts.outbox.submit({ event }, { opId: id, relays: route.relays, groupId: op.rumor.id, meta: { recipient: target, dmRelaySource: route.source }, quorum: opts.quorum, wait: opts.wait });
+      deliveries.push({ recipient: target, relays: route.relays, source: route.source, record });
+    }
+    if (op.queuedAt === undefined) await opts.operations.put(opId, { ...op, queuedAt: Date.now() });
+    return { rumor: op.rumor, deliveries };
   }
 
   /** Routes an already wrapped message (e.g. a kind 15 file message) exactly like send(). */
@@ -100,7 +175,7 @@ export class DirectMessenger {
     return { recipient: to, relays: route.relays, source: route.source, record };
   }
 
-  private route<R>(recipient: string, opts: DmSendOptions<R>) {
+  private route(recipient: string, opts: RouteOptions) {
     return resolveDmRelays(opts.pool, recipient, {
       discoveryRelays: opts.discoveryRelays ?? opts.ownRelays,
       fallback: opts.fallback ?? opts.ownRelays,
