@@ -62,7 +62,7 @@ resultado; el job `stack` de CI lo repite en cada PR.
 | Blossom `/media` con imagen en claro | ✅ aceptada y descargada con verificación de hash (backend S3: SeaweedFS). Buzz exige autorización BUD-01 `get` también para leer; el cliente reintenta con ella ante un 401 |
 | Cliente soberano E2E (canal + DM) contra Buzz | ✅ |
 | Kinds Marmot 30443 / 445 / 10051 | ❌ `restricted: unknown event kind` → grupos MLS por `secure-relay` (`docs/marmot.md`) |
-| Lista de relays de DM (kind 10050, FR017-06) | ❌ rechazada: `FAILED` en el job `tor-profile` (OPS-21), y el motivo queda en `interop-report.json` → `dmRelayList`. Sin esa lista, un DM a una persona cuyo relay es Buzz va a sus relays NIP-65 o, si no tiene, a los del emisor, con el aviso «la entrega es incierta» |
+| Lista de relays de DM (kind 10050, FR017-06) | ❌ `restricted: unknown event kind` (job `tor-profile`, OPS-21; el gate lo registra en `interop-report.json` → `dmRelayList`). Sin esa lista, un DM a una persona cuyo relay es Buzz va a sus relays NIP-65 o, si no tiene, a los del emisor, con el aviso «la entrega es incierta» |
 
 **Decisiones derivadas**
 - `BUZZ_PINNED_ADAPTER` (`packages/messaging/src/adapters.ts`): jitter de gift wrap 300 s, explícito y

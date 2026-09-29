@@ -124,9 +124,9 @@ Un circuito lento no debe hacerlo fallar (OPS-21):
 - Antes de cada DM, el script vuelve a publicar la lista de relays de DM del destinatario (kind 10050)
   mientras siga `QUEUED`. Si no, el DM saldría hacia los relays del emisor.
   - El secure relay tiene que aceptarla.
-  - Buzz no acepta el kind 10050. El CLI muestra `FAILED` con la respuesta del relay, y el gate de
-    interoperabilidad la registra en `interop-report.json` (`dmRelayList`). Ese DM va a los relays del
-    emisor, que en esta prueba son el mismo onion.
+  - Buzz no acepta el kind 10050 (`restricted: unknown event kind`). El CLI muestra `FAILED` con la respuesta
+    del relay, y el gate de interoperabilidad la registra en `interop-report.json` (`dmRelayList`). Ese DM va a
+    los relays del emisor, que en esta prueba son el mismo onion.
 - Relee el inbox hasta 8 veces, con esperas crecientes. Guarda la salida de cada intento
   (`secure.inbox.log.N`, `buzz.inbox.log.N`) y lo que tardó.
 - En Tor, el CLI da 30 s a cada lectura.
