@@ -319,7 +319,7 @@ Un requisito está **Hecho** si lo están todas sus tareas del programa, sin con
 | [FR023-06](https://github.com/sedecim-com/nostr/issues/164) Directorio organizacional (cargos ↔ npubs) opcional | Hecho | Directorio organizacional (GET/PUT/DELETE /v1/directory) solo para admins NIP-98, nunca publicado en relays; gestionado desde la admin-console (OPS-07) | [policy-engine.test.ts](../services/policy-engine/test/policy-engine.test.ts) |
 | [FR023-09](https://github.com/sedecim-com/nostr/issues/226) B1: editar una persona revocada no la reactiva; reactivar es explícito y auditado | Hecho · Merged | Commit eb0f69b (PR #304): PUT /v1/subjects conserva suspended; POST /v1/subjects/:pubkey/reactivate (404 si no existe, 409 si no está revocada) deja la entrada subject.reactivate en la auditoría, y los dispositivos siguen revocados. Consola: «Reactivar» con confirmación. Tests: services/policy-engine/test/policy-engine.test.ts (memoria y Postgres) y tests/browser/admin-console.e2e.ts. | [policy-engine.test.ts](../services/policy-engine/test/policy-engine.test.ts), [admin-console.e2e.ts](../tests/browser/admin-console.e2e.ts) |
 | [FR023-10](https://github.com/sedecim-com/nostr/issues/254) Aplicar «publicar» por recurso en los relays | Pendiente (S10) | — | — |
-| [FR023-13](https://github.com/sedecim-com/nostr/issues/267) CI del modo institucional | Pendiente (S10) | — | — |
+| [FR023-13](https://github.com/sedecim-com/nostr/issues/267) CI del modo institucional | Pendiente (S10) | — | [engine.test.ts](../packages/delivery-engine/test/engine.test.ts), [pool.test.ts](../packages/relay-pool/test/pool.test.ts) |
 
 ## FR-024 · Revocación
 

@@ -9,7 +9,7 @@ import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { EncryptedStore, FileBackend, MemoryBackend } from '@sedecim/encrypted-store';
 import { TestRelay } from '@sedecim/test-relay';
 import { NetworkGuard } from '@sedecim/tor-network';
-import { DeliveryEngine, type OutboxRecord, type Publisher } from '../src/index';
+import { classifyFailure, DeliveryEngine, type OutboxRecord, type Publisher } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
 const signer = new LocalSigner(generateSecretKey());
@@ -173,6 +173,23 @@ describe('DeliveryEngine', () => {
     expect((await engine.get(rec.opId))!.relayStatus[r.url]!.ackMessage).toMatch(/^duplicate:/);
     expect(r.received.filter((e) => e.content === 'lost ack').every((e) => e.id === rec.event!.id)).toBe(true);
     expect([...r.events.values()].filter((e) => e.content === 'lost ack')).toHaveLength(1);
+  });
+
+  // FR023-13: the institutional secure relay (nostr-rs-relay with nauthz) says `blocked: auth-required:` to an event
+  // sent before AUTH. That asks for NIP-42; it does not refuse the event for good as a plain `blocked:` does.
+  it('does not give up on a relay that asks for NIP-42 behind blocked:, and still does on a plain blocked:', async () => {
+    const answers: Record<string, string> = { 'wss://nauthz.example': 'blocked: auth-required: NIP-42 authentication required to publish', 'wss://policy.example': 'blocked: policy' };
+    const publisher: Publisher = { publishTo: async (_evt, relay) => ({ relay, ok: false, message: answers[relay]!, latencyMs: 1 }) };
+    const engine = new DeliveryEngine({ store: memStore(), publisher, signer, retry: { baseMs: 60_000, maxMs: 60_000 } });
+    cleanups.push(() => engine.stop());
+    const failures: string[] = [];
+    engine.onAttempt((a) => a.failure && failures.push(`${a.relay} ${a.failure}`));
+    const rec = await engine.submit({ template: { kind: 1, content: 'institutional' } }, { relays: Object.keys(answers), wait: true });
+    expect(rec.relayStatus['wss://nauthz.example']!.permanent).toBeFalsy();
+    expect(rec.relayStatus['wss://policy.example']!.permanent).toBe(true);
+    expect(rec.state).not.toBe('FAILED');
+    expect(failures.sort()).toEqual(['wss://nauthz.example auth', 'wss://policy.example rejected']);
+    expect(classifyFailure('blocked: auth-required: x')).toBe('auth');
   });
 
   it('is idempotent on client_operation_id', async () => {

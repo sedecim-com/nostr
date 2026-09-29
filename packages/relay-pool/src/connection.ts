@@ -14,6 +14,15 @@ export interface SubscriptionHandlers {
  */
 export const RECIPIENT_ONLY_KINDS: readonly number[] = [4, 44, 1059];
 
+/**
+ * NIP-42: whether an OK message asks the client to authenticate. nostr-rs-relay puts the answer of its nauthz
+ * event admission server behind its own `blocked:` prefix, so the institutional secure relay (FR023-04, the
+ * relay-allowlist service) answers an event sent before AUTH with `blocked: auth-required: …` (FR023-13).
+ */
+export function asksForAuth(message: string): boolean {
+  return /^(blocked: )?auth-required:/.test(message);
+}
+
 const asksRecipientOnly = (filters: Filter[]) => filters.some((f) => f.kinds?.some((k) => RECIPIENT_ONLY_KINDS.includes(k)));
 
 export interface RelayConnectionOptions {
@@ -529,7 +538,7 @@ export class RelayConnection {
       };
     }
     let res = await this.sendAndAwaitOk(evt, 'EVENT');
-    if (!res.ok && res.message.startsWith('auth-required:') && this.canAuth()) {
+    if (!res.ok && asksForAuth(res.message) && this.canAuth()) {
       if (await this.authenticate()) res = await this.sendAndAwaitOk(evt, 'EVENT');
     }
     const duplicate = res.message.startsWith('duplicate:');

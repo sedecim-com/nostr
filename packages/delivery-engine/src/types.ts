@@ -111,7 +111,8 @@ export function classifyFailure(message: string, blocked = false): FailureClass 
   if (blocked) return 'blocked-policy';
   const m = message.toLowerCase();
   if (m.includes('timeout')) return 'timeout';
-  if (m.startsWith('auth-required:') || m.includes('auth failed')) return 'auth';
+  // `blocked: auth-required:` is how nostr-rs-relay words it behind its nauthz admission server (asksForAuth).
+  if (/^(blocked: )?auth-required:/.test(m) || m.includes('auth failed')) return 'auth';
   if (m.startsWith('rate-limited:')) return 'rate-limited';
   if (['invalid:', 'blocked:', 'restricted:', 'pow:', 'unsupported:'].some((p) => m.startsWith(p))) return 'rejected';
   if (m.startsWith('error:') && /(connect|connection|not connected|websocket|econnrefused|enotfound|closed)/.test(m)) return 'connection';
