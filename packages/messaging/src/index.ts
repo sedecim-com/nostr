@@ -9,3 +9,4 @@ export * from './flags';
 export * from './dm-relays';
 export * from './inbox';
 export * from './operations';
+export * from './profile';
