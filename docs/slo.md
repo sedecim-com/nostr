@@ -175,7 +175,9 @@ perfiles Tor» significa dos cosas:
   ids ni exporta, y las variables `TRACE_*` ni se leen, así que ninguna variable de entorno enciende las trazas.
   `minimal` tampoco traza: las trazas solo existen con `standard`.
 - **Una petición dirigida a un `.onion`** (cabecera `Host`), como la de una persona `--onion-only` al vault o
-  al blob-store publicados como servicio onion, nunca se traza, diga lo que diga el muestreo.
+  al blob-store publicados como servicio onion, nunca se traza, diga lo que diga el muestreo. El edge de
+  Kubernetes y Caddy conservan `Host`; un proxy que lo reescribiera le ocultaría al servicio que la petición llegó
+  por el onion.
 
 Lo que queda: una persona Tor que llega por un nodo de salida al nombre clearnet de un servicio con trazas
 activas se muestrea como cualquier otra petición. Su span no lleva su IP ni su pubkey, pero sí la hora, la ruta
