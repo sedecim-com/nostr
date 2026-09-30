@@ -163,5 +163,5 @@ ve nada nuevo y no envía nada nuevo.
 las mismas correlaciones temporales que esos logs por sí solos. Una persona Tor que llega por un nodo de salida al
 nombre clearnet de un servicio con trazas activas se muestrea como cualquiera; con `--onion-only` solo alcanza
 `.onion`, que no se trazan. Una ruta o un nombre de span que el código construyera con datos solo pasarían si
-tuvieran forma de palabra (minúsculas, sin hex ni cuatro dígitos seguidos, sin `@`, `.`, `:` ni `?`): las rutas de
-los servicios son plantillas fijas.
+tuvieran forma de palabras en minúsculas (sin hex ni cuatro dígitos seguidos, sin `@`, `:`, `?` ni `=`, y sin puntos
+en una ruta): las rutas de los servicios son plantillas fijas.
