@@ -96,8 +96,9 @@ describe('every compose service has a Kubernetes workload', () => {
   });
 
   // indexer-2 is a second compose replica of `indexer` (NFR005-01); Kubernetes scales it with `replicas`.
-  // tor and secure-relay-onion are the compose-only Sovereign Tor profile (docs/sovereign-tor.md).
-  it.each(services.filter((s) => !['tor', 'secure-relay-onion', 'indexer-2'].includes(s)))('%s', (service) => {
+  // tor, secure-relay-onion and sovereign (the CLI, run with `docker compose run`) are the compose-only Sovereign Tor
+  // profile (docs/sovereign-tor.md).
+  it.each(services.filter((s) => !['tor', 'secure-relay-onion', 'sovereign', 'indexer-2'].includes(s)))('%s', (service) => {
     expect(manifests).toMatch(new RegExp(`kind: (Deployment|StatefulSet|Job)\\nmetadata:\\n  name: ${service}\\n`));
   });
 
