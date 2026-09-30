@@ -13,9 +13,9 @@
 
 | Estado | Tareas | Story points |
 |---|---:|---:|
-| Hecho | 187 | 498 |
+| Hecho | 188 | 503 |
 | Parcial | 28 | 96 |
-| Pendiente | 28 | 114 |
+| Pendiente | 27 | 109 |
 | Descartado | 6 | 21 |
 
 Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
@@ -26,7 +26,7 @@ Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
 | Externally Audited | 0 |
 | Stage Verified | 0 |
 | CI Verified | 0 |
-| Merged | 53 |
+| Merged | 54 |
 | Sin label (anteriores a OPS-17) | 134 |
 
 ## Sprints abiertos
@@ -41,7 +41,7 @@ Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
 | S14 | 2026-12-07 → 2026-12-18 | G4 | Informes externos y Nitro en Preview | 0 de 2 | 2 | 16 | 1 |
 | S15 | 2027-01-04 → 2027-01-15 | G4 | Remediación, retest y v1.0.0-rc.2 | 0 de 2 | 2 | 16 | 2 |
 | S16 | 2027-01-18 → 2027-01-29 | G5 | v1.0.0 firmada para despliegues controlados | 0 de 2 | 2 | 4 | 1 |
-| Diferido | sin fecha | — | Después de v1.0: fuera del programa de cierre | 5 de 26 | 21 | 88 | 0 |
+| Diferido | sin fecha | — | Después de v1.0: fuera del programa de cierre | 6 de 26 | 20 | 83 | 0 |
 
 ## P0 abiertas
 
