@@ -12,10 +12,19 @@ export interface SealedKeyOps {
   /** `owner` (`${issuer}#${sub}`) is sealed into the key: only a proof of that owner lets it out (FR005-09). */
   generate(owner: string): Promise<{ pubkey: string; sealed: Uint8Array }>;
   importNcryptsec(owner: string, ncryptsec: string, password: string): Promise<{ pubkey: string; sealed: Uint8Array }>;
+  /** FR005-10: the same with the ncryptsec and its password sealed by the client to the enclave (opaque here). */
+  importSealed(owner: string, sealedSecrets: string): Promise<{ pubkey: string; sealed: Uint8Array }>;
   /** Remote signer bound to one sealed key; `destroy()` is a no-op kept for symmetry with LocalSigner. */
   signer(sealed: Uint8Array, pubkey: string): Signer & { destroy(): void };
   /** FR-026: password-encrypted export produced inside the enclave, for the owner's Acceso token (`proof`). */
   exportNcryptsec(sealed: Uint8Array, pubkey: string, password: string, logN: number, proof: string): Promise<string>;
+  /** FR005-10: the same with the password sealed by the client to the enclave (opaque here). */
+  exportSealed(sealed: Uint8Array, pubkey: string, sealedPassword: string, logN: number, proof: string): Promise<string>;
+  /**
+   * FR005-10: a fresh attestation document for the client's own nonce, which the client verifies itself before sealing
+   * anything to the key in it. The parent checks it against its own policy too, but the client does not take its word.
+   */
+  attest(nonce: Uint8Array): Promise<Uint8Array>;
 }
 
 /** `status` is the 4xx the enclave answered on purpose (FR005-09: no proof, not the owner's...); unset when it failed. */
@@ -53,10 +62,22 @@ export class EnclaveClient implements SealedKeyOps {
   /** Challenges the enclave with a fresh nonce and verifies its attestation document. */
   async verify(): Promise<VerifiedAttestation> {
     const nonce = randomBytes(32);
+    return verifyAttestation(await this.document(nonce), { ...this.opts.attestation, expectedNonce: nonce });
+  }
+
+  private async document(nonce: Uint8Array): Promise<Uint8Array> {
     const res = await this.opts.transport.request({ op: 'attest', nonce: b64(nonce) });
     if (!res.ok) throw new EnclaveError(`enclave: ${res.error}`);
     if (!('document' in res)) throw new EnclaveError('enclave: unexpected attest response');
-    return verifyAttestation(new Uint8Array(Buffer.from(res.document, 'base64')), { ...this.opts.attestation, expectedNonce: nonce });
+    return new Uint8Array(Buffer.from(res.document, 'base64'));
+  }
+
+  async attest(nonce: Uint8Array): Promise<Uint8Array> {
+    if (nonce.length < 16 || nonce.length > 64) throw new EnclaveError('nonce must be 16-64 bytes', 400);
+    const doc = await this.document(nonce);
+    // Only what passes the parent's own policy is relayed: a document of an enclave it would not use is a failure here.
+    verifyAttestation(doc, { ...this.opts.attestation, expectedNonce: nonce });
+    return doc;
   }
 
   private ensureAttested() {
@@ -78,7 +99,7 @@ export class EnclaveClient implements SealedKeyOps {
     return res;
   }
 
-  private async sealedKey(req: { op: 'generate'; owner: string } | { op: 'import'; owner: string; ncryptsec: string; password: string }) {
+  private async sealedKey(req: { op: 'generate'; owner: string } | { op: 'import'; owner: string; ncryptsec?: string; password?: string; sealedSecrets?: string }) {
     const res = (await this.call(req, 'sealed')) as { pubkey: string; sealed: string };
     return { pubkey: res.pubkey, sealed: new Uint8Array(Buffer.from(res.sealed, 'utf8')) };
   }
@@ -89,6 +110,10 @@ export class EnclaveClient implements SealedKeyOps {
 
   importNcryptsec(owner: string, ncryptsec: string, password: string) {
     return this.sealedKey({ op: 'import', owner, ncryptsec, password });
+  }
+
+  importSealed(owner: string, sealedSecrets: string) {
+    return this.sealedKey({ op: 'import', owner, sealedSecrets });
   }
 
   signer(sealedBytes: Uint8Array, pubkey: string): Signer & { destroy(): void } {
@@ -111,6 +136,11 @@ export class EnclaveClient implements SealedKeyOps {
 
   async exportNcryptsec(sealed: Uint8Array, pubkey: string, password: string, logN: number, proof: string) {
     const res = (await this.call({ op: 'export', sealed: Buffer.from(sealed).toString('utf8'), pubkey, password, logN, proof }, 'ncryptsec')) as { ncryptsec: string };
+    return res.ncryptsec;
+  }
+
+  async exportSealed(sealed: Uint8Array, pubkey: string, sealedPassword: string, logN: number, proof: string) {
+    const res = (await this.call({ op: 'export', sealed: Buffer.from(sealed).toString('utf8'), pubkey, sealedPassword, logN, proof }, 'ncryptsec')) as { ncryptsec: string };
     return res.ncryptsec;
   }
 }

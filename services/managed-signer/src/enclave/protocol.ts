@@ -7,7 +7,9 @@ import type { EventTemplate, NostrEvent } from '@sedecim/nostr-core';
  * socat bridge on each side maps vsock to a local socket (docs/managed-enclave.md). Tests use a unix socket.
  *
  * No response ever carries key material: the parent only gets public keys, sealed (KMS-encrypted) blobs,
- * signatures/events, NIP-44 results and password-encrypted exports (FR-026).
+ * signatures/events, NIP-44 results and password-encrypted exports (FR-026). The secrets of an import and the password
+ * of an export may come sealed by the client to the enclave's attested key (FR005-10): the parent relays them without
+ * being able to read them.
  */
 
 /** Temporary credentials of the parent's IAM principal, forwarded so the enclave can call KMS via vsock-proxy. */
@@ -24,11 +26,13 @@ export type EnclaveRequest =
   // `owner` (`${issuer}#${sub}`, as the managed-signer names the key owner) is sealed into the key: export only opens it
   // for a proof of that owner (FR005-09).
   | WithCreds<{ op: 'generate'; owner: string }>
-  | WithCreds<{ op: 'import'; owner: string; ncryptsec: string; password: string }>
+  // Either `ncryptsec` and `password` in clear, or `sealedSecrets`: both sealed by the client to this enclave (FR005-10).
+  | WithCreds<{ op: 'import'; owner: string; ncryptsec?: string; password?: string; sealedSecrets?: string }>
   | WithCreds<{ op: 'sign'; sealed: string; pubkey: string; template: EventTemplate }>
   | WithCreds<{ op: 'nip44'; sealed: string; pubkey: string; mode: 'encrypt' | 'decrypt'; peer: string; data: string }>
-  // `proof` is the owner's Acceso token, verified inside the enclave (FR005-09).
-  | WithCreds<{ op: 'export'; sealed: string; pubkey: string; password: string; logN: number; proof: string }>;
+  // `proof` is the owner's Acceso token, verified inside the enclave (FR005-09). The password, in clear or sealed by the
+  // client to this enclave (`sealedPassword`, FR005-10).
+  | WithCreds<{ op: 'export'; sealed: string; pubkey: string; password?: string; sealedPassword?: string; logN: number; proof: string }>;
 
 export type EnclaveResult =
   | { document: string }

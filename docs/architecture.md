@@ -209,7 +209,8 @@ vez** mientras está dentro de la ventana; un segundo uso da 401 `authorization 
 bearer de servicio o, en rutas con token Acceso, `cognito:<issuer>#<sub>`). Cada ruta tiene una clase:
 `auth` (creación de cuentas, vincular login Acceso, descarga de un backup, apertura de sesiones de
 dispositivo del signer; además, cada autenticación fallida gasta del bucket `auth` de su IP, y al agotarse
-responde 429 en vez de 401), `mutating` (resto de POST/PUT/DELETE), `read` (GET) y `service` (rutas bearer
+responde 429 en vez de 401), `mutating` (resto de POST/PUT/DELETE, y el GET de la attestation del enclave del
+managed-signer, que hace firmar un documento al enclave, FR005-10), `read` (GET) y `service` (rutas bearer
 servicio a servicio: solo por principal, no por IP). Los health checks no se limitan (salvo el del indexer,
 que consulta la base). La respuesta es 429 con `Retry-After`; se registra una línea `rate limited` con
 clase, ámbito y segundos (sin IP, pubkey ni token) y el contador `http_rate_limited_total{class,scope}` en

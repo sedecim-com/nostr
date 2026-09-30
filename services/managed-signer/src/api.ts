@@ -51,6 +51,13 @@ function consentVersion(body: { consent_version?: unknown }): string {
   return v;
 }
 
+/** FR005-10: the client's own nonce for an enclave attestation: base64url (no padding) of 16 to 64 bytes. */
+function attestationNonce(v: string | null): Uint8Array {
+  const bytes = typeof v === 'string' && /^[A-Za-z0-9_-]+$/.test(v) ? Buffer.from(v, 'base64url') : Buffer.alloc(0);
+  if (bytes.length < 16 || bytes.length > 64 || bytes.toString('base64url') !== v) throw new HttpError(400, 'nonce must be base64url of 16 to 64 bytes');
+  return new Uint8Array(bytes);
+}
+
 /**
  * Managed signer HTTP API. Every call is custodial and audited. Callers authenticate with
  * `Authorization: Bearer <token>`: the user's Acceso (Cognito) id/access token or a device session opened with
@@ -206,10 +213,20 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
     log.info('managed key created', { key_id: k.keyId, pubkey: k.pubkey });
     return { status: 201, body: await core.describe(k.keyId, c.owner) };
   }));
+  // FR005-10: the enclave's attestation for the caller's own nonce: the client verifies it before sealing an import or an
+  // export password to the key in it. With the Acceso login or a device session (an import may come through one). It
+  // makes the enclave sign a document, so it is limited like a write, not like a read.
+  svc.get('/v1/enclave/attestation', route(async (req) => ({ document: Buffer.from(await core.enclaveAttestation(attestationNonce(req.query.get('nonce')))).toString('base64') }), 'account'), 'none', { rateClass: 'mutating' });
   svc.post('/v1/keys/import', route(async (req, c) => {
-    const body = req.json<{ ncryptsec: string; password: string; consent_version?: string }>();
+    const body = req.json<{ ncryptsec?: string; password?: string; sealed_secrets?: unknown; consent_version?: string }>();
+    if (body.sealed_secrets !== undefined) {
+      // FR005-10: sealed by the client to the enclave. Relayed as it is, never logged: this process cannot read it.
+      if (body.ncryptsec !== undefined || body.password !== undefined) throw new HttpError(400, 'send ncryptsec and password, or sealed_secrets, not both');
+      const k = await core.importSealed(c.owner, c.principal, body.sealed_secrets, { consentVersion: consentVersion(body) });
+      return { status: 201, body: await core.describe(k.keyId, c.owner) };
+    }
     requireFields(body, ['ncryptsec', 'password']);
-    const k = await core.importEncrypted(c.owner, c.principal, body.ncryptsec, body.password, { consentVersion: consentVersion(body) });
+    const k = await core.importEncrypted(c.owner, c.principal, body.ncryptsec!, body.password!, { consentVersion: consentVersion(body) });
     return { status: 201, body: await core.describe(k.keyId, c.owner) };
   }));
   svc.get('/v1/keys/:id', route((req, c) => core.describe(req.params.id!, c.owner)));
@@ -232,8 +249,13 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
   }
   // IR-2026-10-03: the calls that let the key out or destroy it take a recent sign-in with the Acceso password.
   svc.post('/v1/keys/:id/export', route(async (req, c) => {
-    const { password } = req.json<{ password: string }>();
+    const { password, sealed_password: sealedPassword } = req.json<{ password?: string; sealed_password?: unknown }>();
     // FR005-09: the same Acceso token that just authenticated this call is the enclave's proof of the owner.
+    if (sealedPassword !== undefined) {
+      // FR005-10: the password sealed by the client to the enclave; this process relays it and never holds it.
+      if (password !== undefined) throw new HttpError(400, 'send password or sealed_password, not both');
+      return core.exportSealed(req.params.id!, c.owner, c.principal, sealedPassword, undefined, bearer(req));
+    }
     return core.export(req.params.id!, c.owner, c.principal, password ?? '', undefined, bearer(req));
   }, 'sensitive'));
   svc.post('/v1/keys/:id/confirm-migration', route(async (req, c) => {

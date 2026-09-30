@@ -36,7 +36,7 @@ Todas las rutas son relativas a la raíz del repositorio en el commit de referen
 | Gift wrap NIP-59 y DMs NIP-17 | `packages/messaging/src/nip59.ts`, `nip17.ts`, `security.ts` | P0 |
 | MLS/Marmot: adaptador, codec, medios MIP-04 | `packages/marmot-adapter/src/` (depende de `@internet-privacy/marmot-ts` 0.5.1 y `ts-mls` 2.0.0-rc.16) | P0 |
 | Servicio de llaves custodial | `services/managed-signer/src/` (`service.ts`, `vault.ts`, `aws.ts`, `api.ts`) | P0 |
-| Tier enclave (Nitro): attestation, CBOR/COSE, DER, CMS, protocolo padre⇄enclave | `services/managed-signer/src/enclave/` | P0 |
+| Tier enclave (Nitro): attestation, CBOR/COSE, DER, CMS, protocolo padre⇄enclave, secretos sellados (FR005-10) | `services/managed-signer/src/enclave/`; en el cliente, `packages/signer/src/enclave/` (verificación de attestation sin `node:*` y sobre sellado) | P0 |
 | Firmantes: local, NIP-46 (bunker y cliente), NIP-07, cliente managed | `packages/signer/src/` | P0 |
 | Almacenamiento cifrado local y bóveda del navegador | `packages/encrypted-store/src/`, `apps/web-saas/src/lib/vault.ts` | P0 |
 | Backups de identidad y bóveda de backups en la nube | `packages/identity/src/` (`manager.ts`, `key-backup.ts`, `backup-vault.ts`) | P0 |
@@ -55,8 +55,8 @@ Preguntas concretas para el revisor:
    `sedecim-store-*`) y los backups (`BACKUP_AAD`)?
 3. ¿El tier enclave cumple lo que promete [docs/managed-enclave.md](../managed-enclave.md)? En especial: la
    verificación de attestation, el uso de `Recipient` de KMS, la ligadura del blob sellado a la pubkey y los
-   riesgos residuales ya conocidos (el padre puede pedir firmas; en una exportación ve el token del dueño y la contraseña, IR-2026-09-01). Además, la verificación de la prueba del dueño dentro del enclave (`proof.ts`, FR005-09): ¿resisten las reglas del JWT (algoritmo fijo, llaves fijadas, `auth_time`, `jti`) y el reloj del NSM un padre hostil?
-4. ¿Los parsers escritos a mano (CBOR ×2, DER, CMS, protobuf nauthz, JPEG/PNG/WebP) resisten entradas
+   riesgos residuales ya conocidos (el padre puede pedir firmas; en una exportación ve el token del dueño y, si el cliente no la sella, la contraseña, IR-2026-09-01). Además, la verificación de la prueba del dueño dentro del enclave (`proof.ts`, FR005-09): ¿resisten las reglas del JWT (algoritmo fijo, llaves fijadas, `auth_time`, `jti`) y el reloj del NSM un padre hostil? Y los secretos sellados hacia el enclave (FR005-10): ¿el sobre (RSA-OAEP-SHA256 + AES-256-GCM con AAD, `at` contra el reloj del NSM) y la verificación de attestation en el navegador (`packages/signer/src/enclave/attestation.ts`, con su X.509 propio) impiden que un padre hostil lea la contraseña o el `ncryptsec`, o que haga sellar hacia una llave suya?
+4. ¿Los parsers escritos a mano (CBOR ×2, DER, X.509 del cliente, CMS, sobre sellado, protobuf nauthz, JPEG/PNG/WebP) resisten entradas
    adversariales? Hay fuzzing en `tests/fuzz`, pero no sustituye a una revisión.
 5. ¿Es sólida la integración con marmot-ts/ts-mls (versiones alpha/rc): almacenamiento del estado MLS,
    rotación tras revocación de dispositivo, exporter de medios MIP-04?
@@ -110,7 +110,7 @@ Fronteras que más interesan:
 | F2 | Navegador → APIs (identity, policy, indexer, blob, gateway) | NIP-98 (kind 27235, ±60 s, `u`/`method`/`payload`, cada id una sola vez); Blossom kind 24242 | nsec; backups sin cifrar |
 | F3 | Navegador → managed-signer | Token Acceso (Cognito RS256) o sesión de dispositivo `sds_…` | Operaciones sobre llaves de otro dueño |
 | F4 | Servicios → servicios | Bearer por servicio (comparación en tiempo constante) | Privilegios de administrador |
-| F5 | managed-signer (padre) ⇄ enclave | vsock. Solo la exportación exige una prueba del dueño (token de Acceso verificado dentro del enclave, FR005-09); firmar y cifrar obedecen al padre | nsec en claro hacia el padre |
+| F5 | managed-signer (padre) ⇄ enclave | vsock. Solo la exportación exige una prueba del dueño (token de Acceso verificado dentro del enclave, FR005-09); firmar y cifrar obedecen al padre. Los secretos de importación y la contraseña de exportación pueden llegar sellados por el cliente hacia la RSA del enclave (FR005-10) | nsec en claro hacia el padre; contraseñas y `ncryptsec` sellados hacia el padre |
 | F6 | Enclave → KMS | TLS terminado en el enclave + attestation (PCR) en `Recipient` | Data keys en claro fuera del enclave |
 | F7 | notification-gateway → servicios push | VAPID (ES256), cifrado RFC 8291, allowlist de hosts | Contenido, remitente o recuento de mensajes |
 | F8 | Servicios → Postgres/Secrets Manager | Credenciales de servicio, TLS a RDS | Secretos de llaves fuera del vault |

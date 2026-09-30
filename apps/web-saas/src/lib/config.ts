@@ -1,5 +1,6 @@
 import type { DeploymentFlags } from '@sedecim/messaging';
 import { normalizePubkey } from '@sedecim/nostr-core';
+import { checkEnclaveTrust, type EnclaveTrust } from '@sedecim/signer';
 
 export interface CognitoSettings {
   region: string;
@@ -63,6 +64,14 @@ export interface DeploymentConfig {
   /** SaaS only: custodial managed-signer (opt-in, ADR 0009). */
   managedSigner?: string;
   /**
+   * FR005-10: the AWS Nitro Enclave of the managed-signer, when its keys live in one (MANAGED_SIGNER_BACKEND=enclave): the
+   * measurements of the published image as `nitro-cli build-enclave` or `describe-eif` print them (the values of
+   * `enclave_pcr*` in Terraform and MANAGED_SIGNER_ENCLAVE_PCR*), 96 hex characters each, PCR8 optional. Set: an export
+   * checks the enclave's attestation in this browser and seals the export password to it, so the managed-signer never
+   * gets it in clear. Unset: the password goes to the managed-signer as before.
+   */
+  managedEnclave?: { pcr0: string; pcr1: string; pcr2: string; pcr8?: string };
+  /**
    * FR005-08: the published terms of the managed custody (docs/legal/custodia-managed.md once legal approves it),
    * linked from the opt-in. Their version is recorded with the consent. Unset: the opt-in says they are not
    * published and records that.
@@ -77,6 +86,17 @@ export interface DeploymentConfig {
 }
 
 export const DEFAULT_CONFIG: DeploymentConfig = { mode: 'self-hosted', relays: ['ws://localhost:3000'] };
+
+/** FR005-10: what this browser trusts the managed-signer's enclave by (`managedEnclave`); undefined when it has none. */
+export function enclaveTrust(cfg: Pick<DeploymentConfig, 'managedEnclave'>): EnclaveTrust | undefined {
+  if (cfg.managedEnclave === undefined) return undefined;
+  try {
+    const { pcr0, pcr1, pcr2, pcr8 } = cfg.managedEnclave;
+    return checkEnclaveTrust({ pcrs: { 0: pcr0, 1: pcr1, 2: pcr2, ...(pcr8 !== undefined ? { 8: pcr8 } : {}) } });
+  } catch {
+    throw new Error('config.json: managedEnclave necesita pcr0, pcr1 y pcr2 (y pcr8, si se da) de 96 caracteres hex');
+  }
+}
 
 export async function loadConfig(): Promise<DeploymentConfig> {
   let cfg: DeploymentConfig;
@@ -96,6 +116,8 @@ export async function loadConfig(): Promise<DeploymentConfig> {
       throw new Error('config.json: rotationWorker debe ser una npub o 64 caracteres hex');
     }
   }
+  // Fail closed too: malformed measurements must stop the app, not leave exports sending the password in clear.
+  enclaveTrust(cfg);
   return cfg;
 }
 
