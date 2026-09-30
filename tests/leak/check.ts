@@ -4,6 +4,8 @@
  *   tsx tests/leak/check.ts --pcap run.pcap --client 10.200.0.2 --allow tcp/10.200.0.1:9050
  *   tsx tests/leak/check.ts --pcap run.pcap --client 10.200.0.2 --socks 10.200.0.1:9050 \
  *        --personas personas.txt --persona ID [--socks-log socks.jsonl]      (allowlist from the CLI's config)
+ *        [--all-personas] [--socks-allow HOST:PORT ...]                      (FR020-05: several CLI users in one
+ *                                                                            capture; what they reach besides relays)
  *   tsx tests/leak/check.ts ... --expect dns [--expect direct]              (negative control: must be detected)
  *
  * Positive mode exits 0 only when there are no findings AND at least --min-outbound packets were seen
@@ -29,23 +31,27 @@ const personasFile = opt('--personas');
 if (personasFile) {
   const socks = opt('--socks');
   if (!socks) throw new Error('--socks ip:port required with --personas');
-  const personas = parsePersonaList(readFileSync(personasFile, 'utf8'));
+  const all = parsePersonaList(readFileSync(personasFile, 'utf8'));
+  // FR020-05: --all-personas judges a capture where several users of the CLI worked (each CONNECT by its username).
   const id = opt('--persona');
-  const persona = id ? personas.find((p) => p.id === id) : personas[0];
-  if (!persona) throw new Error(`persona ${id ?? '(first)'} not found in ${personasFile}`);
-  allowed = [...allowed, ...networkAllowlist(persona, parseEndpoint(socks))];
+  const personas = argv.includes('--all-personas') ? all : [id ? all.find((p) => p.id === id) : all[0]].filter((p): p is (typeof all)[number] => !!p);
+  if (!personas.length) throw new Error(`persona ${id ?? '(first)'} not found in ${personasFile}`);
+  for (const persona of personas)
+    for (const e of networkAllowlist(persona, parseEndpoint(socks))) if (!allowed.some((a) => a.protocol === e.protocol && a.ip === e.ip && a.port === e.port)) allowed = [...allowed, e];
   const socksLog = opt('--socks-log');
   if (socksLog) {
     const requests = readFileSync(socksLog, 'utf8')
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l) as SocksRequest);
+    const tor = personas.every((p) => p.network === 'tor-only');
     // FR006-06: the stub logs the SOCKS username of each CONNECT, so every one must carry the persona id.
-    socksProblems = checkSocksRequests(requests, persona, { requireIsolation: persona.network === 'tor-only' });
-    if (persona.network === 'tor-only' && !requests.length) socksProblems.push('no SOCKS request was logged: the client did no work through the proxy');
+    // FR020-05: --socks-allow HOST:PORT names what the personas reach besides their relays (Blossom, policy-engine).
+    socksProblems = checkSocksRequests(requests, personas, { requireIsolation: tor, extraHosts: opts('--socks-allow') });
+    if (tor && !requests.length) socksProblems.push('no SOCKS request was logged: the client did no work through the proxy');
     console.log(`[${label}] SOCKS requests: ${requests.map((r) => `${r.host}:${r.port}(${r.addressType}${r.username ? `, user ${r.username}` : ''})`).join(', ') || 'none'}`);
   }
-  console.log(`[${label}] persona ${persona.id} network=${persona.network} relays=${persona.relays.map((u) => u.href).join(',')}`);
+  for (const persona of personas) console.log(`[${label}] persona ${persona.id} network=${persona.network} relays=${persona.relays.map((u) => u.href).join(',')}`);
 }
 
 const { packets, linkType } = parsePcap(readFileSync(pcapPath));

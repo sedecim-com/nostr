@@ -32,6 +32,13 @@ Mitigación en este repo:
 2. **autoprueba de comportamiento** (`assertRemovalSecrecy`) al abrir la primera sesión del proceso:
    crea un grupo en memoria, expulsa a un miembro y comprueba que no descifra. Si falla, el proveedor
    **falla cerrado** (`UnsafeMlsImplementationError`). Verificado: falla con rc.10, pasa con rc.11.
+3. **Control negativo en CI** (FR020-05, job `leak-tests`): `scripts/mls-negative-control.sh`
+   - cambia cada copia instalada de ts-mls por rc.10, con el tarball de npm fijado por su integridad;
+   - exige que la autoprueba falle cerrada;
+   - restaura las copias y exige que vuelva a pasar.
+
+   Si un cambio desactiva o debilita la autoprueba y deja de detectar rc.10, CI falla. Las copias se
+   restauran aunque un paso falle.
 
 ## Multi-dispositivo (FR025-06)
 En MLS cada dispositivo es **su propia hoja**: una persona (misma pubkey Nostr, misma credencial `basic`)
