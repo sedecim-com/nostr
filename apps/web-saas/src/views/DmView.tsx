@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import { downloadFromServers, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
+import { fileDigest } from '@sedecim/identity/usage';
 import { getTagValue, normalizePubkey } from '@sedecim/nostr-core';
 import { BUZZ_PINNED_ADAPTER, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
 import { cappedQuorumNotice, fileKey, SendOperation } from '../lib/outbox';
-import { shortNpub } from '../lib/session';
+import { authorLabel, lookupDmCorrespondents } from '../lib/profiles';
+import { AuthorAvatar, AvatarsToggle, useProfiles } from './Profile';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
+import { useReuseConfirm } from './ReuseConfirm';
 
 /** NIP-17 DMs behind the interop-gate flag (FR-017) with client-encrypted attachments (kind 15, FR018-04). */
 export function DmView() {
@@ -24,8 +27,12 @@ export function DmView() {
   const wrapOpts = wrapOptionsFromFlags(flags, BUZZ_PINNED_ADAPTER.wrap);
   const messenger = () => new DirectMessenger(s.signer, { nip17, readReceipts: config.readReceipts }, wrapOpts);
   const { inbox, messages, background } = ws.dm;
+  // FR006-04: the public profiles of this persona and of its contacts, and their avatars as the panel allows.
+  useProfiles(s);
+  const [avatars, setAvatars] = useState(config.remotePreviews);
   // FR011-05: «Enviar» again on the same message retries its operation instead of making another rumor or event.
   const operation = useRef(new SendOperation());
+  const reuse = useReuseConfirm();
 
   // ADR 0005: a message shown here counts as read. The inbox sends the read receipt only if the panel allows it,
   // at most once per message; "delivered" receipts go when a message arrives, even in the background (FR009-03).
@@ -38,6 +45,13 @@ export function DmView() {
     }
   }, [messages, inbox]);
 
+  // FR006-04: only contacts (keys this persona wrote to) are looked up: asking for someone else who wrote would tell
+  // the relays who writes to this persona, which the gift wrap hides.
+  useEffect(() => {
+    const t = setTimeout(() => void lookupDmCorrespondents(s, messages.map((m) => m.sender)), 300);
+    return () => clearTimeout(t);
+  }, [s, messages]);
+
   const send = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -45,6 +59,11 @@ export function DmView() {
       if (blocked) throw new Error(blocked);
       if (!nip17) throw new FeatureDisabledError('nip17');
       const recipient = normalizePubkey(to.trim());
+      const bytes = file ? new Uint8Array(await file.arrayBuffer()) : undefined;
+      // FR006-07: a recipient or a file another persona of this browser already used waits for an explicit
+      // confirmation; nothing is uploaded or sent before it.
+      const uses = [{ contact: recipient, ...(bytes ? { fileHash: await fileDigest(bytes) } : {}) }];
+      if (!(await reuse.confirm(uses))) return;
       const opId = operation.current.for(JSON.stringify([recipient, text, fileKey(file)]));
       // FR010-02: each wrap goes to the recipient's DM relays (10050), else their NIP-65 read relays, else ours.
       // FR010-03: discovery also asks the deployment's discovery relays; a retry re-resolves the route (engine router).
@@ -55,12 +74,14 @@ export function DmView() {
         // (kind 10063, primary first) except image-only ones (relay media), else to the deployment blob-store.
         // FR019-03: with stripFileMetadata, an image whose metadata cannot be removed (HEIC, TIFF/RAW, an image
         // format the sanitizer does not know) is refused before anything is uploaded; other documents go as they are.
-        const prepared = prepareBlob(new Uint8Array(await file!.arrayBuffer()), { sanitize: true, requireSanitizable: config.stripFileMetadata && 'images', encrypt: true, mimeType: file!.type || 'application/octet-stream', fileName: file!.name });
+        const prepared = prepareBlob(bytes!, { sanitize: true, requireSanitizable: config.stripFileMetadata && 'images', encrypt: true, mimeType: file!.type || 'application/octet-stream', fileName: file!.name });
+        await reuse.record(uses);
         const targets = uploadTargets(ws.cfg, await blossomServersOf(s), true);
         if (targets.length === 0) throw new Error('No hay servidor Blossom para adjuntos cifrados: publica tu lista de servidores o configura el blob-store.');
         const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
         return { recipients: [recipient], url: desc.url, mimeType: prepared.mimeType, sha256: prepared.sha256, originalSha256: prepared.originalSha256, size: prepared.data.length, encryption: prepared.encryption! };
       };
+      if (!file) await reuse.record(uses);
       // A retry does not upload the file again: the stored message already points to it.
       const { deliveries } = file ? await messenger().sendFileOnce(opId, upload, route) : await messenger().sendDmOnce(opId, { recipients: [recipient], content: text }, route);
       operation.current.done();
@@ -133,15 +154,18 @@ export function DmView() {
                 : 'Con NIP-07 los mensajes se leen al pulsar «Actualizar»: tu extensión puede pedir permiso para cada descifrado.'}
             </Typography>
           )}
+          <AvatarsToggle pubkeys={messages.map((m) => m.sender)} shown={avatars} onShow={() => setAvatars(true)} />
           <List id="dm-log" aria-live="polite">
             {messages.map((m) => (
               <ListItem key={m.rumor.id} alignItems="flex-start">
-                <ListItemText primary={m.kind === FILE_MESSAGE_KIND ? <EncryptedAttachment message={m} /> : m.rumor.content} secondary={`${m.sender === s.pubkey ? 'tú' : shortNpub(m.sender)} · ${new Date(m.rumor.created_at * 1000).toLocaleString()}`} />
+                <AuthorAvatar pubkey={m.sender} show={avatars} />
+                <ListItemText primary={m.kind === FILE_MESSAGE_KIND ? <EncryptedAttachment message={m} /> : m.rumor.content} secondary={`${m.sender === s.pubkey ? 'tú' : authorLabel(s, m.sender)} · ${new Date(m.rumor.created_at * 1000).toLocaleString()}`} />
               </ListItem>
             ))}
           </List>
         </CardContent>
       </Card>
+      {reuse.dialog}
     </Stack>
   );
 }

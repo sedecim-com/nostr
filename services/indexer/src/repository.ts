@@ -70,6 +70,12 @@ export interface EventRepository {
   readCursors(reader: string, hs: string[]): Promise<Record<string, number>>;
   /** Channel messages newer than the reader's cursor, excluding the reader's own and deleted ones. */
   unreadCounts(reader: string, hs: string[]): Promise<Record<string, number>>;
+  /**
+   * FR014-04: per channel, the created_at of its newest `limit` channel messages (CHANNEL_MESSAGE_KINDS, narrowed by
+   * `kinds`) that are neither the reader's own nor deleted, newest first. A client counts its unread messages against
+   * a read cursor it keeps to itself. Index columns only (works on a sealed mirror).
+   */
+  recentMessageTimes(reader: string, hs: string[], opts: { kinds?: number[]; limit: number }): Promise<Record<string, number[]>>;
   /** Plaintext search over channel messages only (CHANNEL_MESSAGE_KINDS), newest first. */
   search(q: SearchQuery): Promise<MirroredEvent[]>;
   /** Retention (FR023-08): hard-deletes mirrored events older than `before`; returns how many. */
@@ -233,6 +239,17 @@ export class MemoryEventRepository implements EventRepository {
       if (r.event.created_at > cursors[h]!) out[h]!++;
     }
     return out;
+  }
+
+  async recentMessageTimes(reader: string, hs: string[], opts: { kinds?: number[]; limit: number }): Promise<Record<string, number[]>> {
+    const kinds = searchableKinds(opts.kinds);
+    const byH = new Map(hs.map((h) => [h, [] as number[]]));
+    for (const r of this.rows.values()) {
+      const times = byH.get(getTagValue(r.event, 'h') ?? '');
+      if (!times || r.deleted || !kinds.includes(r.event.kind) || r.event.pubkey === reader) continue;
+      times.push(r.event.created_at);
+    }
+    return Object.fromEntries([...byH].map(([h, times]) => [h, times.sort((a, b) => b - a).slice(0, opts.limit)]));
   }
 
   async search(q: SearchQuery): Promise<MirroredEvent[]> {
@@ -499,6 +516,22 @@ export class PgEventRepository implements EventRepository {
     );
     const found = new Map(rows.map((r) => [r.h_tag, Number(r.n)]));
     return Object.fromEntries(hs.map((h) => [h, found.get(h) ?? 0]));
+  }
+
+  async recentMessageTimes(reader: string, hs: string[], opts: { kinds?: number[]; limit: number }): Promise<Record<string, number[]>> {
+    // One index scan per channel (events_h_created_idx), plaintext index columns only.
+    const { rows } = await this.pool.query<{ h_tag: string; created_at: string }>(
+      `SELECT c.h_tag, t.created_at FROM unnest($2::text[]) AS c(h_tag)
+       CROSS JOIN LATERAL (
+         SELECT e.created_at FROM events e
+         WHERE e.h_tag = c.h_tag AND e.kind = ANY($3) AND NOT e.deleted_tombstone AND e.pubkey <> $1
+         ORDER BY e.created_at DESC LIMIT $4
+       ) t`,
+      [reader, hs, searchableKinds(opts.kinds), opts.limit],
+    );
+    const byH = new Map(hs.map((h) => [h, [] as number[]]));
+    for (const r of rows) byH.get(r.h_tag)?.push(Number(r.created_at));
+    return Object.fromEntries([...byH].map(([h, times]) => [h, times.sort((a, b) => b - a)]));
   }
 
   async search(q: SearchQuery): Promise<MirroredEvent[]> {

@@ -60,6 +60,58 @@ Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-c
   (también con `sovereign whoami`).
 - Telemetría `none`: cero llamadas externas.
 
+## Custodia: llave en el dispositivo o signer NIP-46 (FR004-08)
+
+La especificación (§14) pide para este modo una llave offline o un signer. El CLI declara la custodia de la llave
+real, nunca el `offline` del preset, que describiría una llave air-gapped:
+
+| Cómo se crea la persona | Custodia declarada | Dónde está la llave |
+|---|---|---|
+| `persona create`, `persona import --backup`, `persona import --key-file` | `local` | En este dispositivo, cifrada (NIP-49) dentro del almacén de la persona, que abre `SOVEREIGN_PASSPHRASE` |
+| `persona connect` (`bunker://` o `nostrconnect://`) | `external` | En el signer NIP-46; este dispositivo solo guarda una llave de cliente que el signer autorizó |
+
+`whoami`, el aviso antes de cada envío y `disclose` muestran esa custodia. En Tor-only, una llave `local` añade el
+aviso `TOR_DEVICE_KEY`: quien comprometa el dispositivo y consiga la passphrase puede firmar como tú.
+
+```bash
+# Una llave que ya tienes: nsec o ncryptsec (NIP-49) en un archivo, nunca en la línea de comandos
+npm run sovereign -- persona import --key-file llave.txt --npub npub1… --label Fuente --relay ws://<onion>.onion --tor
+#   (ncryptsec: su contraseña con --password-file FILE o SOVEREIGN_BACKUP_PASSWORD)
+# Un signer NIP-46: la URL bunker:// en un archivo, porque puede llevar el secreto del signer
+npm run sovereign -- persona connect --bunker-file bunker.txt --label Fuente --relay ws://<onion>.onion --tor --npub npub1…
+# ... o una oferta nostrconnect:// que el CLI imprime para pegarla o escanearla en el signer
+npm run sovereign -- persona connect --nostrconnect --signer-relay ws://<onion>.onion --label Fuente --relay ws://<onion>.onion --tor
+# Emparejar de nuevo este dispositivo: tras `backup restore` o si el signer lo revocó
+npm run sovereign -- persona connect --persona <id> --bunker-file bunker.txt
+```
+
+- **La llave importada debe ser la de `--npub`**, o no se crea nada. Una ncryptsec que pide un coste de scrypt
+  mayor que 2^20 se rechaza antes de ejecutar scrypt.
+- **Permisos mínimos.** Antes de conectar, el CLI lista lo que pide al signer: NIP-44 y firmar solo los kinds que
+  firma (`SOVEREIGN_NIP46_PERMISSIONS`: 9, 13, 9021, 10050, 22242, 24242, 27235 y 30443). Un test recorre los caminos
+  de firma del CLI (canales, DMs, grupos Marmot con key package, invitaciones y mensajes, media, NIP-42 y NIP-98)
+  contra un bunker que solo permite esos kinds, y comprueba la lista en los dos sentidos. Con `--npub`, un signer que
+  tenga otra llave se rechaza; al emparejar de nuevo, siempre.
+- **El tráfico del signer, por Tor.** Las peticiones NIP-46 (kind 24133) solo van a los relays del signer, por SOCKS
+  con las credenciales de la persona, como el resto de su tráfico. Durante `persona connect` la persona aún no
+  existe: ese intercambio usa credenciales propias que ninguna persona usa. Con `--onion-only`, los relays del signer
+  también tienen que ser `.onion`, y se comprueba antes de conectar. En esos relays, NIP-42 autentica la llave de
+  cliente, nunca la de la persona.
+- **Falla cerrado.** Sin Tor no se conecta con el signer ni se firma nada: `persona connect` no crea la persona y un
+  envío falla con «No enviado: red de privacidad no disponible». Un mensaje de canal queda guardado y, con Tor de
+  vuelta, se firma y se publica en el siguiente comando que abra la persona (también `sovereign resume`). Un DM se
+  reintenta con `--op`, que el CLI imprime antes de enviar.
+- **Qué ve cada parte.** El signer ve lo que firma y los DMs que descifra por la persona (NIP-44). El relay del signer
+  ve eventos cifrados entre la llave de cliente y el signer, y cuándo; por Tor, no la IP. Si el signer pide aprobación
+  en una página (auth_url), el CLI la muestra sin abrirla: en una persona Tor, ábrela en Tor Browser.
+- **El emparejamiento no viaja en el backup.** La llave de cliente y la dirección del signer (nunca el secreto del
+  bunker) se guardan cifradas en el almacén de la persona. Una persona restaurada no firma hasta emparejarla otra vez,
+  y solo con un signer que tenga su npub.
+
+Tests: `apps/sovereign-client/test/nip46.test.ts` (Tor con un SOCKS que exige credenciales, bunker y
+`nostrconnect://`, Tor caído, onion-only, importación, restauración y el CLI real), `packages/signer/test/signer.test.ts`
+y `packages/profiles/test/profiles.test.ts`.
+
 ## Tests de fugas con captura de red real (FR020-03, FR020-05, FR022-02)
 
 ```bash

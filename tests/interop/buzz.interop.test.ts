@@ -9,7 +9,7 @@ import WebSocket from 'ws';
 import { generateSecretKey, getTagValue } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
-import { chatMessage, createGroup, createDirectMessage, dmInboxFilter, nip17GateDecision, openDirectMessage, parseGroupMetadata } from '@sedecim/messaging';
+import { chatMessage, createGroup, createDirectMessage, deleteEvent, deletion, dmInboxFilter, joinRequest, nip17GateDecision, openDirectMessage, parseGroupMetadata, reaction, replyMessage } from '@sedecim/messaging';
 import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
 import { EncryptedStore, MemoryBackend } from '@sedecim/encrypted-store';
 import { tinyPng } from '@sedecim/test-relay';
@@ -62,6 +62,63 @@ describe.skipIf(!URL_)('Buzz interop gate', () => {
     expect(sent.ok).toBe(true);
     const read = await pb.query([URL_!], [{ kinds: [9], '#h': [groupId!], limit: 20 }], 5000);
     expect(read.map((e) => e.id)).toContain(msg.id);
+  });
+
+  // FR015-04: the events the web's channels send for replies, reactions and deletions, against the pinned Buzz. What the
+  // web relies on is asserted; the removal of a reaction with kind 5 (NIP-09 is not in Buzz's NIP-11) is only recorded.
+  it('FR015-04: replies in threads, reactions and deletions (9005) as the web sends them', async () => {
+    const create = await alice.signEvent(createGroup(`interop-collab-${Date.now()}`, 'open'));
+    expect((await pa.publishTo(create, URL_!)).ok).toBe(true);
+    const meta = await pa.query([URL_!], [{ kinds: [39000], limit: 50 }], 5000);
+    const g = meta.map(parseGroupMetadata).find((m) => m && getTagValue(create, 'name') === m.name)?.id;
+    expect(g).toBeDefined();
+    await pb.publishTo(await bob.signEvent(joinRequest(g!)), URL_!);
+    const top = await alice.signEvent(chatMessage(g!, 'tema del hilo'));
+    expect((await pa.publishTo(top, URL_!)).ok).toBe(true);
+
+    // Replies: Buzz checks that the root is the parent's thread root (a direct reply and a nested one).
+    const reply = await bob.signEvent(replyMessage(g!, 'respuesta', top));
+    const replyRes = await pb.publishTo(reply, URL_!);
+    const nested = await alice.signEvent(replyMessage(g!, 'respuesta anidada', reply));
+    const nestedRes = await pa.publishTo(nested, URL_!);
+
+    // A reaction (NIP-25) that the other member reads by #h, then its removal as the web sends it (kind 5).
+    const react = await bob.signEvent(reaction(g!, top, '👍'));
+    const reactRes = await pb.publishTo(react, URL_!);
+    const reactions = async () => (await pa.query([URL_!], [{ kinds: [7], '#h': [g!] }], 5000)).map((e) => e.id);
+    const reactionServed = (await reactions()).includes(react.id);
+    const unreactRes = await pb.publishTo(await bob.signEvent(deletion(g!, react)), URL_!);
+    const reactionServedAfterKind5 = (await reactions()).includes(react.id);
+
+    // Deletions (9005): by the author, by a member on someone else's message, and by the channel's owner (its creator).
+    const bobs = await bob.signEvent(chatMessage(g!, 'mensaje de bob'));
+    expect((await pb.publishTo(bobs, URL_!)).ok).toBe(true);
+    const byAuthor = await pb.publishTo(await bob.signEvent(deleteEvent(g!, reply.id)), URL_!);
+    const byMember = await pb.publishTo(await bob.signEvent(deleteEvent(g!, top.id)), URL_!);
+    const byOwner = await pa.publishTo(await alice.signEvent(deleteEvent(g!, bobs.id)), URL_!);
+    const served = new Set((await pb.query([URL_!], [{ kinds: [9], '#h': [g!] }], 5000)).map((e) => e.id));
+
+    report.nip29Collaboration = {
+      reply: replyRes,
+      nestedReply: nestedRes,
+      reaction: reactRes,
+      reactionServed,
+      removeReactionKind5: unreactRes,
+      reactionServedAfterKind5,
+      delete9005ByAuthor: byAuthor,
+      delete9005ByMember: byMember,
+      delete9005ByOwner: byOwner,
+      servedAfterDeletions: { reply: served.has(reply.id), top: served.has(top.id), bobMessage: served.has(bobs.id) },
+    };
+    expect(replyRes.ok, replyRes.message).toBe(true);
+    expect(nestedRes.ok, nestedRes.message).toBe(true);
+    expect(reactRes.ok, reactRes.message).toBe(true);
+    expect(reactionServed).toBe(true);
+    expect(byAuthor.ok, byAuthor.message).toBe(true);
+    expect(byOwner.ok, byOwner.message).toBe(true);
+    expect(byMember.ok).toBe(false);
+    expect([served.has(reply.id), served.has(bobs.id), served.has(top.id)]).toEqual([false, false, true]);
+    expect(unreactRes.ok || unreactRes.message.length > 0, 'a rejection says why').toBe(true);
   });
 
   it('NIP-17: records which gift-wrap timestamp strategies the relay accepts', async () => {

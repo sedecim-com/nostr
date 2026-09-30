@@ -4,6 +4,11 @@ import type { SovereigntyConfig } from './types';
  * Reference configuration matrix (spec Appendix B). Crash reports are 'off' everywhere: they do not exist yet
  * (NFR007-03), and a preset must not promise them (PANEL-05). VAULT-04: private-resilient holds each send until
  * its copy is in the Continuity Vault; the sovereign profiles keep everything on the device.
+ *
+ * Custody is the profile's reference, not a persona's: the sovereign profiles say 'offline' because spec §14 keeps
+ * their key offline or in a signer. A client declares the custody of the persona's real key instead, never a promise
+ * above it (PANEL-05, FR004-08): the sovereign CLI declares 'local' for a key sealed on the device (created there or
+ * imported) and 'external' for a NIP-46 signer; validateConfig warns when a Tor-only key is on the device.
  */
 export const PRESETS = {
   convenience: {

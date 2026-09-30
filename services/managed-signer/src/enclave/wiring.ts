@@ -1,6 +1,7 @@
 import { KMSClient } from '@aws-sdk/client-kms';
 import { NITRO_ROOT_G1_SHA256 } from './attestation';
 import { EnclaveClient } from './client';
+import { proofVerifierFromEnv, type UserProofVerifier } from './proof';
 import { inProcessTransport, socketTransport, type AwsCredentials } from './protocol';
 import { createSimulatedEnclave, SIMULATION_WARNING } from './simulated';
 
@@ -20,8 +21,11 @@ const PCR = /^[0-9a-f]{96}$/i;
  *   MANAGED_SIGNER_ENCLAVE_PCR0/1/2    expected measurements (hex, from `nitro-cli build-enclave`); PCR8 optional
  *   MANAGED_SIGNER_ENCLAVE_ROOT_SHA256 root pin override (default: AWS Nitro G1)
  *   MANAGED_SIGNER_ENCLAVE_SIMULATED=1 in-process simulated enclave, NOT SECURE, refused with NODE_ENV=production
+ *   MANAGED_SIGNER_ENCLAVE_PROOF_ISSUER / _CLIENT_ID / _JWKS / _MAX_AGE_S  (simulated only) the user pool the simulated
+ *       enclave checks export proofs against (FR005-09); `_JWKS` is the path of the pool's jwks.json. Without them the
+ *       simulated enclave refuses every export, like the real one does without the keys pinned in its image.
  */
-export function enclaveBackendFromEnv(env: NodeJS.ProcessEnv, warn: (msg: string) => void = console.warn): EnclaveBackend | undefined {
+export function enclaveBackendFromEnv(env: NodeJS.ProcessEnv, warn: (msg: string) => void = console.warn, opts: { proof?: UserProofVerifier } = {}): EnclaveBackend | undefined {
   const kind = env.MANAGED_SIGNER_BACKEND || 'local';
   if (kind === 'local') return undefined;
   if (kind !== 'enclave') throw new Error(`MANAGED_SIGNER_BACKEND must be 'local' or 'enclave', got '${kind}'`);
@@ -29,7 +33,8 @@ export function enclaveBackendFromEnv(env: NodeJS.ProcessEnv, warn: (msg: string
   if (env.MANAGED_SIGNER_ENCLAVE_SIMULATED === '1') {
     if (env.NODE_ENV === 'production') throw new Error('MANAGED_SIGNER_ENCLAVE_SIMULATED=1 is refused with NODE_ENV=production');
     warn(SIMULATION_WARNING);
-    const sim = createSimulatedEnclave();
+    const proof = opts.proof ?? proofVerifierFromEnv(env, 'MANAGED_SIGNER_ENCLAVE_PROOF');
+    const sim = createSimulatedEnclave(proof ? { proof } : {});
     return { client: new EnclaveClient({ transport: inProcessTransport(sim.enclave), attestation: sim.policy, provider: 'simulated-enclave' }), simulated: true };
   }
 

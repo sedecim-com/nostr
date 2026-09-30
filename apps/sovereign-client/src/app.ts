@@ -1,10 +1,11 @@
 import { join } from 'node:path';
 import WebSocket from 'ws';
-import { bytesToHex, getTagValue, normalizePubkey, randomBytes, type NostrEvent, type Signer } from '@sedecim/nostr-core';
+import { bytesToHex, generateSecretKey, getTagValue, hexToBytes, nip19, nip49, normalizePubkey, npubEncode, randomBytes, wipe, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { EncryptedStore, FileBackend } from '@sedecim/encrypted-store';
-import { IdentityManager, type BackupPackage, type BackupPackageV2, type PersonaConfig } from '@sedecim/identity';
-import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
-import { NetworkGuard } from '@sedecim/tor-network';
+import { fileDigest, IdentityManager, MAX_BACKUP_LOG_N, ReuseNotConfirmedError, type BackupPackage, type BackupPackageV2, type PersonaConfig, type PersonaUse, type ReuseWarning } from '@sedecim/identity';
+import { RelayPool, type WebSocketFactory, type WebSocketLike } from '@sedecim/relay-pool';
+import { createNostrConnect, formatBunkerUrl, LocalSigner, Nip46Signer, parseBunkerUrl, SOVEREIGN_NIP46_PERMISSIONS } from '@sedecim/signer';
+import { isOnionHost, NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
 import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, OperationMismatchError, outboxContacts, publishDmRelayList, type DirectMessage, type DmInboxOptions, type DmOperation, type InboxOutbox, type InboxPool, type OperationOutbox, type RelayAdapter } from '@sedecim/messaging';
 import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
@@ -46,6 +47,8 @@ const RESTORED_MLS_OWNER = 'vault-restore';
  * several seconds, so a read there gets the margin of a slow circuit instead of coming back empty.
  */
 const readTimeoutMs = (persona: Pick<PersonaConfig, 'network'>) => (persona.network === 'tor-only' ? 30_000 : 10_000);
+/** FR004-08: how long a request to a NIP-46 signer waits for its answer; over Tor, with the margin of a slow circuit too. */
+const signerTimeoutMs = (persona: Pick<PersonaConfig, 'network'>) => (persona.network === 'tor-only' ? 60_000 : 30_000);
 
 /** VAULT-05: a vault export is one JSON document of its own format; anything else is read as JSONL. */
 function isVaultExport(text: string): boolean {
@@ -55,6 +58,64 @@ function isVaultExport(text: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * FR004-08: persona-store collection with this device's pairing with the persona's NIP-46 signer. Sealed with the
+ * passphrase like the rest of the store and never part of a backup: a restored device pairs again.
+ */
+const NIP46_COLLECTION = 'nip46';
+
+/** FR004-08: this device's pairing with a persona's NIP-46 signer: the signer (no secret) and the client key it authorized. */
+interface SignerPairing {
+  bunker: string;
+  /** Hex of the client key the signer authorized for this device (not the persona's key). */
+  clientKey: string;
+}
+
+/** What a new persona of the CLI is: its label, its relays and its network (Tor, high risk, onion-only). */
+export interface PersonaInput {
+  label: string;
+  relays: string[];
+  tor?: boolean;
+  highRisk?: boolean;
+  onionOnly?: boolean;
+}
+
+/**
+ * FR004-08: where a persona's NIP-46 signer is: a bunker:// URL from the signer, or a nostrconnect:// offer this client
+ * makes (`onOffer` shows it once a relay listens for the answer; its relays default to the persona's).
+ */
+export type SignerSource = { bunker: string } | { nostrconnect: { relays?: string[]; onOffer: (uri: string) => void; timeoutMs?: number; signal?: AbortSignal } };
+
+const personaNetwork = (input: PersonaInput): PersonaConfig['network'] => (input.tor || input.highRisk || input.onionOnly ? 'tor-only' : 'direct');
+
+/** FR021-03: an onion-only persona reaches .onion hosts only; checked before any connection (FR004-08: its signer's too). */
+function assertOnionOnly(urls: string[], what: string): void {
+  const clearnet = urls.filter((u) => !isOnionHost(new URL(u).hostname)).length;
+  if (clearnet) throw new Error(`onion-only: every ${what} must be a .onion address (${clearnet} of ${urls.length} are not)`);
+}
+
+/**
+ * FR004-08: the secret key of an nsec, or of an ncryptsec (NIP-49) with its password. As for backups, an ncryptsec
+ * asking for a scrypt cost above 2^MAX_BACKUP_LOG_N is refused before scrypt runs. The caller wipes the key.
+ */
+async function decodeSecretKey(secret: string, password?: string): Promise<Uint8Array> {
+  if (secret.startsWith('ncryptsec1')) {
+    if (password === undefined) throw new Error('una ncryptsec necesita su contraseña');
+    const logN = nip49.ncryptsecLogN(secret);
+    if (logN > MAX_BACKUP_LOG_N) throw new Error(`la ncryptsec pide un coste de scrypt de 2^${logN}; el máximo es 2^${MAX_BACKUP_LOG_N}`);
+    try {
+      return (await nip49.decryptKeyAsync(secret, password)).secretKey;
+    } catch {
+      throw new Error('no se puede descifrar la ncryptsec: contraseña incorrecta o llave dañada');
+    }
+  }
+  if (secret.startsWith('nsec1')) {
+    const d = nip19.decode(secret);
+    if (d.type === 'nsec') return d.data;
+  }
+  throw new Error('se esperaba una llave nsec1… o ncryptsec1…');
 }
 
 export interface SovereignOptions {
@@ -88,6 +149,16 @@ export interface SovereignOptions {
    * Without it nothing is copied, and a persona that requires the copy keeps its sends held.
    */
   vaultUrl?: string;
+  /**
+   * FR004-08: a persona's NIP-46 signer asks the user to approve in a web page (auth_url) and the request keeps waiting.
+   * The page is shown, never opened here: outside Tor, whoever serves it sees the IP of the browser that opens it.
+   */
+  onSignerAuthUrl?: (url: string, persona: Pick<PersonaConfig, 'network'>) => void;
+  /**
+   * FR006-07: told what a confirmed reuse crosses (a contact or a file another persona of this device already used)
+   * right before it goes ahead. The CLI prints it next to what it sends.
+   */
+  onConfirmedReuse?: (warnings: ReuseWarning[]) => void;
 }
 
 /** FR009-03: what `watchDms` reports. */
@@ -136,9 +207,18 @@ export interface HistorySyncResult {
   history: RebuiltHistory;
 }
 
+/** FR004-08: a NIP-46 signer with the pool and the guard its requests go through. */
+interface RemoteSigner {
+  signer: Nip46Signer;
+  pool: RelayPool;
+  guard: NetworkGuard;
+}
+
 interface Session {
   persona: PersonaConfig;
   signer: Signer;
+  /** FR004-08: set when the persona's key lives in a NIP-46 signer (`signer` is then its Nip46Signer). */
+  remote?: RemoteSigner;
   pool: RelayPool;
   engine: DeliveryEngine;
   guard: NetworkGuard;
@@ -162,11 +242,19 @@ export class SovereignClient {
   readonly telemetry = new TelemetryPolicy({ level: 'none' });
   private manager?: IdentityManager;
   private readonly sessions = new Map<string, Session>();
+  /** Each store is opened (scrypt) once per client: FR006-07 reads the ledger of every persona before a new use. */
+  private readonly stores = new Map<string, Promise<EncryptedStore>>();
 
   constructor(private readonly opts: SovereignOptions) {}
 
-  private async openStore(dir: string) {
-    return EncryptedStore.open(new FileBackend(dir), this.opts.passphrase, { logN: this.opts.scryptLogN ?? 17 });
+  private openStore(dir: string): Promise<EncryptedStore> {
+    let store = this.stores.get(dir);
+    if (!store) {
+      store = EncryptedStore.open(new FileBackend(dir), this.opts.passphrase, { logN: this.opts.scryptLogN ?? 17 });
+      store.catch(() => this.stores.delete(dir));
+      this.stores.set(dir, store);
+    }
+    return store;
   }
 
   async identities(): Promise<IdentityManager> {
@@ -178,12 +266,14 @@ export class SovereignClient {
   }
 
   /**
-   * The panel configuration of a CLI persona. PANEL-05: its key lives on this device, sealed with the passphrase,
-   * so its custody is 'local' whatever the preset says ('offline' would describe an air-gapped key).
+   * The panel configuration of a CLI persona. PANEL-05, FR004-08: its custody is that of its real key, whatever the
+   * preset says: 'local' when the key is sealed on this device with the passphrase (created here or imported),
+   * 'external' when a NIP-46 signer holds it. The sovereign presets say 'offline' (spec §14: an offline key or a
+   * signer), which would describe an air-gapped key: no CLI persona signs with one, so it is never declared.
    */
-  profileFor(p: PersonaConfig): SovereigntyConfig {
+  profileFor(p: Pick<PersonaConfig, 'relays' | 'network' | 'custody'>): SovereigntyConfig {
     const base: SovereigntyConfig = p.network === 'tor-only' ? preset('sovereign-tor') : { ...preset('sovereign'), network: p.relays.length > 1 ? 'multi-relay' : 'private-relay' };
-    return { ...base, custody: 'local' };
+    return { ...base, custody: p.custody === 'offline' ? 'local' : p.custody };
   }
 
   /** PANEL-05: the warnings of a persona's profile (for Tor-only, its residual risks), shown when it is created. */
@@ -217,7 +307,7 @@ export class SovereignClient {
   async importBackup(json: unknown, backupPassword: string, input: { label: string; relays: string[]; tor?: boolean; highRisk?: boolean; onionOnly?: boolean }): Promise<PersonaConfig> {
     const mgr = await this.identities();
     const network = input.tor || input.highRisk || input.onionOnly ? 'tor-only' : 'direct';
-    const issues = validateConfig(this.profileFor({ relays: input.relays, network } as PersonaConfig), 'cli').filter((i) => i.severity === 'error');
+    const issues = validateConfig(this.profileFor({ relays: input.relays, network, custody: 'local' }), 'cli').filter((i) => i.severity === 'error');
     if (issues.length) throw new Error(issues.map((i) => i.message).join('; '));
     const persona = await mgr.importKeyBackup(json, backupPassword, this.opts.passphrase, {
       label: input.label,
@@ -229,6 +319,140 @@ export class SovereignClient {
     });
     await mgr.saveConfig(persona.id, this.profileFor(persona));
     return persona;
+  }
+
+  /**
+   * FR004-08: creates a persona from an nsec or an ncryptsec (NIP-49) the user already has. The key must be that of
+   * `npub` or nothing is created; it is sealed here with the local passphrase, so the persona's custody is 'local'.
+   */
+  async importKey(secret: string, input: PersonaInput & { npub: string; password?: string }): Promise<PersonaConfig> {
+    const mgr = await this.identities();
+    const network = personaNetwork(input);
+    const issues = validateConfig(this.profileFor({ relays: input.relays, network, custody: 'local' }), 'cli').filter((i) => i.severity === 'error');
+    if (issues.length) throw new Error(issues.map((i) => i.message).join('; '));
+    const expectedPubkey = normalizePubkey(input.npub.trim());
+    const secretKey = await decodeSecretKey(secret.trim(), input.password);
+    try {
+      const persona = await mgr.importPersona(
+        { secretKey, keyPassphrase: this.opts.passphrase, expectedPubkey },
+        { label: input.label, relays: input.relays, compartment: input.highRisk ? 'high-risk' : 'standard', network, onionOnly: input.onionOnly, scryptLogN: this.opts.scryptLogN },
+      );
+      await mgr.saveConfig(persona.id, this.profileFor(persona));
+      return persona;
+    } finally {
+      wipe(secretKey);
+    }
+  }
+
+  /**
+   * FR004-08: creates a persona whose key lives in a NIP-46 signer (bunker:// or nostrconnect://). This device keeps
+   * only a client key the signer authorized, so the persona's custody is 'external'. The signer is reached with the
+   * persona's network policy: a Tor persona reaches it through Tor and fails closed without it, an onion-only one
+   * only on .onion relays. While connecting the persona does not exist yet, so that exchange uses SOCKS credentials
+   * of its own, which no persona uses; afterwards the signer's traffic carries the persona's. With `npub`, a signer
+   * that holds another key is refused.
+   */
+  async connectSigner(input: PersonaInput & SignerSource & { npub?: string }): Promise<PersonaConfig> {
+    const mgr = await this.identities();
+    const network = personaNetwork(input);
+    const issues = validateConfig(this.profileFor({ relays: input.relays, network, custody: 'external' }), 'cli').filter((i) => i.severity === 'error');
+    if (issues.length) throw new Error(issues.map((i) => i.message).join('; '));
+    if (input.onionOnly) assertOnionOnly(input.relays, 'relay');
+    const policy = { id: bytesToHex(randomBytes(8)), network, relays: input.relays, ...(input.onionOnly ? { onionOnly: true } : {}) };
+    const { pubkey, pairing } = await this.pair(policy, input, input.npub ? normalizePubkey(input.npub.trim()) : undefined);
+    const persona = await mgr.importPersona({ bunker: pairing.bunker, pubkey }, { label: input.label, relays: input.relays, compartment: input.highRisk ? 'high-risk' : 'standard', network, onionOnly: input.onionOnly });
+    await this.savePairing(persona.id, pairing);
+    await mgr.saveConfig(persona.id, this.profileFor(persona));
+    return persona;
+  }
+
+  /**
+   * FR004-08: pairs this device again with the NIP-46 signer of a persona: after `restoreBackup` (a backup never
+   * carries the pairing), or after the signer revoked it. The signer must hold the persona's own key. Returns the
+   * persona with the signer it is paired with now.
+   */
+  async reconnectSigner(personaId: string, source: SignerSource): Promise<PersonaConfig> {
+    const persona = await (await this.identities()).get(personaId);
+    if (persona.custody !== 'external') throw new Error(`la llave de esta persona está en este dispositivo (custodia ${persona.custody}): no hay signer que emparejar`);
+    const { pairing } = await this.pair(persona, source, persona.pubkey);
+    const open = this.sessions.get(personaId);
+    if (open) {
+      this.closeSession(open);
+      this.sessions.delete(personaId);
+    }
+    await this.savePairing(personaId, pairing);
+    return { ...persona, bunker: pairing.bunker };
+  }
+
+  /**
+   * FR004-08: pairs a client key with a NIP-46 signer and asks it for the user's pubkey. What this device keeps is that
+   * client key and the signer's address, never the bunker secret (often single-use). The pairing asks only for
+   * SOVEREIGN_NIP46_PERMISSIONS.
+   */
+  private async pair(persona: Pick<PersonaConfig, 'id' | 'network' | 'relays' | 'onionOnly'>, source: SignerSource, expected?: string): Promise<{ pubkey: string; pairing: SignerPairing }> {
+    const pointer = 'bunker' in source ? parseBunkerUrl(source.bunker.trim()) : undefined;
+    const offer = 'nostrconnect' in source ? createNostrConnect({ relays: source.nostrconnect.relays?.length ? source.nostrconnect.relays : persona.relays, permissions: SOVEREIGN_NIP46_PERMISSIONS, name: 'Acceso Nostr (cliente soberano)' }) : undefined;
+    const relays = pointer?.relays ?? offer!.relays;
+    if (persona.onionOnly) assertOnionOnly(relays, 'relay of the signer');
+    const clientKey = offer?.clientSecretKey ?? generateSecretKey();
+    const { pool } = this.signerPool(persona, relays, clientKey);
+    const onAuthUrl = (url: string) => this.opts.onSignerAuthUrl?.(url, persona);
+    let signer: Nip46Signer | undefined;
+    try {
+      if (pointer) {
+        signer = new Nip46Signer(pointer, { pool, clientSecretKey: clientKey, permissions: SOVEREIGN_NIP46_PERMISSIONS, timeoutMs: signerTimeoutMs(persona), onAuthUrl });
+        await signer.connect();
+      } else if ('nostrconnect' in source) {
+        const { onOffer, timeoutMs, signal } = source.nostrconnect;
+        signer = await Nip46Signer.fromNostrConnect(offer!, { pool, onAuthUrl, timeoutMs: timeoutMs ?? 300_000, ...(signal ? { signal } : {}), onReady: () => onOffer(offer!.uri) });
+      }
+      const pubkey = await signer!.getPublicKey();
+      if (!/^[0-9a-f]{64}$/.test(pubkey)) throw new Error('el signer no respondió con una clave pública válida');
+      if (expected && pubkey !== expected) throw new Error(`el signer tiene otra llave (${npubEncode(pubkey).slice(0, 12)}…), no la de ${npubEncode(expected).slice(0, 12)}…`);
+      return { pubkey, pairing: { bunker: formatBunkerUrl({ remoteSignerPubkey: signer!.bunker.remoteSignerPubkey, relays }), clientKey: bytesToHex(clientKey) } };
+    } finally {
+      signer?.close();
+      pool.close();
+      wipe(clientKey);
+    }
+  }
+
+  private async savePairing(personaId: string, pairing: SignerPairing): Promise<void> {
+    await (await this.openStore(join(this.opts.dataDir, 'personas', personaId))).collection<SignerPairing>(NIP46_COLLECTION).put('pairing', pairing);
+  }
+
+  /**
+   * FR004-08: the NIP-46 signer of a persona with this device's pairing. It signs only as the persona (an event signed
+   * with another key is refused), and its pubkey is the persona's, known without asking the signer.
+   */
+  private async remoteSigner(persona: PersonaConfig, store: EncryptedStore): Promise<RemoteSigner> {
+    const pairing = await store.collection<SignerPairing>(NIP46_COLLECTION).get('pairing');
+    if (!pairing) throw new Error(`este dispositivo no está emparejado con el signer NIP-46 de la persona ${persona.id} (¿restaurada de un backup?): emparéjalo con \`sovereign persona connect --persona ${persona.id} --bunker-file FILE\` o con --nostrconnect`);
+    const pointer = parseBunkerUrl(pairing.bunker);
+    const clientKey = hexToBytes(pairing.clientKey);
+    try {
+      const { pool, guard } = this.signerPool(persona, pointer.relays, clientKey);
+      const signer = new Nip46Signer(pointer, { pool, clientSecretKey: clientKey, permissions: SOVEREIGN_NIP46_PERMISSIONS, pubkey: persona.pubkey, timeoutMs: signerTimeoutMs(persona), onAuthUrl: (url) => this.opts.onSignerAuthUrl?.(url, persona) });
+      return { signer, pool, guard };
+    } finally {
+      wipe(clientKey);
+    }
+  }
+
+  /**
+   * FR004-08: a pool that reaches only these relays of a NIP-46 signer, with the persona's network policy (Tor-only
+   * through Tor with its own SOCKS credentials, onion-only to .onion hosts only). NIP-42 on them authenticates the
+   * client key, never the persona.
+   */
+  private signerPool(persona: Pick<PersonaConfig, 'id' | 'network' | 'onionOnly'>, relays: string[], clientKey: Uint8Array): { pool: RelayPool; guard: NetworkGuard } {
+    const guard = this.guardFor(persona, relays);
+    const pool = new RelayPool({ webSocketFactory: this.socketFactory(persona, guard), signer: new LocalSigner(clientKey), authMode: 'on-demand', autoReconnect: this.opts.autoReconnect ?? false, connectTimeoutMs: 15_000 });
+    return { pool, guard };
+  }
+
+  /** FR-020: the WebSocket factory of a persona's pool: Tor-only through its guard's SOCKS agent, direct after the guard's check. */
+  private socketFactory(persona: Pick<PersonaConfig, 'network'>, guard: NetworkGuard): WebSocketFactory {
+    return persona.network === 'tor-only' ? guard.webSocketFactory() : async (u) => (await guard.assertRoute(u), new WebSocket(u) as unknown as WebSocketLike);
   }
 
   /** FR-027: full encrypted backup (key, relays, panel configuration, MLS group state). */
@@ -279,17 +503,19 @@ export class SovereignClient {
     if (cached) return cached;
     const mgr = await this.identities();
     const persona = await mgr.get(personaId);
-    const signer = await mgr.unlock(personaId, this.opts.passphrase);
+    const store = await this.openStore(join(this.opts.dataDir, 'personas', personaId));
+    // FR004-08: a persona whose key lives in a NIP-46 signer signs through it; the others open their key sealed here.
+    const remote = persona.custody === 'external' ? await this.remoteSigner(persona, store) : undefined;
+    const signer = remote?.signer ?? (await mgr.unlock(personaId, this.opts.passphrase));
     const dmDiscovery = [...new Set([...persona.relays, ...(this.opts.discoveryRelays ?? [])])];
     const guard = this.guardFor(persona, dmDiscovery);
     const pool = new RelayPool({
-      webSocketFactory: persona.network === 'tor-only' ? guard.webSocketFactory() : async (u) => (await guard.assertRoute(u), new WebSocket(u) as unknown as WebSocketLike),
+      webSocketFactory: this.socketFactory(persona, guard),
       signer,
       authMode: 'on-demand',
       autoReconnect: this.opts.autoReconnect ?? false,
       connectTimeoutMs: 15_000,
     });
-    const store = await this.openStore(join(this.opts.dataDir, 'personas', personaId));
     // FR017-06: the same routing as the web. A DM wrap goes to the recipient's DM relays, looked up again on each
     // retry until one accepts it (FR010-03). Writing to someone lets the guard reach the relays they published.
     const allow = (urls: string[]) => guard.allowHosts(urls.map((u) => new URL(u).hostname));
@@ -324,7 +550,7 @@ export class SovereignClient {
     // FR011-04: what an earlier run left pending (sent without network, cut off) goes out as soon as the
     // persona is opened again, whatever the command. In the background: the command does not wait for it.
     const resumed = engine.resume().catch(() => undefined);
-    const s: Session = { persona, signer, pool, engine, guard, dmDiscovery, dmOutbox, store, resumed, continuity };
+    const s: Session = { persona, signer, ...(remote ? { remote } : {}), pool, engine, guard, dmDiscovery, dmOutbox, store, resumed, continuity };
     this.sessions.set(personaId, s);
     return s;
   }
@@ -409,6 +635,22 @@ export class SovereignClient {
     return { format, valid: events.length, invalid, duplicates, published, rejected, othersWraps };
   }
 
+  /**
+   * FR006-07 (spec §14.1): a contact or a file that another persona of this device already used is not used from this
+   * one without the user's explicit confirmation (`confirm`, the CLI's --confirm-reuse): without it this throws
+   * ReuseNotConfirmedError and nothing goes out. Inviting another of your own high-risk identities into a group stays
+   * refused even then: every member would see both. The caller records the use (`recordUsage`) right before its first
+   * network request, so the same crossing is not asked again.
+   */
+  private async allowReuse(personaId: string, use: PersonaUse, confirm = false, opts: { group?: boolean } = {}): Promise<void> {
+    const warnings = await (await this.identities()).reuseCheck(personaId, use);
+    const own = warnings.find((w) => w.kind === 'identity');
+    if (opts.group && own) throw new Error(`compartimentación: ${own.message} No se puede invitar a un grupo a otra de tus identidades de alto riesgo.`);
+    if (!warnings.length) return;
+    if (!confirm) throw new ReuseNotConfirmedError(warnings);
+    this.opts.onConfirmedReuse?.(warnings);
+  }
+
   async readChannel(personaId: string, groupId: string, limit = 50): Promise<NostrEvent[]> {
     const s = await this.session(personaId);
     return s.pool.query(s.persona.relays, [{ ...channelFilter(groupId), limit }], readTimeoutMs(s.persona));
@@ -420,12 +662,12 @@ export class SovereignClient {
    * sender's copy to this persona's relays. Each record keeps `meta.recipient` and `meta.dmRelaySource`.
    * FR011-05: the DM is the operation `opId` (the CLI's --op), stored before its wraps are made. Sent again with the
    * same one, it retries that message: no other rumor, no other event. Another text or recipient under it is refused.
+   * FR006-07: a recipient another persona already wrote to needs `confirmReuse` (checked before the persona is opened).
    */
-  async sendDm(personaId: string, to: string, text: string, opts: { opId?: string } = {}): Promise<OutboxRecord[]> {
-    const s = await this.session(personaId);
+  async sendDm(personaId: string, to: string, text: string, opts: { opId?: string; confirmReuse?: boolean } = {}): Promise<OutboxRecord[]> {
     const recipient = normalizePubkey(to);
-    const warnings = await (await this.identities()).reuseWarnings(personaId, { contact: recipient });
-    if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')} (usa otra persona o confirma explícitamente)`);
+    await this.allowReuse(personaId, { contact: recipient }, opts.confirmReuse);
+    const s = await this.session(personaId);
     await (await this.identities()).recordUsage(personaId, { contact: recipient });
     // The NIP-17 gate is checked by the CLI before a DM is composed (flags.json of the interop gate).
     const messenger = new DirectMessenger(s.signer, { nip17: true, readReceipts: false }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
@@ -515,6 +757,7 @@ export class SovereignClient {
   async resume(personaId: string): Promise<OutboxRecord[]> {
     const s = await this.session(personaId);
     s.guard.invalidateProbe();
+    s.remote?.guard.invalidateProbe();
     return s.engine.resume();
   }
 
@@ -566,16 +809,16 @@ export class SovereignClient {
     return (await this.groupSession(personaId)).createGroup({ name, relays: s.persona.relays });
   }
 
-  async groupInvite(personaId: string, groupId: string, member: string): Promise<GroupHandle> {
-    const s = await this.session(personaId);
+  /** FR006-07: a member another persona already wrote to or invited needs `confirmReuse`. */
+  async groupInvite(personaId: string, groupId: string, member: string, opts: { confirmReuse?: boolean } = {}): Promise<GroupHandle> {
     const pubkey = normalizePubkey(member);
-    const mgr = await this.identities();
-    const warnings = await mgr.reuseWarnings(personaId, { contact: pubkey });
-    if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')}`);
+    await this.allowReuse(personaId, { contact: pubkey }, opts.confirmReuse, { group: true });
+    const s = await this.session(personaId);
     const gs = await this.groupSession(personaId);
+    // Recorded before the lookup: the relay already sees this persona ask for the member's key package.
+    await (await this.identities()).recordUsage(personaId, { contact: pubkey });
     const kp = await gs.findKeyPackage(pubkey, s.persona.relays);
     if (!kp) throw new Error('el invitado no ha publicado un key package en los relays de esta persona');
-    await mgr.recordUsage(personaId, { contact: pubkey });
     // Multi-device (FR025-06): add every current device of the persona in one commit.
     if (isExtendedGroupSession(gs)) return gs.invitePersona(groupId, pubkey, s.persona.relays);
     return gs.invite(groupId, kp);
@@ -591,10 +834,14 @@ export class SovereignClient {
    * Adds the devices of `member` (default: this persona) that are not in the group yet. Admins commit
    * directly; other members send Add proposals for an admin to commit (FR025-06/09).
    */
-  async groupAddDevice(personaId: string, groupId: string, member?: string): Promise<{ committed: true; group: GroupHandle } | { committed: false; proposals: GroupProposal[] }> {
+  async groupAddDevice(personaId: string, groupId: string, member?: string, opts: { confirmReuse?: boolean } = {}): Promise<{ committed: true; group: GroupHandle } | { committed: false; proposals: GroupProposal[] }> {
+    const self = (await (await this.identities()).get(personaId)).pubkey;
+    const pubkey = member ? normalizePubkey(member) : self;
+    // FR006-07: adding the devices of someone else is a use of that contact, as an invitation is.
+    if (pubkey !== self) await this.allowReuse(personaId, { contact: pubkey }, opts.confirmReuse, { group: true });
     const s = await this.session(personaId);
     const gs = await this.extended(personaId);
-    const pubkey = member ? normalizePubkey(member) : s.persona.pubkey;
+    if (pubkey !== self) await (await this.identities()).recordUsage(personaId, { contact: pubkey });
     await gs.sync(groupId);
     const g = await gs.group(groupId);
     if (g.admins.includes(s.persona.pubkey)) return { committed: true, group: await gs.invitePersona(groupId, pubkey, s.persona.relays) };
@@ -613,19 +860,21 @@ export class SovereignClient {
     return (await this.extended(personaId)).removeDevice(groupId, leafIndex);
   }
 
-  /** Non-admin members propose; the proposal travels as a kind 445 group message (FR025-09). */
-  async groupPropose(personaId: string, groupId: string, p: { add?: string; remove?: string }): Promise<GroupProposal[]> {
+  /**
+   * Non-admin members propose; the proposal travels as a kind 445 group message (FR025-09). FR006-07: proposing to add
+   * someone another persona already wrote to or invited needs `confirmReuse`.
+   */
+  async groupPropose(personaId: string, groupId: string, p: { add?: string; remove?: string }, opts: { confirmReuse?: boolean } = {}): Promise<GroupProposal[]> {
+    const add = p.add ? normalizePubkey(p.add) : undefined;
+    if (add) await this.allowReuse(personaId, { contact: add }, opts.confirmReuse, { group: true });
     const s = await this.session(personaId);
     const gs = await this.extended(personaId);
-    if (p.add) {
-      const pubkey = normalizePubkey(p.add);
-      const mgr = await this.identities();
-      const warnings = await mgr.reuseWarnings(personaId, { contact: pubkey });
-      if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')}`);
+    if (add) {
       await gs.sync(groupId);
-      const kps = await gs.missingDeviceKeyPackages(groupId, pubkey, s.persona.relays);
+      // Recorded before the lookup: the relay already sees this persona ask for their key packages.
+      await (await this.identities()).recordUsage(personaId, { contact: add });
+      const kps = await gs.missingDeviceKeyPackages(groupId, add, s.persona.relays);
       if (!kps.length) throw new Error('el invitado no tiene key packages de dispositivos fuera del grupo');
-      await mgr.recordUsage(personaId, { contact: pubkey });
       return gs.proposeAdd(groupId, kps);
     }
     if (p.remove) return gs.proposeRemove(groupId, { pubkey: normalizePubkey(p.remove) });
@@ -894,7 +1143,7 @@ export class SovereignClient {
    * (FR006-06) and onion-only reaches .onion hosts only (FR021-03). Every guard of a persona comes from here, so none
    * forgets part of the policy (IR-2026-10-02: group media and the rotation worker did not carry onion-only).
    */
-  private guardFor(persona: PersonaConfig, urls: string[]): NetworkGuard {
+  private guardFor(persona: Pick<PersonaConfig, 'id' | 'network' | 'onionOnly'>, urls: string[]): NetworkGuard {
     return new NetworkGuard({
       mode: persona.network,
       ...(persona.onionOnly ? { onionOnly: true } : {}),
@@ -917,13 +1166,17 @@ export class SovereignClient {
    * ciphertext to the persona's Blossom servers (kind 10063; blob-store fallback) → kind 9 with `imeta`.
    * FR019-03: every sovereign profile has stripFileMetadata, so an image whose metadata cannot be removed
    * (HEIC, TIFF/RAW, an image format the sanitizer does not know) is refused before anything is uploaded.
+   * FR006-07: a file another persona of this device already sent needs `confirmReuse`; it is recorded once it passes
+   * the sanitizer, before the upload.
    */
   async groupSendFile(
     personaId: string,
     groupId: string,
     file: { data: Uint8Array; filename: string; mimeType: string; caption?: string },
-    opts: { servers?: string[]; sanitize?: boolean } = {},
+    opts: { servers?: string[]; sanitize?: boolean; confirmReuse?: boolean } = {},
   ): Promise<GroupMediaReference> {
+    const use = { fileHash: await fileDigest(file.data) };
+    await this.allowReuse(personaId, use, opts.confirmReuse);
     const s = await this.session(personaId);
     let data = file.data;
     if (opts.sanitize ?? true) {
@@ -931,6 +1184,7 @@ export class SovereignClient {
       if (refusesUnsanitized(clean, this.profileFor(s.persona).stripFileMetadata && 'images', file.mimeType)) throw new UnsanitizableFileError(clean.format, clean.reason);
       data = clean.data;
     }
+    await (await this.identities()).recordUsage(personaId, use);
     const gs = await this.extended(personaId);
     const userServers = opts.servers ?? (await fetchServerList(s.pool, s.persona.relays, s.persona.pubkey).catch(() => []));
     const servers = selectUploadServers({ userServers, encrypted: true, ...(this.opts.blobStore ? { fallback: this.opts.blobStore } : {}) });
@@ -1039,11 +1293,15 @@ export class SovereignClient {
   }
 
   close() {
-    for (const s of this.sessions.values()) {
-      void s.groups?.then((g) => g.close(), () => undefined);
-      s.engine.stop();
-      s.pool.close();
-    }
+    for (const s of this.sessions.values()) this.closeSession(s);
     this.sessions.clear();
+  }
+
+  private closeSession(s: Session): void {
+    void s.groups?.then((g) => g.close(), () => undefined);
+    s.engine.stop();
+    s.pool.close();
+    s.remote?.signer.close();
+    s.remote?.pool.close();
   }
 }

@@ -1,11 +1,25 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { generateSecretKey, getPublicKey, verifyEvent } from '@sedecim/nostr-core';
-import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
+import { NetworkBlockedError, RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestRelay } from '@sedecim/test-relay';
 import { LocalSigner, Nip46Bunker, Nip46Signer, parseBunkerUrl, formatBunkerUrl, createNostrConnect, parseNostrConnect, describePermissions, WEB_NIP46_PERMISSIONS, NOSTR_CONNECT_KIND } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
+const PRIVACY_NETWORK_UNAVAILABLE = 'No enviado: red de privacidad no disponible';
+
+/** A pool whose network policy refuses every connection while `down` is set, as Tor-only does without Tor. */
+function policyPool() {
+  const state = { down: true };
+  const pool = new RelayPool({
+    autoReconnect: false,
+    webSocketFactory: (url) => {
+      if (state.down) throw new NetworkBlockedError(PRIVACY_NETWORK_UNAVAILABLE, url);
+      return factory(url);
+    },
+  });
+  return { pool, state };
+}
 
 describe('LocalSigner', () => {
   it('signs, encrypts and zeroizes', async () => {
@@ -144,5 +158,79 @@ describe('NIP-46 remote signing (FR-004)', () => {
     // Other devices keep working.
     expect(verifyEvent(await other.signEvent({ kind: 1, content: 'sigue' }))).toBe(true);
     for (const r of [stolen, other]) r.close();
+  });
+
+  it('refused by the network policy, a request fails as a block with its reason and listens again once the relays are reachable (FR004-08)', async () => {
+    const { pool, state } = policyPool();
+    const remote = new Nip46Signer(await bunker.pointer(), { pool, timeoutMs: 5000 });
+    try {
+      const refused = await remote.connect().then(() => undefined, (e: unknown) => e);
+      expect(refused).toBeInstanceOf(NetworkBlockedError);
+      expect((refused as Error).message).toBe(PRIVACY_NETWORK_UNAVAILABLE);
+      // The privacy network is back: the same signer subscribes again and gets its answers.
+      state.down = false;
+      await remote.connect();
+      expect(await remote.getPublicKey()).toBe(getPublicKey(userKey));
+    } finally {
+      remote.close();
+      pool.close();
+    }
+  });
+
+  it('concurrent requests share one subscription for the answers (FR004-08)', async () => {
+    const pool = new RelayPool({ webSocketFactory: factory });
+    let subscriptions = 0;
+    const subscribe = pool.subscribe.bind(pool);
+    pool.subscribe = (...args) => (subscriptions++, subscribe(...args));
+    const remote = new Nip46Signer(await bunker.pointer(), { pool, timeoutMs: 5000 });
+    try {
+      await Promise.allSettled([remote.connect(), remote.nip44Encrypt(getPublicKey(generateSecretKey()), 'x'), remote.getPublicKey()]);
+      expect(subscriptions).toBe(1);
+    } finally {
+      remote.close();
+      pool.close();
+    }
+  });
+
+  it('a known pubkey is not asked for, and an event signed with another key is refused (FR004-08)', async () => {
+    const pointer = await bunker.pointer();
+    const known = new Nip46Signer(pointer, { pool: clientPool, timeoutMs: 5000, pubkey: getPublicKey(userKey) });
+    const wrong = new Nip46Signer(pointer, { pool: clientPool, timeoutMs: 5000, pubkey: getPublicKey(generateSecretKey()) });
+    try {
+      await known.connect();
+      const asked = log.filter((l) => l.method === 'get_public_key').length;
+      expect(await known.getPublicKey()).toBe(getPublicKey(userKey));
+      expect(verifyEvent(await known.signEvent({ kind: 1, content: 'como la persona' }))).toBe(true);
+      expect(log.filter((l) => l.method === 'get_public_key')).toHaveLength(asked);
+      // The signer answers for its own key, which is not the one this persona is: nothing signed by it is used.
+      await wrong.connect();
+      await expect(wrong.signEvent({ kind: 1, content: 'otra llave' })).rejects.toThrow(/invalid event/);
+    } finally {
+      known.close();
+      wrong.close();
+    }
+  });
+
+  it('a nostrconnect:// offer no relay can hear the answer to fails at once and is never shown (FR004-08)', async () => {
+    const { pool } = policyPool();
+    let shown = 0;
+    try {
+      const blocked = await Nip46Signer.fromNostrConnect(createNostrConnect({ relays: [relay.url] }), { pool, timeoutMs: 5000, onReady: () => shown++ }).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(blocked).toBeInstanceOf(NetworkBlockedError);
+      expect((blocked as Error).message).toBe(PRIVACY_NETWORK_UNAVAILABLE);
+    } finally {
+      pool.close();
+    }
+    // A relay that is just unreachable (no policy involved) fails the same way, as a plain error.
+    const unreachable = new RelayPool({ webSocketFactory: factory, autoReconnect: false });
+    try {
+      await expect(Nip46Signer.fromNostrConnect(createNostrConnect({ relays: ['ws://127.0.0.1:1'] }), { pool: unreachable, timeoutMs: 5000, onReady: () => shown++ })).rejects.toThrow(/no relay to hear the signer on/);
+    } finally {
+      unreachable.close();
+    }
+    expect(shown).toBe(0);
   });
 });

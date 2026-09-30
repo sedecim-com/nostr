@@ -41,12 +41,12 @@ Cada fila tiene el nivel de evidencia más bajo que alcanzan todas sus tareas de
 
 | Perfil o capacidad | Tipo | Nivel de evidencia | Tareas hechas | Abiertas (sprint) |
 |---|---|---|---:|---|
-| convenience (SaaS) | Perfil | En curso | 10 de 15 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR004-02 (S11), NFR001-04 (S11) y 2 más |
+| convenience (SaaS) | Perfil | En curso | 10 de 15 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR004-02 (S11), NFR001-04 (S11) y 1 más |
 | private-resilient | Perfil | En curso | 13 de 14 | VAULT-07 (S10) |
 | institutional | Perfil | Merged | 14 de 14 | — |
 | sovereign (self-hosted) | Perfil | En curso | 9 de 10 | NFR003-03 (S11), NFR003-04 (Diferido) |
 | sovereign-tor | Perfil | Merged | 7 de 7 | FR020-02 (Diferido), FR020-06 (Diferido) |
-| Identidad, personas y custodia en el dispositivo | Capacidad | En curso | 27 de 30 | FR003-06 (S9), FR003-07 (S9), FR006-04 (Diferido), FR004-08 (Diferido), FR007-06 (S10) |
+| Identidad, personas y custodia en el dispositivo | Capacidad | En curso | 27 de 30 | FR003-06 (S9), FR003-07 (S9), FR004-08 (Diferido), FR007-06 (S10) |
 | Custodia gestionada y Nitro Enclave | Capacidad | En curso | 13 de 16 | FR005-05 (S14), FR026-04 (S11), FR005-13 (S11), FR005-09 (Diferido), FR005-10 (Diferido) |
 | Entrega fiable (outbox, quorum, acuses) | Capacidad | En curso | 19 de 20 | NFR002-03 (S11) |
 | DMs NIP-17 y canales NIP-29 | Capacidad | Merged | 8 de 8 | — |
@@ -178,7 +178,11 @@ npm run sovereign -- group history --persona <id>   # mensajes de grupo leídos,
 npm run sovereign -- dm send --persona <id> --to NPUB "hola"  # a los relays de DM (10050) del destinatario, como la web
 npm run sovereign -- dm watch --persona <id>    # DMs y acuses según llegan a tus relays de DM (Ctrl-C para salir)
 npm run sovereign -- persona create --label Fuente --relay ws://<onion>.onion --onion-only   # solo Tor y .onion
+npm run sovereign -- persona import --key-file llave.txt --npub npub1… --label Fuente --relay ws://<onion>.onion --tor   # nsec o ncryptsec: custodia local
+npm run sovereign -- persona connect --bunker-file bunker.txt --label Fuente --relay ws://<onion>.onion --tor   # signer NIP-46 por Tor: custodia external
 ```
+Custodia de cada persona según su llave real, signer NIP-46 (`bunker://` o `nostrconnect://`) por Tor y qué ve cada
+parte: [docs/sovereign-tor.md](docs/sovereign-tor.md#custodia-llave-en-el-dispositivo-o-signer-nip-46-fr004-08).
 
 ## Pruebas
 | Comando | Qué cubre |

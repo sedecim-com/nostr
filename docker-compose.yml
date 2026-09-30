@@ -170,6 +170,8 @@ services:
       INDEXER_POLICY_WORKSPACE: ${INDEXER_POLICY_WORKSPACE:-}
       RETENTION_INTERVAL_MS: ${RETENTION_INTERVAL_MS:-3600000}
       PUBLIC_BASE_URL: ${INDEXER_PUBLIC_URL:-http://localhost:8081}
+      # FR014-04: the web asks for unread counts and search from the browser.
+      CORS_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
       PORT: "8081"
       # NFR004-01: Prometheus exporter (internal port, not published). ACK probe off unless set (ms).
       METRICS_PORT: "9464"

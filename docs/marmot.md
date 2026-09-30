@@ -21,7 +21,9 @@ relay autenticado con compuerta `#p` y relay `.onion` vía SOCKS:
 - **self-update** (`rotate`): avanza la época → post-compromise security; el grupo sigue operativo;
 - relays solo ven ciphertext; el estado MLS (claves privadas, árbol) se guarda **cifrado** en el
   `encrypted-store` de la persona (XChaCha20-Poly1305, nombres HMAC) y sobrevive reinicios;
-- compartimentación: no se puede invitar a otra identidad high-risk propia.
+- compartimentación: no se puede invitar a otra identidad high-risk propia, e invitar a alguien que otra persona del
+  dispositivo ya invitó o a quien ya escribió, o enviar un archivo que ya envió, exige confirmación explícita
+  (`--confirm-reuse`; FR006-07, `apps/sovereign-client/test/compartment.test.ts`).
 
 ## Vulnerabilidad encontrada y mitigada (ts-mls ≤ 2.0.0-rc.10)
 `ts-mls` rc.10 solo exigía `UpdatePath` en commits con **más de una** propuesta Update/Remove.

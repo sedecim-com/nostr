@@ -68,6 +68,15 @@ describe('deploy/k8s copies of the compose config files', () => {
     expect(stage.identityServiceUrl).toBe('https://nostr-stage-id.ai.acce.so');
   });
 
+  it('FR014-04: the web signs its mirror queries for the URL the indexer checks, and the indexer answers the web origin', () => {
+    // NIP-98 `u` = the web's `mirror` + path: it must be the indexer's PUBLIC_BASE_URL, or every query gets a 401.
+    expect(JSON.parse(read('infra/web/config.json')).mirror).toBe(composeDefault('INDEXER_PUBLIC_URL'));
+    expect(JSON.parse(read('deploy/k8s/overlays/stage/files/web-config.json')).mirror).toBe(/- INDEXER_PUBLIC_URL=(\S+)/.exec(read('deploy/k8s/overlays/stage/kustomization.yaml'))?.[1]);
+    expect(compose).toMatch(/\n {2}indexer:\n[\s\S]*?CORS_ORIGINS: \$\{WEB_ORIGIN:-http:\/\/localhost:8080\}[\s\S]*?\n {2}indexer-2:/);
+    expect(read('deploy/k8s/base/indexer.yaml')).toMatch(/- name: CORS_ORIGINS\n\s+value: \$\(WEB_ORIGIN\)/);
+    expect(read('compose.tls.yml')).toMatch(/\n {2}indexer:\n[\s\S]*?CORS_ORIGINS: https:\/\/\$\{DOMAIN\}/);
+  });
+
   it('the stage secure relay config only changes relay_url', () => {
     const strip = (s: string) => s.replace(/^relay_url = .*$/m, '');
     expect(strip(read('deploy/k8s/overlays/stage/files/secure-relay.config.toml'))).toBe(strip(read('infra/secure-relay/config.toml')));

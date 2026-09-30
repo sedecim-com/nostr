@@ -4213,8 +4213,8 @@
     "FR005-05"
    ],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Parcial. Commit 8ffb261 (PR #407): con ENCLAVE_ALLOW_EXPORT=1 el enclave ya no exporta por orden del padre: exige el token de Acceso del dueño y lo verifica dentro (services/managed-signer/src/enclave/proof.ts, services/managed-signer/src/enclave/enclave.ts): RS256 con las llaves de la user pool del archivo ENCLAVE_PROOF_JWKS (algoritmo fijado por el enclave, nunca leído del token), iss, token_use, aud o client_id, exp, iat, un jti de un solo uso y un inicio de sesión con contraseña de los últimos 300 s juzgado con el reloj del NSM, no con el del padre. Las llaves se sellan con su dueño (blob v2 con owner_tag, un hash, en el contexto de KMS y en el AAD): el token debe ser del dueño del blob y los blobs v1 no se exportan. Sin verificador el enclave rechaza toda exportación, y la imagen no arranca con la exportación activa sin la pool fijada; el API reenvía el token que ya autenticó la llamada (services/managed-signer/src/api.ts) y los rechazos llegan como 401 o 403. Pruebas: services/managed-signer/test/enclave-proof.test.ts (verificador: otro emisor, cliente o token_use, otra llave con el mismo kid, alg none, HS256 con la llave pública, caducado, sin jti, sesión de 301 s; enclave: sin prueba, de otro usuario, sin dueño, etiqueta reescrita, reloj del NSM, un solo uso; configuración que no arranca) y services/managed-signer/test/enclave-signer.test.ts. Documentación: docs/managed-enclave.md y docs/security/internal-review-2026-09.md (IR-2026-09-01 corregido en código). · Falta, y necesita la cuenta de AWS (FR005-05): construir la EIF con el jwks.json de la user pool de Acceso y las variables ENCLAVE_PROOF_* (hoy el archivo lo da el entorno: «fijado en la imagen» lo será cuando exista la imagen), comprobar con un token real de Cognito y un NSM real que la exportación funciona una vez y que el mismo token, el de otro usuario y el de un inicio de sesión de más de 5 minutos se rechazan, y documentar la rotación de las llaves de la pool (imagen nueva y PCR nuevos). Límites declarados: el padre ve el token que el usuario le manda y puede usarlo una vez dentro de los 300 s de ese inicio de sesión para exportar cualquier llave de ese dueño con una contraseña suya (lo cierra una prueba que el padre no pueda retransmitir, por ejemplo una passkey; FR005-10 cifra la contraseña hacia el enclave); el dueño de una llave nueva lo declara el padre al crearla; la memoria de jti se pierde si el enclave se reinicia.",
    "issue": 279
   },
   {
@@ -4283,9 +4283,10 @@
     "FR006-02"
    ],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 283
+   "status": "Hecho",
+   "evidence": "Commit f10cc49 (PR #410): cada persona puede publicar su perfil público (kind 0: nombre, descripción y avatar) con «Publicar perfil» en su tarjeta «Perfil público» (apps/web-saas/src/views/Profile.tsx, apps/web-saas/src/lib/profiles.ts), firmado por el signer de esa persona sea cual sea su custodia y enviado por su outbox a sus relays; los permisos NIP-46 de la web suman el kind 0 (packages/signer/src/nip46.ts). El perfil se muestra como «nombre · npub» en canales, mensajes directos y grupos (apps/web-saas/src/views/ChannelsView.tsx, apps/web-saas/src/views/DmView.tsx, apps/web-saas/src/views/GroupsView.tsx). En una persona seudónima no se publica nada sin la elección explícita de marcar que el perfil es público y puede vincular identidades, tampoco al crear la persona; una configuración Tor-only no publica ni sube nada desde el navegador; «Retirar perfil» publica uno vacío que sustituye al anterior. La lectura es defensiva (packages/messaging/src/profile.ts): tope de longitud, sin caracteres de control, de ancho cero ni de dirección, solo avatares http o https, y caché por persona en memoria con vigencia de 10 minutos. Solo se buscan perfiles donde no dicen nada nuevo a los relays de la persona (autores de los mensajes del canal, la propia persona y sus contactos): no se busca a quien escribe sin ser contacto ni a los miembros de un grupo seguro, salvo que el usuario lo pida. Los avatares ajenos no se descargan hasta «Mostrar avatares» cuando las previews remotas están bloqueadas, y la descarga va sin cookies ni referrer, sin redirecciones, comprobada contra el hash cuando la dirección es de Blossom, solo JPEG, PNG o WebP de hasta 1 MB. El avatar propio se sube sin metadatos. Pruebas: packages/messaging/test/profile.test.ts, apps/web-saas/test/profile.test.ts, apps/web-saas/test/nip46-permissions.test.ts (en los dos sentidos), packages/profiles/test/profiles.test.ts (textos de consecuencias en el catálogo revisado, packages/profiles/src/disclose.ts) y los E2E de navegador tests/browser/web-saas.e2e.ts, tests/browser/web-leaks.e2e.ts y tests/browser/web-groups.e2e.ts (job test de CI). Documentación: docs/threat-model.md (qué se publica y cuándo, qué se busca, qué ve cada parte, riesgo residual). Límites declarados: un perfil publicado se copia y se conserva fuera de tu control, así que retirarlo no borra esas copias; el servidor de un avatar ajeno ve la IP de quien lo mira y cuándo, solo tras «Mostrar avatares» o con las previews remotas activadas; el CLI no publica perfiles.",
+   "issue": 283,
+   "evidenceState": "merged"
   },
   {
    "id": "FR014-04",
@@ -4301,9 +4302,10 @@
     "FR023-05"
    ],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 284
+   "status": "Hecho",
+   "evidence": "Commit 65a8fc1 (PR #404): la vista de canales de la web (apps/web-saas/src/views/ChannelsView.tsx, apps/web-saas/src/lib/mirror.ts) muestra contadores de no leídos y un buscador que piden al mirror con NIP-98. El «leído hasta» vive cifrado en el vault de cada persona y nunca se envía: el indexer (services/indexer/src/api.ts) devuelve las horas de los mensajes recientes de cada canal legible y los no leídos se cuentan en el navegador. Respeta la política: la membresía NIP-29 y, en una organización, la política de lectura (services/indexer/test/membership.test.ts, services/indexer/test/policy.test.ts); por perfil, packages/profiles/src/mirror.ts (convenience e institutional consultan el mirror; las identidades pseudónimas y Tor-only no, con los textos en el catálogo revisado de docs/disclosures.md). Pruebas: apps/web-saas/test/mirror.test.ts (contra el indexer real por HTTP), services/indexer/test/indexer.test.ts, packages/profiles/test/profiles.test.ts y tests/scripts/deploy-manifests.test.ts. Documentación: docs/architecture.md y docs/institutional.md. Límites declarados: no hay búsqueda local en los perfiles sin mirror ni sincronización del cursor entre navegadores, y en modo institucional los canales confidenciales y secretos no tienen contador.",
+   "issue": 284,
+   "evidenceState": "merged"
   },
   {
    "id": "FR015-04",
@@ -4318,9 +4320,10 @@
     "FR015-02"
    ],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 285
+   "status": "Hecho",
+   "evidence": "Commit 733b48d (PR #405): los canales de la web (apps/web-saas/src/views/ChannelsView.tsx, apps/web-saas/src/lib/channels.ts, packages/messaging/src/nip29.ts) reaccionan con kind 7 (NIP-25, con h, e, p y k) y retiran la reacción con kind 5 (NIP-09); «Responder» publica un kind 9 con los dos marcadores NIP-10 (root y reply, también en una respuesta directa) y el q de NIP-C7, anclado en la raíz del hilo del padre, que es lo que Buzz exige; y borra mensajes con kind 9005 (NIP-29), para el autor y para un admin, tras un diálogo con un texto del catálogo revisado que dice que el borrado no retira las copias que ya circularon (packages/profiles/src/disclose.ts). channelView solo aplica un 9005 del autor del mensaje o de un admin de la lista 39001 firmada por la llave que firma el 39000 del canal, y un kind 5 solo sobre eventos de quien lo firma: un relay que aceptara cualquier borrado no basta para ocultar mensajes ajenos. Todo sale por el outbox, y los permisos NIP-46 de la web suman los kinds 5, 7 y 9005 (packages/signer/src/nip46.ts, comprobado en los dos sentidos por apps/web-saas/test/nip46-permissions.test.ts). Pruebas: packages/messaging/test/channels.test.ts, apps/web-saas/test/channel-collab.test.ts (la sesión real de la web contra el relay de pruebas con moderación, packages/test-relay/src/relay.ts y packages/test-relay/test/group-moderation.test.ts) y packages/profiles/test/profiles.test.ts. Contra Buzz real: el gate FR015-04 de tests/interop/buzz.interop.test.ts, que corre en el job stack de CI con la imagen fijada y pasó en la PR: respuesta directa y anidada, reacción leída por h, borrado con 9005 por el autor y por el owner (y que dejan de servirse) y rechazo del miembro sin permiso, con las mismas plantillas que la web. Lo que Buzz comprueba está en docs/buzz-integration.md. Límites declarados: el gate usa las plantillas y la vista de canal de la web, no el navegador (no hay E2E de navegador contra Buzz); la retirada de la reacción con kind 5 solo se registra en interop-report.json, porque NIP-09 no está en el NIP-11 de Buzz; una reacción repetida recibe duplicate: de Buzz y la interfaz ofrece quitarla en vez de repetirla; la autoridad del canal es la llave que firma su 39000 y no se contrasta con el self de NIP-11; el CLI no tiene respuestas en canales.",
+   "issue": 285,
+   "evidenceState": "merged"
   },
   {
    "id": "PANEL-06",
@@ -4353,9 +4356,10 @@
     "FR006-01"
    ],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 287
+   "status": "Hecho",
+   "evidence": "Commit 0afa0a4 (PR #408): antes de usar desde una persona un contacto o un archivo que otra persona del dispositivo ya usó, la web y el CLI avisan (qué otra persona y quién podría relacionarlas) y no envían nada sin una confirmación explícita, también para archivos. El registro de uso es por persona y vive en su propio almacén cifrado (packages/identity/src/usage.ts, packages/identity/src/manager.ts): una llave aleatoria de la persona y una etiqueta HMAC-SHA256 por contacto o archivo, sin npub, hash, nombre ni fecha, y fuera de los backups y del Continuity Vault; lo que el CLI guardaba antes en una lista común pasa al registro de cada persona la primera vez que se usa. Cuenta como uso escribir un DM, invitar a un grupo seguro, proponer o añadir dispositivos de alguien y enviar un archivo (adjunto de DM, imagen de canal o media de grupo); el uso se registra antes de la primera petición de red, después del saneador de metadatos para un archivo. En la web, un diálogo (apps/web-saas/src/views/ReuseConfirm.tsx, apps/web-saas/src/lib/compartment.ts) en los mensajes directos, los canales y los grupos (apps/web-saas/src/views/DmView.tsx, apps/web-saas/src/views/ChannelsView.tsx, apps/web-saas/src/views/GroupsView.tsx); en el CLI, el comando termina con error y se repite con --confirm-reuse (apps/sovereign-client/src/app.ts, apps/sovereign-client/src/cli.ts). Pruebas: packages/identity/test/usage.test.ts, apps/sovereign-client/test/compartment.test.ts (sin confirmación no sale nada, con ella sí y queda registrado), apps/web-saas/test/compartment.test.ts y el E2E de navegador tests/browser/web-saas.e2e.ts (job test de CI). Documentación: docs/threat-model.md (qué se guarda, qué ve cada parte, riesgo residual). Límites declarados: el registro es de cada dispositivo, así que un uso desde otro dispositivo o anterior a restaurar un backup no se detecta; un archivo con los mismos píxeles y otros bytes cuenta como otro; confirmar el aviso deja constancia de que el usuario lo aceptó, no borra el riesgo; quien abra el almacén local también tiene las llaves y puede comprobar si una npub o un archivo concretos están en el registro, no listarlos.",
+   "issue": 287,
+   "evidenceState": "merged"
   },
   {
    "id": "FR025-14",

@@ -14,7 +14,7 @@ import {
 } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import type { Vault } from './vault';
-import type { SealedKeyOps } from './enclave/client';
+import { EnclaveError, type SealedKeyOps } from './enclave/client';
 import { MemoryKeyRegistry, PubkeyAlreadyManagedError, type KeyExit, type KeyRecord, type KeyRegistry, type UsageRecord } from './registry';
 import { MemoryDeviceStore, type DeviceRevocation, type DeviceStore } from './devices';
 import { DEFAULT_RATE_LIMITS, DEFAULT_SCRYPT_LIMITS, ScryptGate, SigningRateLimiter, type RateLimitConfig, type ScryptLimitConfig } from './ratelimit';
@@ -32,6 +32,16 @@ export interface NewKeyOptions {
 export class ManagedSignerError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
+  }
+}
+
+/** The enclave's own refusals (FR005-09: no proof, not the owner's, already used) reach the caller as the 4xx they are. */
+async function enclaveCall<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof EnclaveError && err.status) throw new ManagedSignerError(err.status, err.message);
+    throw err;
   }
 }
 
@@ -290,7 +300,8 @@ export class ManagedSigner {
   }
 
   async create(owner: string, principal: string, opts: NewKeyOptions = {}): Promise<KeyRecord> {
-    if (this.opts.sealedKeys) return this.persist(await this.opts.sealedKeys.generate(), owner, principal, 'created', opts);
+    const sealedKeys = this.opts.sealedKeys;
+    if (sealedKeys) return this.persist(await enclaveCall(() => sealedKeys.generate(owner)), owner, principal, 'created', opts);
     const sk = generateSecretKey();
     try {
       return await this.store(sk, owner, principal, 'created', opts);
@@ -311,7 +322,7 @@ export class ManagedSigner {
     // logN is attacker-chosen: 2^20 would make scrypt allocate 1 GiB per request.
     if (logN > MAX_IMPORT_LOG_N) throw new ManagedSignerError(400, `ncryptsec logN ${logN} is above ${MAX_IMPORT_LOG_N}: re-encrypt it with a lower cost to import`);
     const sealed = this.opts.sealedKeys;
-    if (sealed) return this.persist(await this.scrypt('import', owner, () => sealed.importNcryptsec(ncryptsec, password)), owner, principal, 'imported', opts);
+    if (sealed) return this.persist(await this.scrypt('import', owner, () => enclaveCall(() => sealed.importNcryptsec(owner, ncryptsec, password))), owner, principal, 'imported', opts);
     let secretKey: Uint8Array;
     try {
       ({ secretKey } = await this.scrypt('import', owner, () => nip49.decryptKeyAsync(ncryptsec, password, { maxLogN: MAX_IMPORT_LOG_N })));
@@ -417,14 +428,17 @@ export class ManagedSigner {
    * FR-026 step 1: export for migration to local custody. Returns an ncryptsec and a challenge the
    * user must sign with the exported key to prove the migration worked.
    */
-  async export(keyId: string, owner: string, principal: string, password: string, logN = 18): Promise<{ ncryptsec: string; challenge: string }> {
+  async export(keyId: string, owner: string, principal: string, password: string, logN = 18, proof?: string): Promise<{ ncryptsec: string; challenge: string }> {
     const k = await this.key(keyId, owner);
     if (password.length < 12) throw new ManagedSignerError(400, 'export password must be at least 12 characters');
     const sealed = this.opts.sealedKeys;
+    // FR005-09: in the enclave tier the owner's Acceso token travels on to the enclave, which verifies it; the parent's own
+    // checks (recent sign-in, ownership of the record) are not what lets the key out.
+    if (sealed && !proof) throw new ManagedSignerError(401, 'export from the enclave needs the owner\'s Acceso token');
     const ncryptsec = await this.scrypt('export', owner, async () => {
       const secret = await this.secretOf(k);
       try {
-        return sealed ? await sealed.exportNcryptsec(secret, k.pubkey, password, logN) : await nip49.encryptKeyAsync(secret, password, logN, 0x00);
+        return sealed ? await enclaveCall(() => sealed.exportNcryptsec(secret, k.pubkey, password, logN, proof!)) : await nip49.encryptKeyAsync(secret, password, logN, 0x00);
       } finally {
         wipe(secret);
       }

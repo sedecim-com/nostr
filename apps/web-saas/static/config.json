@@ -2,6 +2,7 @@
   "mode": "self-hosted",
   "relays": ["ws://localhost:3000"],
   "secureRelays": ["ws://localhost:7000"],
+  "mirror": "http://localhost:8081",
   "buzzMedia": "http://localhost:3000/media",
   "blobStore": "http://localhost:8085",
   "identityService": "http://localhost:8082",
