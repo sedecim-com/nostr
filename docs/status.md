@@ -14,8 +14,8 @@
 | Estado | Tareas | Story points |
 |---|---:|---:|
 | Hecho | 182 | 481 |
-| Parcial | 26 | 88 |
-| Pendiente | 35 | 139 |
+| Parcial | 27 | 91 |
+| Pendiente | 34 | 136 |
 | Descartado | 6 | 21 |
 
 Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
@@ -61,7 +61,7 @@ Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
 | [NFR003-03](https://github.com/sedecim-com/nostr/issues/251) Simulacro completo de RPO/RTO en stage | S11 | Pendiente | NFR001-03 |
 | [FR026-04](https://github.com/sedecim-com/nostr/issues/253) Salida de la custodia, borrado verificable y derechos ARCO | S11 | Parcial | FR026-01, FR005-13 |
 | [FR005-13](https://github.com/sedecim-com/nostr/issues/255) KMS y Secrets Manager validados en la cuenta y región reales | S11 | Pendiente | NFR001-01 |
-| [SEC-12](https://github.com/sedecim-com/nostr/issues/258) Inventario de la superficie de ataque de Buzz desplegado | S11 | Pendiente | NFR001-01, BUZZ-07 |
+| [SEC-12](https://github.com/sedecim-com/nostr/issues/258) Inventario de la superficie de ataque de Buzz desplegado | S11 | Parcial | NFR001-01, BUZZ-07 |
 | [SEC-11](https://github.com/sedecim-com/nostr/issues/257) Tag de auditoría firmado y v1.0.0-rc.1 | S12 | Pendiente | SEC-06, SEC-07, SEC-13, FR025-11, VAULT-03, VAULT-04, FR026-04, FR005-13, OPS-18, DEC-10, REL-01 |
 | [SEC-01](https://github.com/sedecim-com/nostr/issues/192) Revisión criptográfica independiente (NIP-44/49/59, MLS, key service) | S14 | Parcial | SEC-03, FR005-03, SEC-06, SEC-07, SEC-11 |
 | [SEC-02](https://github.com/sedecim-com/nostr/issues/193) Pentest de API, relay, key service y cliente | S15 | Parcial | OPS-02, FR005-04, FR023-03, NFR001-01, SEC-11, SEC-12, SEC-08 |
