@@ -28,8 +28,10 @@ describe('scripts/init-env.sh (OPS-03)', () => {
     const env = parse(envFile);
     expect(statSync(envFile).mode & 0o777).toBe(0o600);
     expect(Object.entries(env).filter(([, v]) => v === 'CHANGE_ME')).toEqual([]);
-    for (const k of ['BUZZ_RELAY_PRIVATE_KEY', 'INDEXER_NSEC', 'ROTATION_WORKER_NSEC']) expect(getPublicKey(hexToBytes(env[k]!))).toMatch(/^[0-9a-f]{64}$/);
-    expect(new Set([env.BUZZ_RELAY_PRIVATE_KEY, env.INDEXER_NSEC, env.ROTATION_WORKER_NSEC]).size).toBe(3);
+    // FR023-10: BUZZ_MEMBERSHIP_NSEC keeps the NIP-29 membership of the registered channels.
+    const identities = ['BUZZ_RELAY_PRIVATE_KEY', 'INDEXER_NSEC', 'ROTATION_WORKER_NSEC', 'BUZZ_MEMBERSHIP_NSEC'];
+    for (const k of identities) expect(getPublicKey(hexToBytes(env[k]!))).toMatch(/^[0-9a-f]{64}$/);
+    expect(new Set(identities.map((k) => env[k])).size).toBe(identities.length);
     // FR024-05: the key that encrypts the rotation worker's MLS state.
     expect(env.ROTATION_STATE_KEY).toMatch(/^[0-9a-f]{64}$/);
     // the owner's secret is only in the encrypted backup; .env gets the matching pubkey

@@ -1,5 +1,7 @@
 # FR023-04: polls the policy-engine allowlist and applies it to Buzz (pubkey_allowlist table) and to the
-# secure-relay (nauthz gRPC event admission on :50051). Stateless: one replica.
+# secure-relay (nauthz gRPC event admission on :50051). FR023-10: also the publish grants of each registered channel and
+# group (admission by `h`) and, with BUZZ_MEMBERSHIP_NSEC, the NIP-29 membership of the registered Buzz channels.
+# Stateless: one replica.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -56,6 +58,16 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: BUZZ_DATABASE_URL
               value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(POSTGRES_DB)$(POSTGRES_URL_QUERY)
+            # FR023-10: an owner or admin of each registered private channel. Optional: without it, no membership sync.
+            - name: BUZZ_MEMBERSHIP_NSEC
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: BUZZ_MEMBERSHIP_NSEC
+                  optional: true
+            # Buzz maps Host to a community and checks the NIP-42 relay tag: present the public URL, dial the service.
+            - name: BUZZ_MEMBERSHIP_RELAY
+              value: $(RELAY_URL)=ws://relay:3000
           volumeMounts:
             - name: tmp
               mountPath: /tmp

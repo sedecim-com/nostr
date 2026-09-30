@@ -157,6 +157,9 @@ describe.skipIf(!hasKubectl)('kubectl kustomize base + components/institutional 
     expect(allowlist).toBeDefined();
     expect(allowlist).toMatch(/name: POLICY_ENGINE_TOKEN\n\s+valueFrom:\n\s+secretKeyRef:\n\s+key: RELAY_ALLOWLIST_POLICY_TOKEN\n\s+name: acceso-nostr-secrets/);
     expect(allowlist).toMatch(/runAsNonRoot: true/);
+    // FR023-10: the NIP-29 membership identity only by reference, and optional; Buzz reached with its public URL.
+    expect(allowlist).toMatch(/name: BUZZ_MEMBERSHIP_NSEC\n\s+valueFrom:\n\s+secretKeyRef:\n\s+key: BUZZ_MEMBERSHIP_NSEC\n\s+name: acceso-nostr-secrets\n\s+optional: true/);
+    expect(allowlist).toMatch(/name: BUZZ_MEMBERSHIP_RELAY\n\s+value: \$\(RELAY_URL\)=ws:\/\/relay:3000/);
     expect(docs.some((d) => /^kind: Service$/m.test(d) && /^  name: relay-allowlist$/m.test(d) && /port: 50051/.test(d))).toBe(true);
     expect(out.stdout).toContain('event_admission_server = "http://relay-allowlist:50051"');
     expect(out.stdout).toMatch(/BUZZ_PUBKEY_ALLOWLIST: "true"/);

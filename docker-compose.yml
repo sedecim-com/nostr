@@ -391,6 +391,11 @@ services:
       ALLOWLIST_EXTRA_PUBKEYS: ${ALLOWLIST_EXTRA_PUBKEYS:-}
       ALLOWLIST_SYNC_INTERVAL_MS: ${ALLOWLIST_SYNC_INTERVAL_MS:-30000}
       ALLOWLIST_GRPC_PORT: "50051"
+      # FR023-10: NIP-29 membership of the channels registered in the policy-engine, on Buzz (empty key: off). The identity
+      # must be an owner or admin of each registered private channel. Buzz is reached at relay:3000 with its public URL.
+      BUZZ_MEMBERSHIP_NSEC: ${BUZZ_MEMBERSHIP_NSEC:-}
+      BUZZ_MEMBERSHIP_RELAY: ${RELAY_URL:-ws://localhost:3000}=ws://relay:3000
+      BUZZ_MEMBERSHIP_RELAY_KEY: ${BUZZ_MEMBERSHIP_RELAY_KEY:-}
       PORT: "8087"
     depends_on:
       postgres: { condition: service_healthy }

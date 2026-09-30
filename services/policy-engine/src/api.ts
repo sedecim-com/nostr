@@ -130,6 +130,8 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
     return engine.evaluate(body);
   }, 'bearer');
   svc.get('/v1/relay/allowlist', async () => ({ pubkeys: await engine.relayAllowlist() }), 'bearer');
+  // FR023-10: per-resource publish grants for the relays' admission by `h` (relay-allowlist).
+  svc.get('/v1/relay/grants', async () => ({ grants: await engine.relayPublishGrants() }), 'bearer');
 
   // FR024-05: the rotation worker reads them with its service token, so its Nostr key need not be a policy admin.
   svc.get('/v1/rotations', async (req) => {

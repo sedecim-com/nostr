@@ -110,6 +110,24 @@ describe('rotation worker (FR024-02)', () => {
     expect((await w.admin.group(w.groupId)).epoch).toBe(epoch);
   });
 
+  it('FR023-10: a resource that names the group by its nostr_group_id (the h the relays see) is rotated too', async () => {
+    const w = await world();
+    const h = (await w.admin.group(w.groupId)).nostrGroupId;
+    expect(h).not.toBe(w.groupId);
+    const feed: RotationFeedItem[] = [
+      { at: 1, resourceId: h, reason: 'device b revoked', removedPubkey: w.bob.pubkey },
+      { at: 1, resourceId: 'ab'.repeat(32), reason: 'device b revoked', removedPubkey: w.bob.pubkey },
+    ];
+    const { stub, base } = await policy(feed, w.admin.pubkey);
+    const worker = new RotationWorker({ source: new HttpPolicySource({ baseUrl: base, signer: w.adminSigner }), session: w.admin, logger: createLogger({ write: () => {} }) });
+    const out = await worker.runOnce();
+    expect(out[0]).toMatchObject({ result: 'removed' });
+    // A group the worker holds under neither id is still an error, never marked done.
+    expect(out[1]).toMatchObject({ result: 'failed', error: expect.stringMatching(/group not held by the worker identity/) });
+    expect(stub.rotations().map((r) => r.status)).toEqual(['done', 'pending']);
+    expect((await w.admin.group(w.groupId)).members).not.toContain(w.bob.pubkey);
+  });
+
   it('never marks done on failure and retries with backoff', async () => {
     const w = await world();
     const feed: RotationFeedItem[] = [

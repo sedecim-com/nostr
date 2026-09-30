@@ -1,13 +1,15 @@
 import { createServer, type Http2Server, type ServerHttp2Stream } from 'node:http2';
 import type { AddressInfo } from 'node:net';
 import { rename, readFile, writeFile } from 'node:fs/promises';
+import type { RelayGrant } from '@sedecim/policy-client';
 import type { Pool } from '@sedecim/service-kit';
 
 /**
  * FR023-04: keeps the NIP-42 allowlist of the relays in sync with GET /v1/relay/allowlist.
  * - Buzz: rows of its `pubkey_allowlist` table (read on every NIP-42 AUTH when BUZZ_PUBKEY_ALLOWLIST=true,
  *   no restart needed). Only rows tagged with our note are managed; manual rows are left alone.
- * - secure-relay (nostr-rs-relay): event admission over gRPC (nauthz) by the NIP-42 authenticated pubkey.
+ * - secure-relay (nostr-rs-relay): event admission over gRPC (nauthz) by the NIP-42 authenticated pubkey and, for an
+ *   event with an `h` tag naming a registered channel or group, by its publish grants (FR023-10, GET /v1/relay/grants).
  * - Optionally a plain file (one hex pubkey per line) for other relays.
  * A failed fetch keeps the last applied list (never wipes the allowlist on a transient error).
  */
@@ -113,6 +115,15 @@ export interface AdmissionRequest {
   authPubkey?: string;
   eventPubkey?: string;
   kind?: number;
+  /** FR023-10: values of the event's `h` tags (NIP-29 channel, Marmot nostr_group_id). */
+  h?: string[];
+}
+
+/** nauthz `Event { ... repeated TagEntry tags = 6; }`, `TagEntry { repeated string values = 1; }`. */
+function tagValues(entry: Uint8Array): string[] {
+  const values: string[] = [];
+  for (const [f, w, v] of protoFields(entry)) if (f === 1 && w === 2) values.push(Buffer.from(v as Uint8Array).toString('utf8'));
+  return values;
 }
 
 export function decodeEventRequest(msg: Uint8Array): AdmissionRequest {
@@ -123,6 +134,10 @@ export function decodeEventRequest(msg: Uint8Array): AdmissionRequest {
       for (const [ef, ew, ev] of protoFields(v as Uint8Array)) {
         if (ef === 2 && ew === 2) out.eventPubkey = Buffer.from(ev as Uint8Array).toString('hex');
         if (ef === 4 && ew === 0) out.kind = ev as number;
+        if (ef === 6 && ew === 2) {
+          const [name, value] = tagValues(ev as Uint8Array);
+          if (name === 'h' && value !== undefined) (out.h ??= []).push(value);
+        }
       }
     }
   }
@@ -153,9 +168,16 @@ export function encodeEventReply(permit: boolean, message?: string): Uint8Array 
  * gRPC `nauthz.Authorization/EventAdmit` server (h2c). Permits an event only when the session is NIP-42
  * authenticated by an allowlisted pubkey, whatever the event author (gift wraps and MLS messages are
  * signed by ephemeral keys, so an author whitelist would break them).
+ *
+ * FR023-10: an event whose `h` names a registered channel or group also needs that pubkey among the resource's publish
+ * grants. An `h` the policy-engine does not know is left to the allowlist, as Buzz does with a channel nobody
+ * registered. Until the grants have been fetched once, events with an `h` are refused (fail closed). Service
+ * identities (`exempt`: the rotation worker commits in the groups it administers) skip the grants.
  */
 export class AdmissionServer {
   private allowed = new Set<string>();
+  private grants?: Map<string, Set<string>>;
+  private exempt = new Set<string>();
   private server?: Http2Server;
   ready = false;
 
@@ -164,9 +186,21 @@ export class AdmissionServer {
     this.ready = true;
   }
 
+  /** FR023-10: publish grants by resource id (matched case-insensitively against `h`). */
+  setGrants(grants: RelayGrant[], exempt: string[] = []) {
+    this.grants = new Map(grants.map((g) => [g.resourceId.toLowerCase(), new Set(g.pubkeys)]));
+    this.exempt = new Set(exempt);
+  }
+
   decide(r: AdmissionRequest): { permit: boolean; message?: string } {
     if (!r.authPubkey) return { permit: false, message: 'auth-required: NIP-42 authentication required to publish' };
     if (!this.allowed.has(r.authPubkey)) return { permit: false, message: 'restricted: pubkey not in the institutional allowlist' };
+    if (!r.h?.length || this.exempt.has(r.authPubkey)) return { permit: true };
+    if (!this.grants) return { permit: false, message: 'restricted: channel permissions not loaded yet, retry later' };
+    for (const h of r.h) {
+      const granted = this.grants.get(h.toLowerCase());
+      if (granted && !granted.has(r.authPubkey)) return { permit: false, message: `restricted: not allowed to publish in ${h}` };
+    }
     return { permit: true };
   }
 
@@ -221,6 +255,10 @@ export class AdmissionServer {
 
 export interface AllowlistSyncOptions {
   fetch: () => Promise<string[]>;
+  /** FR023-10: GET /v1/relay/grants, for the admission by `h` and the NIP-29 membership sync. */
+  fetchGrants?: () => Promise<RelayGrant[]>;
+  /** FR023-10: gets the grants on every sync (e.g. the Buzz membership sync); its errors are reported, not thrown. */
+  onGrants?: (grants: RelayGrant[]) => Promise<void>;
   sinks: AllowlistSink[];
   admission?: AdmissionServer;
   /** Service identities (indexer, gateway) always allowlisted so the mirror keeps working. */
@@ -233,6 +271,8 @@ export class AllowlistSync {
   lastSyncAt?: number;
   lastError?: string;
   current: string[] = [];
+  /** FR023-10: resources with publish grants in the last fetch. */
+  grants?: number;
   private timer?: ReturnType<typeof setInterval>;
 
   constructor(private readonly opts: AllowlistSyncOptions) {}
@@ -256,6 +296,18 @@ export class AllowlistSync {
       } catch (e) {
         errors.push(`${s.name}: ${(e as Error).message}`);
       }
+    }
+    // FR023-10: a failed fetch keeps the last grants in force, like the allowlist.
+    if (this.opts.fetchGrants) {
+      let grants: RelayGrant[] | undefined;
+      try {
+        grants = await this.opts.fetchGrants();
+        this.opts.admission?.setGrants(grants, this.opts.extraPubkeys);
+        this.grants = grants.length;
+      } catch (e) {
+        errors.push(`grants: ${(e as Error).message}`);
+      }
+      if (grants && this.opts.onGrants) await this.opts.onGrants(grants).catch((e: Error) => errors.push(`membership: ${e.message}`));
     }
     this.current = list;
     this.lastSyncAt = Date.now();

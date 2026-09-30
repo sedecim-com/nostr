@@ -46,6 +46,7 @@ Todas las rutas son JSON. "Admin" = NIP-98 firmado por una pubkey de `POLICY_ADM
 | `POST /v1/devices/:id/webauthn/options` · `POST /v1/devices/:id/webauthn/register` | dueño del dispositivo o admin | `PublicKeyCredentialCreationOptions` (base64url) · `Device` |
 | `POST /v1/sessions` | NIP-98 del dueño | `{token}` |
 | `POST /v1/evaluate` · `GET /v1/relay/allowlist` | servicio | `Decision` · `{pubkeys}` |
+| `GET /v1/relay/grants` | servicio | `{grants}`: por cada recurso `channel` y `group`, `{resourceId, kind, pubkeys}` de quien puede publicar en él (FR023-10) |
 | `GET /v1/rotations?status=pending\|done` | admin o servicio | `{rotations}` (cada una con `id` y `status`) |
 | `POST /v1/rotations/:id/done` | admin o servicio | `Rotation` |
 | `GET /v1/revocations?after=&limit=` | admin o servicio | `{revocations, latest, now}`: revocaciones de dispositivo (`{cursor, at, deviceId, reason}`, más antigua primero) con `cursor` mayor que `after`; `latest` = cursor de la última (FR024-04) |
@@ -92,7 +93,7 @@ error transitorio); antes de la primera sincronización el servidor gRPC deniega
 
 Identidades de servicio: el mirror (`INDEXER_NSEC`), el gateway de notificaciones y el worker de rotaciones
 (`ROTATION_WORKER_NSEC`) también se autentican con NIP-42; sus pubkeys van en `ALLOWLIST_EXTRA_PUBKEYS` para que no
-pierdan acceso.
+pierdan acceso. La de la sincronía de membresía (`BUZZ_MEMBERSHIP_NSEC`, FR023-10) se añade sola.
 
 Activación en compose:
 
@@ -126,6 +127,82 @@ NIP-42: se autentica y reenvía, y el outbox no lo cuenta como rechazo permanent
 
 **Riesgo residual**: nostr-rs-relay admite el evento (fail-open, solo registra un aviso) si no puede hablar con
 el servidor gRPC. Vigilar la salud de `relay-allowlist`; el lado de Buzz es fail-closed.
+
+## Publicar por recurso en los relays (FR023-10)
+
+El allowlist decide quién entra en los relays. Además, en cada canal y grupo que la organización registra, solo
+publica quien la política deja publicar ahí.
+
+**Los permisos.** `GET /v1/relay/grants` (token de servicio) da, por cada recurso `channel` y `group`, las pubkeys que
+pueden publicar en él:
+
+- Personas del allowlist: activas y con un dispositivo sin revocar.
+- Solo aquellas a las que `evaluate` deja publicar con alguno de sus dispositivos. El relay conoce la pubkey de la sesión
+  NIP-42, no el dispositivo, así que cuenta el que más permite.
+- Se calculan con `evaluate` sin registrar nada: no son decisiones de acceso y no aparecen en «Accesos».
+
+`relay-allowlist` los lee en cada sincronización (`ALLOWLIST_SYNC_INTERVAL_MS`), como el allowlist. Si la lectura
+falla, siguen en vigor los últimos.
+
+**Relay seguro: admisión por `h`.** El servidor de admisión (gRPC) mira las etiquetas `h` de cada evento:
+
+- Si una nombra un recurso registrado y la pubkey de la sesión no puede publicar en él, el relay responde
+  `blocked: restricted: not allowed to publish in <h>`.
+- Un `h` que nadie registró queda al allowlist, como hace Buzz con un canal no registrado.
+- Hasta que se leen los permisos por primera vez, un evento con `h` se rechaza (fail closed).
+- Las identidades de servicio (`ALLOWLIST_EXTRA_PUBKEYS`) no pasan por los permisos: el worker de rotaciones hace
+  commits en los grupos que administra.
+
+Un grupo Marmot se registra por el id que ven los relays: su `nostr_group_id`, el `h` de sus mensajes (kind 445).
+`sovereign group list` lo muestra como `h=…`. El worker de rotaciones acepta ese id o el id MLS. Registrado por el id
+MLS, el grupo tiene rotaciones, pero el relay seguro no puede aplicarle estos permisos.
+
+**Buzz: membresía NIP-29.** Buzz admite un mensaje con `h` en un canal privado solo de sus miembros
+(`restricted: not a channel member`). Con `BUZZ_MEMBERSHIP_NSEC`, `relay-allowlist` hace que los miembros de cada canal
+registrado sean quienes pueden publicar en él:
+
+- Añade con un kind 9000 a quien falta y quita con un kind 9001 a quien no tiene permiso.
+- Los owners y admins del canal se quedan: la organización gestiona esos roles en Buzz.
+- Lee el estado del canal que firma Buzz (39000–39002) y solo cuenta el firmado con su llave: NIP-11 `self` o
+  `BUZZ_MEMBERSHIP_RELAY_KEY`.
+- Conecta a `ws://relay:3000` presentando la URL pública (`RELAY_URL`), porque Buzz elige la comunidad por `Host`.
+
+Requisitos de cada canal registrado:
+
+- **Privado.** En un canal abierto Buzz admite a cualquiera: la membresía se sincroniza, pero no decide quién publica.
+  La salud lo marca en `notEnforced`.
+- **Con la identidad de `BUZZ_MEMBERSHIP_NSEC` como owner o admin.** Quien crea el canal la añade con un kind 9000 con
+  `["role", "admin"]`. Sin ese rol (`withoutAuthority`), o si no puede leer el canal (`unreachable`), se informa y no
+  se toca.
+- La web crea canales abiertos. En modo institucional, créalos privados desde un cliente NIP-29 y añade la identidad
+  como admin.
+
+`scripts/init-env.sh` genera `BUZZ_MEMBERSHIP_NSEC`; en Kubernetes va en `acceso-nostr-secrets` y es opcional. Su pubkey
+entra sola en el allowlist, para que Buzz acepte su NIP-42.
+
+`GET /health` de `relay-allowlist` informa de `grants` (recursos con permisos) y `membership` (canales, altas, bajas y
+los que no puede gestionar).
+
+Pruebas:
+
+- `services/policy-engine/test/policy-engine.test.ts`: los permisos (miembros, reglas, dispositivo revocado,
+  sensibilidad y confianza del dispositivo) y que no quedan en el registro de accesos.
+- `services/policy-engine/test/allowlist-sync.test.ts`: la admisión por `h` por gRPC, como la pide el relay.
+- `services/policy-engine/test/membership-sync.test.ts`: la sincronía contra un Buzz simulado con sus reglas de
+  autorización; una lista 39001 falsificada no protege a nadie.
+- `tests/fuzz/nauthz-proto.test.ts`: el códec con etiquetas.
+- **En CI (job `stack`)**, `tests/interop/institutional.interop.test.ts` contra el relay seguro, `relay-allowlist`, el
+  policy-engine y Buzz reales:
+  - el relay seguro deniega a quien no puede publicar en un grupo registrado;
+  - en Buzz, la membresía de un canal privado registrado sigue a la política y Buzz rechaza al resto, también tras un
+    cambio de la política.
+
+**Riesgo residual:**
+
+- Un canal o grupo sin registrar queda abierto a todo el allowlist.
+- En Buzz, un cambio de la política llega en la siguiente sincronización. Hasta entonces sigue la membresía anterior.
+- Los owners y admins de un canal de Buzz publican aunque la política no los incluya.
+- El relay seguro admite los eventos si no puede hablar con `relay-allowlist` (fail-open, ver arriba).
 
 ## Lecturas del mirror filtradas por política (FR023-05)
 

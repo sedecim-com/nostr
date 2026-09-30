@@ -70,6 +70,7 @@ fill_random BUZZ_GIT_HOOK_HMAC_SECRET 32
 fill_service_key BUZZ_RELAY_PRIVATE_KEY
 fill_service_key INDEXER_NSEC
 fill_service_key ROTATION_WORKER_NSEC
+fill_service_key BUZZ_MEMBERSHIP_NSEC
 fill_random ROTATION_STATE_KEY 32
 
 if missing RELAY_OWNER_PUBKEY; then

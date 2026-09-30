@@ -38,6 +38,16 @@ export interface RevocationPage {
   now: number;
 }
 
+/**
+ * FR023-10: who may publish in a channel (NIP-29, Buzz) or group (Marmot) resource, for the relays (`GET
+ * /v1/relay/grants`). Relays match it against the `h` tag of each event.
+ */
+export interface RelayGrant {
+  resourceId: string;
+  kind: 'channel' | 'group';
+  pubkeys: string[];
+}
+
 /** FR023-06: organisational directory entry (admin-only, never published to relays). */
 export interface DirectoryEntry {
   pubkey: string;

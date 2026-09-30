@@ -275,6 +275,47 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
       expect((await asAdmin('/v1/revocations?after=-1')).status).toBe(400);
       expect((await asAdmin('/v1/revocations?limit=0')).status).toBe(400);
     });
+
+    it('publish grants for the relays: who may publish in each channel and group, never an access decision (FR023-10)', async () => {
+      const key = () => getPublicKey(generateSecretKey());
+      const [ana, beto, carla, dani, eva] = [key(), key(), key(), key(), key()];
+      const people: Array<[string, string[], Record<string, string>]> = [
+        [ana, ['staff'], {}],
+        [beto, ['staff'], {}],
+        [carla, ['guest'], {}],
+        [dani, ['staff'], { clearance: 'confidential' }],
+        [eva, ['staff'], { clearance: 'confidential' }],
+      ];
+      for (const [p, roles, attributes] of people) await asAdmin(`/v1/subjects/${p}`, 'PUT', { roles, attributes });
+      for (const p of [ana, carla]) await asAdmin('/v1/devices', 'POST', { owner: p });
+      // beto's only device is revoked; dani has an unverified device and a registered one; eva only an unverified one.
+      const betoDevice = (await asAdmin('/v1/devices', 'POST', { owner: beto })).json as { id: string };
+      await asAdmin(`/v1/devices/${betoDevice.id}/revoke`, 'POST', { reason: 'lost' });
+      await asAdmin('/v1/devices', 'POST', { owner: dani, trust: 'unverified' });
+      await asAdmin('/v1/devices', 'POST', { owner: dani });
+      await asAdmin('/v1/devices', 'POST', { owner: eva, trust: 'unverified' });
+      await asAdmin('/v1/resources/fr023-10-canal', 'PUT', { kind: 'channel', sensitivity: 'internal', rules: [{ actions: ['publish'], anyRole: ['staff'] }] });
+      await asAdmin('/v1/resources/fr023-10-sala', 'PUT', { kind: 'group', sensitivity: 'confidential', members: [ana, dani, eva], rules: [{ actions: ['read', 'publish'], anyRole: ['staff'] }] });
+      await asAdmin('/v1/resources/fr023-10-lectura', 'PUT', { kind: 'channel', sensitivity: 'internal', rules: [{ actions: ['read'], anyRole: ['staff'] }] });
+      await asAdmin('/v1/resources/fr023-10-ws', 'PUT', { kind: 'workspace', sensitivity: 'internal', rules: [{ actions: ['publish'], anyRole: ['staff'] }] });
+      const decisions = async () => ((await asAdmin('/v1/access-log?limit=1000')).json as { access: unknown[] }).access.length;
+      const before = await decisions();
+
+      const res = await bearerFetch('/v1/relay/grants');
+      expect(res.status).toBe(200);
+      const grants = ((await res.json()) as { grants: Array<{ resourceId: string; kind: string; pubkeys: string[] }> }).grants;
+      const of = (id: string) => grants.find((g) => g.resourceId === id);
+      // beto: no device left; carla: no rule for guests; dani: allowed by one of her devices.
+      expect(of('fr023-10-canal')).toEqual({ resourceId: 'fr023-10-canal', kind: 'channel', pubkeys: [ana, dani, eva].sort() });
+      // Confidential: ana has no clearance and eva no registered device.
+      expect(of('fr023-10-sala')).toEqual({ resourceId: 'fr023-10-sala', kind: 'group', pubkeys: [dani] });
+      expect(of('fr023-10-lectura')).toEqual({ resourceId: 'fr023-10-lectura', kind: 'channel', pubkeys: [] });
+      // A workspace is no channel of a relay.
+      expect(of('fr023-10-ws')).toBeUndefined();
+      expect(await decisions()).toBe(before);
+      expect((await fetch(`${base}/v1/relay/grants`)).status).toBe(401);
+      expect((await nip98Fetch(aliceSk, `${base}/v1/relay/grants`)).status).toBe(401);
+    });
   });
 }
 
