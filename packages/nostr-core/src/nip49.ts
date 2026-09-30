@@ -3,7 +3,7 @@
  * scrypt(password, salt, 2^logN, r=8, p=1) -> XChaCha20-Poly1305.
  */
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
-import { scrypt, scryptAsync } from '@noble/hashes/scrypt';
+import { scrypt, scryptAsync } from '@noble/hashes/scrypt.js';
 import { bech32 } from '@scure/base';
 import { concatBytes, randomBytes } from './utils';
 

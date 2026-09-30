@@ -9,8 +9,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
-import { scrypt } from '@noble/hashes/scrypt';
-import { sha256 } from '@noble/hashes/sha256';
+import { scrypt } from '@noble/hashes/scrypt.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bech32 } from '@scure/base';
 import { bytesToHex, concatBytes, getEventHash, getPublicKey, hexToBytes, nip44, utf8ToBytes, type NostrEvent, type UnsignedEvent } from '../../src/index';
 

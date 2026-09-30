@@ -1,9 +1,9 @@
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
-import { hkdf } from '@noble/hashes/hkdf';
-import { hmac } from '@noble/hashes/hmac';
-import { scryptAsync } from '@noble/hashes/scrypt';
-import { sha256 } from '@noble/hashes/sha256';
-import { bytesToHex, concatBytes, randomBytes, utf8ToBytes } from '@noble/hashes/utils';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { hmac } from '@noble/hashes/hmac.js';
+import { scryptAsync } from '@noble/hashes/scrypt.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, concatBytes, randomBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import type { StorageBackend } from './backends';
 
 const META_KEY = 'meta:kdf';
@@ -33,8 +33,8 @@ export class EncryptedStore {
 
   private constructor(private readonly backend: StorageBackend, masterKey: Uint8Array) {
     if (masterKey.length !== 32) throw new Error('master key must be 32 bytes');
-    this.encKey = hkdf(sha256, masterKey, undefined, 'sedecim-store-enc-v1', 32);
-    this.nameKey = hkdf(sha256, masterKey, undefined, 'sedecim-store-names-v1', 32);
+    this.encKey = hkdf(sha256, masterKey, undefined, utf8ToBytes('sedecim-store-enc-v1'), 32);
+    this.nameKey = hkdf(sha256, masterKey, undefined, utf8ToBytes('sedecim-store-names-v1'), 32);
   }
 
   static withKey(backend: StorageBackend, masterKey: Uint8Array): EncryptedStore {

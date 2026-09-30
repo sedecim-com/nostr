@@ -1,5 +1,5 @@
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
-import { sha256 } from '@noble/hashes/sha256';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes, utf8ToBytes } from './utils';
 
 /** Generate a secp256k1 secret key from the platform CSPRNG. */
