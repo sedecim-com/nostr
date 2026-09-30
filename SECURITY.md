@@ -27,7 +27,7 @@ que falle. Acusamos recibo en 3 días hábiles y acordamos una fecha de divulgac
 
 `release.yml` firma los releases sin llaves del proyecto (cosign keyless, Sigstore), con provenance SLSA y
 SBOM, y solo publica desde el entorno protegido `release`. Todavía no hay ningún release: falta configurar ese
-entorno con un aprobador distinto del autor del tag (OPS-08, OPS-12). Verifica antes de usar: `sh scripts/verify-release.sh <tag>`
+entorno con un aprobador distinto del autor del tag (OPS-08). Verifica antes de usar: `sh scripts/verify-release.sh <tag>`
 ([docs/building.md](docs/building.md)); para el generador de llaves offline,
 [docs/keygen-air-gapped.md](docs/keygen-air-gapped.md).
 

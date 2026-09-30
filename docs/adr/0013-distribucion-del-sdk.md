@@ -71,7 +71,7 @@ Opción 2, con estas reglas:
 - Hace falta un paso de build por paquete (`tsc -p` con emisión) y un job que compruebe que el paquete empaquetado
   (`npm pack`) se importa desde un proyecto limpio.
 - Hay que reservar el scope `@sedecim` en npm y configurar Trusted Publishing para el repositorio. El entorno `release`
-  necesita su segundo aprobador (OPS-12) antes de la primera publicación.
+  necesita un aprobador distinto de quien sube el tag (OPS-08) antes de la primera publicación.
 - La API pública de los paquetes pasa a tener compatibilidad: un cambio que rompa la API de un paquete publicado se
   anota en las notas del release.
 - La referencia TypeDoc se publica con cada release, con la misma versión que los paquetes.
