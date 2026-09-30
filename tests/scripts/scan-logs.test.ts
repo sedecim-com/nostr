@@ -67,4 +67,16 @@ describe('scripts/scan-logs.sh (NFR006-03)', () => {
     expect(r.out).toMatch(/gitleaks found secrets/);
     expect(r.out).not.toContain(nsecEncode(sk));
   });
+
+  it.skipIf(!hasGitleaks)('says which rule, line and service each finding comes from, with the value redacted', () => {
+    const sk = generateSecretKey();
+    const log = clean + 'relay-1  | INFO client connected\n' + `rotation-worker-1  | debug ${nsecEncode(sk)}\n`;
+    const r = scan({ 'compose.log': log, '.env': env });
+    expect(r.status, r.out).toBe(1);
+    expect(r.out).toMatch(/RuleID:\s+nostr-nsec/);
+    expect(r.out).toMatch(/finding on line 4, written by rotation-worker-1/);
+    expect(r.out).toMatch(/REDACTED/);
+    expect(r.out).not.toContain(nsecEncode(sk));
+    expect(r.out).not.toContain(nsecEncode(sk).slice(5, 25));
+  });
 });
