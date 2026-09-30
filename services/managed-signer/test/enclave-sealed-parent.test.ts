@@ -112,7 +112,9 @@ describe('what the parent sees of a sealed import and export', () => {
   it('FR005-10: the same capture does see a password sent in clear (control)', async () => {
     const created = await ManagedSignerClient.createKey(conn(), { consentVersion: 'textos test' });
     seen.length = 0;
-    await new ManagedSignerClient({ ...conn(), keyId: created.keyId }).exportForMigration(EXPORT_PASSWORD);
+    // Refused for an old sign-in, so no scrypt runs: the request, with its body, has already crossed the API.
+    const stale: ManagedSignerConnection = { ...conn(), token: async () => acceso.token({ sub: 'ana', auth_time: Math.floor(Date.now() / 1000) - 3600 }) };
+    await expect(new ManagedSignerClient({ ...stale, keyId: created.keyId }).exportForMigration(EXPORT_PASSWORD)).rejects.toThrow(/sign-in/);
     expect(leaks({ exportPassword: text(EXPORT_PASSWORD) })).toEqual(['exportPassword']);
   });
 });
