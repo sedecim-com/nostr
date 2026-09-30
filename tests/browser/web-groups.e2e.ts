@@ -8,6 +8,9 @@
  * gift wraps only for their authenticated recipient, with nothing (not even a CLOSED) for anyone else.
  * VAULT-03: Alice seals her history in the Continuity Vault; a clean browser with her backup file and an empty
  * general relay reads the whole group conversation again and, once it joins as a new device, writes to it.
+ * FR025-14: what only the sovereign client did, in the web: Eva's second browser (same key) is proposed by her first one
+ * and confirmed by Dana, both read the group, Eva rotates her keys, Dana sends a picture that goes without its metadata
+ * and encrypted and Eva downloads it with its hash checked, and Dana removes Eva's second browser, which is told so.
  */
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
@@ -21,7 +24,7 @@ import { bytesToHex, generateSecretKey, getPublicKey, nip19, npubEncode, type Fi
 import { MarmotTsProvider, PoolGroupNetwork, VolatileGroupStorage } from '@sedecim/marmot-adapter';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { LocalSigner } from '@sedecim/signer';
-import { TestRelay } from '@sedecim/test-relay';
+import { TestBlossomServer, TestRelay, tinyPng } from '@sedecim/test-relay';
 import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '@sedecim/continuity-vault';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
@@ -47,6 +50,10 @@ const started = Math.floor(Date.now() / 1000) - 5;
 // Public kinds (key packages, group messages) are read back without authenticating.
 const probe = new RelayPool({ webSocketFactory: (url) => new WebSocket(url) as unknown as WebSocketLike });
 const secureQuery = async (filters: Filter[]) => (localSecure ? localSecure.query(filters) : probe.query([secureUrl], filters.map((f) => ({ ...f, since: started })), 10_000));
+// FR025-14: the deployment's blob-store, where encrypted group files go when a persona has no Blossom list.
+const blobs = new TestBlossomServer();
+blobs.cors = true;
+await blobs.start();
 
 // Static server with the same nonce substitution and CSP as infra/web/nginx.conf.
 const server = createServer(async (req, res) => {
@@ -74,14 +81,14 @@ const config = { mode: 'self-hosted', relays: [relay.url], secureRelays: [secure
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const errors: string[] = [];
 
-async function newUser(name: string, opts: { bypassCSP?: boolean; config?: Record<string, unknown> } = {}): Promise<{ ctx: BrowserContext; page: Page; sk: Uint8Array; pubkey: string }> {
+async function newUser(name: string, opts: { bypassCSP?: boolean; config?: Record<string, unknown>; sk?: Uint8Array } = {}): Promise<{ ctx: BrowserContext; page: Page; sk: Uint8Array; pubkey: string }> {
   const ctx = await browser.newContext(opts.bypassCSP ? { bypassCSP: true } : {});
   await ctx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(opts.config ?? config) }));
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
   page.on('console', (m) => /Content Security Policy/i.test(m.text()) && errors.push(`${name}: ${m.text()}`));
   if (process.env.DEBUG_E2E) page.on('console', (m) => console.log(`[${name}]`, m.type(), m.text()));
-  const sk = generateSecretKey();
+  const sk = opts.sk ?? generateSecretKey();
   await page.goto(base);
   await page.getByText('Crear almacén').waitFor();
   await page.fill('#local-pass', PASS);
@@ -352,6 +359,92 @@ try {
     workerPool.close();
   }
 
+  // --- FR025-14: several devices of a persona, a proposal and its confirmation, a rotation, an encrypted file and the
+  // removal of one device, in the web. Eva opens the same persona in two browsers.
+  const withBlobs = { ...config, blobStore: blobs.url };
+  const dana = await newUser('Dana', { config: withBlobs });
+  const eva1 = await newUser('Eva', { config: withBlobs });
+  const eva2 = await newUser('Eva', { config: withBlobs, sk: eva1.sk });
+  const saveDeviceName = async (p: Page, label: string) => {
+    await p.fill('#group-device-label', label);
+    await p.locator('#group-device-label-save').click();
+    await p.waitForFunction(() => (document.querySelector('#group-device-label-save') as HTMLButtonElement | null)?.disabled === true, undefined, { timeout: 30_000 });
+  };
+  const publishKp = async (p: Page) => {
+    await p.locator('#groups-keypackage').click();
+    await p.locator('#groups-kp-status').getByText(/^Key package publicado:/).waitFor({ timeout: 20_000 });
+  };
+  try {
+    for (const [p, label] of [[eva1.page, 'Móvil de Eva'], [eva2.page, 'Portátil de Eva']] as const) {
+      await openGroups(p);
+      await saveDeviceName(p, label);
+    }
+    await publishKp(eva1.page);
+    await openGroups(dana.page);
+    await dana.page.fill('#group-name', 'Multi');
+    await dana.page.locator('#groups-create').getByRole('button', { name: 'Crear grupo' }).click();
+    await dana.page.locator('#group-detail').waitFor({ timeout: 20_000 });
+    await dana.page.fill('#group-invite-npubs', npubEncode(eva1.pubkey));
+    await dana.page.locator('#group-invite').getByRole('button', { name: 'Invitar' }).click();
+    await waitState(dana.page, /Época 1 · 2 miembros/);
+    await eva1.page.locator('#groups-accept').click();
+    await eva1.page.locator('#group-detail').waitFor({ timeout: 20_000 });
+
+    // Eva's second browser publishes its key package; her first browser (not an admin) proposes it.
+    await publishKp(eva2.page);
+    await eva1.page.locator('#group-add-devices').click();
+    await eva1.page.locator('#group-add-devices-candidates').waitFor({ timeout: 30_000 });
+    assert((await eva1.page.locator('#group-add-devices-candidates input[type=checkbox]').count()) === 1, 'the first browser finds exactly the key package of the second one, marked to go in');
+    await eva1.page.locator('#group-add-devices-confirm').click();
+    await eva1.page.locator('#group-send-blocked').waitFor({ timeout: 30_000 });
+    assert(await eva1.page.locator('#group-text').isDisabled(), 'while the proposal waits nobody can write to the group, and the view says why');
+    await dana.page.locator('#group-proposals').waitFor({ timeout: 30_000 });
+    assert((await dana.page.textContent('#group-proposals'))?.includes('Dispositivo nuevo'), 'the admin sees the proposal of a new device of Eva');
+    await dana.page.locator('#group-proposals-confirm').click();
+    await waitState(dana.page, /Época 2 · 2 miembros/);
+    await eva2.page.locator('#groups-accept').click();
+    await eva2.page.locator('#group-detail').waitFor({ timeout: 20_000 });
+    await dana.page.locator('#group-devices').getByText('«Portátil de Eva»', { exact: false }).waitFor({ timeout: 30_000 });
+    assert((await dana.page.textContent('#group-devices'))?.includes('«Móvil de Eva»'), 'the admin lists both devices of Eva with the names they announced inside the group');
+    await dana.page.fill('#group-text', 'hola a tus dos dispositivos');
+    await dana.page.locator('#group-send').getByRole('button', { name: 'Enviar' }).click();
+    await logHas(eva1.page, 'hola a tus dos dispositivos', 30_000);
+    await logHas(eva2.page, 'hola a tus dos dispositivos', 30_000);
+    assert(true, 'both browsers of the same persona read the group');
+
+    // Eva rotates her keys: the group moves to a new epoch for everyone.
+    await eva1.page.locator('#group-rotate').click();
+    await eva1.page.getByRole('dialog').getByRole('button', { name: 'Rotar' }).click();
+    await waitState(dana.page, /^Época 3 ·/, 30_000);
+    assert(true, 'a rotation from the web moves the group to the next epoch (post-compromise security)');
+
+    // Dana sends a picture with text metadata: it goes without it, encrypted; Eva downloads it with its hash checked.
+    await dana.page.locator('#group-send input[type=file]').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer: Buffer.from(tinyPng('ubicación secreta')) });
+    assert(await dana.page.locator('#group-media-facts').isVisible(), 'choosing a file shows what each server and each member will see');
+    await dana.page.fill('#group-text', 'la foto');
+    await dana.page.locator('#group-send').getByRole('button', { name: 'Enviar' }).click();
+    await logHas(eva1.page, 'la foto', 30_000);
+    assert(blobs.blobs.size === 1 && [...blobs.blobs.values()].every((b) => !Buffer.from(b.data).includes(Buffer.from('ubicación secreta')) && !Buffer.from(b.data).includes(Buffer.from(tinyPng().subarray(8)))), 'only the ciphertext of the file reached the blob-store');
+    const [fileDownload] = await Promise.all([eva1.page.waitForEvent('download'), eva1.page.locator('#group-log').getByRole('button', { name: 'Descargar y verificar' }).click()]);
+    const fileBytes = await readFile((await fileDownload.path())!);
+    assert(fileDownload.suggestedFilename() === 'foto.png' && fileBytes.equals(Buffer.from(tinyPng())), 'the member downloads the picture, checked and decrypted, without the metadata it had');
+
+    // Dana removes Eva's second browser: it is told so, and it reads nothing new; the first one keeps reading.
+    await dana.page.locator('#group-devices').getByRole('button', { name: /^Quitar el dispositivo «Portátil de Eva»/ }).click();
+    await dana.page.getByRole('dialog').getByRole('button', { name: 'Quitar' }).click();
+    await waitState(dana.page, /^Época 4 · 2 miembros/, 30_000);
+    await eva2.page.locator('#group-removed').getByText(/Quitaron este navegador/).waitFor({ timeout: 30_000 });
+    await dana.page.fill('#group-text', 'sin el portátil');
+    await dana.page.locator('#group-send').getByRole('button', { name: 'Enviar' }).click();
+    await logHas(eva1.page, 'sin el portátil', 30_000);
+    await eva2.page.waitForTimeout(5000); // at least one more poll of the secure relay
+    assert((await eva2.page.locator('#group-log').getByText('sin el portátil').count()) === 0 && (await eva2.page.locator('#group-send').count()) === 0, 'the removed browser reads nothing sent after its removal and has no composer');
+  } finally {
+    await dana.ctx.close();
+    await eva1.ctx.close();
+    await eva2.ctx.close();
+  }
+
   assert(errors.length === 0, `no page errors or CSP violations (${errors.join('; ')})`);
 
   // --- accessibility (NFR009-01): axe on the groups view, empty and with an open group
@@ -377,6 +470,13 @@ try {
   await a11y.page.locator('#group-invite').getByRole('button', { name: 'Invitar' }).click();
   await a11y.page.locator('#group-kp-warnings').waitFor({ timeout: 20_000 });
   await audit('Grupos seguros (grupo abierto)');
+  // FR025-14: the dialog that adds devices (nothing to add for this persona).
+  await a11y.page.locator('#group-add-devices').click();
+  await a11y.page.locator('#group-add-devices-none').waitFor({ timeout: 20_000 });
+  await a11y.page.waitForTimeout(600); // let the dialog fade-in finish (axe reads mid-transition colours)
+  await audit('Grupos seguros (añadir dispositivos)');
+  await a11y.page.getByRole('dialog').getByRole('button', { name: 'Cancelar' }).click();
+  await a11y.page.getByRole('dialog').waitFor({ state: 'detached', timeout: 10_000 });
   await a11y.page.locator('#group-leave').click();
   await a11y.page.getByRole('dialog').waitFor();
   await a11y.page.waitForTimeout(600); // let the dialog fade-in finish (axe reads mid-transition colours)
@@ -392,5 +492,6 @@ try {
   await relay.stop();
   probe.close();
   await localSecure?.stop();
+  await blobs.stop();
 }
 if (failures) process.exit(1);

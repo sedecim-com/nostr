@@ -394,6 +394,13 @@ describe('scripts/release-gate.mjs (REL-01 / REL-02)', () => {
       expect(problems({ 'deploy/k8s/overlays/prod/kustomization.yaml': '- MANAGED_SIGNER_BACKEND=enclave\n' }, withFeature('enclave', { maturity: 'Beta' }))).toBe('');
     });
 
+    it('FR005-10: a production web config that names the managed-signer\'s enclave (managedEnclave) is the enclave tier, off while it is Preview', () => {
+      const pcrs = { pcr0: 'a'.repeat(96), pcr1: 'b'.repeat(96), pcr2: 'c'.repeat(96) };
+      expect(registry.features.enclave).toMatchObject({ webKeys: ['managedEnclave'] });
+      expect(problems(saas({ managedEnclave: pcrs }))).toMatch(/enclave \(custodia en Nitro Enclave y su exportación.*config\.saas\.example\.json \("managedEnclave"\).*es Preview, y lo Preview va apagado en producción/);
+      expect(problems({ 'deploy/k8s/overlays/stage/files/web-config.json': { ...managedOn, managedEnclave: pcrs } })).toBe('');
+    });
+
     it('push stays off without a safe trigger on the production relays', () => {
       expect(problems(saas({ notificationGateway: 'https://push.example.org' }))).toMatch(/push \(notificaciones push.*\("notificationGateway"\)\) y no puede estarlo: no hay un disparador seguro \(ADR 0010/);
       expect(problems({ 'deploy/k8s/overlays/prod/kustomization.yaml': 'components:\n  - ../../components/notification-gateway\n' })).toMatch(/\(components\/notification-gateway\)/);

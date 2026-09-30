@@ -99,7 +99,10 @@ function parseCert(der: Uint8Array, what: string): X509Certificate {
 }
 
 function checkValidity(cert: X509Certificate, now: number, what: string) {
-  if (now < new Date(cert.validFrom).getTime() || now > new Date(cert.validTo).getTime()) fail('expired-certificate', `${what} is outside its validity period`);
+  const from = new Date(cert.validFrom).getTime();
+  const to = new Date(cert.validTo).getTime();
+  // A validity date that does not parse is NaN, and every comparison against NaN is false: fail closed on it, not open.
+  if (!Number.isFinite(from) || !Number.isFinite(to) || now < from || now > to) fail('expired-certificate', `${what} is outside its validity period`);
 }
 
 /** Splits a COSE_Sign1 (tag 18 optional) into its four members. */

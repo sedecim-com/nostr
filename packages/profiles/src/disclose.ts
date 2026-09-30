@@ -74,7 +74,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.11.0';
+export const DISCLOSURE_VERSION = '1.12.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.
@@ -118,6 +118,24 @@ export const PUBLIC_PROFILE_TEXTS = {
 } as const;
 
 /**
+ * FR025-14: what each party sees when the web's secure groups (Marmot/MLS) use several devices, rotate keys, propose
+ * changes or carry encrypted files (MIP-04), shown next to each of those controls. Part of the reviewed copy
+ * (disclosureCatalog, docs/disclosures.md).
+ */
+export const SECURE_GROUP_TEXTS = {
+  devices: 'Cada navegador o dispositivo tuyo entra en el grupo como un miembro aparte (su propia hoja MLS): los demás miembros ven cada uno de tus dispositivos, con su identificador y el nombre que le pongas. El relay de grupos ve un key package firmado con tu npub por cada dispositivo.',
+  label: 'El nombre de este navegador viaja cifrado dentro de cada grupo: lo ven sus miembros, no el relay. Se anuncia cuando este navegador entra en un grupo y, si eres admin, cada vez que añades a alguien; hasta entonces, los grupos en los que ya estás siguen viendo el anterior.',
+  addDevices: 'Si eres admin, los dispositivos que marques entran con un commit y reciben una invitación cifrada; si no, se envía una propuesta que un admin tiene que confirmar. Marca solo los que reconozcas: el key package de un dispositivo perdido o revocado también aparecería aquí.',
+  removeDevice: 'Quitar un dispositivo publica un commit: ese dispositivo deja de descifrar lo que se envíe después, y los demás dispositivos de esa persona siguen en el grupo. Lo que ya recibió sigue en él.',
+  rotate: 'Rotar publica un commit que renueva las claves de este dispositivo en el grupo: la época avanza para todos, y quien hubiera copiado las claves anteriores de este dispositivo ya no lee con ellas lo que se envíe después. El relay solo ve otro evento cifrado. Las propuestas pendientes se descartan y hay que volver a hacerlas.',
+  proposals: 'Una propuesta viaja cifrada dentro del grupo: los miembros ven quién propone a quién; el relay, solo otro evento cifrado. Mientras haya propuestas sin decidir, los miembros que ya las recibieron no pueden enviar mensajes ni archivos (MLS no lo permite) hasta que un admin las confirme o las rechace.',
+  decide: 'Confirmar las marcadas las aplica con un commit; las demás se descartan y quien las hizo tendrá que volver a proponerlas. Rechazar todas publica una rotación de tus claves, que las descarta sin aplicar ninguna.',
+  media: 'El archivo se cifra en este navegador con una clave que sale del grupo (MIP-04) y se sube cifrado a los servidores de tu lista Blossom (kind 10063) que admiten archivos cifrados y, si el despliegue tiene uno, a su blob-store: cada servidor ve tu npub, que firma la subida, tu dirección IP, el tamaño del archivo cifrado y su hash, no su contenido. El nombre, el tipo y el tamaño del archivo van dentro del mensaje cifrado: solo los ven los miembros del grupo.',
+  download: 'Descargar un archivo del grupo lo pide al servidor donde se subió y, si no lo sirve, busca en tus relays la lista de servidores de quien lo envió y lo pide allí: cada servidor ve tu dirección IP y, si exige autorización, tu npub. El archivo cifrado se comprueba por su hash antes de descifrarlo, y otra vez al descifrarlo.',
+  removed: 'Quien sale del grupo o es expulsado no puede descifrar los archivos que se envíen después; los que se enviaron mientras era miembro puede seguir descifrándolos si consigue el archivo cifrado.',
+} as const;
+
+/**
  * FR015-04: what deleting in a NIP-29 channel does and does not do, shown by the web wherever it deletes. Part of the
  * reviewed copy (disclosureCatalog, docs/disclosures.md).
  */
@@ -147,6 +165,7 @@ export function disclosureCatalog(): Disclosure[] {
   for (const [key, statement] of Object.entries(CONTINUITY_VAULT_TEXTS)) out.push({ control: 'cloudBackup', option: `continuity-vault (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   for (const [key, statement] of Object.entries(PUBLIC_PROFILE_TEXTS)) out.push({ control: 'identity', option: `public-profile (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   for (const [key, statement] of Object.entries(CHANNEL_DELETION_TEXTS)) out.push({ control: 'persistence', option: `borrado en canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+  for (const [key, statement] of Object.entries(SECURE_GROUP_TEXTS)) out.push({ control: 'messaging', option: `marmot en la web (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   // FR014-04: listed under the control that decides whether the web asks the mirror (see mirrorPolicy).
   for (const [key, statement] of Object.entries(CHANNEL_MIRROR_TEXTS)) out.push({ control: key === 'torOnly' ? 'network' : 'identity', option: `mirror de canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   return out;

@@ -25,7 +25,7 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 | Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | — |
 | Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | — |
 | Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md), [threat model](docs/threat-models/continuity-vault.md) | servicio y sobres (VAULT-01); la llave de archivo viaja en los backups de la web y del CLI (VAULT-02); la web y el CLI sellan el historial (canales, DMs, mensajes de grupo, ledger y estado MLS) y un dispositivo limpio lo recupera con relays vacíos (VAULT-03); cada envío se copia según la política de la persona (off, best-effort o required-for-resilient), con `CONTINUITY_BACKED_UP` aparte de los ACK (VAULT-04); retención por cuenta dentro del máximo del operador, exportación a un JSON abierto y borrado de la cuenta entera (VAULT-05); en el compose, con sus sobres en un bucket propio de SeaweedFS (o en un directorio o cualquier S3-compatible), en el backup y en el restore drill (VAULT-06); en Kubernetes es un componente opt-in que stage aún no activa |
-| Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma y NIP-44 en el servidor autorizados con el token de Acceso o una sesión de dispositivo, consentimiento registrado con su versión) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
+| Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma y NIP-44 en el servidor autorizados con el token de Acceso o una sesión de dispositivo, consentimiento registrado con su versión) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, también en el navegador, que sella hacia el enclave los secretos de importación y la contraseña de exportación (FR005-10); falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
 | Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | Postgres, tablas `policy_*`; sin `DATABASE_URL`, en memoria |
 | Consola de administración web (NIP-98; personas, recursos, dispositivos y passkeys, rotaciones, directorio, retención, auditoría) | `apps/admin-console`, [docs/admin-console.md](docs/admin-console.md) | servida por la imagen web en `/admin/` |
 | Notificaciones push opacas por perfil (Web Push VAPID + RFC 8291; sin contenido, remitente ni recuento; deshabilitadas en sovereign/Tor) | `services/notification-gateway`, [ADR 0010](docs/adr/0010-notificaciones-push-por-perfil.md) | opt-in (perfil compose `push`; registros en memoria). El gateway solo acepta registros en relays donde su canario ve actividad sin leer DMs. Con Buzz y el secure relay fijados no la ve: no hay push web y la web explica por qué (matriz por relay en el ADR 0010, OPS-06) |
@@ -128,6 +128,11 @@ La web lee `config.json` (compose monta `infra/web/config.json`; otro archivo co
   ([borrador](docs/legal/custodia-managed.md), pendiente de legal). La aceptación enlaza esos términos y el
   managed-signer guarda su versión con la llave (FR005-08). Sin ella, la web avisa de que no están publicados y
   lo registra así.
+- `"managedEnclave"` (con `managedSigner` y `MANAGED_SIGNER_BACKEND=enclave`): `{ "pcr0", "pcr1", "pcr2", "pcr8"? }`, los
+  PCR de la imagen del enclave publicada (`nitro-cli build-enclave` o `describe-eif`; los valores de `enclave_pcr*` en
+  Terraform), 96 caracteres hex cada uno. Con él, la web verifica en el navegador la attestation del enclave y sella la
+  contraseña de exportación hacia él, así que el managed-signer no la recibe en claro (FR005-10,
+  [managed-enclave.md](docs/managed-enclave.md)). Mal formado, la app no arranca. Sin él, la exportación va como antes.
 - `"continuityVault"` (opcional): URL de `services/continuity-vault` ([ADR 0011](docs/adr/0011-continuity-vault.md)); el
   compose lo levanta en `http://localhost:8088` y `infra/web/config.json` ya lo apunta ahí (VAULT-06). La
   tarjeta «Continuity Vault» explica qué ve el operador, sella el historial de la persona en el navegador con su llave
@@ -142,9 +147,9 @@ La web lee `config.json` (compose monta `infra/web/config.json`; otro archivo co
   (kinds 10050 y 10002), además de los de la persona. Cada búsqueda les dice a qué npub vas a escribir. Si al
   escribir un DM no se encuentra la lista (por ejemplo, sin red), cada reintento la vuelve a buscar antes de
   publicar: el mensaje no se queda en tus relays (FR010-03).
-- En producción, `managedSigner`, `managedTerms` y `notificationGateway` solo aparecen con su evidencia: la
-  aprobación legal y los informes de SEC-01 y SEC-02 para la custodia gestionada, y un disparador seguro en los
-  relays para push. Lo comprueba `node scripts/release-gate.mjs config` (OPS-20,
+- En producción, `managedSigner`, `managedTerms`, `managedEnclave` y `notificationGateway` solo aparecen con su
+  evidencia: la aprobación legal y los informes de SEC-01 y SEC-02 para la custodia gestionada, salir de Preview para el
+  enclave, y un disparador seguro en los relays para push. Lo comprueba `node scripts/release-gate.mjs config` (OPS-20,
   [`deploy/production-gates.json`](deploy/production-gates.json)).
 
 Las llaves viven en un vault de IndexedDB cifrado con tu contraseña. Solo el perfil convenience puede
@@ -192,7 +197,7 @@ parte: [docs/sovereign-tor.md](docs/sovereign-tor.md#custodia-llave-en-el-dispos
 | `npm run test:pg` | Pruebas sobre Postgres de los servicios: indexer, identity-service, policy-engine, managed-signer y continuity-vault (`TEST_DATABASE_URL`) |
 | `npm run test:keygen-html` | Generador HTML air-gapped abierto desde `file://` sin red |
 | `npm run lint:claims` | Prohíbe afirmaciones absolutas de privacidad en todo el copy |
-| `npm run test:browser` | Web en Chromium (Playwright): personas, canales, DMs con ruteo 10050, adjuntos, receipts, panel aplicado y persistido, vault, nsec que no sale del navegador, axe-core, modo SaaS con Acceso; grupos Marmot, fugas por WebRTC y previews, consola de administración |
+| `npm run test:browser` | Web en Chromium (Playwright): personas, canales, DMs con ruteo 10050, adjuntos, receipts, panel aplicado y persistido, vault, nsec que no sale del navegador, axe-core, modo SaaS con Acceso; grupos Marmot (con varios dispositivos por persona, propuestas, rotación y archivos cifrados), fugas por WebRTC y previews, consola de administración |
 | `npm run test:leak` | Captura de red real (netns + tcpdump) del CLI soberano, perfiles Tor y directo, con controles negativos (job `leak-tests`) |
 | `BUZZ_RELAY_URL=… npx tsx tests/browser/web-buzz.e2e.ts` | Web contra Buzz real: crear canal, unirse, enviar y leer (FR015-03; job `stack` de CI) |
 | `npm run test:interop` | Gate contra Buzz real (`BUZZ_RELAY_URL`), genera `interop-report.json` |

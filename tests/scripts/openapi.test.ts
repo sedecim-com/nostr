@@ -75,4 +75,14 @@ describe('OpenAPI of the services (OPS-14)', () => {
     expect(op('blob-store', '/upload', 'put').security).toEqual([{ blossom: [] }]);
     expect(op('policy-engine', '/health', 'get').security).toEqual([]);
   });
+
+  it('FR005-10: documents the enclave attestation for the client\'s nonce and the sealed forms of import and export', () => {
+    const attestation = op('managed-signer', '/v1/enclave/attestation', 'get');
+    expect(attestation.security).toEqual([{ acceso: [] }, { deviceSession: [] }]);
+    expect(attestation.summary).toMatch(/nonce/);
+    expect(op('managed-signer', '/v1/keys/import', 'post').summary).toMatch(/sealed_secrets/);
+    const exp = op('managed-signer', '/v1/keys/{id}/export', 'post');
+    expect(exp.summary).toMatch(/sealed_password/);
+    expect(exp.security).toEqual([{ acceso: [] }]);
+  });
 });

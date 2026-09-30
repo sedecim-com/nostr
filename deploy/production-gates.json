@@ -18,6 +18,7 @@
     "enclave": {
       "title": "custodia en Nitro Enclave y su exportación (FR005-05)",
       "maturity": "Preview",
+      "webKeys": ["managedEnclave"],
       "settings": { "MANAGED_SIGNER_BACKEND": "enclave", "ENCLAVE_ALLOW_EXPORT": "1" },
       "terraform": ["enable_enclave_signer"]
     },

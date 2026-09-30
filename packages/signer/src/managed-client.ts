@@ -1,7 +1,51 @@
 import { verifyEvent, type CustodyMode, type EventTemplate, type NostrEvent, type Signer } from '@sedecim/nostr-core';
+import { NITRO_ROOT_G1_SHA256, NitroAttestationError, verifyNitroAttestation } from './enclave/attestation';
+import { fromBase64Url, ownerTag, sealToEnclave, toBase64Url } from './enclave/envelope';
 
 /** Returns the caller's current Acceso (Cognito) id or access token; called before every request. */
 export type AccessTokenProvider = () => Promise<string>;
+
+/**
+ * FR005-10: the enclave a client trusts, to seal an import or an export password to it. `pcrs` are the measurements of
+ * the enclave image the operator published (`nitro-cli build-enclave` or `describe-eif`: the same values as `enclave_pcr*`
+ * in Terraform), 96 hex characters each; PCR8 (the signing certificate of the image) is optional. `rootFingerprints`
+ * replaces the pinned AWS Nitro root: only for tests against a simulated enclave.
+ */
+export interface EnclaveTrust {
+  pcrs: { 0: string; 1: string; 2: string; 8?: string };
+  rootFingerprints?: string[];
+}
+
+const PCR_HEX = /^[0-9a-f]{96}$/i;
+
+/** Without PCR0-2 any enclave image would pass the check, so they are required, and well formed. */
+export function checkEnclaveTrust(trust: EnclaveTrust): EnclaveTrust {
+  const pcrs = trust?.pcrs;
+  for (const i of [0, 1, 2] as const) if (typeof pcrs?.[i] !== 'string' || !PCR_HEX.test(pcrs[i])) throw new Error(`enclave trust: PCR${i} must be 96 hex characters`);
+  if (pcrs[8] !== undefined && (typeof pcrs[8] !== 'string' || !PCR_HEX.test(pcrs[8]))) throw new Error('enclave trust: PCR8 must be 96 hex characters');
+  if (trust.rootFingerprints !== undefined && !(Array.isArray(trust.rootFingerprints) && trust.rootFingerprints.length > 0 && trust.rootFingerprints.every((f) => typeof f === 'string'))) {
+    throw new Error('enclave trust: rootFingerprints must list at least one SHA-256');
+  }
+  return trust;
+}
+
+/**
+ * FR005-10: the key owner as the managed-signer names it, `<iss>#<sub>` of the Acceso token, read without verifying the
+ * token: the enclave does not take it on trust (it is in the AAD of what is sealed, and an export also needs the token
+ * itself as proof). A device session token names nobody.
+ */
+export function accesoOwner(token: string): string {
+  let claims: { iss?: unknown; sub?: unknown } | undefined;
+  try {
+    claims = JSON.parse(new TextDecoder().decode(fromBase64Url(token.split('.')[1] ?? ''))) as typeof claims;
+  } catch {
+    claims = undefined;
+  }
+  if (!claims || typeof claims.iss !== 'string' || !claims.iss || typeof claims.sub !== 'string' || !claims.sub) {
+    throw new Error('sealing to the enclave needs the owner (iss and sub) of an Acceso token; a device session names no owner');
+  }
+  return `${claims.iss}#${claims.sub}`;
+}
 
 export interface ManagedSignerConnection {
   baseUrl: string;
@@ -154,6 +198,40 @@ export class ManagedSignerClient implements Signer {
   }
 
   /**
+   * Imports a key the user already has (local -> managed migration, after the same explicit opt-in as createKey). Without
+   * `enclave` the ncryptsec and its password travel to the managed-signer as they are. FR005-10: with `enclave`, they are
+   * sealed here to the enclave the caller trusts, after checking its attestation, and the managed-signer only relays
+   * them. `owner` (`<issuer>#<sub>`): only when `conn` goes through a device session, whose token names nobody.
+   */
+  static async importEncrypted(conn: ManagedSignerConnection, ncryptsec: string, password: string, opts: { consentVersion: string; enclave?: EnclaveTrust; owner?: string }): Promise<ManagedKeyInfo> {
+    if (!opts.enclave) return request<ManagedKeyInfo>(conn, 'POST', '/import', { ncryptsec, password, consent_version: opts.consentVersion });
+    const owner = opts.owner ?? accesoOwner(await conn.token());
+    const { spki, at } = await ManagedSignerClient.enclaveKey(conn, opts.enclave);
+    const sealed = await sealToEnclave(spki, { purpose: 'import', ownerTag: ownerTag(owner), at, ncryptsec, password });
+    return request<ManagedKeyInfo>(conn, 'POST', '/import', { sealed_secrets: sealed, consent_version: opts.consentVersion });
+  }
+
+  /**
+   * FR005-10: the enclave's key, from an attestation document asked for with a nonce of this client and verified here
+   * (root, chain, signature, PCRs, nonce, freshness), never on the managed-signer's word: it relays the document and
+   * could otherwise hand over a key of its own. Throws NitroAttestationError before anything is sealed or sent.
+   */
+  private static async enclaveKey(conn: ManagedSignerConnection, trust: EnclaveTrust): Promise<{ spki: Uint8Array; at: number }> {
+    checkEnclaveTrust(trust);
+    const nonce = crypto.getRandomValues(new Uint8Array(32));
+    const { document } = await request<{ document?: unknown }>(conn, 'GET', `/attestation?nonce=${toBase64Url(nonce)}`, undefined, '/v1/enclave');
+    let bytes: Uint8Array;
+    try {
+      if (typeof document !== 'string') throw new Error();
+      bytes = Uint8Array.from(atob(document), (c) => c.charCodeAt(0));
+    } catch {
+      throw new NitroAttestationError('malformed', 'the managed-signer returned no base64 attestation document');
+    }
+    const att = verifyNitroAttestation(bytes, { expectedNonce: nonce, expectedPcrs: trust.pcrs, trustedRootFingerprints: trust.rootFingerprints ?? [NITRO_ROOT_G1_SHA256], requirePublicKey: true });
+    return { spki: att.publicKey!, at: att.timestamp };
+  }
+
+  /**
    * FR024-03: opens a signer session bound to this device. Use the returned token as `token` from then on:
    * it stops working as soon as the organisation revokes the device.
    */
@@ -219,10 +297,16 @@ export class ManagedSignerClient implements Signer {
   /**
    * FR-026 step 1: ncryptsec of the key plus the challenge to sign with it. IR-2026-10-03: like confirmMigration,
    * deleteKey and cancelCustody, only with an Acceso login signed in within the last minutes, never a device session;
-   * else ManagedSignerReauthError.
+   * else ManagedSignerReauthError. FR005-10: with `enclave`, the password never leaves this client in clear: it is sealed
+   * to that enclave, after checking its attestation, for this key and its owner; without it, it goes as it is.
    */
-  exportForMigration(password: string): Promise<{ ncryptsec: string; challenge: string }> {
-    return this.call('/export', { password });
+  async exportForMigration(password: string, opts: { enclave?: EnclaveTrust } = {}): Promise<{ ncryptsec: string; challenge: string }> {
+    if (!opts.enclave) return this.call('/export', { password });
+    const owner = accesoOwner(await this.opts.token());
+    const pubkey = await this.getPublicKey();
+    const { spki, at } = await ManagedSignerClient.enclaveKey(this.opts, opts.enclave);
+    const sealed = await sealToEnclave(spki, { purpose: 'export', ownerTag: ownerTag(owner), pubkey, at, password });
+    return this.call('/export', { sealed_password: sealed });
   }
 
   /** FR-026 step 2: proof = event signed with the exported key carrying the `challenge` tag. */
