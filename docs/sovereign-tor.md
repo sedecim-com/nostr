@@ -237,11 +237,11 @@ Qué es el servicio `sovereign` de `docker-compose.yml`:
 - **La red.** Su única red, `tor-socks`, es interna y solo la comparte con `tor`, que en ella solo escucha el SOCKS. Lo
   que envía una persona Tor sale por ese SOCKS con las credenciales de la persona (circuitos separados,
   `IsolateSOCKSAuth`). No tiene DNS ni hosts propios ni publica puertos. Desde dentro del contenedor, el job
-  `tor-profile` comprueba que `tor` resuelve y su puerto 9050 responde, y que no alcanza nada más: ni los demás
-  servicios del compose, ni un nombre externo por DNS, ni una IP pública. Una persona sin `--tor` no tiene por dónde
-  salir desde este contenedor.
+  `tor-profile` comprueba que `tor` resuelve y su puerto 9050 responde, y que no llega a lo demás que prueba: ni a
+  otros servicios del compose (`relay`, `secure-relay`, `secure-relay-onion` y `postgres` no resuelven), ni a un
+  nombre externo por DNS, ni a una IP pública. Una persona sin `--tor` no tiene por dónde salir desde este contenedor.
 - **Sin privilegios.** Usuario `app`, no root. Sin capacidades, con `no-new-privileges` y la raíz de solo lectura:
-  escribe en su volumen y en `/tmp` (tmpfs), nada más.
+  sus datos van a su volumen y los temporales a `/tmp` (tmpfs).
 - **Los secretos, como ficheros.** Llegan de solo lectura:
   - la passphrase, en `/run/secrets/sovereign_passphrase`: el fichero que nombra `SOVEREIGN_PASSPHRASE_FILE` en el host;
   - la contraseña de los backups, en `/run/secrets/sovereign_backup_password` (`SOVEREIGN_BACKUP_PASSWORD_FILE`).
@@ -251,7 +251,7 @@ Qué es el servicio `sovereign` de `docker-compose.yml`:
   claro en el disco del host: fuera del repositorio y de los backups del stack.
 - **La imagen:** el target `sovereign` del `Dockerfile`, con la base fijada por digest. Lleva el cierre de dependencias
   de producción del CLI que lista npm, tsx incluido, y los paquetes del workspace sin sus tests. No lleva servicios, ni
-  la web, ni devDependencies o paquetes de otros workspaces, ni ningún `.env` o `.data` (`.dockerignore`).
+  la web, ni lo que solo necesitan el desarrollo u otros workspaces, ni ningún `.env` o `.data` (`.dockerignore`).
 - **El estado** vive en el volumen `sovereign-data`. `docker compose down -v` lo borra, con las llaves que haya dentro.
 - Las variables del CLI que no son secretas (`SOVEREIGN_BLOB_STORE`, `SOVEREIGN_VAULT_URL`,
   `SOVEREIGN_DISCOVERY_RELAYS`) se pasan con `-e`.

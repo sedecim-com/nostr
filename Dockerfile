@@ -37,9 +37,9 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 # FR020-06: what the sovereign CLI runs and nothing else. npm lists the production closure of apps/sovereign-client
 # (tsx, which runs it, included) and `node - APP OUT LIST` copies those packages to /out with the same layout: the
 # workspace packages without their tests, their node_modules links and the root manifest. No services, no web apps,
-# no dependency of another workspace, and no optional peer that only development installs (typescript for
-# nostr-tools). npm ls exits non-zero on any problem it reports; the listing is still complete, and the copy fails if
-# it lacks tsx or the CLI.
+# nothing only another workspace needs, and no optional peer that only development installs (typescript for
+# nostr-tools). npm ls exits non-zero on any problem it reports but still prints the listing; the copy fails if that
+# lacks tsx or the CLI.
 FROM prod-deps AS sovereign-files
 RUN npm ls --omit=dev --all --parseable --workspace=@sedecim/sovereign-client --include-workspace-root > /tmp/closure || true
 RUN node - /app /out /tmp/closure <<'EOF'
