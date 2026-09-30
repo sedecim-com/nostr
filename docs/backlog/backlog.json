@@ -4571,9 +4571,10 @@
    "sp": 2,
    "deps": [],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 300
+   "status": "Hecho",
+   "evidence": "Commit 69daf5a (PR #414): la política está documentada en docs/attachments.md (tamaño, tipo y antivirus) y el tamaño se comprueba en el cliente antes de leer el archivo. Los límites por destino están en packages/blossom-client/src/policy.ts (MB decimales): 25 MB un adjunto de mensaje directo y la media de un grupo seguro, 10 MB una imagen de canal y 1 MB un avatar, más bajos que los topes de los servidores. La web mide File.size antes de leer el archivo (apps/web-saas/src/views/DmView.tsx, apps/web-saas/src/views/ChannelsView.tsx, apps/web-saas/src/views/Profile.tsx y apps/web-saas/src/lib/profiles.ts) y el CLI mide el archivo ya abierto (apps/sovereign-client/src/cli.ts); prepareBlob y groupSendFile (apps/sovereign-client/src/app.ts) lo vuelven a comprobar para cualquier llamada que no lo haya hecho. Al descargar, el cliente no abre un blob de más de 26 MB: fetch y NetworkGuard.fetch (packages/tor-network/src/guard.ts) dejan de leer en cuanto lo saben y cualquier otro transporte lo comprueba antes de calcular el hash (packages/blossom-client/src/client.ts). El mensaje dice cuánto pesa el archivo y cuánto se permite. El documento dice sin rodeos que el producto no analiza malware (en mensajes directos y grupos el archivo llega cifrado y el servidor no lo puede leer) y qué sí limita el daño. Pruebas: packages/blossom-client/test/policy.test.ts, packages/tor-network/test/fetch-limit.test.ts, apps/sovereign-client/test/attachments.test.ts y apps/web-saas/test/profile.test.ts. Límites declarados: la media de grupo de la web llega con FR025-14 y debe llamar a la misma comprobación, y el valor real de los topes de Buzz en el pin fijado lo fija el operador (los números del documento son los de una versión anterior que se pudo leer).",
+   "issue": 300,
+   "evidenceState": "merged"
   },
   {
    "id": "FR004-07",
