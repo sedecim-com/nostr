@@ -67,7 +67,7 @@ XChaCha20-Poly1305 con AAD = byte key-security; formato bech32 `ncryptsec`, vers
 | 16 por defecto | `encryptKey` (`nip49.ts:26`), llave local del gestor de identidades (`packages/identity/src/manager.ts:113`), backup desde la web (`apps/web-saas/src/lib/session.ts:167`) |
 | 18 | Generador offline (`apps/key-generator/src/generate.ts:39,61`), backups completos (`manager.ts:299`), export managed (`services/managed-signer/src/service.ts:318`) |
 | 1..22 | Export dentro del enclave (validado, `enclave/enclave.ts` op `export`) |
-| Máximo 18 al importar en el servidor | `service.ts:71` `MAX_IMPORT_LOG_N`, `enclave.ts:53`; `decryptKey(..., { maxLogN })` (`nip49.ts:53-76`), añadido en la revisión interna (IR-2026-09-02) |
+| Máximo 18 al importar en el servidor | `service.ts:129` `MAX_IMPORT_LOG_N`, `enclave.ts:74`; `decryptKey(..., { maxLogN })` (`nip49.ts:53-76`), añadido en la revisión interna (IR-2026-09-02) |
 
 `@noble/hashes` limita por defecto la memoria de scrypt a 1 GiB (logN ≤ 20).
 
@@ -144,9 +144,11 @@ export (scrypt) por dueño y en concurrencia por réplica (IR-2026-09-20).
 
 | Qué | Dónde | Primitivas |
 |---|---|---|
-| RSA efímera por arranque | `services/managed-signer/src/enclave/enclave.ts:76` | RSA-2048, SPKI dentro de cada attestation |
-| Sellado de llaves | `enclave.ts:84-99` | KMS `GenerateDataKey` con `Recipient` (attestation) → `CiphertextForRecipient` → AES-256-GCM (AAD `acceso-nostr/enclave-key/<pubkey>`) |
-| Apertura | `enclave.ts:101-123` | KMS `Decrypt` con `Recipient`; GCM con tag de 16 B; se comprueba que la llave abierta deriva la pubkey reclamada |
+| RSA efímera por arranque | `services/managed-signer/src/enclave/enclave.ts:125` | RSA-2048, SPKI dentro de cada attestation |
+| Sellado de llaves | `enclave.ts:145` | KMS `GenerateDataKey` con `Recipient` (attestation) → `CiphertextForRecipient` → AES-256-GCM (AAD `acceso-nostr/enclave-key/<pubkey>` y, en los blobs v2, la etiqueta del dueño) |
+| Etiqueta del dueño (FR005-09) | `enclave.ts:83` `ownerTag` | SHA-256 de `acceso-nostr/owner/v1\|<issuer>#<sub>`: va en el contexto de cifrado de KMS (`owner_tag`) y en el AAD; se hashea porque el contexto se escribe en claro en CloudTrail |
+| Apertura | `enclave.ts:163` | KMS `Decrypt` con `Recipient`; GCM con tag de 16 B; se comprueba que la llave abierta deriva la pubkey reclamada |
+| Prueba del dueño para exportar (FR005-09) | `enclave/proof.ts` `PinnedJwksProofVerifier`; `enclave.ts:211` `checkExportProof` | JWT RS256 de Cognito (`createVerify('RSA-SHA256')`, algoritmo fijo, llaves RSA ≥ 2048 bits fijadas en la imagen), `iss`, `token_use`, `aud`/`client_id`, `exp`, `iat`, `auth_time` ≤ 300 s contra el reloj del NSM, `jti` de un solo uso (memoria acotada); el dueño del token debe dar la `ot` del blob |
 | CMS EnvelopedData (RFC 5652) | `enclave/cms.ts:38-68` | RSAES-OAEP (SHA-1/SHA-256 según parámetros) + AES-256-CBC **sin MAC** (formato impuesto por KMS) |
 | Verificación de attestation | `enclave/attestation.ts:130-214` | COSE_Sign1 ES384 (P-384, firma IEEE-P1363), cadena X.509 hasta la raíz Nitro G1 fijada por SHA-256 (línea 26), vigencia, frescura (5 min, ±60 s), nonce en tiempo constante, PCR esperados, rechazo de enclave debug |
 | KMS desde el enclave | `enclave/kms.ts` | SDK v3; TLS terminado dentro del enclave vía vsock-proxy |

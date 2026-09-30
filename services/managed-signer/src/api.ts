@@ -233,7 +233,8 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
   // IR-2026-10-03: the calls that let the key out or destroy it take a recent sign-in with the Acceso password.
   svc.post('/v1/keys/:id/export', route(async (req, c) => {
     const { password } = req.json<{ password: string }>();
-    return core.export(req.params.id!, c.owner, c.principal, password ?? '');
+    // FR005-09: the same Acceso token that just authenticated this call is the enclave's proof of the owner.
+    return core.export(req.params.id!, c.owner, c.principal, password ?? '', undefined, bearer(req));
   }, 'sensitive'));
   svc.post('/v1/keys/:id/confirm-migration', route(async (req, c) => {
     const { proof } = req.json<{ proof: unknown }>();
