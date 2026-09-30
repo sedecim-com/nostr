@@ -24,9 +24,9 @@
 | S6 (cerrado) | 2026-12-07 → 2026-12-18 | F4 | Grupos high-security | 5 | 23 | 0 |
 | S7 (cerrado) | 2027-01-04 → 2027-01-15 | F5 | Modo institucional | 10 | 38 | 1 |
 | S8 (cerrado) | 2027-01-18 → 2027-01-29 | Release | Hardening, escalabilidad y release | 2 | 8 | 0 |
-| S9 | 2026-09-28 → 2026-10-09 | G0 | Código de la auditoría y v0.1.0 firmada | 31 | 68 | 12 |
+| S9 | 2026-09-28 → 2026-10-09 | G0 | Código de la auditoría y v0.1.0 firmada | 30 | 67 | 11 |
 | S10 | 2026-10-12 → 2026-10-23 | G1 | Resto del código, vault aprobado y v0.2.0 | 27 | 88 | 6 |
-| S11 | 2026-10-26 → 2026-11-06 | G2 | Stage real en AWS | 14 | 53 | 8 |
+| S11 | 2026-10-26 → 2026-11-06 | G2 | Stage real en AWS | 15 | 54 | 9 |
 | S12 | 2026-11-09 → 2026-11-20 | G3 | Freeze de auditoría y v1.0.0-rc.1 | 1 | 3 | 1 |
 | S13 | 2026-11-23 → 2026-12-04 | G4 | Auditoría en campo y aprobación legal | 3 | 4 | 0 |
 | S14 | 2026-12-07 → 2026-12-18 | G4 | Informes externos y Nitro en Preview | 2 | 16 | 1 |
@@ -207,7 +207,7 @@
 | [NFR010-03](https://github.com/sedecim-com/nostr/issues/191) | P2 | Imágenes Docker reproducibles | NFR-010 | Infra | 3 | OPS-01 | Hecho | Dos builds del mismo commit producen el mismo digest |
 | [NFR005-01](https://github.com/sedecim-com/nostr/issues/179) | P3 | Indexer escalable horizontalmente (reparto por relay y upserts idempotentes) | NFR-005 | Dev | 5 | FR014-01 | Hecho | N réplicas sin duplicados ni pérdidas; test de concurrencia |
 
-## S9 · Código de la auditoría y v0.1.0 firmada (G0, 2026-09-28 → 2026-10-09) — 68 SP
+## S9 · Código de la auditoría y v0.1.0 firmada (G0, 2026-09-28 → 2026-10-09) — 67 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
@@ -216,7 +216,6 @@
 | [FR025-11](https://github.com/sedecim-com/nostr/issues/224) | P0 | G1: las invitaciones a grupos seguros llegan con el secure relay real | FR-025, FR-016 | Dev | 5 | FR025-07, FR016-01 | Hecho | AUTH NIP-42 temprano en relays con nip42_dms (hoy nostr-rs-relay descarta en silencio los kind 1059 sin AUTH y los clientes solo se autentican bajo demanda); E2E de grupos en web y CLI contra nostr-rs-relay real en CI; relay_url correcto para el .onion |
 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) | P0 | Firma de releases y provenance (SLSA/cosign) | NFR-010, §21.2, PRD GC-E02 | Seguridad | 3 | OPS-08 | Parcial | v0.1.0 publicada con imágenes y artefactos firmados con cosign keyless, provenance SLSA, SHA256SUMS y SBOM; verify-release.sh pasa desde fuera |
 | [OPS-08](https://github.com/sedecim-com/nostr/issues/59) | P0 | Separación de funciones en releases (quién construye vs quién publica) | §21.2, PRD GC-E01 | Infra | 1 | — | Parcial | Entorno release con aprobadores distintos al autor, «Prevent self-review», sin bypass de admin y protección de tags v* |
-| [OPS-12](https://github.com/sedecim-com/nostr/issues/220) | P0 | Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | §21.2 | Infra | 1 | — | Pendiente | main exige 1 aprobación y los checks de CI, CodeQL y dependency-review; private vulnerability reporting activo; una segunda persona puede aprobar PRs y entornos |
 | [OPS-17](https://github.com/sedecim-com/nostr/issues/221) | P0 | Estados de evidencia y nada «Hecho» desde una rama | PRD GC-F01, GC-F02 | Infra | 3 | — | Hecho | Estados Proposed, In PR, Merged, CI Verified, Stage Verified, Externally Audited y Production Enabled documentados en GITHUB.md y visibles en los issues; backlog-sync solo acepta Hecho si la evidencia cita un SHA ancestro de main y avisa del resto |
 | [OPS-18](https://github.com/sedecim-com/nostr/issues/250) | P0 | Trazabilidad y estado generados desde la fuente, con check en CI | PRD GC-F03 | Infra | 5 | OPS-17 | Hecho | requirements-traceability.md y un tablero de estado se regeneran desde los issues y el código; CI falla si una referencia o evidencia (archivo, prueba, SHA o ADR) no existe |
 | [PANEL-07](https://github.com/sedecim-com/nostr/issues/259) | P0 | Etiquetas de madurez por perfil y función en web, CLI y documentación | FR-028, PRD §12 | Dev | 3 | PANEL-05 | Hecho | Beta para Marmot/MLS, Experimental para Sovereign Tor y push, Preview para el enclave y ninguna GA de private-resilient sin el vault; visibles en la web, el CLI, el README y las notas de release; NIP-17 solo habilitado con el gate de interop en verde |
@@ -275,7 +274,7 @@
 | [DEC-15](https://github.com/sedecim-com/nostr/issues/273) | P3 | Estructura de repositorios | §21.1 | Decisión | 1 | — | Parcial | ADR que justifica el monorepo frente a los seis repositorios sugeridos por el scope |
 | [NFR006-04](https://github.com/sedecim-com/nostr/issues/271) | P3 | Escaneo de secretos en logs con todos los perfiles | NFR-006 | QA | 2 | NFR006-03 | Hecho | El job stack también levanta managed, push, institutional y tor y escanea sus logs |
 
-## S11 · Stage real en AWS (G2, 2026-10-26 → 2026-11-06) — 53 SP
+## S11 · Stage real en AWS (G2, 2026-10-26 → 2026-11-06) — 54 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
@@ -284,6 +283,7 @@
 | [NFR003-03](https://github.com/sedecim-com/nostr/issues/251) | P0 | Simulacro completo de RPO/RTO en stage | NFR-003, PRD GC-C05 | Infra | 3 | NFR001-03 | Pendiente | Restore nocturno de RDS (PITR) y del almacenamiento S3 con interop, más un drill manual en un entorno limpio con los tiempos reales documentados |
 | [NFR004-02](https://github.com/sedecim-com/nostr/issues/178) | P0 | Dashboard de latencia y degradación sin ocultarla | NFR-004, PRD GC-C02 | Infra | 2 | NFR004-01, NFR001-02 | Parcial | Panel P95/P99 por relay con alertas de degradación en vivo en stage, con scrape por pod del indexer (hoy mide una sola réplica) |
 | [NFR005-02](https://github.com/sedecim-com/nostr/issues/180) | P0 | Pruebas de carga del relay y el indexer | NFR-005, PRD GC-C04 | QA | 5 | NFR005-01, NFR001-01 | Parcial | Throughput, p95/p99, saturación y límites medidos contra el Buzz de stage y el indexer en docs/load-testing.md; capacity baseline y estrategia de escalado de los relays aprobados |
+| [OPS-12](https://github.com/sedecim-com/nostr/issues/220) | P0 | Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | §21.2 | Infra | 1 | — | Pendiente | main exige 1 aprobación y los checks de CI, CodeQL y dependency-review; private vulnerability reporting activo; una segunda persona puede aprobar PRs y entornos |
 | [OPS-20](https://github.com/sedecim-com/nostr/issues/252) | P0 | Feature gates de producción para managed, enclave y push | PRD GC-D05, GC-A03, GC-G01 | Seguridad | 3 | OPS-06 | Hecho | Con legal o auditoría pendientes, el onboarding managed no aparece en la configuración de producción; enclave y su exportación apagados mientras sean Preview; push apagado donde no hay disparador seguro; el gate de release comprueba la configuración |
 | [SEC-12](https://github.com/sedecim-com/nostr/issues/258) | P0 | Inventario de la superficie de ataque de Buzz desplegado | §20.3, PRD GC-A07 | Seguridad | 3 | NFR001-01, BUZZ-07 | Pendiente | Rutas y capacidades realmente alcanzables del Buzz de stage documentadas para el pentest; opcionales innecesarios deshabilitados |
 | [VAULT-03](https://github.com/sedecim-com/nostr/issues/246) | P0 | Respaldo de eventos canónicos y restauración con relays vacíos | PRD GC-B03, FR-013, FR-027 | Dev | 5 | VAULT-02 | Hecho | Se respaldan NIP-29, la copia propia de NIP-17, los eventos Marmot con el estado MLS necesario y el ledger/outbox; un dispositivo limpio con la backup key y relays vacíos reconstruye el 100 % del fixture de conversaciones y el ledger, en web y CLI, dentro de CI |
