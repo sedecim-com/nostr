@@ -77,7 +77,7 @@ de administración, web) llama al engine directamente: `CORS_ORIGINS` = origen d
   añadidas a mano se respetan. **No hace falta reiniciar Buzz**; una conexión ya autenticada sigue abierta hasta
   que se cierre (la revocación afecta a los AUTH siguientes). Los usuarios con API token de Buzz no pasan por el
   allowlist (comportamiento upstream).
-- **secure-relay** (nostr-rs-relay 0.9.0): su `pubkey_whitelist` filtra por **autor** del evento y solo se lee
+- **secure-relay** (nostr-rs-relay 0.10.0): su `pubkey_whitelist` filtra por **autor** del evento y solo se lee
   al arrancar; no sirve porque los gift wraps (1059) y los mensajes MLS (445) van firmados con llaves efímeras.
   Se usa su admisión externa por gRPC (`[grpc] event_admission_server`): `relay-allowlist` sirve
   `nauthz.Authorization/EventAdmit` en el puerto 50051 y permite el evento solo si la sesión está autenticada
