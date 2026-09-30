@@ -15,7 +15,8 @@
 #        TOR_CHECK_TIMEOUT=600 ...                      (seconds for bootstrap + onion reachability)
 #        BUZZ_OPERATOR_SECRET=<hex>                     (key in the relay RELAY_OPERATOR_PUBKEYS; without it a
 #                                                        throwaway operator key is generated for the relay started here)
-# Results (CLI output, tor log) in ./tor-profile-results or TOR_CHECK_OUT.
+# Results (CLI output, tor log; on failure also the logs of the relays behind the onions) in ./tor-profile-results or
+# TOR_CHECK_OUT.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -39,9 +40,15 @@ done
 
 fail() {
   echo "FAIL (FR021-02): $*" >&2
-  "${COMPOSE[@]}" logs --no-color --tail 200 tor > "$OUT/tor.log" 2>&1 || true
+  # The relays behind the onions too: an event that stays QUEUED shows whether it ever reached them.
+  local s
+  for s in tor secure-relay-onion relay; do
+    "${COMPOSE[@]}" logs --no-color --tail 200 "$s" > "$OUT/$s.log" 2>&1 || true
+  done
   echo "--- last lines of the tor container (full log in $OUT/tor.log):" >&2
   tail -n 40 "$OUT/tor.log" >&2 || true
+  echo "--- last lines of secure-relay-onion (full log in $OUT/secure-relay-onion.log; Buzz in $OUT/relay.log):" >&2
+  tail -n 40 "$OUT/secure-relay-onion.log" >&2 || true
   exit 1
 }
 
