@@ -6,7 +6,7 @@ import { IdentityManager, type BackupPackage, type BackupPackageV2, type Persona
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, OperationMismatchError, publishDmRelayList, type DirectMessage, type DmInboxOptions, type DmOperation, type InboxOutbox, type InboxPool, type OperationOutbox, type RelayAdapter } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, OperationMismatchError, outboxContacts, publishDmRelayList, type DirectMessage, type DmInboxOptions, type DmOperation, type InboxOutbox, type InboxPool, type OperationOutbox, type RelayAdapter } from '@sedecim/messaging';
 import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
 import { continuityPolicy, disclose, preset, receiptPolicy, validateConfig, type ContinuityOption, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
@@ -450,8 +450,9 @@ export class SovereignClient {
   /**
    * FR009-03: the persona's DM inbox, on its own DM relays (its relays plus those of its kind 10050), as the web
    * reads it. Receipts for its DMs advance the outbox (RECIPIENT_ACKED, READ). Incoming DMs get the receipts the
-   * profile allows (none with the sovereign presets), sent to the sender's DM relays. Reading its own list lets
-   * the guard reach the relays it names; Tor-only still goes through Tor.
+   * profile allows (none with the sovereign presets), sent to the sender's DM relays, and only if the sender is a
+   * contact, someone this persona wrote to (IR-2026-10-09). Reading its own list lets the guard reach the relays it
+   * names; Tor-only still goes through Tor.
    */
   private dmInbox(s: Session, handlers: DmWatchHandlers = {}): DmInbox<OutboxRecord> {
     const allow = (urls: string[]) => s.guard.allowHosts(urls.map((u) => new URL(u).hostname));
@@ -466,6 +467,7 @@ export class SovereignClient {
       discoveryRelays: s.dmDiscovery,
       policy: () => receiptPolicy(this.profileFor(s.persona)),
       sent: s.store.collection<boolean>('receipts'),
+      isContact: outboxContacts(s.engine, s.persona.pubkey),
       wrapOptions: (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap,
       timeoutMs: readTimeoutMs(s.persona),
       ...handlers,

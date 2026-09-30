@@ -4,7 +4,9 @@
  * subscription the pool renews after each reconnection). Every gift wrap for us is opened here:
  * - a receipt from the recipient of one of our DMs advances that operation (RECIPIENT_ACKED, READ; FR009-02);
  * - a message is kept and answered with the receipts the profile allows (ADR 0005), at most one of each type per
- *   message, sent to the sender's DM relays, where the sender's own inbox reads them.
+ *   message, sent to the sender's DM relays, where the sender's own inbox reads them. IR-2026-10-09: only to
+ *   contacts (someone the persona wrote to): a stranger who writes first learns nothing about when the device is
+ *   online, and cannot make it connect (and authenticate) to relays of its choosing.
  */
 import type { Filter, NostrEvent, Signer } from '@sedecim/nostr-core';
 import { resolveDmRelays, type DmRelayCache, type RelayQuery } from './dm-relays';
@@ -32,6 +34,11 @@ export interface DmInboxOptions<R> {
   discoveryRelays?: string[];
   /** Which receipts may be sent (profiles.receiptPolicy). Asked for each message, so a panel change applies at once. */
   policy: () => { delivered: boolean; read: boolean };
+  /**
+   * IR-2026-10-09: whether the sender is a contact of this persona (e.g. outboxContacts: someone it wrote to). Receipts
+   * only go to contacts; without it, none go.
+   */
+  isContact?: (pubkey: string) => Promise<boolean>;
   /** Receipts already sent, by `<type>:<rumor id>`, so that each goes at most once, across sessions. */
   sent: { get(key: string): Promise<boolean | undefined>; put(key: string, value: boolean): Promise<void> };
   wrapOptions?: WrapOptions;
@@ -152,8 +159,42 @@ export class DmInbox<R> {
     if (!policy[type] || this.closed || m.sender === (await this.pubkey())) return;
     const key = `${type}:${m.rumor.id}`;
     if (await this.opts.sent.get(key)) return;
+    // Not remembered as sent: once the persona writes to them, a later receipt for this message may go.
+    if (!(await this.opts.isContact?.(m.sender))) return;
     const messenger = new DirectMessenger(this.signer, { nip17: true, readReceipts: policy.read }, this.opts.wrapOptions);
     await messenger.receipt(m.sender, m.rumor.id, type, { pool: this.opts.pool, outbox: this.opts.outbox, ownRelays: this.opts.ownRelays, discoveryRelays: this.discovery(), cache: this.opts.cache, timeoutMs: this.opts.timeoutMs, quorum: 1 });
     await this.opts.sent.put(key, true);
   }
+}
+
+/** What outboxContacts reads: the outbox records (a DeliveryEngine) and, when it has them, its changes. */
+export interface ContactSource {
+  list(): Promise<Array<{ meta?: Record<string, string> }>>;
+  onChange?(fn: (r: { meta?: Record<string, string> }) => void): () => void;
+}
+
+/**
+ * IR-2026-10-09: the persona's contacts, for receipts: whoever it wrote a DM to, as its outbox records it (a DM wrap
+ * whose `meta.recipient` is someone else; the receipts it sent do not count). The outbox is read once; later sends are
+ * picked up from its changes, so a contact written to a moment ago counts at once.
+ */
+export function outboxContacts(outbox: ContactSource, self: string): (pubkey: string) => Promise<boolean> {
+  const known = new Set<string>();
+  const add = (r: { meta?: Record<string, string> }) => {
+    const to = r.meta?.recipient;
+    if (to && to !== self && r.meta?.receipt === undefined) known.add(to);
+  };
+  outbox.onChange?.(add);
+  let loaded: Promise<void> | undefined;
+  return async (pubkey) => {
+    loaded ??= outbox.list().then(
+      (records) => records.forEach(add),
+      (err: unknown) => {
+        loaded = undefined; // read again next time: an unreadable outbox sends no receipt, it does not stop them for good
+        throw err;
+      },
+    );
+    await loaded;
+    return known.has(pubkey);
+  };
 }
