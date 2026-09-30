@@ -40,6 +40,24 @@ describe('bots with the GitHub App token (OPS-12)', () => {
     expect(text).toContain('GH_TOKEN="$WORKFLOW_TOKEN" gh issue create');
   });
 
+  it('buzz-upstream.yml runs npm only where no write credential is: install scripts never see the App token (IR-2026-10-06)', async () => {
+    const { parse } = await import('yaml');
+    const jobs = parse(read('buzz-upstream.yml')).jobs as Record<string, { permissions?: Record<string, string>; steps?: Array<{ run?: string; uses?: string; with?: Record<string, unknown> }> }>;
+    for (const [name, job] of Object.entries(jobs)) {
+      const runs = (job.steps ?? []).map((st) => st.run ?? '').join('\n');
+      const writes = Object.values(job.permissions ?? {}).includes('write');
+      const bot = (job.steps ?? []).some((st) => st.uses?.startsWith('actions/create-github-app-token@'));
+      if (/\bnpm\b|\bnpx\b/.test(runs)) {
+        expect(writes || bot, `${name} runs npm with a write credential`).toBe(false);
+        expect(runs, name).toMatch(/npm ci [^\n]*--ignore-scripts/);
+        const checkout = (job.steps ?? []).find((st) => st.uses?.startsWith('actions/checkout@'));
+        expect(checkout?.with?.['persist-credentials'], name).toBe(false);
+      }
+    }
+    // The job that pushes with the App token applies the patch the read-only job computed.
+    expect((jobs['pin-pr']!.steps ?? []).map((st) => st.run ?? '').join('\n')).toContain('git apply --index "$RUNNER_TEMP/pin/pin.patch"');
+  });
+
   it('backlog-sync.yml keeps reading and writing issues with the GITHUB_TOKEN', () => {
     const text = read('backlog-sync.yml');
     expect(text).toMatch(/\n    env:\n      GITHUB_TOKEN: \$\{\{ github\.token \}\}\n      GH_TOKEN: \$\{\{ github\.token \}\}\n/);
