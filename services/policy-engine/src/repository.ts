@@ -21,6 +21,100 @@ export type ChallengePurpose = 'register' | 'assert';
 
 export type NewAuditEntry = Omit<PolicyAuditEntry, 'id'>;
 
+/** OPS-16: an audit entry's event, signed, as the engine hands it to the repository. */
+export interface SealedEvent {
+  id: string;
+  type: string;
+  createdAt: number;
+  /** The signed envelope, canonical JSON: served and delivered as it was signed. */
+  envelope: string;
+}
+
+/** OPS-16: builds the signed event of an audit entry (with its id) at stream position `seq`, inside the append. */
+export type EventSealer = (entry: PolicyAuditEntry, seq: number) => SealedEvent;
+
+export interface StoredEvent extends SealedEvent {
+  seq: number;
+}
+
+/** OPS-16: a public key that signed events (its JWK `x`), kept so that events signed before a rotation still verify. */
+export interface EventKeyRow {
+  kid: string;
+  x: string;
+  createdAt: number;
+}
+
+/** OPS-16: a webhook subscription. Its secret is never stored: it is derived from the secrets key and `salt`. */
+export interface WebhookRow {
+  id: string;
+  url: string;
+  /** Event types it receives; empty: all of them. */
+  types: string[];
+  status: 'active' | 'disabled';
+  salt: string;
+  createdAt: number;
+  createdBy: string;
+  consecutiveFailures: number;
+  disabledAt?: number;
+  disabledReason?: string;
+}
+
+/** OPS-16: one delivery of an event to a subscription. Never the destination's response body or headers. */
+export interface DeliveryRow {
+  id: number;
+  webhookId: string;
+  eventSeq: number;
+  eventId: string;
+  eventType: string;
+  status: 'pending' | 'delivered' | 'failed';
+  attempts: number;
+  /** When a pending delivery is due. */
+  nextAttemptAt?: number;
+  lastAttemptAt?: number;
+  /** HTTP status of the last answer, if the destination answered. */
+  lastStatus?: number;
+  /** Class of the last failure (timeout, http_5xx…). */
+  lastError?: string;
+  finishedAt?: number;
+  createdAt: number;
+}
+
+/** OPS-16: what a dispatcher needs to send a delivery it claimed. */
+export interface ClaimedDelivery {
+  id: number;
+  webhookId: string;
+  url: string;
+  salt: string;
+  eventId: string;
+  envelope: string;
+  /** Attempts so far, this one included. */
+  attempts: number;
+}
+
+export interface DeliveryOutcome {
+  id: number;
+  /** The claim's lease: a dispatcher whose lease expired (and was taken over) changes nothing. */
+  leaseId: string;
+  now: number;
+  ok: boolean;
+  status?: number;
+  error?: string;
+  /** When to retry; absent on a failure: it failed for good. */
+  retryAt?: number;
+  /** Consecutive failed attempts that disable the subscription. */
+  disableAfter: number;
+}
+
+/** Why a subscription was disabled by its failures. */
+export const WEBHOOK_DISABLED_REASON = 'too many consecutive failed deliveries';
+
+/** A delivery as the API shows it: `nextAttemptAt` only while pending, no empty fields. */
+export function deliveryView(d: DeliveryRow): DeliveryRow {
+  const { nextAttemptAt, ...rest } = d;
+  const out = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && v !== null)) as unknown as DeliveryRow;
+  return d.status === 'pending' && nextAttemptAt !== undefined ? { ...out, nextAttemptAt } : out;
+}
+
 /**
  * Persistence of the policy-engine (FR023-03). The audit is append-only: there is no way to change or
  * delete an entry. Session tokens are passed already hashed.
@@ -52,9 +146,44 @@ export interface PolicyRepository {
   listRotations(status?: Rotation['status']): Promise<Rotation[]>;
   /** Marks a pending rotation done; undefined if unknown. Idempotent for rotations already done. */
   markRotationDone(id: string, at: number): Promise<Rotation | undefined>;
-  appendAudit(e: NewAuditEntry): Promise<void>;
+  /**
+   * With `seal` (OPS-16), the entry's signed event goes in with it, at once: the next stream position, and one pending
+   * delivery per active subscription that wants its type. Writers of events take turns, so they commit in `seq` order:
+   * a reader paging by `seq` never sees a position before a lower one that commits later.
+   */
+  appendAudit(e: NewAuditEntry, seal?: EventSealer): Promise<void>;
   /** Newest first; `before` is an exclusive audit id. */
   listAudit(q: { limit: number; before?: number }): Promise<PolicyAuditEntry[]>;
+  /** OPS-16: events after `after` (a `seq`), oldest first. */
+  listEvents(q: { after: number; limit: number }): Promise<StoredEvent[]>;
+  /** OPS-16: records a signing key (no-op if it is known). */
+  recordEventKey(k: EventKeyRow): Promise<void>;
+  /** OPS-16: every signing key recorded, oldest first. */
+  listEventKeys(): Promise<EventKeyRow[]>;
+  /** OPS-16: adds a subscription unless there are already `max`; false then. */
+  createWebhook(w: WebhookRow, max: number): Promise<boolean>;
+  /** Oldest first. */
+  listWebhooks(): Promise<WebhookRow[]>;
+  getWebhook(id: string): Promise<WebhookRow | undefined>;
+  /** Deletes the subscription and its deliveries. */
+  deleteWebhook(id: string): Promise<boolean>;
+  /** Active again, with its failure count at 0; undefined if unknown. */
+  enableWebhook(id: string): Promise<WebhookRow | undefined>;
+  /**
+   * OPS-16: claims up to `limit` due deliveries of active subscriptions for `leaseMs`, counting the attempt: no other
+   * claim gets them until the lease expires (a dispatcher that died). A delivery whose last allowed attempt died with
+   * its dispatcher fails (`lease_expired`).
+   */
+  claimDeliveries(q: { now: number; limit: number; leaseMs: number; leaseId: string; maxAttempts: number }): Promise<ClaimedDelivery[]>;
+  /**
+   * OPS-16: records the attempt of a claim that still holds its lease, and the subscription's run of failures: a success
+   * resets it; reaching `disableAfter` disables the subscription and fails its pending deliveries (`disabled: true`).
+   */
+  completeDelivery(r: DeliveryOutcome): Promise<{ disabled: boolean; failures: number }>;
+  /** Newest first; `before` is an exclusive delivery id. */
+  listDeliveries(webhookId: string, q: { limit: number; before?: number }): Promise<DeliveryRow[]>;
+  /** Deletes the finished deliveries (delivered or failed) that finished before `before` (ms). Returns how many. */
+  pruneDeliveries(before: number): Promise<number>;
   /** Oldest first: the entries of one action whose id is greater than `after`. */
   listAuditByAction(q: { action: string; after: number; limit: number }): Promise<PolicyAuditEntry[]>;
   /** Id of the newest entry of one action, 0 if none. */
@@ -152,8 +281,109 @@ export class MemoryPolicyRepository implements PolicyRepository {
     if (r && r.status === 'pending') Object.assign(r, { status: 'done', doneAt: at });
     return clone(r);
   }
-  async appendAudit(e: NewAuditEntry) {
-    this.audit.push(clone({ id: this.audit.length + 1, ...e }));
+  // No await in between: the entry, its event and its deliveries land at once in this process, in seq order.
+  async appendAudit(e: NewAuditEntry, seal?: EventSealer) {
+    const entry: PolicyAuditEntry = clone({ id: this.audit.length + 1, ...e });
+    // Sealed before anything is written: if signing throws, neither the entry nor its event exist.
+    const sealed = seal ? seal(clone(entry), this.eventSeq + 1) : undefined;
+    this.audit.push(entry);
+    if (!sealed) return;
+    const seq = ++this.eventSeq;
+    this.events.push(clone({ seq, ...sealed }));
+    for (const w of this.webhooks.values()) {
+      if (w.status !== 'active' || (w.types.length > 0 && !w.types.includes(sealed.type))) continue;
+      this.deliveries.push({ id: ++this.deliverySeq, webhookId: w.id, eventSeq: seq, eventId: sealed.id, eventType: sealed.type, status: 'pending', attempts: 0, nextAttemptAt: sealed.createdAt, createdAt: sealed.createdAt });
+    }
+  }
+  private events: StoredEvent[] = [];
+  private eventSeq = 0;
+  private eventKeys = new Map<string, EventKeyRow>();
+  private webhooks = new Map<string, WebhookRow>();
+  private deliveries: Array<DeliveryRow & { lockedUntil?: number; leaseId?: string }> = [];
+  private deliverySeq = 0;
+  async listEvents(q: { after: number; limit: number }) {
+    return clone(this.events.filter((e) => e.seq > q.after).slice(0, q.limit));
+  }
+  async recordEventKey(k: EventKeyRow) {
+    if (!this.eventKeys.has(k.kid)) this.eventKeys.set(k.kid, clone(k));
+  }
+  async listEventKeys() {
+    return clone([...this.eventKeys.values()]);
+  }
+  async createWebhook(w: WebhookRow, max: number) {
+    if (this.webhooks.size >= max) return false;
+    this.webhooks.set(w.id, clone(w));
+    return true;
+  }
+  async listWebhooks() {
+    return clone([...this.webhooks.values()].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1)));
+  }
+  async getWebhook(id: string) {
+    return clone(this.webhooks.get(id));
+  }
+  async deleteWebhook(id: string) {
+    this.deliveries = this.deliveries.filter((d) => d.webhookId !== id);
+    return this.webhooks.delete(id);
+  }
+  async enableWebhook(id: string) {
+    const w = this.webhooks.get(id);
+    if (!w) return undefined;
+    const { disabledAt: _at, disabledReason: _reason, ...rest } = w;
+    const enabled: WebhookRow = { ...rest, status: 'active', consecutiveFailures: 0 };
+    this.webhooks.set(id, enabled);
+    return clone(enabled);
+  }
+  async claimDeliveries(q: { now: number; limit: number; leaseMs: number; leaseId: string; maxAttempts: number }) {
+    const expired = (d: { lockedUntil?: number }) => d.lockedUntil === undefined || d.lockedUntil <= q.now;
+    for (const d of this.deliveries) {
+      if (d.status === 'pending' && d.attempts >= q.maxAttempts && d.lockedUntil !== undefined && d.lockedUntil <= q.now) {
+        Object.assign(d, { status: 'failed', lastError: 'lease_expired', finishedAt: q.now, lockedUntil: undefined, leaseId: undefined });
+      }
+    }
+    const due = this.deliveries
+      .filter((d) => d.status === 'pending' && this.webhooks.get(d.webhookId)?.status === 'active' && (d.nextAttemptAt ?? 0) <= q.now && expired(d) && d.attempts < q.maxAttempts)
+      .sort((a, b) => (a.nextAttemptAt ?? 0) - (b.nextAttemptAt ?? 0) || a.id - b.id)
+      .slice(0, q.limit);
+    return due.map((d) => {
+      Object.assign(d, { lockedUntil: q.now + q.leaseMs, leaseId: q.leaseId, attempts: d.attempts + 1, lastAttemptAt: q.now });
+      const w = this.webhooks.get(d.webhookId)!;
+      const e = this.events.find((x) => x.seq === d.eventSeq)!;
+      return { id: d.id, webhookId: d.webhookId, url: w.url, salt: w.salt, eventId: e.id, envelope: e.envelope, attempts: d.attempts };
+    });
+  }
+  async completeDelivery(r: DeliveryOutcome) {
+    const d = this.deliveries.find((x) => x.id === r.id);
+    if (!d || d.status !== 'pending' || d.leaseId !== r.leaseId) return { disabled: false, failures: 0 };
+    const status = r.ok ? 'delivered' : r.retryAt === undefined ? 'failed' : 'pending';
+    Object.assign(d, { status, lockedUntil: undefined, leaseId: undefined, lastStatus: r.status, lastError: r.ok ? undefined : (r.error ?? 'network') });
+    if (status === 'pending') d.nextAttemptAt = r.retryAt;
+    else d.finishedAt = r.now;
+    const w = this.webhooks.get(d.webhookId);
+    if (!w) return { disabled: false, failures: 0 };
+    if (r.ok) {
+      w.consecutiveFailures = 0;
+      return { disabled: false, failures: 0 };
+    }
+    w.consecutiveFailures += 1;
+    if (w.status !== 'active' || w.consecutiveFailures < r.disableAfter) return { disabled: false, failures: w.consecutiveFailures };
+    Object.assign(w, { status: 'disabled', disabledAt: r.now, disabledReason: WEBHOOK_DISABLED_REASON });
+    for (const x of this.deliveries) {
+      if (x.webhookId === w.id && x.status === 'pending') Object.assign(x, { status: 'failed', lastError: 'subscription_disabled', finishedAt: r.now, lockedUntil: undefined, leaseId: undefined });
+    }
+    return { disabled: true, failures: w.consecutiveFailures };
+  }
+  async listDeliveries(webhookId: string, q: { limit: number; before?: number }) {
+    return this.deliveries
+      .filter((d) => d.webhookId === webhookId && (q.before === undefined || d.id < q.before))
+      .slice(-q.limit)
+      .reverse()
+      .map(({ lockedUntil: _l, leaseId: _lease, ...d }) => deliveryView(clone(d)));
+  }
+  async pruneDeliveries(before: number) {
+    const keep = this.deliveries.filter((d) => d.status === 'pending' || d.finishedAt === undefined || d.finishedAt >= before);
+    const n = this.deliveries.length - keep.length;
+    this.deliveries = keep;
+    return n;
   }
   async listAudit(q: { limit: number; before?: number }) {
     return clone(
@@ -215,7 +445,15 @@ export class MemoryPolicyRepository implements PolicyRepository {
 }
 
 type Row = Record<string, unknown>;
+/** The part of a pooled client a transaction uses. */
+interface PgClient {
+  query: Pool['query'];
+  release(err?: Error | boolean): void;
+}
 const num = (v: unknown) => (v === null || v === undefined ? undefined : Number(v));
+/** OPS-16: advisory locks (per database): writers of events, and creations of subscriptions. */
+const EVENTS_LOCK = 'sedecim:policy-engine:events';
+const WEBHOOKS_LOCK = 'sedecim:policy-engine:webhooks';
 
 export class PgPolicyRepository implements PolicyRepository {
   constructor(private readonly pool: Pool) {}
@@ -352,8 +590,178 @@ export class PgPolicyRepository implements PolicyRepository {
     const { rows } = await this.pool.query('SELECT * FROM policy_rotations WHERE id = $1', [id]);
     return rows[0] ? this.rotation(rows[0]) : undefined;
   }
-  async appendAudit(e: NewAuditEntry) {
-    await this.pool.query('INSERT INTO policy_audit (at, actor, action, target, details) VALUES ($1,$2,$3,$4,$5)', [e.at, e.actor, e.action, e.target, e.details ? JSON.stringify(e.details) : null]);
+  private async tx<T>(fn: (c: PgClient) => Promise<T>): Promise<T> {
+    const c = await this.pool.connect();
+    try {
+      await c.query('BEGIN');
+      const out = await fn(c);
+      await c.query('COMMIT');
+      return out;
+    } catch (e) {
+      await c.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+  async appendAudit(e: NewAuditEntry, seal?: EventSealer) {
+    const values = [e.at, e.actor, e.action, e.target, e.details ? JSON.stringify(e.details) : null];
+    if (!seal) {
+      await this.pool.query('INSERT INTO policy_audit (at, actor, action, target, details) VALUES ($1,$2,$3,$4,$5)', values);
+      return;
+    }
+    await this.tx(async (c) => {
+      // OPS-16: writers of events take turns until they commit. The lock is released after the commit is visible, so the
+      // next writer draws a higher seq only once the lower one can be read: pages by seq have no hole that fills later.
+      await c.query(`SELECT pg_advisory_xact_lock(hashtext('${EVENTS_LOCK}'))`);
+      const { rows } = await c.query('INSERT INTO policy_audit (at, actor, action, target, details) VALUES ($1,$2,$3,$4,$5) RETURNING *', values);
+      // The entry as stored (what GET /v1/audit returns) is what the event copies.
+      const entry = this.auditEntry(rows[0]);
+      const seq = Number((await c.query("SELECT nextval(pg_get_serial_sequence('policy_events', 'seq')) AS seq")).rows[0].seq);
+      const sealed = seal(entry, seq);
+      await c.query('INSERT INTO policy_events (seq, id, audit_id, type, created_at, envelope) VALUES ($1,$2,$3,$4,$5,$6)', [seq, sealed.id, entry.id, sealed.type, sealed.createdAt, sealed.envelope]);
+      await c.query(
+        `INSERT INTO policy_webhook_deliveries (webhook_id, event_seq, next_attempt_at, created_at)
+         SELECT id, $1, $2, $2 FROM policy_webhooks WHERE status = 'active' AND (cardinality(types) = 0 OR $3 = ANY(types))`,
+        [seq, sealed.createdAt, sealed.type],
+      );
+    });
+  }
+  async listEvents(q: { after: number; limit: number }) {
+    const { rows } = await this.pool.query('SELECT seq, id, type, created_at, envelope FROM policy_events WHERE seq > $1 ORDER BY seq LIMIT $2', [q.after, q.limit]);
+    return rows.map((r) => ({ seq: Number(r.seq), id: r.id as string, type: r.type as string, createdAt: Number(r.created_at), envelope: r.envelope as string }));
+  }
+  async recordEventKey(k: EventKeyRow) {
+    await this.pool.query('INSERT INTO policy_event_keys (kid, x, created_at) VALUES ($1,$2,$3) ON CONFLICT (kid) DO NOTHING', [k.kid, k.x, k.createdAt]);
+  }
+  async listEventKeys() {
+    const { rows } = await this.pool.query('SELECT kid, x, created_at FROM policy_event_keys ORDER BY created_at, kid');
+    return rows.map((r) => ({ kid: r.kid as string, x: r.x as string, createdAt: Number(r.created_at) }));
+  }
+  private webhook = (r: Row): WebhookRow => ({
+    id: r.id as string,
+    url: r.url as string,
+    types: r.types as string[],
+    status: r.status as WebhookRow['status'],
+    salt: r.salt as string,
+    createdAt: Number(r.created_at),
+    createdBy: r.created_by as string,
+    consecutiveFailures: Number(r.consecutive_failures),
+    ...(r.disabled_at !== null ? { disabledAt: Number(r.disabled_at) } : {}),
+    ...(r.disabled_reason !== null ? { disabledReason: r.disabled_reason as string } : {}),
+  });
+  async createWebhook(w: WebhookRow, max: number) {
+    return this.tx(async (c) => {
+      // The limit counts every replica's subscriptions: two concurrent creations cannot both take the last place.
+      await c.query(`SELECT pg_advisory_xact_lock(hashtext('${WEBHOOKS_LOCK}'))`);
+      if (Number((await c.query('SELECT count(*) AS n FROM policy_webhooks')).rows[0].n) >= max) return false;
+      await c.query('INSERT INTO policy_webhooks (id, url, types, status, salt, created_at, created_by, consecutive_failures) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [
+        w.id,
+        w.url,
+        w.types,
+        w.status,
+        w.salt,
+        w.createdAt,
+        w.createdBy,
+        w.consecutiveFailures,
+      ]);
+      return true;
+    });
+  }
+  async listWebhooks() {
+    return (await this.pool.query('SELECT * FROM policy_webhooks ORDER BY created_at, id')).rows.map(this.webhook);
+  }
+  async getWebhook(id: string) {
+    const { rows } = await this.pool.query('SELECT * FROM policy_webhooks WHERE id = $1', [id]);
+    return rows[0] ? this.webhook(rows[0]) : undefined;
+  }
+  async deleteWebhook(id: string) {
+    return ((await this.pool.query('DELETE FROM policy_webhooks WHERE id = $1', [id])).rowCount ?? 0) > 0;
+  }
+  async enableWebhook(id: string) {
+    const { rows } = await this.pool.query("UPDATE policy_webhooks SET status = 'active', consecutive_failures = 0, disabled_at = NULL, disabled_reason = NULL WHERE id = $1 RETURNING *", [id]);
+    return rows[0] ? this.webhook(rows[0]) : undefined;
+  }
+  async claimDeliveries(q: { now: number; limit: number; leaseMs: number; leaseId: string; maxAttempts: number }) {
+    await this.pool.query(
+      `UPDATE policy_webhook_deliveries SET status = 'failed', last_error = 'lease_expired', finished_at = $1, locked_until = NULL, lease_id = NULL
+       WHERE status = 'pending' AND attempts >= $2 AND locked_until IS NOT NULL AND locked_until <= $1`,
+      [q.now, q.maxAttempts],
+    );
+    // SKIP LOCKED: concurrent claims of other replicas take other rows instead of waiting for these.
+    const { rows } = await this.pool.query(
+      `WITH due AS (
+         SELECT d.id FROM policy_webhook_deliveries d JOIN policy_webhooks w ON w.id = d.webhook_id
+         WHERE d.status = 'pending' AND w.status = 'active' AND d.next_attempt_at <= $1
+           AND (d.locked_until IS NULL OR d.locked_until <= $1) AND d.attempts < $5
+         ORDER BY d.next_attempt_at, d.id
+         LIMIT $2
+         FOR UPDATE OF d SKIP LOCKED
+       ), claimed AS (
+         UPDATE policy_webhook_deliveries d SET locked_until = $3, lease_id = $4, attempts = d.attempts + 1, last_attempt_at = $1
+         FROM due WHERE d.id = due.id
+         RETURNING d.id, d.webhook_id, d.event_seq, d.attempts
+       )
+       SELECT c.id, c.webhook_id, c.attempts, w.url, w.salt, e.id AS event_id, e.envelope
+       FROM claimed c JOIN policy_webhooks w ON w.id = c.webhook_id JOIN policy_events e ON e.seq = c.event_seq
+       ORDER BY c.id`,
+      [q.now, q.limit, q.now + q.leaseMs, q.leaseId, q.maxAttempts],
+    );
+    return rows.map((r) => ({ id: Number(r.id), webhookId: r.webhook_id as string, url: r.url as string, salt: r.salt as string, eventId: r.event_id as string, envelope: r.envelope as string, attempts: Number(r.attempts) }));
+  }
+  async completeDelivery(r: DeliveryOutcome) {
+    const status = r.ok ? 'delivered' : r.retryAt === undefined ? 'failed' : 'pending';
+    return this.tx(async (c) => {
+      const { rows } = await c.query(
+        `UPDATE policy_webhook_deliveries SET status = $3, next_attempt_at = coalesce($4, next_attempt_at), locked_until = NULL, lease_id = NULL,
+           last_status = $5, last_error = $6, finished_at = $7
+         WHERE id = $1 AND lease_id = $2 AND status = 'pending' RETURNING webhook_id`,
+        [r.id, r.leaseId, status, r.retryAt ?? null, r.status ?? null, r.ok ? null : (r.error ?? 'network'), status === 'pending' ? null : r.now],
+      );
+      if (!rows[0]) return { disabled: false, failures: 0 };
+      const webhookId = rows[0].webhook_id as string;
+      if (r.ok) {
+        await c.query('UPDATE policy_webhooks SET consecutive_failures = 0 WHERE id = $1', [webhookId]);
+        return { disabled: false, failures: 0 };
+      }
+      const w = (await c.query('UPDATE policy_webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = $1 RETURNING consecutive_failures, status', [webhookId])).rows[0];
+      const failures = Number(w?.consecutive_failures ?? 0);
+      if (!w || w.status !== 'active' || failures < r.disableAfter) return { disabled: false, failures };
+      await c.query("UPDATE policy_webhooks SET status = 'disabled', disabled_at = $2, disabled_reason = $3 WHERE id = $1", [webhookId, r.now, WEBHOOK_DISABLED_REASON]);
+      await c.query(
+        `UPDATE policy_webhook_deliveries SET status = 'failed', last_error = 'subscription_disabled', finished_at = $2, locked_until = NULL, lease_id = NULL
+         WHERE webhook_id = $1 AND status = 'pending'`,
+        [webhookId, r.now],
+      );
+      return { disabled: true, failures };
+    });
+  }
+  async listDeliveries(webhookId: string, q: { limit: number; before?: number }) {
+    const { rows } = await this.pool.query(
+      `SELECT d.*, e.id AS event_id, e.type AS event_type FROM policy_webhook_deliveries d JOIN policy_events e ON e.seq = d.event_seq
+       WHERE d.webhook_id = $1 AND ($3::bigint IS NULL OR d.id < $3) ORDER BY d.id DESC LIMIT $2`,
+      [webhookId, q.limit, q.before ?? null],
+    );
+    return rows.map((r) =>
+      deliveryView({
+        id: Number(r.id),
+        webhookId: r.webhook_id as string,
+        eventSeq: Number(r.event_seq),
+        eventId: r.event_id as string,
+        eventType: r.event_type as string,
+        status: r.status as DeliveryRow['status'],
+        attempts: Number(r.attempts),
+        nextAttemptAt: Number(r.next_attempt_at),
+        ...(r.last_attempt_at !== null ? { lastAttemptAt: Number(r.last_attempt_at) } : {}),
+        ...(r.last_status !== null ? { lastStatus: Number(r.last_status) } : {}),
+        ...(r.last_error !== null ? { lastError: r.last_error as string } : {}),
+        ...(r.finished_at !== null ? { finishedAt: Number(r.finished_at) } : {}),
+        createdAt: Number(r.created_at),
+      }),
+    );
+  }
+  async pruneDeliveries(before: number) {
+    return (await this.pool.query("DELETE FROM policy_webhook_deliveries WHERE status <> 'pending' AND finished_at < $1", [before])).rowCount ?? 0;
   }
   async listAudit(q: { limit: number; before?: number }) {
     const { rows } =
@@ -414,4 +822,4 @@ export class PgPolicyRepository implements PolicyRepository {
 }
 
 /** Tables of the policy-engine migration scope (tests reset them). */
-export const POLICY_TABLES = ['policy_access_log', 'policy_webauthn_challenges', 'policy_retention', 'policy_directory', 'policy_audit', 'policy_rotations', 'policy_sessions', 'policy_devices', 'policy_resources', 'policy_subjects'];
+export const POLICY_TABLES = ['policy_webhook_deliveries', 'policy_webhooks', 'policy_event_keys', 'policy_events', 'policy_access_log', 'policy_webauthn_challenges', 'policy_retention', 'policy_directory', 'policy_audit', 'policy_rotations', 'policy_sessions', 'policy_devices', 'policy_resources', 'policy_subjects'];

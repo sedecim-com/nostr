@@ -1,6 +1,16 @@
 import { fileURLToPath } from 'node:url';
 import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, type ReplayStore } from '@sedecim/service-kit';
-import { createPolicyApi, DEFAULT_ACCESS_LOG_RETENTION_DAYS, MemoryPolicyRepository, parseServiceScopes, PgPolicyRepository, PolicyEngine, type PolicyRepository } from './index';
+import {
+  createPolicyApi,
+  DEFAULT_ACCESS_LOG_RETENTION_DAYS,
+  eventsConfigFromEnv,
+  MemoryPolicyRepository,
+  parseServiceScopes,
+  PgPolicyRepository,
+  PolicyEngine,
+  WebhookDispatcher,
+  type PolicyRepository,
+} from './index';
 
 const env = process.env;
 const admins = (env.POLICY_ADMIN_PUBKEYS ?? '').split(',').filter(Boolean);
@@ -11,6 +21,10 @@ for (const principal of new Set(Object.values(tokens))) {
   if (!serviceScopes[principal]?.length) console.warn(`POLICY_SERVICE_TOKENS: principal '${principal}' has no scope: its token is refused everywhere (POLICY_SERVICE_SCOPES)`);
 }
 if (admins.length === 0) console.warn('POLICY_ADMIN_PUBKEYS empty: admin routes will reject every request');
+// OPS-16: signed events and webhooks. Off without POLICY_EVENTS_SIGNING_KEY_FILE; a key file that cannot be read or holds
+// no Ed25519 key throws here, before anything is served (fail closed).
+const { events, dispatch, warnings } = eventsConfigFromEnv(env);
+for (const w of warnings) console.warn(w);
 
 let repo: PolicyRepository;
 // IR-2026-09-04: used NIP-98 ids shared by every replica through Postgres; per process without it.
@@ -39,7 +53,11 @@ const webauthn = {
   sessionRequireAssertion: env.SESSION_REQUIRE_ASSERTION === 'true',
 };
 const corsOrigins = (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-const engine = new PolicyEngine(repo, Date.now, webauthn);
+const engine = new PolicyEngine(repo, Date.now, webauthn, events);
+if (events) {
+  await engine.initEvents();
+  console.info(`signed events on: issuer ${events.issuer}, key ${events.key.kid}`);
+}
 // FR023-12: access decisions are kept ACCESS_LOG_RETENTION_DAYS (90), except on resources under legal hold. Every
 // replica prunes; the delete is idempotent.
 const accessDays = Number(env.ACCESS_LOG_RETENTION_DAYS ?? DEFAULT_ACCESS_LOG_RETENTION_DAYS);
@@ -49,8 +67,32 @@ const pruneAccessLog = () =>
     (n) => n > 0 && console.info(`access log: ${n} decisions older than ${accessDays} days deleted`),
     (err: Error) => console.warn(`access log retention failed: ${err.message}`),
   );
-setInterval(() => void pruneAccessLog(), Number(env.ACCESS_LOG_PRUNE_INTERVAL_MS ?? 3_600_000)).unref();
-void pruneAccessLog();
+// OPS-16: finished webhook deliveries stay in the log POLICY_WEBHOOK_DELIVERY_RETENTION_DAYS (30).
+const pruneDeliveries = () =>
+  engine.pruneWebhookDeliveries(dispatch.deliveryRetentionDays).then(
+    (n) => n > 0 && console.info(`webhooks: ${n} finished deliveries older than ${dispatch.deliveryRetentionDays} days deleted`),
+    (err: Error) => console.warn(`webhook delivery retention failed: ${err.message}`),
+  );
+const prune = () => {
+  void pruneAccessLog();
+  if (engine.webhooksEnabled) void pruneDeliveries();
+};
+setInterval(prune, Number(env.ACCESS_LOG_PRUNE_INTERVAL_MS ?? 3_600_000)).unref();
+prune();
+// OPS-16: every replica dispatches; a delivery is claimed by one at a time (see WebhookDispatcher).
+if (events?.webhooks) {
+  const dispatcher = new WebhookDispatcher({
+    repo,
+    secretsKey: events.webhooks.secretsKey,
+    policy: events.webhooks.policy,
+    maxAttempts: dispatch.maxAttempts,
+    disableAfter: dispatch.disableAfter,
+    timeoutMs: dispatch.timeoutMs,
+    onDisabled: (id, failures) => engine.webhookDisabled(id, failures),
+    log: (msg, fields) => console.info(`${msg} ${JSON.stringify(fields)}`),
+  });
+  dispatcher.start(dispatch.intervalMs);
+}
 const api = createPolicyApi(engine, {
   name: 'policy-engine',
   publicBaseUrl: env.PUBLIC_BASE_URL,
