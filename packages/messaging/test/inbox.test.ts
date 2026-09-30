@@ -1,7 +1,7 @@
 /**
  * FR009-03: receipts reach the sender (they go to the sender's DM relays, kind 10050) and the inbox reads the
  * persona's own DM relays once or in the background, applying receipts to the outbox and answering messages with
- * the receipts the profile allows, at most once each.
+ * the receipts the profile allows, at most once each. IR-2026-10-09: only to contacts (someone the persona wrote to).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
@@ -11,7 +11,7 @@ import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestRelay } from '@sedecim/test-relay';
 import { EncryptedStore, MemoryBackend } from '@sedecim/encrypted-store';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { APP_RECEIPT_KIND, DirectMessenger, DmInbox, DmRelayCache, FeatureDisabledError, publishDmRelayList, unwrap, type DirectMessage, type Receipt } from '../src/index';
+import { APP_RECEIPT_KIND, DirectMessenger, DmInbox, DmRelayCache, FeatureDisabledError, outboxContacts, publishDmRelayList, unwrap, type DirectMessage, type Receipt } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
 const flags = { nip17: true, readReceipts: false };
@@ -32,6 +32,8 @@ function persona(relay: TestRelay, discovery: string[], fill: number) {
   const engine = new DeliveryEngine({ store: EncryptedStore.withKey(new MemoryBackend(), new Uint8Array(32).fill(fill)).collection<OutboxRecord>('outbox'), publisher: pool, signer });
   const sent = EncryptedStore.withKey(new MemoryBackend(), new Uint8Array(32).fill(fill + 1)).collection<boolean>('receipts');
   const policy = { delivered: true, read: false };
+  /** IR-2026-10-09: who this persona treats as its contacts (the web and the CLI use outboxContacts). */
+  const contacts = new Set<string>();
   const messages: Array<{ m: DirectMessage; live: boolean }> = [];
   const receipts: Array<{ r: Receipt; rec: OutboxRecord }> = [];
   const inbox = (ownRelays = [relay.url]) =>
@@ -41,6 +43,7 @@ function persona(relay: TestRelay, discovery: string[], fill: number) {
       ownRelays,
       discoveryRelays: discovery,
       policy: () => policy,
+      isContact: async (pk) => contacts.has(pk),
       sent,
       cache: new DmRelayCache(),
       timeoutMs: 2000,
@@ -51,7 +54,7 @@ function persona(relay: TestRelay, discovery: string[], fill: number) {
     const { deliveries } = await new DirectMessenger(signer, flags).send({ recipients: [to], content }, { pool, outbox: engine, ownRelays: [relay.url], discoveryRelays: discovery, cache: new DmRelayCache(), wait: true });
     return deliveries.find((d) => d.recipient === to)!;
   };
-  return { signer, pool, engine, policy, messages, receipts, inbox, send, close: () => (engine.stop(), pool.close()) };
+  return { signer, pool, engine, policy, contacts, messages, receipts, inbox, send, close: () => (engine.stop(), pool.close()) };
 }
 
 /** Receipt wraps for `to` on a relay: [type, rumor id] of each one `reader` can open. */
@@ -82,6 +85,9 @@ describe('receipts reach the sender and the inbox reads in the background (FR009
     bob = persona(bobRelay, discovery, 3);
     alicePk = await alice.signer.getPublicKey();
     bobPk = await bob.signer.getPublicKey();
+    // They have written to each other before: each is the other's contact.
+    alice.contacts.add(bobPk);
+    bob.contacts.add(alicePk);
     // Each persona's DM relay list, where the other looks it up.
     for (const r of [aliceRelay, bobRelay]) {
       r.inject(await publishDmRelayList(alice.signer, [aliceRelay.url]));
@@ -178,6 +184,56 @@ describe('receipts reach the sender and the inbox reads in the background (FR009
     } finally {
       quiet.close();
     }
+  });
+
+  it('a stranger who writes first gets no receipt, and its relays see no connection, until the persona writes back (IR-2026-10-09)', async () => {
+    // Carol's DM relay is hers: it would learn when Bob's device is online, from where, and get an AUTH signed by him.
+    const carolRelay = new TestRelay({ requireAuth: true, pGatedKinds: [1059] });
+    await carolRelay.start();
+    const carol = persona(carolRelay, [aliceRelay.url, bobRelay.url, carolRelay.url], 9);
+    const carolPk = await carol.signer.getPublicKey();
+    // Bob looks his own list up on the relays he uses, never on Carol's.
+    const bobOut = persona(bobRelay, [aliceRelay.url, bobRelay.url], 11);
+    const bobOutPk = await bobOut.signer.getPublicKey();
+    try {
+      for (const r of [aliceRelay, bobRelay, carolRelay]) {
+        r.inject(await publishDmRelayList(carol.signer, [carolRelay.url]));
+        r.inject(await publishDmRelayList(bobOut.signer, [bobRelay.url]));
+      }
+      await carol.send(bobOutPk, 'hola, no nos conocemos');
+      const inbox = bobOut.inbox();
+      expect((await inbox.sync()).map((m) => m.rumor.content)).toContain('hola, no nos conocemos');
+      // No receipt queued, none on Carol's relay, and no AUTH signed there by Bob.
+      await new Promise((r) => setTimeout(r, 300));
+      expect((await bobOut.engine.list()).filter((r) => r.meta?.receipt)).toEqual([]);
+      expect(await receiptsOn(carolRelay, carol.signer)).toEqual([]);
+      expect(carolRelay.authedPubkeys).not.toContain(bobOutPk);
+
+      // Once Bob writes to her (outboxContacts: the recipient of one of his DMs), her next DM is acknowledged.
+      bobOut.contacts.add(carolPk);
+      const toBob = await carol.send(bobOutPk, 'ahora sí');
+      await inbox.sync();
+      await until(async () => (await receiptsOn(carolRelay, carol.signer)).some(([, id]) => id === toBob.record.groupId), 'the receipt on Carol relay');
+      // Only for the message that came after: the first one stays unacknowledged in this inbox.
+      expect((await bobOut.engine.list()).filter((r) => r.meta?.receipt).map((r) => r.meta?.recipient)).toEqual([carolPk]);
+    } finally {
+      carol.close();
+      bobOut.close();
+      await carolRelay.stop();
+    }
+  });
+
+  it('outboxContacts: whoever the persona wrote a DM to, receipts aside, including a DM sent a moment ago (IR-2026-10-09)', async () => {
+    const records: Array<{ meta?: Record<string, string> }> = [{ meta: { recipient: 'ana' } }, { meta: { recipient: 'yo' } }, { meta: { recipient: 'beto', receipt: 'delivered' } }, {}];
+    const listeners: Array<(r: { meta?: Record<string, string> }) => void> = [];
+    let reads = 0;
+    const isContact = outboxContacts({ list: async () => (reads++, records), onChange: (fn) => (listeners.push(fn), () => undefined) }, 'yo');
+    expect(await isContact('ana')).toBe(true);
+    expect(await isContact('yo')).toBe(false);
+    expect(await isContact('beto')).toBe(false);
+    listeners.forEach((l) => l({ meta: { recipient: 'carla' } }));
+    expect(await isContact('carla')).toBe(true);
+    expect(reads).toBe(1);
   });
 
   it("reads the relays of the persona's own kind 10050 too, even if another client published it", async () => {

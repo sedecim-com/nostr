@@ -4,7 +4,7 @@ import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Si
 import type { BrowserManagedSession } from './managed-session';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type ContinuitySink, type OutboxRecord } from '@sedecim/delivery-engine';
-import { DmInbox, dmRouter, publishDmRelayList, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
+import { DmInbox, dmRouter, outboxContacts, publishDmRelayList, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
 import { continuityPolicy, preset, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
 import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
@@ -314,14 +314,15 @@ export async function publishDmRelays(s: PersonaSession): Promise<void> {
 /**
  * FR009-03: the persona's DM inbox on its own DM relays (its kind 10050). Receipts for its DMs advance the outbox;
  * incoming DMs are answered with the receipts the panel allows, sent to the sender's DM relays. The receipts already
- * sent are kept in the vault, so each goes at most once.
+ * sent are kept in the vault, so each goes at most once. IR-2026-10-09: receipts only go to contacts, whoever this
+ * persona wrote to (its outbox).
  */
 export function openDmInbox(
   book: PersonaBook,
   s: PersonaSession,
   opts: { policy: () => ReceiptPolicy; wrapOptions?: WrapOptions; onMessage?: (m: DirectMessage, live: boolean) => void; onReceipt?: (r: Receipt, rec: OutboxRecord) => void },
 ): DmInbox<OutboxRecord> {
-  return new DmInbox(s.signer, { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, sent: book.store.collection<boolean>(`receipts-${s.persona.id}`), ...opts });
+  return new DmInbox(s.signer, { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, sent: book.store.collection<boolean>(`receipts-${s.persona.id}`), isContact: outboxContacts(s.engine, s.persona.pubkey), ...opts });
 }
 
 /**

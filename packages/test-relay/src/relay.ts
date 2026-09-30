@@ -82,6 +82,8 @@ export class TestRelay {
   readonly events = new Map<string, NostrEvent>();
   readonly faults: FaultInjection = { dropOks: 0, rejectReason: null, okDelayMs: 0, offline: false, negErrorAfterMessages: null };
   readonly received: NostrEvent[] = [];
+  /** Pubkeys of every NIP-42 AUTH it accepted, in order: who revealed themselves to this relay. */
+  readonly authedPubkeys: string[] = [];
   /** Number of EVENT messages sent to clients (to measure how much a sync transferred). */
   sentEvents = 0;
   /** NIP-77 messages received from clients, by verb. */
@@ -212,6 +214,7 @@ export class TestRelay {
     if (Math.abs(Date.now() / 1000 - evt.created_at) > 600) return this.send(state, ['OK', id, false, 'invalid: stale auth']);
     if (this.opts.allowlist && !this.opts.allowlist.includes(evt.pubkey)) return this.send(state, ['OK', id, false, 'auth-required: verification failed']);
     state.authed.add(evt.pubkey);
+    this.authedPubkeys.push(evt.pubkey);
     if (!this.opts.silentAuthOk) this.send(state, ['OK', id, true, '']);
   }
 
