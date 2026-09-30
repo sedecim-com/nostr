@@ -579,4 +579,4 @@ Decisiones, operación, seguridad, panel y gates, con la referencia que citan (P
 | [FR013-05](https://github.com/sedecim-com/nostr/issues/299) Caché local cifrada de eventos y NIP-77 con estado local | §7, §12 | Pendiente (Diferido) | — | — |
 | [FR018-06](https://github.com/sedecim-com/nostr/issues/300) Política de tamaño, MIME y antivirus compatible con la confidencialidad | §13.1 | Pendiente (Diferido) | — | — |
 | [FR004-07](https://github.com/sedecim-com/nostr/issues/301) Signer de hardware (opcional en el scope) | §8.2 | Pendiente (Diferido) | — | — |
-| [SEC-13](https://github.com/sedecim-com/nostr/issues/331) Segunda revisión interna de seguridad antes del tag de auditoría | §20.3, PRD GC-A04 | Pendiente (S11) | — | — |
+| [SEC-13](https://github.com/sedecim-com/nostr/issues/331) Segunda revisión interna de seguridad antes del tag de auditoría | §20.3, PRD GC-A04 | Pendiente (S11) | — | [service-scopes.test.ts](../services/policy-engine/test/service-scopes.test.ts) |
