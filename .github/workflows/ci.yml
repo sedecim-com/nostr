@@ -198,8 +198,12 @@ jobs:
       # (deploy/production-gates.json); release.yml runs the same check on the tag.
       - name: Production feature gates
         run: node scripts/release-gate.mjs config
+      # SEC-12: the public relay host forwards only / and /media/ to Buzz (docs/security/buzz-attack-surface.md). The real
+      # edge config, in the pinned nginx image, in front of a stub upstream that answers to any path.
+      - name: Edge proxy forwards only / and /media/ to Buzz (SEC-12)
+        run: bash scripts/edge-check.sh
       - name: Deploy scripts
-        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/mls-negative-control.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/image-sbom.sh scripts/rebuild-image.sh scripts/verify-release.sh scripts/stack-profiles.sh scripts/wait-stack.sh
+        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/mls-negative-control.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/image-sbom.sh scripts/rebuild-image.sh scripts/verify-release.sh scripts/stack-profiles.sh scripts/wait-stack.sh scripts/edge-check.sh
       - name: SLO rules and their unit tests (promtool)
         run: |
           curl -sSfL -o prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
@@ -351,6 +355,10 @@ jobs:
         run: npx vitest run tests/interop
       - name: Deployment flags match the gate result (FR-017)
         run: npx tsx scripts/interop-flags.ts interop-report.json --check
+      # SEC-12: a client without credentials gets nothing from a route that needs them, on the pinned image
+      # (docs/security/buzz-attack-surface.md). A pin that opens one fails here.
+      - name: Buzz answers no route to a client without credentials (SEC-12)
+        run: npx tsx scripts/buzz-surface.ts --relay http://localhost:3000 --out buzz-surface-report.json
       - name: Web against Buzz in the browser (FR015-03)
         env:
           BUZZ_RELAY_URL: ws://localhost:3000
@@ -417,6 +425,7 @@ jobs:
           path: |
             interop-report.json
             interop-marmot-report.json
+            buzz-surface-report.json
             compose.log
       - name: Stop stack
         if: always()

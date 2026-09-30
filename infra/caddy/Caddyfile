@@ -23,7 +23,19 @@
 
 relay.{$DOMAIN} {
 	import security_headers
-	reverse_proxy relay:3000
+	# SEC-12: this host forwards only what clients use, the WebSocket and NIP-11 at / and Blossom under /media/.
+	# The other routes of Buzz (operator API, git, invites, HTTP bridge, moderation, workflows, admin...) stay
+	# internal: docs/security/buzz-attack-surface.md. Anything else gets this proxy's own 404.
+	@buzz_public {
+		path /
+		path /media/*
+	}
+	handle @buzz_public {
+		reverse_proxy relay:3000
+	}
+	handle {
+		respond "not found" 404
+	}
 }
 
 secure.{$DOMAIN} {
