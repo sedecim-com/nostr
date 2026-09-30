@@ -7,7 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
+import { builtinModules } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parse } from 'yaml';
@@ -115,6 +116,11 @@ describe('the sovereign CLI as a service of the compose tor profile (FR020-06)',
     const ignored = read('.dockerignore').split('\n');
     for (const pattern of ['**/.env', '**/.data']) expect(ignored).toContain(pattern);
     for (const file of ['.env.example', 'scripts/init-env.sh']) expect(read(file), file).not.toMatch(/SOVEREIGN_(PASSPHRASE|BACKUP_PASSWORD)\b/);
+    // Key material reaches the CLI as files as well: no option or variable of it carries a key or a bunker URL.
+    const cliSource = read('apps/sovereign-client/src/cli.ts');
+    for (const flag of ['--key-file', '--bunker-file', '--backup', '--password-file']) expect(cliSource).toContain(`opt('${flag}')`);
+    expect(cliSource).not.toMatch(/opt\('--(nsec|key|bunker|secret|password|passphrase)'\)/);
+    expect([...cliSource.matchAll(/process\.env\.(\w+)/g)].map((m) => m[1]!).filter((v) => /NSEC|KEY|SECRET|BUNKER/.test(v))).toEqual([]);
   });
 
   it('the CLI reads the passphrase from SOVEREIGN_PASSPHRASE_FILE, the only source when it is set', () => {
@@ -208,6 +214,39 @@ describe('the sovereign CLI as a service of the compose tor profile (FR020-06)',
     const broken = select(listed.filter((l) => l !== '/node_modules/tsx'));
     expect(broken.run.status).not.toBe(0);
     expect(broken.run.stderr).toContain(`npm ls did not list ${app}/node_modules/tsx`);
+  });
+
+  it('its code imports only what its package.json files declare: the closure npm lists for the image has all it runs', () => {
+    // The image keeps what npm ls lists from the package.json files; an import that works today only because npm
+    // hoisted the package for another workspace would be missing there.
+    const dirs: Record<string, string> = {};
+    for (const base of ['packages', 'apps', 'services']) {
+      for (const d of readdirSync(join(root, base))) if (existsSync(join(root, base, d, 'package.json'))) dirs[(JSON.parse(read(`${base}/${d}/package.json`)) as { name: string }).name] = `${base}/${d}`;
+    }
+    const manifest = (name: string) => JSON.parse(read(`${dirs[name]}/package.json`)) as { dependencies?: Record<string, string>; peerDependencies?: Record<string, string> };
+    const closure = new Set<string>();
+    for (const queue = ['@sedecim/sovereign-client']; queue.length; ) {
+      const name = queue.shift()!;
+      if (closure.has(name)) continue;
+      closure.add(name);
+      queue.push(...Object.keys(manifest(name).dependencies ?? {}).filter((d) => dirs[d]));
+    }
+    expect([...closure]).toEqual(expect.arrayContaining(['@sedecim/sovereign-client', '@sedecim/tor-network', '@sedecim/signer']));
+    const sources = (dir: string): string[] =>
+      readdirSync(join(root, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? sources(`${dir}/${e.name}`) : /\.(ts|tsx|mts|mjs|js)$/.test(e.name) ? [`${dir}/${e.name}`] : []));
+    const undeclared: string[] = [];
+    for (const name of closure) {
+      const declared = new Set([name, ...Object.keys(manifest(name).dependencies ?? {}), ...Object.keys(manifest(name).peerDependencies ?? {})]);
+      for (const file of sources(`${dirs[name]}/src`)) {
+        for (const m of read(file).matchAll(/^\s*(?:import|export)\s+(?!type\s)(?:[^;]*?\sfrom\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/gm)) {
+          const spec = (m[1] ?? m[2])!;
+          if (spec.startsWith('.') || spec.startsWith('node:') || builtinModules.includes(spec.split('/')[0]!)) continue;
+          const pkg = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0]!;
+          if (!declared.has(pkg)) undeclared.push(`${file}: ${spec}`);
+        }
+      }
+    }
+    expect(undeclared).toEqual([]);
   });
 
   describe('the sandbox checks of the tor-profile job (scripts/sovereign-sandbox.mjs)', () => {

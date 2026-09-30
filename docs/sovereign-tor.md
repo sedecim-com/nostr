@@ -270,6 +270,10 @@ docker compose run --rm --entrypoint rm sovereign /data/backup.json
 docker compose run --rm -v "$PWD/backup-<id>.json:/restore/backup.json:ro" sovereign backup restore /restore/backup.json --password-file /run/secrets/sovereign_backup_password
 ```
 
+Una llave (`persona import --key-file`, con `--password-file` si es un ncryptsec) o la URL de un bunker NIP-46
+(`persona connect --bunker-file`) entran igual que ese backup: un fichero montado de solo lectura con `-v`, legible por
+el usuario del contenedor. El CLI no las acepta como argumento ni como variable.
+
 **Si tor cae, falla cerrado.** Una persona Tor no envía nada: el mensaje queda en el outbox con «No enviado: red de
 privacidad no disponible» y sale en el siguiente comando de esa persona con tor disponible (o con `sovereign resume`).
 No hay ruta alternativa: la red `tor-socks` es interna. Para verlo:
