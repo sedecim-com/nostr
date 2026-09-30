@@ -1,6 +1,6 @@
 import { CognitoVerifier, rateLimitFromEnv } from '@sedecim/service-kit';
 import { startMetricsServer } from '@sedecim/metrics/server';
-import { createManagedSignerApi, DEFAULT_AWS_REGION, DEFAULT_RATE_LIMITS, DEFAULT_SCRYPT_LIMITS, parseKindLimits, enclaveBackendFromEnv, ManagedSigner } from './index';
+import { createManagedSignerApi, DEFAULT_AWS_REGION, DEFAULT_RATE_LIMITS, DEFAULT_REAUTH_MAX_AGE_S, DEFAULT_SCRYPT_LIMITS, parseKindLimits, enclaveBackendFromEnv, ManagedSigner } from './index';
 import { openStorage } from './storage';
 
 const env = process.env;
@@ -53,6 +53,10 @@ if (scryptLimits && !(scryptLimits.perOwner.perMinute > 0 && (scryptLimits.perOw
   throw new Error('MANAGED_SIGNER_SCRYPT_PER_OWNER / _CONCURRENCY / _QUEUE must be positive numbers');
 }
 
+// IR-2026-10-03: how recent (seconds) the Acceso sign-in must be to export, migrate, delete or cancel a key.
+const reauthMaxAgeSeconds = Number(env.MANAGED_SIGNER_REAUTH_MAX_AGE_S ?? DEFAULT_REAUTH_MAX_AGE_S);
+if (!(Number.isInteger(reauthMaxAgeSeconds) && reauthMaxAgeSeconds > 0 && reauthMaxAgeSeconds <= 3600)) throw new Error('MANAGED_SIGNER_REAUTH_MAX_AGE_S must be a whole number of seconds between 1 and 3600');
+
 // Signing backend (FR005-05): in-process (default) or a Nitro Enclave that only returns signatures.
 const enclave = enclaveBackendFromEnv(env);
 if (enclave) await enclave.client.verify();
@@ -73,6 +77,7 @@ const api = createManagedSignerApi(core, {
   cognito,
   ...(Object.keys(revocationTokens).length ? { revocationTokens } : {}),
   requireDeviceSession: env.MANAGED_SIGNER_REQUIRE_DEVICE_SESSION === 'true',
+  reauthMaxAgeSeconds,
   // IR-2026-09-05: per-IP buckets (RATE_LIMIT_* env); the per-key signing limits above stay separate.
   rateLimit: rateLimitFromEnv(env),
 });
@@ -85,13 +90,13 @@ if (env.METRICS_PORT) {
   api.logger.info('metrics listening', { url: m.url });
 }
 
-// Retention job (DEC-09): usage log older than 12 months, material of keys deleted > retention days ago, and the
-// owner of destroyed keys (FR026-04).
+// Retention job (DEC-09): usage log older than 12 months, material of keys deleted > retention days ago, the owner of
+// destroyed keys (FR026-04) and login cutoffs as old as the usage log (IR-2026-10-11).
 const retention = () =>
   core.runRetention().then(
     (r) =>
-      (r.usagePurged || r.keysDestroyed || r.keysScrubbed || r.sessionsPurged) &&
-      api.logger.info('retention job', { usage_purged: r.usagePurged, keys_destroyed: r.keysDestroyed, keys_scrubbed: r.keysScrubbed, sessions_purged: r.sessionsPurged }),
+      (r.usagePurged || r.keysDestroyed || r.keysScrubbed || r.sessionsPurged || r.loginCutoffsPurged) &&
+      api.logger.info('retention job', { usage_purged: r.usagePurged, keys_destroyed: r.keysDestroyed, keys_scrubbed: r.keysScrubbed, sessions_purged: r.sessionsPurged, login_cutoffs_purged: r.loginCutoffsPurged }),
     (err) => api.logger.error('retention job failed', { error: (err as Error).message }),
   );
 await retention();

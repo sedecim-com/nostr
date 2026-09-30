@@ -35,6 +35,16 @@ export class ManagedSignerError extends Error {
   }
 }
 
+/**
+ * IR-2026-10-03, IR-2026-10-11: the call needs a more recent sign-in with the Acceso password (step-up, RFC 9470). The
+ * API answers 401 with `WWW-Authenticate: Bearer error="insufficient_user_authentication"`.
+ */
+export class ReauthRequiredError extends ManagedSignerError {
+  constructor(message: string, readonly maxAgeSeconds?: number) {
+    super(401, message);
+  }
+}
+
 /** FR005-06: too many operations for this key (or this kind of this key). */
 export class RateLimitedError extends ManagedSignerError {
   /** `owner`/`busy`: import/export admission (IR-2026-09-20). */
@@ -86,7 +96,10 @@ export interface ManagedSignerOptions {
   usageRetentionMonths?: number;
   /** Revoked devices and device-bound sessions (FR024-03); defaults to memory. Production: PgDeviceStore. */
   devices?: DeviceStore;
-  /** Device session lifetime (default 12 h, max 30 days). */
+  /**
+   * Device session lifetime (default 12 h, at most 30 days). IR-2026-10-11: it is also the most a client gets, however
+   * long it asks for.
+   */
   deviceSessionTtlMs?: number;
   /** Per-key / per-kind limits (FR005-06); `false` disables them. */
   rateLimits?: RateLimitConfig | false;
@@ -172,7 +185,8 @@ export class ManagedSigner {
    */
   async openDeviceSession(owner: string, principal: string, deviceId: string, ttlMs?: number): Promise<{ token: string; expiresAt: number }> {
     await this.assertDeviceUsable(deviceId);
-    const ttl = Math.min(ttlMs ?? this.opts.deviceSessionTtlMs ?? 12 * 3_600_000, MAX_SESSION_TTL_MS);
+    const max = Math.min(this.opts.deviceSessionTtlMs ?? 12 * 3_600_000, MAX_SESSION_TTL_MS);
+    const ttl = Math.min(ttlMs ?? max, max);
     const token = DEVICE_SESSION_PREFIX + randomBytes(32).toString('hex');
     const createdAt = this.now();
     await this.devices.insertSession({ tokenHash: hashToken(token), deviceId, owner, principal, createdAt, expiresAt: createdAt + ttl });
@@ -205,11 +219,30 @@ export class ManagedSigner {
   /**
    * FR005-11: the owner closes their own sessions: the ones named, or all but `except`. A closed session stops
    * signing at once; its device can open another one only with its owner's Acceso login. Returns how many closed.
+   *
+   * IR-2026-10-11: closing all of them (or all but one) is what the owner does when a device is lost, so it also cuts off
+   * every Acceso login signed in before now except `keepLogin`, the one asking. The lost device cannot open another
+   * session with its login, even refreshed, until someone signs in again with the password.
    */
-  async closeDeviceSessions(owner: string, which: { ids: string[] } | { except?: string }): Promise<number> {
+  async closeDeviceSessions(owner: string, which: { ids: string[] } | { except?: string }, keepLogin?: string): Promise<number> {
+    // The cutoff goes first: a session opened meanwhile with an old login is refused rather than left open.
+    if (!('ids' in which)) await this.devices.setLoginCutoff({ owner, at: this.now(), ...(keepLogin ? { keep: keepLogin } : {}) });
     const mine = await this.devices.sessionsOf(owner, this.now());
     const drop = mine.filter((s) => ('ids' in which ? which.ids.includes(sessionId(s.tokenHash)) : sessionId(s.tokenHash) !== which.except));
     return this.devices.dropSessions(owner, drop.map((s) => s.tokenHash));
+  }
+
+  /**
+   * IR-2026-10-11: refuses an Acceso login signed in before its owner last closed their other sessions, unless it is the
+   * login that closed them. `authTime` is Cognito's `auth_time` (seconds), kept by refreshed tokens; a sign-in in the
+   * same second as the cutoff counts as after it.
+   */
+  async assertLoginCurrent(owner: string, authTime: number | undefined, loginId: string | undefined): Promise<void> {
+    const cut = await this.devices.loginCutoff(owner);
+    if (!cut) return;
+    if (cut.keep !== undefined && loginId === cut.keep) return;
+    if (authTime !== undefined && authTime >= Math.floor(cut.at / 1000)) return;
+    throw new ReauthRequiredError('this Acceso sign-in is older than the closing of your other sessions: sign in again with your password');
   }
 
   /**
@@ -475,22 +508,30 @@ export class ManagedSigner {
     return { destroyAfter: retentionEnd(k) };
   }
 
+  /**
+   * The key's usage log, for its owner. IR-2026-10-03: also after the key left managed custody, so whoever lost it sees
+   * what was done with it (an export, a migration, a deletion) until it is destroyed and no longer tied to them.
+   */
   async usageOf(keyId: string, owner: string): Promise<UsageRecord[]> {
-    await this.key(keyId, owner);
+    const k = await this.registry.get(keyId);
+    if (!k || k.scrubbedAt !== undefined) throw new ManagedSignerError(404, 'unknown key');
+    if (k.owner !== owner) throw new ManagedSignerError(403, 'key belongs to another owner');
     return this.registry.usageOf(keyId);
   }
 
   /**
    * Retention job (DEC-09): purges usage rows older than the usage retention (12 months) and destroys the
    * material of deleted keys whose retention window is over. A destroyed key no longer exists, so it also clears
-   * what tied it to its owner: the owner and the recorded consent (FR026-04). Idempotent; run it periodically.
+   * what tied it to its owner: the owner and the recorded consent (FR026-04). Login cutoffs (IR-2026-10-11) are kept
+   * as long as the usage log. Idempotent; run it periodically.
    */
-  async runRetention(): Promise<{ usagePurged: number; keysDestroyed: number; keysScrubbed: number; sessionsPurged: number }> {
+  async runRetention(): Promise<{ usagePurged: number; keysDestroyed: number; keysScrubbed: number; sessionsPurged: number; loginCutoffsPurged: number }> {
     const now = this.now();
     const sessionsPurged = await this.devices.purgeExpiredSessions(now);
     const cutoff = new Date(now);
     cutoff.setUTCMonth(cutoff.getUTCMonth() - (this.opts.usageRetentionMonths ?? 12));
     const usagePurged = await this.registry.purgeUsageBefore(cutoff.getTime());
+    const loginCutoffsPurged = await this.devices.purgeLoginCutoffsBefore(cutoff.getTime());
     let keysDestroyed = 0;
     for (const k of await this.registry.pendingDestruction(now)) {
       if (!this.vault.schedulesDeletion) await this.vault.delete(k.keyId);
@@ -504,6 +545,6 @@ export class ManagedSigner {
       await this.registry.scrub(k.keyId, now);
       keysScrubbed++;
     }
-    return { usagePurged, keysDestroyed, keysScrubbed, sessionsPurged };
+    return { usagePurged, keysDestroyed, keysScrubbed, sessionsPurged, loginCutoffsPurged };
   }
 }

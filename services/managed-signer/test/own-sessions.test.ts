@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { verifyEvent } from '@sedecim/nostr-core';
 import { createTestCognito } from '@sedecim/service-kit';
-import { ManagedSignerClient, ManagedSignerHttpError } from '@sedecim/signer';
+import { ManagedSignerClient, ManagedSignerHttpError, ManagedSignerReauthError } from '@sedecim/signer';
 import { createLogger } from '@sedecim/telemetry-policy';
 import { createManagedSignerApi, ManagedSigner, MemoryKeyRegistry, MemoryVault } from '../src/index';
 
@@ -50,7 +50,8 @@ describe('managed-signer: the owner lists and closes their own sessions (FR005-1
     const tablet = await session(ana, 'ana-tablet');
     const ids = Object.fromEntries((await ManagedSignerClient.listDeviceSessions(as(ana))).map((s) => [s.deviceId, s.id]));
     await expect(ManagedSignerClient.closeDeviceSession(as(() => phone), ids['ana-laptop']!)).rejects.toMatchObject({ status: 403 });
-    await expect(ManagedSignerClient.closeDeviceSessions(as(() => phone))).rejects.toMatchObject({ status: 403 });
+    // IR-2026-10-11: closing the others takes a recent sign-in with the password, never a device session.
+    await expect(ManagedSignerClient.closeDeviceSessions(as(() => phone))).rejects.toBeInstanceOf(ManagedSignerReauthError);
     await ManagedSignerClient.closeDeviceSession(as(() => phone), ids['ana-phone']!);
     await expect(ManagedSignerClient.listDeviceSessions(as(() => phone))).rejects.toMatchObject({ status: 401 });
     // Another user cannot close them, not even knowing their ids.

@@ -209,7 +209,7 @@ describe('managed-signer retention (DEC-09)', () => {
     await expect(c.describe(k.keyId, 'o')).rejects.toThrow(/unknown key/);
 
     now += 29 * 86_400_000;
-    expect(await c.runRetention()).toEqual({ usagePurged: 0, keysDestroyed: 0, keysScrubbed: 0, sessionsPurged: 0 });
+    expect(await c.runRetention()).toEqual({ usagePurged: 0, keysDestroyed: 0, keysScrubbed: 0, sessionsPurged: 0, loginCutoffsPurged: 0 });
     expect(await vault.get(k.keyId)).toBeDefined();
 
     now += 2 * 86_400_000;
