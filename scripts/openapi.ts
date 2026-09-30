@@ -57,6 +57,10 @@ const internal = (host: string, port: number) => ({ url: `http://${host}:${port}
 
 const HEALTH = { 'GET /health': { summary: 'Salud del servicio.' } };
 const ACCESO_OR_SESSION: Array<Scheme | 'none'> = ['acceso', 'deviceSession'];
+/** IR-2026-10-03: routes that take a recent sign-in with the Acceso password, never a device session. */
+const RECENT_ACCESO: Array<Scheme | 'none'> = ['acceso'];
+const RECENT =
+  ' Solo con un login de Acceso de los últimos minutos (`MANAGED_SIGNER_REAUTH_MAX_AGE_S`, 300 s por defecto), nunca con una sesión de dispositivo; si no, 401 con `WWW-Authenticate: Bearer error="insufficient_user_authentication"` (RFC 9470, IR-2026-10-03).';
 
 const SERVICES: Record<string, ServiceDoc> = {
   'policy-engine': {
@@ -102,7 +106,7 @@ const SERVICES: Record<string, ServiceDoc> = {
       'POST /v1/device-sessions': { summary: 'Abre una sesión de dispositivo (`sds_…`, 12 h) con el login de Acceso; nunca desde otra sesión (FR024-03).', security: ['acceso'] },
       'GET /v1/device-sessions': { summary: 'Sesiones de dispositivo del usuario (FR005-11).', security: ACCESO_OR_SESSION },
       'DELETE /v1/device-sessions/:id': { summary: 'Cierra una sesión: con el login de Acceso, o la propia sesión.', security: ACCESO_OR_SESSION },
-      'DELETE /v1/device-sessions': { summary: 'Cierra las demás sesiones del usuario.', security: ACCESO_OR_SESSION },
+      'DELETE /v1/device-sessions': { summary: `Cierra las demás sesiones del usuario y deja fuera sus otros logins de Acceso anteriores a ese momento (IR-2026-10-11).${RECENT}`, security: RECENT_ACCESO },
       'POST /v1/devices/:id/revoke': { summary: 'Revoca un dispositivo: borra sus sesiones y rechaza las nuevas (FR024-03/04).', security: ['revocationToken'] },
       'GET /v1/keys': { summary: 'Llaves gestionadas del usuario.', security: ACCESO_OR_SESSION },
       'GET /v1/keys/closed': { summary: 'Llaves que salieron de la custodia gestionada y cuándo se destruye cada una (FR026-04).', security: ACCESO_OR_SESSION },
@@ -112,11 +116,11 @@ const SERVICES: Record<string, ServiceDoc> = {
       'POST /v1/keys/:id/sign': { summary: 'Firma un evento Nostr con la llave.', security: ACCESO_OR_SESSION },
       'POST /v1/keys/:id/nip44/encrypt': { summary: 'Cifra con NIP-44 para un destinatario.', security: ACCESO_OR_SESSION },
       'POST /v1/keys/:id/nip44/decrypt': { summary: 'Descifra con NIP-44 de un remitente.', security: ACCESO_OR_SESSION },
-      'POST /v1/keys/:id/export': { summary: 'Exporta la llave cifrada con una contraseña (NIP-49) para pasar a custodia propia.', security: ACCESO_OR_SESSION },
-      'POST /v1/keys/:id/confirm-migration': { summary: 'Confirma la migración con una prueba firmada por la llave exportada.', security: ACCESO_OR_SESSION },
-      'DELETE /v1/keys/:id': { summary: 'Programa el borrado de la llave (`destroy_after`).', security: ACCESO_OR_SESSION },
-      'POST /v1/keys/:id/cancel': { summary: 'Cancela la custodia sin migrar (derecho ARCO), confirmada con la npub de la llave (`destroy_after`, FR026-04).', security: ACCESO_OR_SESSION },
-      'GET /v1/keys/:id/usage': { summary: 'Operaciones recientes de la llave, cada una con su dispositivo (FR005-11).', security: ACCESO_OR_SESSION },
+      'POST /v1/keys/:id/export': { summary: `Exporta la llave cifrada con una contraseña (NIP-49) para pasar a custodia propia.${RECENT}`, security: RECENT_ACCESO },
+      'POST /v1/keys/:id/confirm-migration': { summary: `Confirma la migración con una prueba firmada por la llave exportada.${RECENT}`, security: RECENT_ACCESO },
+      'DELETE /v1/keys/:id': { summary: `Programa el borrado de la llave (\`destroy_after\`).${RECENT}`, security: RECENT_ACCESO },
+      'POST /v1/keys/:id/cancel': { summary: `Cancela la custodia sin migrar (derecho ARCO), confirmada con la npub de la llave (\`destroy_after\`, FR026-04).${RECENT}`, security: RECENT_ACCESO },
+      'GET /v1/keys/:id/usage': { summary: 'Operaciones de la llave, cada una con su dispositivo (FR005-11); también después de que saliera de la custodia, hasta que se destruye (IR-2026-10-03).', security: ACCESO_OR_SESSION },
     },
   },
   'identity-service': {

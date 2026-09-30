@@ -78,6 +78,20 @@ export class ManagedSignerHttpError extends Error {
   }
 }
 
+/**
+ * IR-2026-10-03, IR-2026-10-11: the managed-signer wants a more recent sign-in with the Acceso password (RFC 9470
+ * step-up) before exporting, migrating, deleting or cancelling the key or closing the other sessions, or because this
+ * login is older than the closing of the other sessions. Signing in again and retrying with the new login is the way
+ * out; nothing was done.
+ */
+export class ManagedSignerReauthError extends ManagedSignerHttpError {
+  constructor(message: string, readonly maxAgeSeconds?: number) {
+    super(401, message);
+  }
+}
+
+const STEP_UP = 'insufficient_user_authentication';
+
 async function request<T>(conn: ManagedSignerConnection, method: string, path: string, body?: unknown, prefix = '/v1/keys', renewed = false): Promise<T> {
   const token = await conn.token();
   if (!token) throw new ManagedSignerHttpError(401, 'managed signer: no Acceso session');
@@ -87,17 +101,22 @@ async function request<T>(conn: ManagedSignerConnection, method: string, path: s
     headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (res.status === 401 && conn.renew && !renewed) {
-    await conn.renew();
-    return request<T>(conn, method, path, body, prefix, true);
-  }
   if (!res.ok) {
     const text = await res.text();
-    let message = text;
+    let parsed: { error?: string; error_code?: string; max_age?: number } = {};
     try {
-      message = (JSON.parse(text) as { error?: string }).error ?? text;
+      parsed = JSON.parse(text) as typeof parsed;
     } catch {
       // not JSON
+    }
+    const message = parsed.error ?? text;
+    // A step-up is not an expired session: renewing it would not help, signing in again does.
+    if (res.status === 401 && (parsed.error_code === STEP_UP || res.headers.get('www-authenticate')?.includes(`error="${STEP_UP}"`))) {
+      throw new ManagedSignerReauthError(`managed signer ${method} ${path || '/'}: ${message}`, typeof parsed.max_age === 'number' ? parsed.max_age : undefined);
+    }
+    if (res.status === 401 && conn.renew && !renewed) {
+      await conn.renew();
+      return request<T>(conn, method, path, body, prefix, true);
     }
     throw new ManagedSignerHttpError(res.status, `managed signer ${method} ${path || '/'}: ${res.status} ${message}`);
   }
@@ -156,7 +175,11 @@ export class ManagedSignerClient implements Signer {
     await request(conn, 'DELETE', `/${encodeURIComponent(id)}`, undefined, '/v1/device-sessions');
   }
 
-  /** FR005-11: closes every session of the caller but `except` (Acceso login only). Returns how many were closed. */
+  /**
+   * FR005-11: closes every session of the caller but `except`. Returns how many were closed. IR-2026-10-11: with an
+   * Acceso login signed in within the last minutes (else ManagedSignerReauthError); it also cuts off the caller's other
+   * logins signed in before now, so a lost device cannot open another session with its login.
+   */
   static async closeDeviceSessions(conn: ManagedSignerConnection, opts: { except?: string } = {}): Promise<number> {
     return (await request<{ closed: number }>(conn, 'DELETE', opts.except ? `?except=${encodeURIComponent(opts.except)}` : '', undefined, '/v1/device-sessions')).closed;
   }
@@ -193,7 +216,11 @@ export class ManagedSignerClient implements Signer {
     return (await this.call<{ plaintext: string }>('/nip44/decrypt', { peer: peerPubkey, ciphertext })).plaintext;
   }
 
-  /** FR-026 step 1: ncryptsec of the key plus the challenge to sign with it. */
+  /**
+   * FR-026 step 1: ncryptsec of the key plus the challenge to sign with it. IR-2026-10-03: like confirmMigration,
+   * deleteKey and cancelCustody, only with an Acceso login signed in within the last minutes, never a device session;
+   * else ManagedSignerReauthError.
+   */
   exportForMigration(password: string): Promise<{ ncryptsec: string; challenge: string }> {
     return this.call('/export', { password });
   }

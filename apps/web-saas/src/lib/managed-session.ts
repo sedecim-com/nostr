@@ -1,6 +1,6 @@
 import { bytesToHex } from '@sedecim/nostr-core';
 import type { EncryptedStore } from '@sedecim/encrypted-store/browser';
-import { ManagedSignerClient, ManagedSignerHttpError, type AccessTokenProvider, type ManagedSignerConnection } from '@sedecim/signer';
+import { ManagedSignerClient, ManagedSignerHttpError, ManagedSignerReauthError, type AccessTokenProvider, type ManagedSignerConnection } from '@sedecim/signer';
 
 /** How long a device session of this browser lasts before the Acceso login opens another one. */
 const SESSION_TTL_SECONDS = 12 * 3600;
@@ -14,6 +14,16 @@ const DEVICE_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 export class DeviceRevokedError extends Error {
   constructor(readonly deviceId: string) {
     super(`Tu organización revocó este dispositivo (${deviceId}): este navegador ya no puede firmar con tu llave gestionada. Pide a tu organización que registre un dispositivo nuevo.`);
+  }
+}
+
+/**
+ * IR-2026-10-11: the owner closed their other sessions from another browser after this one signed in: this login no
+ * longer opens sessions until its password is typed again. Still a ManagedSignerReauthError, so the views offer that.
+ */
+export class SessionsClosedError extends ManagedSignerReauthError {
+  constructor() {
+    super('Se cerraron las sesiones de tu llave gestionada desde otro navegador: escribe otra vez tu contraseña de Acceso en «Actividad de tu llave gestionada» para volver a firmar aquí.');
   }
 }
 
@@ -91,6 +101,7 @@ export class BrowserManagedSession {
         const s = await this.stored();
         const opened = await ManagedSignerClient.openDeviceSession(this.login(), s.deviceId, { ttlSeconds: SESSION_TTL_SECONDS }).catch((e: unknown) => {
           if (e instanceof ManagedSignerHttpError && e.status === 403 && /device revoked/.test(e.message)) throw new DeviceRevokedError(s.deviceId);
+          if (e instanceof ManagedSignerReauthError) throw new SessionsClosedError();
           throw e;
         });
         await this.col().put('this', { deviceId: s.deviceId, token: opened.token, expiresAt: Date.parse(opened.expiresAt) });

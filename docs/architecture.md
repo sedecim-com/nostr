@@ -79,7 +79,9 @@ la interfaz no duplique nada (§11.2). Cada envío de la web y del CLI es una op
 
 **Sesión de dispositivo.** La web firma por una persona gestionada con una sesión de dispositivo de ese navegador, no
 con el token de Acceso:
-- la abre con el login de Acceso (`POST /v1/device-sessions`, 12 h) y la guarda en el almacén cifrado;
+- la abre con el login de Acceso (`POST /v1/device-sessions`, 12 h) y la guarda en el almacén cifrado. El
+  managed-signer nunca concede más que su vida configurada (`MANAGED_SIGNER_DEVICE_SESSION_TTL_S`), aunque el cliente
+  pida más (IR-2026-10-11);
 - su id de dispositivo es aleatorio (`web-…`) y es el mismo para todas las personas del navegador;
 - si el managed-signer la rechaza (caducada o cerrada), la reabre con el login y repite la petición una vez. Un 401
   significa que no se hizo nada, así que repetirla no duplica nada.
@@ -90,15 +92,28 @@ La web funciona igual con `MANAGED_SIGNER_REQUIRE_DEVICE_SESSION=true`: el E2E c
 - `GET /v1/device-sessions` lista las del usuario: dispositivo, apertura y caducidad. Acepta el login o cualquiera de
   sus sesiones, y marca la de la llamada como `current`.
 - `DELETE /v1/device-sessions/:id` cierra una. Con el login, cualquiera de las suyas; con una sesión, solo esa misma.
-- `DELETE /v1/device-sessions?except=<id>` cierra todas menos una. Solo con el login.
+- `DELETE /v1/device-sessions?except=<id>` cierra todas menos una. Solo con un login reciente (ver abajo). Además deja
+  fuera los demás logins de Acceso firmados antes de ese momento, salvo el de quien las cierra: aunque se refresquen
+  (un token refrescado conserva su `auth_time`), no abren sesiones ni firman hasta que alguien vuelva a escribir la
+  contraseña (IR-2026-10-11). El corte se guarda lo mismo que el log de uso (12 meses).
 - Otro usuario no ve ni cierra las sesiones ajenas.
 - El id público se deriva del hash del token: nombra la sesión, no sirve para abrirla.
-- Cerrar una sesión no revoca el dispositivo: eso lo decide la organización (FR024-03). Un navegador que sigue con el
-  login abierto abre otra sesión en su siguiente firma. Ante un dispositivo perdido hay que cambiar también la
-  contraseña de Acceso.
+- Cerrar una sesión no revoca el dispositivo: eso lo decide la organización (FR024-03). Si se cierra solo esa, un
+  navegador que sigue con el login abierto abre otra en su siguiente firma; «cerrar las demás» se lo impide. Ante un
+  dispositivo perdido hay que cambiar también la contraseña de Acceso.
 - Con `organizationDevices` en la configuración, el navegador puede vincularse al dispositivo que la organización le
   registró: sus sesiones llevan ese id y revocarlo lo corta (docs/institutional.md, «Navegadores como dispositivos de
   la organización»).
+
+**Operaciones que piden la contraseña otra vez** (IR-2026-10-03). Exportar la llave, confirmar su migración, borrarla,
+cancelar la custodia y cerrar las demás sesiones solo se aceptan con un login de Acceso de los últimos minutos
+(`auth_time`, `MANAGED_SIGNER_REAUTH_MAX_AGE_S`, 300 s por defecto), nunca con la sesión del navegador. Si no, el
+managed-signer responde 401 con `WWW-Authenticate: Bearer error="insufficient_user_authentication"` (RFC 9470).
+- La web pide la contraseña de Acceso, entra otra vez aparte y, si es correcta, ese login nuevo pasa a ser el del
+  navegador. Con una contraseña incorrecta, la sesión actual sigue como estaba.
+- Quien tenga el navegador abierto pero no la contraseña firma mientras dure su sesión, pero no puede sacar la llave
+  ni destruirla.
+- El log de uso de una llave sigue visible para su dueño después de borrarla o cancelarla, hasta que se destruye.
 
 **Recuperación en otro navegador.**
 1. Se entra con el mismo login de Acceso.

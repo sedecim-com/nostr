@@ -18,7 +18,18 @@ export interface DeviceRevocation {
   reason?: string;
 }
 
-/** Revoked devices and device-bound sessions. Metadata only. */
+/**
+ * IR-2026-10-11: the owner closed their other sessions at `at`. From then on an Acceso login signed in before that
+ * moment is refused, also when refreshed (a refreshed token keeps its sign-in time), except the login that asked for it:
+ * `keep`, its login id (`origin_jti`, else `event_id`).
+ */
+export interface LoginCutoff {
+  owner: string;
+  at: number;
+  keep?: string;
+}
+
+/** Revoked devices, device-bound sessions and login cutoffs. Metadata only. */
 export interface DeviceStore {
   revocation(deviceId: string): Promise<DeviceRevocation | undefined>;
   /** Idempotent: keeps the first revocation and drops every session of the device. */
@@ -31,11 +42,17 @@ export interface DeviceStore {
   dropSessions(owner: string, tokenHashes: string[]): Promise<number>;
   /** Deletes sessions expired at `now`; returns how many. */
   purgeExpiredSessions(now: number): Promise<number>;
+  /** IR-2026-10-11: records the owner's login cutoff, replacing any earlier one. */
+  setLoginCutoff(c: LoginCutoff): Promise<void>;
+  loginCutoff(owner: string): Promise<LoginCutoff | undefined>;
+  /** Deletes cutoffs set before `at` (retention); returns how many. */
+  purgeLoginCutoffsBefore(at: number): Promise<number>;
 }
 
 export class MemoryDeviceStore implements DeviceStore {
   readonly revoked = new Map<string, DeviceRevocation>();
   readonly sessions = new Map<string, DeviceSession>();
+  readonly cutoffs = new Map<string, LoginCutoff>();
 
   async revocation(deviceId: string) {
     const r = this.revoked.get(deviceId);
@@ -68,9 +85,21 @@ export class MemoryDeviceStore implements DeviceStore {
     for (const [h, s] of this.sessions) if (s.expiresAt <= now) (this.sessions.delete(h), n++);
     return n;
   }
+  async setLoginCutoff(c: LoginCutoff) {
+    this.cutoffs.set(c.owner, { ...c });
+  }
+  async loginCutoff(owner: string) {
+    const c = this.cutoffs.get(owner);
+    return c ? { ...c } : undefined;
+  }
+  async purgeLoginCutoffsBefore(at: number) {
+    let n = 0;
+    for (const [o, c] of this.cutoffs) if (c.at < at) (this.cutoffs.delete(o), n++);
+    return n;
+  }
 }
 
-/** Postgres store (migrations/002): revocations survive restarts and apply to every replica. */
+/** Postgres store (migrations/002, 004, 006): revocations and cutoffs survive restarts and apply to every replica. */
 export class PgDeviceStore implements DeviceStore {
   constructor(private readonly pool: Pool) {}
 
@@ -118,6 +147,21 @@ export class PgDeviceStore implements DeviceStore {
   }
   async purgeExpiredSessions(now: number) {
     const r = await this.pool.query('DELETE FROM managed_signer_device_sessions WHERE expires_at <= $1', [new Date(now)]);
+    return r.rowCount ?? 0;
+  }
+  async setLoginCutoff(c: LoginCutoff) {
+    await this.pool.query(
+      'INSERT INTO managed_signer_login_cutoffs (owner, cut_at, keep_login) VALUES ($1,$2,$3) ON CONFLICT (owner) DO UPDATE SET cut_at = EXCLUDED.cut_at, keep_login = EXCLUDED.keep_login',
+      [c.owner, new Date(c.at), c.keep ?? null],
+    );
+  }
+  async loginCutoff(owner: string) {
+    const { rows } = await this.pool.query<{ owner: string; cut_at: Date; keep_login: string | null }>('SELECT owner, cut_at, keep_login FROM managed_signer_login_cutoffs WHERE owner = $1', [owner]);
+    const r = rows[0];
+    return r ? { owner: r.owner, at: r.cut_at.getTime(), ...(r.keep_login === null ? {} : { keep: r.keep_login }) } : undefined;
+  }
+  async purgeLoginCutoffsBefore(at: number) {
+    const r = await this.pool.query('DELETE FROM managed_signer_login_cutoffs WHERE cut_at < $1', [new Date(at)]);
     return r.rowCount ?? 0;
   }
 }

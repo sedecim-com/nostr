@@ -24,6 +24,8 @@ En «Personas», con la persona gestionada abierta, la tarjeta «Cancelar la cus
 
 1. Pide una contraseña y descarga el respaldo cifrado (NIP-49, `acceso-nostr-key-backup` con la npub y la llave de
    archivo del Continuity Vault). El navegador comprueba que la llave exportada es la de esa persona antes de ofrecerlo.
+   Antes pide también la contraseña de Acceso: exportar y cancelar solo se aceptan con un login de los últimos
+   minutos (IR-2026-10-03).
 2. Pide confirmar que guardó el archivo y escribir los últimos 8 caracteres de la npub.
 3. Cancela (`POST /v1/keys/:id/cancel`, con la npub completa como confirmación). La persona sale de ese navegador.
    Con el archivo y la contraseña se puede volver a importar como llave local.
@@ -56,7 +58,8 @@ tarjeta «Migrar a custodia local»), no la cancelación.
 
 ## 3. Comprobar que el borrado se cumplió
 
-- `ops.ts retention` ejecuta el job en el momento y devuelve `{usagePurged, keysDestroyed, keysScrubbed, sessionsPurged}`.
+- `ops.ts retention` ejecuta el job en el momento y devuelve
+  `{usagePurged, keysDestroyed, keysScrubbed, sessionsPurged, loginCutoffsPurged}`.
 - En Postgres, una llave destruida tiene `destroyed_at` y `scrubbed_at`, y `owner`, `consent_version` y `consent_at`
   vacíos:
 

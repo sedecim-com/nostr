@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Link, List, ListItem, ListItemText, Radio, RadioGroup, Stack, Step, StepLabel, Stepper, TextField, Typography } from '@mui/material';
 import { disclose, MANAGED_CONSENT_TEXTS, managedConsentVersion, preset } from '@sedecim/profiles';
 import { npubEncode } from '@sedecim/nostr-core';
-import { ManagedSignerClient, type ClosedManagedKey, type ManagedDeviceSession, type ManagedKeyInfo, type ManagedKeyUsage } from '@sedecim/signer';
-import { cancelManagedCustody, managedCancellationBackup, managedConnection, managedExitBackupJson, migrateManagedToLocal, shortNpub } from '../lib/session';
+import { ManagedSignerClient, ManagedSignerReauthError, type ClosedManagedKey, type ManagedDeviceSession, type ManagedKeyInfo, type ManagedKeyUsage, type ManagedSignerConnection } from '@sedecim/signer';
+import { cancelManagedCustody, managedCancellationBackup, managedConnection, managedExitBackupJson, managedLogin, migrateManagedToLocal, shortNpub } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
 import { MaturityChip } from './MaturityChip';
 
@@ -46,6 +46,50 @@ export function ManagedOptIn({ accepted, onChange, terms }: { accepted: boolean;
 
 const STEPS = ['Exportar', 'Verificar posesión', 'Borrar la copia gestionada'];
 
+/** The managed-signer wants a sign-in from the last 5 minutes; past 4, the password is asked again. */
+const RECENT_SIGN_IN_MS = 4 * 60_000;
+
+/**
+ * IR-2026-10-03: exporting, migrating, deleting or cancelling the managed key, and closing the other sessions, ask for
+ * the Acceso password again. The managed-signer only accepts them from a sign-in of the last minutes and never through
+ * this browser's device session, so whoever has this browser open without the password cannot do them. `run` signs in
+ * again when needed and hands the Acceso login (not the device session) to the call.
+ */
+function useRecentSignIn(id: string) {
+  const ws = useWorkspace();
+  const [password, setPassword] = useState('');
+  const [signedInAt, setSignedInAt] = useState<number>();
+  const needed = signedInAt === undefined || Date.now() - signedInAt > RECENT_SIGN_IN_MS;
+  const field = needed ? (
+    <TextField
+      id={id}
+      label="Tu contraseña de Acceso"
+      helperText="Te la pedimos otra vez para confirmar que eres tú."
+      type="password"
+      autoComplete="current-password"
+      value={password}
+      onChange={(e) => setPassword(e.target.value)}
+    />
+  ) : null;
+  const run = async <T,>(fn: (login: ManagedSignerConnection) => Promise<T>): Promise<T> => {
+    if (needed) {
+      if (!ws.managedEnv.reauthenticate) throw new Error('sin sesión de Acceso');
+      if (!password) throw new Error('Escribe tu contraseña de Acceso para confirmar que eres tú.');
+      await ws.managedEnv.reauthenticate(password);
+      setPassword('');
+      setSignedInAt(Date.now());
+    }
+    try {
+      return await fn(managedLogin(ws.managedEnv));
+    } catch (e) {
+      if (!(e instanceof ManagedSignerReauthError)) throw e;
+      setSignedInAt(undefined);
+      throw new Error('Tu inicio de sesión ya no es reciente: escribe otra vez tu contraseña de Acceso.');
+    }
+  };
+  return { field, ready: !needed || password.length > 0, run };
+}
+
 /** Offers a JSON file to save (the browser's own download). */
 function download(json: string, name: string) {
   const a = document.createElement('a');
@@ -66,7 +110,8 @@ export function MigrationWizard() {
   const [destroyAfter, setDestroyAfter] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [client] = useState(() => new ManagedSignerClient({ ...managedConnection(ws.managedEnv), keyId: s.persona.managedKeyId! }));
+  const recent = useRecentSignIn('migration-reauth');
+  const keyId = s.persona.managedKeyId!;
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -82,7 +127,7 @@ export function MigrationWizard() {
 
   const exportAndVerify = () =>
     run(async () => {
-      const res = await migrateManagedToLocal(ws.book, s.persona, client, password);
+      const res = await recent.run((login) => migrateManagedToLocal(ws.book, s.persona, new ManagedSignerClient({ ...login, keyId }), password));
       setNcryptsec(res.ncryptsec);
       setPassword('');
       setStep(2);
@@ -100,7 +145,7 @@ export function MigrationWizard() {
 
   const deleteManaged = () =>
     run(async () => {
-      const { destroyAfter } = await client.deleteKey();
+      const { destroyAfter } = await recent.run((login) => new ManagedSignerClient({ ...login, keyId }).deleteKey());
       const current = (await ws.book.get(s.persona.id))!;
       const { managedKeyId: _gone, ...rest } = current;
       await ws.book.save(rest);
@@ -126,8 +171,9 @@ export function MigrationWizard() {
             <>
               <Typography variant="body2">La plataforma te entregará tu llave cifrada con esta contraseña. Este navegador la descifra, comprueba que es la misma npub y firma un reto para demostrar que la tienes.</Typography>
               <TextField id="migration-pass" label="Contraseña de exportación (mínimo 12 caracteres)" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              {recent.field}
               <Box>
-                <Button variant="contained" onClick={() => void exportAndVerify()} disabled={busy || password.length < 12}>
+                <Button variant="contained" onClick={() => void exportAndVerify()} disabled={busy || password.length < 12 || !recent.ready}>
                   Exportar y verificar
                 </Button>
               </Box>
@@ -140,8 +186,9 @@ export function MigrationWizard() {
                 <Button onClick={() => void saveBackup()}>Descargar backup cifrado</Button>
               </Box>
               <Alert severity="warning">Borrar la copia gestionada es definitivo: el material cifrado se destruye tras la ventana de retención (30 días).</Alert>
+              {recent.field}
               <Box>
-                <Button color="error" variant="outlined" onClick={() => void deleteManaged()} disabled={busy}>
+                <Button color="error" variant="outlined" onClick={() => void deleteManaged()} disabled={busy || !recent.ready}>
                   Borrar la copia gestionada
                 </Button>
               </Box>
@@ -170,7 +217,8 @@ export function CancelCustody() {
   const [typed, setTyped] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [client] = useState(() => new ManagedSignerClient({ ...managedConnection(ws.managedEnv), keyId: s.persona.managedKeyId! }));
+  const recent = useRecentSignIn('cancel-reauth');
+  const keyId = s.persona.managedKeyId!;
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -185,14 +233,14 @@ export function CancelCustody() {
   };
   const saveBackup = () =>
     run(async () => {
-      const json = await managedCancellationBackup(s.persona, client, password);
+      const json = await recent.run((login) => managedCancellationBackup(s.persona, new ManagedSignerClient({ ...login, keyId }), password));
       setPassword('');
       download(json, 'acceso-nostr-backup-cancelacion.json');
       setDownloaded(true);
     });
   const cancel = () =>
     run(async () => {
-      const { destroyAfter } = await cancelManagedCustody(ws.book, s.persona, client, typed);
+      const { destroyAfter } = await recent.run((login) => cancelManagedCustody(ws.book, s.persona, new ManagedSignerClient({ ...login, keyId }), typed));
       ws.notify(`Custodia gestionada cancelada: la llave ya no firma y su material cifrado se destruye el ${new Date(destroyAfter).toLocaleDateString()}.`, 'success');
       await ws.reloadPersonas();
       const rest = await ws.book.list();
@@ -210,6 +258,7 @@ export function CancelCustody() {
           <Typography variant="body2">
             Borra tu llave de la plataforma sin pasarla a este navegador. Deja de firmar en todos tus dispositivos en cuanto confirmes, y su material cifrado se destruye pasada la ventana de retención (30 días). Después no se puede recuperar desde la plataforma.
           </Typography>
+          {recent.field}
           <Typography variant="subtitle1" component="h3">
             1. Descarga tu respaldo
           </Typography>
@@ -218,7 +267,7 @@ export function CancelCustody() {
           </Typography>
           <TextField id="cancel-pass" label="Contraseña del respaldo (mínimo 12 caracteres)" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <Box>
-            <Button id="cancel-backup" variant="outlined" onClick={() => void saveBackup()} disabled={busy || password.length < 12}>
+            <Button id="cancel-backup" variant="outlined" onClick={() => void saveBackup()} disabled={busy || password.length < 12 || !recent.ready}>
               {downloaded ? 'Descargar otra vez' : 'Descargar el respaldo cifrado'}
             </Button>
           </Box>
@@ -235,7 +284,7 @@ export function CancelCustody() {
             slotProps={{ htmlInput: { autoComplete: 'off', spellCheck: false } }}
           />
           <Box>
-            <Button id="cancel-custody-confirm" color="error" variant="contained" onClick={() => void cancel()} disabled={busy || !downloaded || !kept || typed.trim() !== npub.slice(-8)}>
+            <Button id="cancel-custody-confirm" color="error" variant="contained" onClick={() => void cancel()} disabled={busy || !downloaded || !kept || typed.trim() !== npub.slice(-8) || !recent.ready}>
               Cancelar la custodia y borrar la llave
             </Button>
           </Box>
@@ -368,6 +417,9 @@ export function ManagedActivity() {
   const [orgDevice, setOrgDevice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  /** IR-2026-10-11: another browser closed the other sessions after this one signed in. */
+  const [cutOff, setCutOff] = useState(false);
+  const recent = useRecentSignIn('sessions-reauth');
 
   const load = useCallback(async () => {
     // The device first: shown even when the managed-signer turns this browser away (FR024-03).
@@ -385,7 +437,8 @@ export function ManagedActivity() {
     try {
       await fn();
     } catch (e) {
-      setError((e as Error).message);
+      if (e instanceof ManagedSignerReauthError) setCutOff(true);
+      else setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -406,12 +459,20 @@ export function ManagedActivity() {
       await load();
       ws.notify(x.current ? 'Sesión de este navegador cerrada: la próxima firma abre otra con tu login de Acceso.' : `Sesión de ${x.deviceId} cerrada.`, 'success');
     });
+  // IR-2026-10-11: it also cuts off the logins of the other browsers, so it asks for the password (IR-2026-10-03).
   const closeOthers = () =>
     run(async () => {
       const current = sessions?.find((x) => x.current);
-      const closed = await ManagedSignerClient.closeDeviceSessions(login(), current ? { except: current.id } : {});
+      const closed = await recent.run((login) => ManagedSignerClient.closeDeviceSessions(login, current ? { except: current.id } : {}));
       await load();
-      ws.notify(closed === 1 ? 'Se cerró 1 sesión.' : `Se cerraron ${closed} sesiones.`, 'success');
+      ws.notify(closed === 1 ? 'Se cerró 1 sesión. Los demás navegadores tendrán que escribir otra vez tu contraseña de Acceso.' : `Se cerraron ${closed} sesiones. Los demás navegadores tendrán que escribir otra vez tu contraseña de Acceso.`, 'success');
+    });
+  const signInAgain = () =>
+    run(async () => {
+      await recent.run(async () => undefined);
+      setCutOff(false);
+      await load();
+      ws.notify('Este navegador vuelve a firmar con tu llave gestionada.', 'success');
     });
   const others = (sessions ?? []).filter((x) => !x.current).length;
   // FR024-03: the session carries the device id the organisation registered, so revoking it reaches this browser.
@@ -449,13 +510,24 @@ export function ManagedActivity() {
               </ListItem>
             ))}
           </List>
-          <Box>
-            <Button id="managed-close-others" variant="outlined" disabled={busy || others === 0} onClick={() => void closeOthers()}>
+          {cutOff && (
+            <Alert severity="warning" id="managed-cut-off">
+              Se cerraron las sesiones de tu llave gestionada desde otro navegador después de que entraras en este. Escribe otra vez tu contraseña de Acceso para volver a firmar aquí.
+            </Alert>
+          )}
+          {(cutOff || others > 0) && recent.field}
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            {cutOff && (
+              <Button id="managed-sign-in-again" variant="contained" disabled={busy || !recent.ready} onClick={() => void signInAgain()}>
+                Volver a entrar
+              </Button>
+            )}
+            <Button id="managed-close-others" variant="outlined" disabled={busy || others === 0 || !recent.ready} onClick={() => void closeOthers()}>
               Cerrar las demás sesiones
             </Button>
-          </Box>
+          </Stack>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Cerrar una sesión corta la firma en ese navegador hasta que vuelva a entrar con tu login de Acceso. Si perdiste un dispositivo, cambia también tu contraseña de Acceso.
+            Cerrar una sesión corta la firma en ese navegador hasta que vuelva a entrar con tu login de Acceso. «Cerrar las demás sesiones» además obliga a los otros navegadores a escribir otra vez tu contraseña: úsalo si perdiste un dispositivo, y cambia también tu contraseña de Acceso.
           </Typography>
           {ws.cfg.organizationDevices && (
             <Stack spacing={1} id="managed-org">

@@ -178,7 +178,8 @@ export class Service {
   private corsHeaders(req: IncomingMessage): Record<string, string> {
     const origin = req.headers.origin;
     if (!origin || !this.opts.corsOrigins?.includes(origin)) return {};
-    return { 'access-control-allow-origin': origin, vary: 'Origin' };
+    // The web reads why it was refused: when to retry (429) and when to sign in again (401 step-up, RFC 9470).
+    return { 'access-control-allow-origin': origin, 'access-control-expose-headers': 'retry-after, www-authenticate', vary: 'Origin' };
   }
 
   async handle(req: IncomingMessage, res: ServerResponse) {

@@ -124,13 +124,10 @@
       },
       "delete": {
         "operationId": "deleteV1DeviceSessions",
-        "summary": "Cierra las demás sesiones del usuario.",
+        "summary": "Cierra las demás sesiones del usuario y deja fuera sus otros logins de Acceso anteriores a ese momento (IR-2026-10-11). Solo con un login de Acceso de los últimos minutos (`MANAGED_SIGNER_REAUTH_MAX_AGE_S`, 300 s por defecto), nunca con una sesión de dispositivo; si no, 401 con `WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` (RFC 9470, IR-2026-10-03).",
         "security": [
           {
             "acceso": []
-          },
-          {
-            "deviceSession": []
           }
         ],
         "responses": {
@@ -459,7 +456,7 @@
       },
       "delete": {
         "operationId": "deleteV1KeysById",
-        "summary": "Programa el borrado de la llave (`destroy_after`).",
+        "summary": "Programa el borrado de la llave (`destroy_after`). Solo con un login de Acceso de los últimos minutos (`MANAGED_SIGNER_REAUTH_MAX_AGE_S`, 300 s por defecto), nunca con una sesión de dispositivo; si no, 401 con `WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` (RFC 9470, IR-2026-10-03).",
         "parameters": [
           {
             "name": "id",
@@ -473,9 +470,6 @@
         "security": [
           {
             "acceso": []
-          },
-          {
-            "deviceSession": []
           }
         ],
         "responses": {
@@ -655,7 +649,7 @@
     "/v1/keys/{id}/export": {
       "post": {
         "operationId": "postV1KeysByIdExport",
-        "summary": "Exporta la llave cifrada con una contraseña (NIP-49) para pasar a custodia propia.",
+        "summary": "Exporta la llave cifrada con una contraseña (NIP-49) para pasar a custodia propia. Solo con un login de Acceso de los últimos minutos (`MANAGED_SIGNER_REAUTH_MAX_AGE_S`, 300 s por defecto), nunca con una sesión de dispositivo; si no, 401 con `WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` (RFC 9470, IR-2026-10-03).",
         "parameters": [
           {
             "name": "id",
@@ -669,9 +663,6 @@
         "security": [
           {
             "acceso": []
-          },
-          {
-            "deviceSession": []
           }
         ],
         "responses": {
@@ -704,7 +695,7 @@
     "/v1/keys/{id}/confirm-migration": {
       "post": {
         "operationId": "postV1KeysByIdConfirmMigration",
-        "summary": "Confirma la migración con una prueba firmada por la llave exportada.",
+        "summary": "Confirma la migración con una prueba firmada por la llave exportada. Solo con un login de Acceso de los últimos minutos (`MANAGED_SIGNER_REAUTH_MAX_AGE_S`, 300 s por defecto), nunca con una sesión de dispositivo; si no, 401 con `WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` (RFC 9470, IR-2026-10-03).",
         "parameters": [
           {
             "name": "id",
@@ -718,9 +709,6 @@
         "security": [
           {
             "acceso": []
-          },
-          {
-            "deviceSession": []
           }
         ],
         "responses": {
@@ -753,7 +741,7 @@
     "/v1/keys/{id}/cancel": {
       "post": {
         "operationId": "postV1KeysByIdCancel",
-        "summary": "Cancela la custodia sin migrar (derecho ARCO), confirmada con la npub de la llave (`destroy_after`, FR026-04).",
+        "summary": "Cancela la custodia sin migrar (derecho ARCO), confirmada con la npub de la llave (`destroy_after`, FR026-04). Solo con un login de Acceso de los últimos minutos (`MANAGED_SIGNER_REAUTH_MAX_AGE_S`, 300 s por defecto), nunca con una sesión de dispositivo; si no, 401 con `WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` (RFC 9470, IR-2026-10-03).",
         "parameters": [
           {
             "name": "id",
@@ -767,9 +755,6 @@
         "security": [
           {
             "acceso": []
-          },
-          {
-            "deviceSession": []
           }
         ],
         "responses": {
@@ -802,7 +787,7 @@
     "/v1/keys/{id}/usage": {
       "get": {
         "operationId": "getV1KeysByIdUsage",
-        "summary": "Operaciones recientes de la llave, cada una con su dispositivo (FR005-11).",
+        "summary": "Operaciones de la llave, cada una con su dispositivo (FR005-11); también después de que saliera de la custodia, hasta que se destruye (IR-2026-10-03).",
         "parameters": [
           {
             "name": "id",
