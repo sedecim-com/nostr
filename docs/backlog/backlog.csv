@@ -728,7 +728,7 @@ Falta: que el responsable de producto lo apruebe (estado Aceptado en el ADR y en
 "FR013-05","FR · Mensajería, entrega y resiliencia","§7, §12","Caché local cifrada de eventos y NIP-77 con estado local","Lectura sin conexión, reanudación por since y NIP-77 con conjunto local (interop con strfry)","Dev","P3","5","","Diferido","","Pendiente","","https://github.com/sedecim-com/nostr/issues/299"
 "FR018-06","FR · Mensajería, entrega y resiliencia","§13.1","Política de tamaño, MIME y antivirus compatible con la confidencialidad","Política documentada y comprobación de tamaño en el cliente","Doc","P3","2","","Diferido","","Pendiente","","https://github.com/sedecim-com/nostr/issues/300"
 "FR004-07","FR · Identidad, llaves y custodia","§8.2","Signer de hardware (opcional en el scope)","Spike con un dispositivo de hardware y decisión documentada","Dev","P3","5","","Diferido","","Pendiente","","https://github.com/sedecim-com/nostr/issues/301"
-"OPS-21","OPS · Despliegue y DevSecOps","FR-021 (FR021-02)","El job tor-profile no falla por la latencia de Tor","scripts/tor-profile-check.sh no envía el DM hasta que el 10050 del destinatario está REPLICATED (en Buzz, que no acepta el kind 10050, hasta que el relay lo rechaza: ese DM va a los relays del emisor) y da a cada lectura por Tor el margen de un circuito lento; si aun así falla, el log dice en qué paso y tras cuánto tiempo; el job tor-profile pasa en 5 ejecuciones seguidas","Infra","P1","2","FR021-02","S9","2026-10-09","Parcial","Commits 090fd28, eec6291 y 8721843 (PR #336, merge 7f7246d):
+"OPS-21","OPS · Despliegue y DevSecOps","FR-021 (FR021-02)","El job tor-profile no falla por la latencia de Tor","scripts/tor-profile-check.sh no envía el DM hasta que el 10050 del destinatario está REPLICATED (en Buzz, que no acepta el kind 10050, hasta que el relay lo rechaza: ese DM va a los relays del emisor) y da a cada lectura por Tor el margen de un circuito lento; si aun así falla, el log dice en qué paso y tras cuánto tiempo; el job tor-profile pasa en 5 ejecuciones seguidas","Infra","P1","2","FR021-02","S9","2026-10-09","Hecho","Commits 090fd28, eec6291 y 8721843 (PR #336, merge 7f7246d):
 
 - relay-pool: con un challenge NIP-42 tardío se autentica y repite los REQ de gift wraps (packages/relay-pool/src/connection.ts; test con un enlace de 300 ms en packages/relay-pool/test/pool.test.ts).
 - CLI: 30 s por lectura en Tor (apps/sovereign-client/src/app.ts) y el motivo del relay cuando el 10050 queda FAILED (apps/sovereign-client/test/tor-hardening.test.ts).
@@ -745,5 +745,11 @@ Commits 6fc0ec6 y 57b1ce8 (PR #370, merge e974237):
   - El arranque tiene su propio límite de 600 s (`TOR_CHECK_BOOTSTRAP_TIMEOUT`), y el fallo dice en qué porcentaje se quedó.
 - tor-profile en verde en la PR #370 con los dos cambios.
 
-Falta: 5 ejecuciones seguidas del job en verde.","https://github.com/sedecim-com/nostr/issues/330"
+Ejecuciones de main desde el merge de #370 (e974237): el job `tor-profile` pasó en las cinco seguidas.
+
+- e974237, merge de #370: [run 36656691864](https://github.com/sedecim-com/nostr/actions/runs/36656691864).
+- 15f7d34, merge de #335: [run 36656798237](https://github.com/sedecim-com/nostr/actions/runs/36656798237). `tor-profile` pasó. Ese run falló en el job `test` por otra causa: la carrera de key packages del rotation worker, que corrige la PR #372.
+- cf36d45, merge de #371: [run 36657141130](https://github.com/sedecim-com/nostr/actions/runs/36657141130).
+- e4fd240, merge de #346: [run 36657685595](https://github.com/sedecim-com/nostr/actions/runs/36657685595).
+- 0263397, merge de #348: [run 36659183123](https://github.com/sedecim-com/nostr/actions/runs/36659183123).","https://github.com/sedecim-com/nostr/issues/330"
 "SEC-13","SEC/REL · Gates de seguridad y release","§20.3, PRD GC-A04","Segunda revisión interna de seguridad antes del tag de auditoría","docs/security/internal-review-2026-10.md revisa, con el método de la primera revisión, lo fusionado desde entonces (Continuity Vault, motor de entrega, feature gates de producción, SEC-06 y SEC-07); cada hallazgo medio o superior queda corregido, o aceptado con ADR, antes del tag de auditoría; el alcance y los hallazgos entran en el paquete de SEC-01 y SEC-02","Seguridad","P1","5","SEC-06 SEC-07","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/331"

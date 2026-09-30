@@ -45,7 +45,7 @@ Cada fila tiene el nivel de evidencia más bajo que alcanzan todas sus tareas de
 | private-resilient | Perfil | En curso | 13 de 14 | VAULT-07 (S10) |
 | institutional | Perfil | Merged | 14 de 14 | — |
 | sovereign (self-hosted) | Perfil | En curso | 9 de 10 | NFR003-03 (S11), NFR003-04 (Diferido) |
-| sovereign-tor | Perfil | En curso | 6 de 7 | FR020-02 (Diferido), FR020-06 (Diferido), OPS-21 (S9) |
+| sovereign-tor | Perfil | Merged | 7 de 7 | FR020-02 (Diferido), FR020-06 (Diferido) |
 | Identidad, personas y custodia en el dispositivo | Capacidad | En curso | 27 de 29 | FR003-06 (S9), FR003-07 (S9), FR006-04 (Diferido), FR004-08 (Diferido) |
 | Custodia gestionada y Nitro Enclave | Capacidad | En curso | 13 de 16 | FR005-05 (S14), FR026-04 (S11), FR005-13 (S11), FR005-09 (Diferido), FR005-10 (Diferido) |
 | Entrega fiable (outbox, quorum, acuses) | Capacidad | En curso | 19 de 20 | NFR002-03 (S11) |
