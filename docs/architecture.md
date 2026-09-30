@@ -145,6 +145,28 @@ con el estado MLS. No van por el `DeliveryEngine`, porque un evento de grupo no 
 
 Nada adelanta a un commit pendiente. Detalle en `docs/marmot.md` («Sin red: mensajes y commits pendientes»).
 
+## Canales NIP-29: reacciones, hilos y borrado (FR015-04)
+La vista de canales suscribe los mensajes (kind 9) de un canal y, con su propio límite, las reacciones y los borrados
+de alrededor (7, 5 y 9005), y lee la lista de admins (39001) firmada por la llave que firma el 39000 del canal.
+`channelView` (`packages/messaging/src/nip29.ts`) decide qué se muestra a partir de esos eventos, en cualquier orden:
+- una respuesta va en el hilo que dicen sus marcadores NIP-10, leídos como Buzz (`threadOf`);
+- cada reacción cuenta una vez por autor y contenido en el mensaje de su último `e`;
+- un mensaje desaparece con un kind 5 o un 9005 de su autor, o con un 9005 de un admin en el mismo canal; una reacción,
+  con un kind 5 de su autor.
+
+Lo que la web envía (`apps/web-saas/src/lib/channels.ts`) pasa por el outbox como cualquier envío:
+- responder publica un kind 9 en el hilo del padre (`replyMessage`);
+- reaccionar, un kind 7, y quitar la reacción propia, un kind 5 de ella;
+- borrar un mensaje propio o, como admin, uno ajeno, un 9005, después de un diálogo que dice lo que el borrado no hace
+  (`CHANNEL_DELETION_TEXTS`).
+
+Nada nuevo se guarda en el navegador aparte del outbox. Las reglas de Buzz y el gate contra el Buzz fijado están en
+[`buzz-integration.md`](buzz-integration.md) («Reacciones, hilos y borrado en canales»). Pruebas:
+- `packages/messaging/test/channels.test.ts`: la vista y los eventos;
+- `apps/web-saas/test/channel-collab.test.ts`: la web contra un relay de prueba con las reglas de Buzz
+  (`TestRelay` con `groupModeration`);
+- `tests/interop/buzz.interop.test.ts`: contra Buzz, en CI.
+
 ## APIs: anti-replay NIP-98 y límites de tasa
 Aplica a identity-service, policy-engine, indexer, notification-gateway, managed-signer y continuity-vault (todos sobre
 `packages/service-kit`) y a blob-store (servidor propio que usa el mismo limitador). Corrige IR-2026-09-04 e

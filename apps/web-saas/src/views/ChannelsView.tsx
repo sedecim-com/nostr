@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Alert, Box, Button, Card, CardContent, Chip, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import { BlossomClient, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
 import { cappedQuorumNotice, fileKey, SendOperation } from '../lib/outbox';
-import type { NostrEvent } from '@sedecim/nostr-core';
-import { channelFilter, chatMessage, createGroup, joinRequest, NIP29, parseGroupMetadata, type GroupMetadata } from '@sedecim/messaging';
+import type { EventTemplate, NostrEvent } from '@sedecim/nostr-core';
+import { channelFilters, channelView, chatMessage, createGroup, deleteEvent, groupAdmins, joinRequest, NIP29, parseGroupMetadata, replyMessage, type ChannelEntry, type GroupMetadata } from '@sedecim/messaging';
+import { CHANNEL_DELETION_TEXTS } from '@sedecim/profiles';
+import { canDelete, publishToChannel, reactionToggle, REACTIONS } from '../lib/channels';
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 
@@ -21,7 +23,19 @@ function imetaOf(evt: NostrEvent): Imeta | undefined {
   return kv.url && kv.x ? { url: kv.url, sha256: kv.x, ...(kv.m ? { mime: kv.m } : {}) } : undefined;
 }
 
-/** NIP-29 channels (FR015-02): discover (39000), ask to join (9021), read and write. Not E2EE. */
+const snippet = (text: string) => (text.length > 80 ? `${text.slice(0, 79)}…` : text);
+
+/** Who and what a reply answers, as far as this browser has it. */
+function quoteOf(parent: NostrEvent | undefined, deleted: ReadonlySet<string>): string {
+  if (!parent) return 'un mensaje que no está cargado';
+  if (deleted.has(parent.id)) return 'un mensaje borrado';
+  return `${shortNpub(parent.pubkey)}: «${snippet(parent.content)}»`;
+}
+
+/**
+ * NIP-29 channels (FR015-02): discover (39000), ask to join (9021), read and write. Not E2EE. FR015-04: reactions
+ * (kind 7), replies in threads (NIP-10 `e` markers and `q`) and deletions (9005 for messages, 5 for one's reactions).
+ */
 export function ChannelsView() {
   const ws = useWorkspace();
   const s = ws.session!;
@@ -30,13 +44,26 @@ export function ChannelsView() {
   const [groupId, setGroupId] = useState('');
   const [newName, setNewName] = useState('');
   const [openId, setOpenId] = useState('');
-  const [messages, setMessages] = useState<NostrEvent[]>([]);
+  // FR015-04: every event of the open channel (messages, reactions, deletions); channelView says what is shown.
+  const [events, setEvents] = useState<NostrEvent[]>([]);
+  const [admins, setAdmins] = useState<Set<string>>(new Set());
+  const [replyTo, setReplyTo] = useState<NostrEvent | undefined>();
+  const [toDelete, setToDelete] = useState<NostrEvent | undefined>();
+  const [pending, setPending] = useState(false);
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | undefined>();
   const [busy, setBusy] = useState(false);
   const blocked = sendBlockedReason(config);
   const sub = useRef<{ close(): void } | undefined>(undefined);
   const operation = useRef(new SendOperation());
+  const opened = useRef('');
+  const view = useMemo(() => channelView(events, { groupId: openId, me: s.pubkey, admins }), [events, openId, s.pubkey, admins]);
+  const addEvents = (list: NostrEvent[]) =>
+    setEvents((cur) => {
+      const have = new Set(cur.map((e) => e.id));
+      const add = list.filter((e) => !have.has(e.id));
+      return add.length ? [...cur, ...add] : cur;
+    });
 
   const discover = async () => {
     const evts = await s.pool.query(s.persona.relays, [{ kinds: [NIP29.GroupMetadata], limit: 200 }], 5000);
@@ -58,16 +85,37 @@ export function ChannelsView() {
 
   const open = (id: string) => {
     sub.current?.close();
+    opened.current = id;
     setOpenId(id);
-    setMessages([]);
-    const seen = new Set<string>();
-    sub.current = s.pool.subscribe(s.persona.relays, [{ ...channelFilter(id), limit: 100 }], {
-      onevent: (evt) => {
-        if (evt.kind !== NIP29.ChatMessage || seen.has(evt.id)) return;
-        seen.add(evt.id);
-        setMessages((m) => [...m, evt].sort((a, b) => a.created_at - b.created_at));
-      },
-    });
+    setEvents([]);
+    setAdmins(new Set());
+    setReplyTo(undefined);
+    // FR015-04: messages, and apart the reactions and deletions around them; the admins from the relay-signed state.
+    sub.current = s.pool.subscribe(s.persona.relays, channelFilters(id), { onevent: (evt) => addEvents([evt]) });
+    void s.pool.query(s.persona.relays, [{ kinds: [NIP29.GroupMetadata, NIP29.GroupAdmins], '#d': [id] }], 5000).then(
+      (state) => opened.current === id && setAdmins(groupAdmins(state, id)),
+      () => undefined,
+    );
+  };
+
+  // FR015-04: reactions toggle (kind 7, or kind 5 of one's own) and deletions (9005) go through the outbox.
+  const act = async (templates: EventTemplate[], done?: string) => {
+    if (pending || blocked) return;
+    setPending(true);
+    try {
+      addEvents(await publishToChannel(s, templates));
+      if (done) ws.notify(done, 'info');
+    } catch (err) {
+      ws.notify((err as Error).message, 'error');
+    } finally {
+      setPending(false);
+    }
+  };
+  const react = (entry: ChannelEntry, content: string) => act(reactionToggle(openId, entry, content));
+  const confirmDelete = () => {
+    const target = toDelete;
+    setToDelete(undefined);
+    if (target) void act([deleteEvent(openId, target.id)], 'Petición de borrado publicada');
   };
 
   const join = async (id: string) => {
@@ -92,7 +140,8 @@ export function ChannelsView() {
     setBusy(true);
     try {
       const build = async () => {
-        const tmpl = chatMessage(openId, text);
+        // FR015-04: a reply goes in the thread of the message it answers.
+        const tmpl = replyTo ? replyMessage(openId, text, replyTo) : chatMessage(openId, text);
         if (file) {
           // FR018-04: channel images are public to channel members: sanitized (EXIF removed) and stored in Buzz /media.
           if (config.files !== 'relay-plain') throw new Error('Tu perfil exige adjuntos cifrados y los canales NIP-29 no son E2EE: comparte el archivo por mensaje directo.');
@@ -107,13 +156,14 @@ export function ChannelsView() {
         return { template: tmpl };
       };
       // FR011-05: «Enviar» again on the same message retries its operation: no other event, no second upload.
-      const opId = operation.current.for(JSON.stringify([openId, text, fileKey(file)]));
+      const opId = operation.current.for(JSON.stringify([openId, text, fileKey(file), replyTo?.id ?? '']));
       const rec = await s.engine.submitOnce(opId, build, { relays: s.persona.relays, quorum: config.quorum });
       operation.current.done();
       const capped = cappedQuorumNotice(rec);
       if (capped) ws.notify(capped, 'warning');
       setText('');
       setFile(undefined);
+      setReplyTo(undefined);
     } catch (err) {
       ws.notify(err instanceof UnsanitizableFileError ? unsanitizableMessage(err) : (err as Error).message, 'error');
     } finally {
@@ -168,16 +218,60 @@ export function ChannelsView() {
               {openId ? `#${channels.find((c) => c.id === openId)?.name ?? openId}` : 'Elige un canal'}
             </Typography>
             <List id="channel-log" aria-live="polite" dense>
-              {messages.map((m) => (
-                <ListItem key={m.id} alignItems="flex-start">
-                  <ListItemText primary={m.content} secondary={`${shortNpub(m.pubkey)} · ${new Date(m.created_at * 1000).toLocaleString()}`} />
-                  {imetaOf(m) && <ChannelImage meta={imetaOf(m)!} />}
+              {view.messages.map((m) => (
+                <ListItem key={m.event.id} sx={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                  {m.thread && (
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                      {`↪ En respuesta a ${quoteOf(view.byId.get(m.thread.parent), view.deleted)}`}
+                    </Typography>
+                  )}
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                    <ListItemText primary={m.event.content} secondary={`${shortNpub(m.event.pubkey)} · ${new Date(m.event.created_at * 1000).toLocaleString()}`} />
+                    {imetaOf(m.event) && <ChannelImage meta={imetaOf(m.event)!} />}
+                  </Box>
+                  <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                    {m.reactions.map((r) => (
+                      <Chip
+                        key={r.content}
+                        size="small"
+                        label={`${r.content} ${r.count}`}
+                        color={r.mine.length ? 'primary' : 'default'}
+                        variant={r.mine.length ? 'filled' : 'outlined'}
+                        disabled={pending || !!blocked}
+                        onClick={() => void react(m, r.content)}
+                        aria-label={`${r.content}: ${r.count}. ${r.mine.length ? 'Quitar tu reacción' : 'Reaccionar igual'}`}
+                      />
+                    ))}
+                    {REACTIONS.filter((c) => !m.reactions.some((r) => r.content === c)).map((c) => (
+                      <Button key={c} size="small" disabled={pending || !!blocked} onClick={() => void react(m, c)} aria-label={`Reaccionar con ${c}`}>
+                        {c}
+                      </Button>
+                    ))}
+                    <Button size="small" onClick={() => setReplyTo(m.event)}>
+                      Responder
+                    </Button>
+                    {canDelete(m.event, s.pubkey, admins) && (
+                      <Button size="small" color="error" disabled={pending || !!blocked} onClick={() => setToDelete(m.event)}>
+                        Borrar
+                      </Button>
+                    )}
+                  </Stack>
                 </ListItem>
               ))}
             </List>
             {openId && (
+              <Typography variant="body2" id="channel-collab-notice" sx={{ color: 'text.secondary', mb: 1 }}>
+                Las reacciones, respuestas y borrados son eventos firmados que ven los miembros del canal y el operador del relay. {CHANNEL_DELETION_TEXTS.reaction}
+              </Typography>
+            )}
+            {openId && (
               <Stack component="form" spacing={1} id="channel-send" onSubmit={send}>
                 {blocked && <Alert severity="error">{blocked}</Alert>}
+                {replyTo && (
+                  <Alert severity="info" id="channel-reply-to" closeText="Cancelar la respuesta" onClose={() => setReplyTo(undefined)}>
+                    Respondiendo a {quoteOf(replyTo, view.deleted)}
+                  </Alert>
+                )}
                 <TextField id="channel-text" label="Mensaje" multiline minRows={2} value={text} onChange={(e) => setText(e.target.value)} required={!file} />
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                   <Button component="label" variant="outlined" disabled={config.files !== 'relay-plain'}>
@@ -194,6 +288,19 @@ export function ChannelsView() {
           </CardContent>
         </Card>
       </Box>
+      <Dialog open={!!toDelete} onClose={() => setToDelete(undefined)} aria-labelledby="channel-delete-title">
+        <DialogTitle id="channel-delete-title">¿Borrar este mensaje?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>{CHANNEL_DELETION_TEXTS.message}</DialogContentText>
+          <DialogContentText sx={{ mt: 1 }}>{CHANNEL_DELETION_TEXTS.copies}</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setToDelete(undefined)}>Cancelar</Button>
+          <Button color="error" onClick={confirmDelete}>
+            Borrar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }
