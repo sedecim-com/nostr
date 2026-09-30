@@ -56,7 +56,8 @@ describe('secure group inputs (fuzz)', () => {
         expect(received.size).toBe(data.length);
         expect(decryptGroupMedia(secret, ciphertext, received)).toEqual(data);
         const tampered = ciphertext.slice();
-        tampered[at % tampered.length] ^= 1;
+        const i = at % tampered.length;
+        tampered[i] = tampered[i]! ^ 1;
         expect(throwsCleanly(() => decryptGroupMedia(secret, tampered, received))).toBe(true);
       }),
       runs(100),
