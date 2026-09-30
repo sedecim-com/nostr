@@ -60,6 +60,8 @@ interface Cert {
   printableIssuer?: boolean;
   /** Issuer Name as DER, instead of a CN built from `issuer`. */
   issuerName?: Uint8Array;
+  /** Validity as DER, instead of the two dates. */
+  validity?: Uint8Array;
 }
 function cert(o: Cert): Uint8Array {
   const alg = o.alg ?? ECDSA_SHA384;
@@ -71,7 +73,7 @@ function cert(o: Cert): Uint8Array {
     int(serial),
     o.tbsAlg ?? alg,
     o.issuerName ?? name(o.issuer, o.printableIssuer),
-    seq(time(o.notBefore ?? new Date(now - DAY)), time(o.notAfter ?? new Date(now + DAY))),
+    o.validity ?? seq(time(o.notBefore ?? new Date(now - DAY)), time(o.notAfter ?? new Date(now + DAY))),
     name(o.subject),
     new Uint8Array(o.publicKey.export({ type: 'spki', format: 'der' })),
     ...(exts.length ? [ctx(3, true, seq(...exts))] : []),
@@ -273,6 +275,16 @@ describe('portable Nitro attestation verifier against the node:crypto one', () =
     const forged = cert({ subject: 'i-forged-enc', issuer: '', issuerName: subjectOfRoot, publicKey: leafKey.publicKey, issuerKey: ec().privateKey, exts: [basicConstraints(false)] });
     const r = both(doc({ cabundle: [root], certificate: forged }), policy({ trustedRootFingerprints: undefined }));
     expect(r).toEqual({ node: 'bad-chain', portable: 'bad-chain', message: 'attestation: certificate 1 is not issued by its predecessor' });
+  });
+
+  it('FR005-10: a certificate whose validity date does not parse is refused by both (it was taken by the node:crypto one: NaN compares false)', () => {
+    const utc = (text: string) => der(TAG.UTC_TIME, new TextEncoder().encode(text));
+    // Month 13 is not a date: X509Certificate reports it as «Bad time value», which new Date() turns into NaN.
+    for (const validity of [seq(utc('261301000000Z'), time(new Date(now + DAY))), seq(time(new Date(now - DAY)), utc('261301000000Z'))]) {
+      const r = both(doc({ certificate: leafCert({ validity }) }));
+      expect(r.node).toBe('expired-certificate');
+      expect(r.portable).not.toBe('ok');
+    }
   });
 
   describe('where the portable verifier is stricter than OpenSSL (it refuses what the node:crypto one takes)', () => {
