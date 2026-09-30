@@ -4427,9 +4427,10 @@
     "FR021-02"
    ],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 291
+   "status": "Hecho",
+   "evidence": "Commit 4442b05 (PR #417): el CLI soberano es el servicio sovereign del perfil tor de docker-compose.yml: `docker compose run --rm sovereign …` lo ejecuta en un contenedor de un solo uso con TOR_SOCKS=tor:9050 (ejecutar el servicio activa su perfil). Su única red es interna y solo la comparte con tor, sin puertos publicados, sin capacidades, con no-new-privileges, proceso init y raíz de solo lectura; escribe en el volumen sovereign-data y en un tmpfs. La passphrase de sus almacenes y la contraseña de backup llegan como secretos en fichero de solo lectura (SOVEREIGN_PASSPHRASE_FILE, que lee el CLI de apps/sovereign-client/src/cli.ts y que manda sobre SOVEREIGN_PASSPHRASE), nunca como variables del contenedor ni de la imagen. La imagen (target sovereign del Dockerfile, con .dockerignore excluyendo cualquier .env y .data) lleva solo el cierre de producción del CLI. scripts/backup.sh no copia sovereign-data (decisión escrita allí y en docs/runbooks/restore.md): el respaldo de cada persona es su backup export. Documentado paso a paso en docs/sovereign-tor.md y enlazado desde README.md. Pruebas: tests/scripts/sovereign-service.test.ts (sin Docker: modelo de compose y Dockerfile, CLI con el entorno del servicio, selección de ficheros de la imagen, imports declarados y controles negativos de cada comprobación) y el job tor-profile de CI (scripts/tor-profile-check.sh con scripts/sovereign-sandbox.mjs): publica y relee por tor:9050 en el .onion del secure relay, comprueba el contenedor con docker inspect y desde dentro (solo resuelve tor, sin ruta a IPs públicas, usuario no root, sin capacidades, raíz de solo lectura), saca un backup cifrado del contenedor y lo restaura, y con tor parado el envío queda en el outbox con «No enviado: red de privacidad no disponible». Límites declarados: la passphrase vive en un fichero en claro en el disco del host, la memoria compartida del contenedor sigue siendo escribible y la imagen sovereign aún no entra en el pipeline de release ni en el SBOM reproducible.",
+   "issue": 291,
+   "evidenceState": "merged"
   },
   {
    "id": "DEC-14",
