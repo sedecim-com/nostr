@@ -10,7 +10,7 @@ import { generateSecretKey, getPublicKey, nip98, type EventTemplate, type NostrE
 import { buildServerList, prepareBlob, uploadToServers, type HttpClient } from '@sedecim/blossom-client';
 import { createPublicLink } from '@sedecim/identity/public-link';
 import { MarmotTsProvider, MemoryGroupNetwork, VolatileGroupStorage, type ExtendedGroupSession } from '@sedecim/marmot-adapter';
-import { chatMessage, createDirectMessage, createFileMessage, createGroup, createReceipt, deleteEvent, joinRequest, publishDmRelayList, replyMessage } from '@sedecim/messaging';
+import { buildProfile, chatMessage, createDirectMessage, createFileMessage, createGroup, createReceipt, deleteEvent, joinRequest, publishDmRelayList, replyMessage } from '@sedecim/messaging';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { LocalSigner, WEB_NIP46_PERMISSIONS } from '@sedecim/signer';
 import { TestRelay } from '@sedecim/test-relay';
@@ -50,8 +50,8 @@ describe('NIP-46 permissions of the web (FR004-04, FR004-06)', () => {
     await createReceipt(me, peer, 'ef'.repeat(32), 'read');
     await publishDmRelayList(me, ['wss://relay.example']);
 
-    // Channels (NIP-29) and the Blossom server list go through the outbox, which signs their templates.
-    for (const t of [chatMessage('g1', 'hola'), createGroup('Redacción', 'open'), joinRequest('g1'), buildServerList(['https://blossom.example'])]) await me.signEvent(t);
+    // Channels (NIP-29), the Blossom server list and the public profile go through the outbox, which signs their templates.
+    for (const t of [chatMessage('g1', 'hola'), createGroup('Redacción', 'open'), joinRequest('g1'), buildServerList(['https://blossom.example']), buildProfile({ name: 'Ana' })]) await me.signEvent(t);
     // FR015-04: replies, reactions and their removal, and deletions of channel messages (what the channels view sends).
     const channelMsg = await other.signEvent(chatMessage('g1', 'tema'));
     const channelEntry = { event: channelMsg, reactions: [] };

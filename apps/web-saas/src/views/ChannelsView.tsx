@@ -8,8 +8,10 @@ import type { EventTemplate, NostrEvent } from '@sedecim/nostr-core';
 import { channelFilters, channelView, chatMessage, createGroup, deleteEvent, groupAdmins, joinRequest, NIP29, parseGroupMetadata, replyMessage, type ChannelEntry, type GroupMetadata } from '@sedecim/messaging';
 import { CHANNEL_DELETION_TEXTS, CHANNEL_MIRROR_TEXTS } from '@sedecim/profiles';
 import { canDelete, publishToChannel, reactionToggle, REACTIONS } from '../lib/channels';
+import { authorLabel, lookupChannelAuthors } from '../lib/profiles';
 import { ChannelReadState, countUnread, MIRROR_REFRESH_MS, MirrorClient, mirrorAvailability, refreshesInBackground, unreadLabel, type MirrorHit, type UnreadCount } from '../lib/mirror';
 import { shortNpub } from '../lib/session';
+import { AuthorAvatar, AvatarsToggle, useProfiles } from './Profile';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 import { useReuseConfirm } from './ReuseConfirm';
 
@@ -29,10 +31,10 @@ function imetaOf(evt: NostrEvent): Imeta | undefined {
 const snippet = (text: string) => (text.length > 80 ? `${text.slice(0, 79)}…` : text);
 
 /** Who and what a reply answers, as far as this browser has it. */
-function quoteOf(parent: NostrEvent | undefined, deleted: ReadonlySet<string>): string {
+function quoteOf(parent: NostrEvent | undefined, deleted: ReadonlySet<string>, who: (pubkey: string) => string): string {
   if (!parent) return 'un mensaje que no está cargado';
   if (deleted.has(parent.id)) return 'un mensaje borrado';
-  return `${shortNpub(parent.pubkey)}: «${snippet(parent.content)}»`;
+  return `${who(parent.pubkey)}: «${snippet(parent.content)}»`;
 }
 
 /**
@@ -59,6 +61,9 @@ export function ChannelsView() {
   const [file, setFile] = useState<File | undefined>();
   const [busy, setBusy] = useState(false);
   const blocked = sendBlockedReason(config);
+  // FR006-04: the authors' public profiles, and their avatars when the panel allows remote previews or the user asks.
+  useProfiles(s);
+  const [avatars, setAvatars] = useState(config.remotePreviews);
   const sub = useRef<{ close(): void } | undefined>(undefined);
   const operation = useRef(new SendOperation());
   const reuse = useReuseConfirm();
@@ -128,6 +133,12 @@ export function ChannelsView() {
     return () => sub.current?.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s]);
+
+  // FR006-04: the authors of what the channel shows, looked up on the same relays that served their messages.
+  useEffect(() => {
+    const t = setTimeout(() => void lookupChannelAuthors(s, view.messages.map((m) => m.event.pubkey)), 300);
+    return () => clearTimeout(t);
+  }, [s, view]);
 
   // FR014-04: the counts refresh while the view is open (and visible) with signers that do not ask for each signature.
   // Another persona or profile (a new session) starts over: its discovery above counts at once.
@@ -366,16 +377,18 @@ export function ChannelsView() {
             <Typography variant="h6" component="h2">
               {openId ? `#${channels.find((c) => c.id === openId)?.name ?? openId}` : 'Elige un canal'}
             </Typography>
+            <AvatarsToggle pubkeys={view.messages.map((m) => m.event.pubkey)} shown={avatars} onShow={() => setAvatars(true)} />
             <List id="channel-log" aria-live="polite" dense>
               {view.messages.map((m) => (
                 <ListItem key={m.event.id} sx={{ flexDirection: 'column', alignItems: 'stretch' }}>
                   {m.thread && (
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      {`↪ En respuesta a ${quoteOf(view.byId.get(m.thread.parent), view.deleted)}`}
+                      {`↪ En respuesta a ${quoteOf(view.byId.get(m.thread.parent), view.deleted, (pk) => authorLabel(s, pk))}`}
                     </Typography>
                   )}
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                    <ListItemText primary={m.event.content} secondary={`${shortNpub(m.event.pubkey)} · ${new Date(m.event.created_at * 1000).toLocaleString()}`} />
+                    <AuthorAvatar pubkey={m.event.pubkey} show={avatars} />
+                    <ListItemText primary={m.event.content} secondary={`${authorLabel(s, m.event.pubkey)} · ${new Date(m.event.created_at * 1000).toLocaleString()}`} />
                     {imetaOf(m.event) && <ChannelImage meta={imetaOf(m.event)!} />}
                   </Box>
                   <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
@@ -418,7 +431,7 @@ export function ChannelsView() {
                 {blocked && <Alert severity="error">{blocked}</Alert>}
                 {replyTo && (
                   <Alert severity="info" id="channel-reply-to" closeText="Cancelar la respuesta" onClose={() => setReplyTo(undefined)}>
-                    Respondiendo a {quoteOf(replyTo, view.deleted)}
+                    Respondiendo a {quoteOf(replyTo, view.deleted, (pk) => authorLabel(s, pk))}
                   </Alert>
                 )}
                 <TextField id="channel-text" label="Mensaje" multiline minRows={2} value={text} onChange={(e) => setText(e.target.value)} required={!file} />

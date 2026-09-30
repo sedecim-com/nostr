@@ -124,7 +124,7 @@ Un requisito está **Hecho** si lo están todas sus tareas del programa, sin con
 | [FR006-01](https://github.com/sedecim-com/nostr/issues/93) Gestión de ≥3 personas con stores, relays y signer independientes | Hecho | packages/identity | — |
 | [FR006-02](https://github.com/sedecim-com/nostr/issues/94) Selector de persona en la web con banner "Enviando como…" | Hecho | apps/web-saas selector de persona + banner "Enviando como…"; tests/browser/web-saas.e2e.ts | [web-saas.e2e.ts](../tests/browser/web-saas.e2e.ts) |
 | [FR006-03](https://github.com/sedecim-com/nostr/issues/95) Aislamiento de circuitos Tor por persona | Hecho | packages/tor-network | — |
-| [FR006-04](https://github.com/sedecim-com/nostr/issues/283) Perfil público por persona (kind 0: nombre y avatar) | Pendiente (Diferido) | — | — |
+| [FR006-04](https://github.com/sedecim-com/nostr/issues/283) Perfil público por persona (kind 0: nombre y avatar) | Pendiente (Diferido) | — | [profile.test.ts](../apps/web-saas/test/profile.test.ts), [profile.test.ts](../packages/messaging/test/profile.test.ts), [profiles.test.ts](../packages/profiles/test/profiles.test.ts), [web-groups.e2e.ts](../tests/browser/web-groups.e2e.ts), [web-leaks.e2e.ts](../tests/browser/web-leaks.e2e.ts), [web-saas.e2e.ts](../tests/browser/web-saas.e2e.ts) |
 
 ## FR-007 · Identity linking
 

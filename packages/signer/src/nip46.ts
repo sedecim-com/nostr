@@ -36,6 +36,7 @@ export function formatBunkerUrl(p: BunkerPointer): string {
 
 /** Human labels for the kinds a remote signer may be asked to sign (FR004-04). */
 export const KIND_LABELS: Record<number, string> = {
+  0: 'Perfil público (nombre y avatar)',
   5: 'Borrar tus propios eventos, como una reacción (NIP-09)',
   7: 'Reacciones',
   9: 'Mensajes de canal (NIP-29)',
@@ -53,13 +54,13 @@ export const KIND_LABELS: Record<number, string> = {
 };
 
 /**
- * Kinds the Acceso Nostr web signs with the persona key (FR004-06): seals of DMs and group invitations (13),
- * channels (9, 9007, 9021) with their reactions (7), the removal of one's reaction (5) and deletions (9005), the DM
- * relay list (10050), Blossom (10063, 24242), NIP-42 (22242), NIP-98 (27235), public links between personas (30078)
- * and Marmot key packages (30443). apps/web-saas/test/nip46-permissions.test.ts runs every signing path of the web and
- * checks this list both ways.
+ * Kinds the Acceso Nostr web signs with the persona key (FR004-06): the public profile (0, only when the user
+ * publishes it), seals of DMs and group invitations (13), channels (9, 9007, 9021) with their reactions (7), the
+ * removal of one's reaction (5) and deletions (9005), the DM relay list (10050), Blossom (10063, 24242), NIP-42
+ * (22242), NIP-98 (27235), public links between personas (30078) and Marmot key packages (30443).
+ * apps/web-saas/test/nip46-permissions.test.ts runs every signing path of the web and checks this list both ways.
  */
-export const WEB_SIGNED_KINDS: readonly number[] = [5, 7, 9, 13, 9005, 9007, 9021, 10050, 10063, 22242, 24242, 27235, 30078, 30443];
+export const WEB_SIGNED_KINDS: readonly number[] = [0, 5, 7, 9, 13, 9005, 9007, 9021, 10050, 10063, 22242, 24242, 27235, 30078, 30443];
 
 /** Minimal permissions for the web client: only the kinds it signs, plus NIP-44 for DMs (spec §8.3). */
 export const WEB_NIP46_PERMISSIONS = ['get_public_key', 'nip44_encrypt', 'nip44_decrypt', ...WEB_SIGNED_KINDS.map((k) => `sign_event:${k}`)];

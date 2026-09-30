@@ -4,7 +4,7 @@ import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Si
 import type { BrowserManagedSession } from './managed-session';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type ContinuitySink, type OutboxRecord } from '@sedecim/delivery-engine';
-import { DmInbox, dmRouter, outboxContacts, publishDmRelayList, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
+import { DmInbox, dmRouter, outboxContacts, ProfileCache, publishDmRelayList, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
 import { continuityPolicy, preset, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
 import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
@@ -24,6 +24,10 @@ export interface PersonaSession {
   dmDiscovery: string[];
   /** FR011-05: the DMs being sent, stored (encrypted, in the vault) before their wraps are made. */
   dmOperations: DmOperationStore;
+  /** FR006-04: the public profiles this persona looked up, in memory and only for this persona (spec §14.1). */
+  profiles: ProfileCache;
+  /** Whether this persona wrote to a key (its outbox): looking such a contact up tells its relays nothing new. */
+  isContact(pubkey: string): Promise<boolean>;
   close(): void;
 }
 
@@ -291,14 +295,17 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
   void engine.resume();
   // FR011-02: a relay coming back resumes pending deliveries (the window 'online' event does too).
   const offReconnect = pool.onReconnect(() => void engine.resume());
+  const pubkey = await signer.getPublicKey();
   return {
     persona,
     signer,
-    pubkey: await signer.getPublicKey(),
+    pubkey,
     pool,
     engine,
     dmDiscovery,
     dmOperations: book.store.collection<DmOperation>(`dm-ops-${persona.id}`),
+    profiles: new ProfileCache(pool),
+    isContact: outboxContacts(engine, pubkey),
     close: () => {
       offReconnect();
       pool.close();
