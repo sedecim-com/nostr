@@ -13,7 +13,7 @@ function labelString(names: readonly string[], values: Labels, extra?: [string, 
   return parts.length ? `{${parts.join(',')}}` : '';
 }
 
-abstract class Metric {
+export abstract class Metric {
   abstract readonly type: 'counter' | 'gauge' | 'histogram';
   constructor(
     readonly name: string,
