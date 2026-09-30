@@ -4433,8 +4433,8 @@
    "sp": 1,
    "deps": [],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Parcial. ADR 0015 propuesto en docs/adr/0015-modelo-comercial-del-saas.md (commit 30a18a4, PR #399). Recoge lo que el producto ya fija para cualquier modelo comercial (el cobro no se une a las personas, sovereign y Tor sin cuenta ni cobro, salir nunca se bloquea), cómo es hoy la tenancy (un despliegue es una organización), tres opciones técnicas y una recomendación solo técnica. Las decisiones de negocio (quién paga, planes y límites, proveedor de cobro y de factura electrónica, qué pasa al dejar de pagar) están marcadas «Por decidir» para Dirección. Falta esa decisión y la aprobación del ADR.",
    "issue": 292
   },
   {
@@ -4516,8 +4516,8 @@
     "OPS-06"
    ],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Parcial. ADR 0014 propuesto en docs/adr/0014-aviso-de-notificacion-separado-del-mensaje.md (commit 30a18a4, PR #399). Compara observar el gift wrap (hoy, ADR 0010), un aviso publicado por el remitente y cifrado al gateway, el push del propio relay (NIP-PL de Buzz) y no tener push, con lo que ve cada parte. Propone no construir ahora el aviso separado y reabrirlo, con condiciones mínimas, al retomar un cliente móvil. Falta la aprobación del responsable de producto: el ADR sigue en estado Propuesto en docs/adr/README.md.",
    "issue": 297
   },
   {

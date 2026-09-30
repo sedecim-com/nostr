@@ -14,8 +14,8 @@
 | Estado | Tareas | Story points |
 |---|---:|---:|
 | Hecho | 182 | 481 |
-| Parcial | 24 | 86 |
-| Pendiente | 37 | 141 |
+| Parcial | 26 | 88 |
+| Pendiente | 35 | 139 |
 | Descartado | 6 | 21 |
 
 Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
