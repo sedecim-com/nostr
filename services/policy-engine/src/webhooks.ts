@@ -26,10 +26,13 @@ export class DestinationError extends Error {
 export type Resolver = (hostname: string) => Promise<Array<{ address: string; family: number }>>;
 
 /**
- * The system resolver, asked for the absolute name (a trailing dot), so that the search domains of the pod or host
+ * The name as an absolute one (a trailing dot), so that the search domains of the pod or host
  * (`<name>.<namespace>.svc.cluster.local`…) never turn a short name into an internal service.
  */
-export const systemResolver: Resolver = (hostname) => dnsLookup(hostname.endsWith('.') ? hostname : `${hostname}.`, { all: true, verbatim: true });
+export const absoluteName = (hostname: string) => (hostname.endsWith('.') ? hostname : `${hostname}.`);
+
+/** The system resolver, asked for the absolute name. */
+export const systemResolver: Resolver = (hostname) => dnsLookup(absoluteName(hostname), { all: true, verbatim: true });
 
 export interface DestinationPolicy {
   /** POLICY_WEBHOOKS_ALLOW_PRIVATE (tests and development only): no address or name check, and `http:` allowed. */

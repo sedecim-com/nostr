@@ -20,7 +20,7 @@ Versiones exactas en `package.json` de cada workspace y en `package-lock.json` (
 | `@internet-privacy/marmot-ts` | 0.5.1 (alpha upstream) | marmot-adapter | Marmot (MIP-01..04) sobre ts-mls |
 | `@hpke/core` / `@hpke/common` | 1.9.0 / 1.10.1 (transitivas de ts-mls) | ts-mls | HPKE (RFC 9180) |
 | `@aws-sdk/client-kms`, `client-secrets-manager` | 3.1141.0 | managed-signer | KMS (envelope, `Recipient` con attestation), Secrets Manager |
-| `node:crypto` (OpenSSL de Node 22) | runtime | servicios | RSA-OAEP, AES-GCM/CBC, ECDSA P-256/P-384, X.509, HMAC, `timingSafeEqual` |
+| `node:crypto` (OpenSSL de Node 22) | runtime | servicios | RSA-OAEP, AES-GCM/CBC, ECDSA P-256/P-384, Ed25519 (eventos del policy-engine, OPS-16), X.509, HMAC, `timingSafeEqual` |
 | WebCrypto (navegador) | runtime | encrypted-store (browser) | AES-GCM 256 no extraíble |
 | `nostr-tools` | 2.25.2 | tests; runtime solo en `packages/sync` | Oráculo diferencial de interoperabilidad; NIP-77 (Negentropy) en el cliente soberano |
 
@@ -185,6 +185,19 @@ revisión interna (IR-2026-09-14).
 | Secreto del bunker NIP-46 | `packages/signer/src/nip46.ts:83,300,313,396` | 16 B aleatorios; comparación en tiempo constante |
 | Referencias en logs | `services/notification-gateway/src/gateway.ts` `ref` | HMAC-SHA256 con llave aleatoria por proceso, truncado |
 
+### 2.14 Eventos firmados y webhooks (policy-engine, OPS-16) — código propio sobre node:crypto
+
+`services/policy-engine/src/events.ts` y `webhooks.ts`; se describe en `docs/institutional.md` («Eventos firmados y
+webhooks»).
+
+| Qué | Dónde | Primitivas |
+|---|---|---|
+| Firma de cada evento | `events.ts` `signPolicyEvent`, `verifyPolicyEvent` | Ed25519 (`sign`/`verify` de `node:crypto`, algoritmo `null`) sobre el JSON canónico RFC 8785 (`canonicalJson`, propio) del evento sin `sig`; lo firmado incluye `issuer` y `kid`. `kid` = huella RFC 7638 (SHA-256) de la llave pública. Al verificar, una entrada del JWKS solo cuenta para el `kid` que da su propia huella |
+| Llave de firma | `events.ts` `parseSigningKey`, `config.ts` `eventsConfigFromEnv` | PKCS#8 PEM o semilla de 32 B en hex, leída de `POLICY_EVENTS_SIGNING_KEY_FILE`; sin llave por defecto. Los errores no citan el fichero |
+| Secreto de cada suscripción | `events.ts` `webhookSecret` | HMAC-SHA256(`POLICY_WEBHOOK_SECRETS_KEY`, `sedecim/policy-webhook-secret/v1` ‖ id ‖ sal), con una sal de 16 B aleatorios (`randomBytes`). No se guarda: se deriva en cada entrega |
+| Firma de cada entrega | `events.ts` `webhookSignatureHeader`, `verifyWebhookSignature` | HMAC-SHA256(secreto, `t.cuerpo`) en hex; la referencia del receptor compara con `timingSafeEqual` y aplica una ventana de 300 s |
+| Id de cada evento | `engine.ts` `seal` | `randomUUID` |
+
 ## 3. Ciclo de vida de las llaves por tipo
 
 | Llave | Se genera | Se guarda | Se usa | Se destruye / rota |
@@ -207,17 +220,23 @@ revisión interna (IR-2026-09-14).
 | `MIRROR_AT_REST_KEY` | Operador | Env (Secret de k8s) | Sellar/abrir el espejo | Sin rotación implementada |
 | Tokens bearer de servicio | Operador | Env / Secret | Llamadas entre servicios | Manual |
 | Identidad del watcher (`NOTIFY_NSEC`) | Operador o efímera | Env | NIP-42 del gateway | Manual |
+| Llave de firma de eventos (Ed25519, OPS-16) | Operador (`openssl genpkey -algorithm ed25519`, o 32 B aleatorios) | Fichero montado desde un Secret (`POLICY_EVENTS_SIGNING_KEY_FILE`); la pública, en `policy_event_keys` | Firmar cada evento al emitirlo | Rotación documentada (`docs/runbooks/webhooks.md`): las públicas anteriores se siguen publicando, salvo las de `POLICY_EVENTS_REVOKED_KIDS` |
+| Llave de secretos de webhook (OPS-16) | Operador (32 B aleatorios) | Fichero montado desde un Secret (`POLICY_WEBHOOK_SECRETS_KEY_FILE`) | Derivar el secreto de cada suscripción | Rotarla cambia todos los secretos: baja y alta de las suscripciones (runbook) |
+| Secreto de una suscripción de webhook (OPS-16) | Derivado en el alta (§2.14) | No se guarda; se muestra una vez | Firmar cada entrega (HMAC) | Baja y alta de la suscripción |
 
 ## 4. Fuentes de aleatoriedad
 
 - `@noble/hashes/utils.js` `randomBytes` → `crypto.getRandomValues` (Node y navegador): llaves, nonces, sales,
   ids (`packages/nostr-core/src/utils.ts:1`).
-- `node:crypto.randomBytes` en servicios (tokens, ids, IV de GCM/CBC, desafíos WebAuthn, sesiones).
+- `node:crypto.randomBytes` en servicios (tokens, ids, IV de GCM/CBC, desafíos WebAuthn, sesiones, sales de las
+  suscripciones de webhook); `randomUUID` para el id de cada evento del policy-engine (OPS-16).
 - WebCrypto `getRandomValues` en `encrypted-store/browser.ts:99`.
 - `randomInt` sin sesgo (muestreo por rechazo) para el jitter de NIP-59 (`utils.ts:30`).
 - `Math.random` **solo** para jitter de reintentos (`packages/delivery-engine/src/engine.ts:44`,
-  `packages/relay-pool/src/connection.ts:200`) y muestreo de trazas (`packages/telemetry-policy`); ninguno
-  es material criptográfico ni oculta metadatos. El retraso de push ya no lo usa (IR-2026-09-14).
+  `packages/relay-pool/src/connection.ts:200`, y el de los webhooks del policy-engine:
+  `services/policy-engine/src/webhooks.ts` `WebhookDispatcher`, OPS-16) y muestreo de trazas
+  (`packages/telemetry-policy`); ninguno es material criptográfico ni oculta metadatos. El retraso de push ya no lo usa
+  (IR-2026-09-14).
 
 ## 5. Código criptográfico o de parseo escrito en el repositorio
 
@@ -237,6 +256,8 @@ Objetivos de mayor valor para el auditor:
 | Codec del estado MLS y codec TLS estricto | `packages/marmot-adapter/src/marmot-ts.ts`, `mls-codec.ts` | Persistencia de secretos de grupo | `tests/fuzz/mls-codec.test.ts` |
 | Parsers de backup | `packages/identity/src/key-backup.ts`, `backup-vault.ts` | Entrada de archivos del usuario y del servidor | `tests/fuzz/backup.test.ts` |
 | TLV NIP-19 | `packages/nostr-core/src/nip19.ts` | Enlaces y QR | `tests/fuzz/nip19.test.ts` |
+| JSON canónico y verificación de eventos (OPS-16) | `services/policy-engine/src/events.ts` `canonicalJson`, `verifyPolicyEvent` | Lo que se firma y se verifica de cada evento; la verificación recibe JSON de cualquier consumidor | Sin fuzz: casos fijos en `services/policy-engine/test/events.test.ts` |
+| Guarda de destinos de webhook (OPS-16) | `services/policy-engine/src/webhooks.ts` `checkWebhookUrl`, `resolveDestination`, `isPublicAddress` | Decide a qué direcciones se conecta el servidor (SSRF) | Sin fuzz: cada clase de dirección en `services/policy-engine/test/webhooks.test.ts` |
 
 Desviaciones conocidas respecto a lo habitual:
 

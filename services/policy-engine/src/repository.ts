@@ -620,9 +620,12 @@ export class PgPolicyRepository implements PolicyRepository {
       const seq = Number((await c.query("SELECT nextval(pg_get_serial_sequence('policy_events', 'seq')) AS seq")).rows[0].seq);
       const sealed = seal(entry, seq);
       await c.query('INSERT INTO policy_events (seq, id, audit_id, type, created_at, envelope) VALUES ($1,$2,$3,$4,$5,$6)', [seq, sealed.id, entry.id, sealed.type, sealed.createdAt, sealed.envelope]);
+      // SKIP LOCKED passes over a subscription being deleted: waiting for it would end in a foreign key error, failing
+      // the admin action this entry records.
       await c.query(
         `INSERT INTO policy_webhook_deliveries (webhook_id, event_seq, next_attempt_at, created_at)
-         SELECT id, $1, $2, $2 FROM policy_webhooks WHERE status = 'active' AND (cardinality(types) = 0 OR $3 = ANY(types))`,
+         SELECT id, $1, $2, $2 FROM policy_webhooks WHERE status = 'active' AND (cardinality(types) = 0 OR $3 = ANY(types))
+         FOR KEY SHARE SKIP LOCKED`,
         [seq, sealed.createdAt, sealed.type],
       );
     });
@@ -712,21 +715,26 @@ export class PgPolicyRepository implements PolicyRepository {
   async completeDelivery(r: DeliveryOutcome) {
     const status = r.ok ? 'delivered' : r.retryAt === undefined ? 'failed' : 'pending';
     return this.tx(async (c) => {
-      const { rows } = await c.query(
+      const webhookId = (await c.query('SELECT webhook_id FROM policy_webhook_deliveries WHERE id = $1', [r.id])).rows[0]?.webhook_id as string | undefined;
+      if (webhookId === undefined) return { disabled: false, failures: 0 };
+      // The subscription first, then its deliveries (as a deletion does): two completions of one subscription wait for
+      // each other here instead of deadlocking when one of them disables it.
+      const w = (await c.query('SELECT status, consecutive_failures FROM policy_webhooks WHERE id = $1 FOR NO KEY UPDATE', [webhookId])).rows[0];
+      if (!w) return { disabled: false, failures: 0 };
+      const { rowCount } = await c.query(
         `UPDATE policy_webhook_deliveries SET status = $3, next_attempt_at = coalesce($4, next_attempt_at), locked_until = NULL, lease_id = NULL,
            last_status = $5, last_error = $6, finished_at = $7
-         WHERE id = $1 AND lease_id = $2 AND status = 'pending' RETURNING webhook_id`,
+         WHERE id = $1 AND lease_id = $2 AND status = 'pending'`,
         [r.id, r.leaseId, status, r.retryAt ?? null, r.status ?? null, r.ok ? null : (r.error ?? 'network'), status === 'pending' ? null : r.now],
       );
-      if (!rows[0]) return { disabled: false, failures: 0 };
-      const webhookId = rows[0].webhook_id as string;
+      if (!rowCount) return { disabled: false, failures: 0 };
       if (r.ok) {
         await c.query('UPDATE policy_webhooks SET consecutive_failures = 0 WHERE id = $1', [webhookId]);
         return { disabled: false, failures: 0 };
       }
-      const w = (await c.query('UPDATE policy_webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = $1 RETURNING consecutive_failures, status', [webhookId])).rows[0];
-      const failures = Number(w?.consecutive_failures ?? 0);
-      if (!w || w.status !== 'active' || failures < r.disableAfter) return { disabled: false, failures };
+      const failures = Number(w.consecutive_failures) + 1;
+      await c.query('UPDATE policy_webhooks SET consecutive_failures = $2 WHERE id = $1', [webhookId, failures]);
+      if (w.status !== 'active' || failures < r.disableAfter) return { disabled: false, failures };
       await c.query("UPDATE policy_webhooks SET status = 'disabled', disabled_at = $2, disabled_reason = $3 WHERE id = $1", [webhookId, r.now, WEBHOOK_DISABLED_REASON]);
       await c.query(
         `UPDATE policy_webhook_deliveries SET status = 'failed', last_error = 'subscription_disabled', finished_at = $2, locked_until = NULL, lease_id = NULL

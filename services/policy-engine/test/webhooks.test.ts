@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { generateSecretKey, getPublicKey } from '@sedecim/nostr-core';
 import { createPgPool, migrate, nip98Fetch, resetScope, type Pool } from '@sedecim/service-kit';
 import {
+  absoluteName,
   canonicalJson,
   checkWebhookUrl,
   ConflictError,
@@ -386,6 +387,13 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
       await expect(engine.listWebhookDeliveries(some!.id)).rejects.toThrow(/unknown webhook/);
     });
 
+    it('a subscription to every type gets its own creation first, then every event after it (OPS-16)', async () => {
+      const r = await asAdmin('/v1/webhooks', 'POST', { url: dest.url('/ok') });
+      expect(r.json.webhook.types).toEqual([]);
+      await emit();
+      expect((await deliveries(r.json.webhook.id)).reverse().map((x) => x.eventType)).toEqual(['webhook.create', 'device.register']);
+    });
+
     it('prunes finished deliveries after their retention, never pending ones (OPS-16)', async () => {
       const ok = await subscribe('/ok');
       const failing = await subscribe('/500');
@@ -476,6 +484,8 @@ describe('webhook destinations: what is refused before connecting (OPS-16)', () 
     expect(refused(42)).toMatch(/string/);
     expect(refused('javascript:alert(1)')).toMatch(/must be https/);
     expect(checkWebhookUrl('https://Hooks.Example.com:8443/in?token=abc', false).href).toBe('https://hooks.example.com:8443/in?token=abc');
+    // The system resolver asks for the absolute name: no search domain turns it into an internal service.
+    expect([absoluteName('hooks.example.com'), absoluteName('hooks.example.com.')]).toEqual(['hooks.example.com.', 'hooks.example.com.']);
   });
 
   describe('against a real server on 127.0.0.1', () => {
@@ -565,6 +575,49 @@ if (PG) {
       } finally {
         await pool2.end();
       }
+    });
+
+    it('completions of one subscription at once neither deadlock nor disable it twice (OPS-16)', async () => {
+      const repo = await fresh();
+      const engine = new PolicyEngine(repo, Date.now, WEBAUTHN, { issuer: ISSUER, key, webhooks: { secretsKey: randomBytes(32), policy, max: 5 } });
+      const { webhook } = await engine.createWebhook('admin', { url: 'http://127.0.0.1:9/hook', types: ['directory.upsert'] });
+      const person = pubkey();
+      for (let i = 0; i < 12; i++) await engine.putDirectoryEntry('admin', { pubkey: person, title: `turno ${i}` });
+      const now = Date.now() + 1_000;
+      const claimed = await repo.claimDeliveries({ now, limit: 50, leaseMs: 60_000, leaseId: 'lease', maxAttempts: 5 });
+      expect(claimed).toHaveLength(12);
+      const pools = Array.from({ length: 4 }, () => createPgPool(url));
+      try {
+        const replicas = pools.map((p) => new PgPolicyRepository(p));
+        const results = await Promise.all(
+          claimed.map((c, i) => replicas[i % replicas.length]!.completeDelivery({ id: c.id, leaseId: 'lease', now, ok: false, status: 500, error: 'http_5xx', retryAt: now + 30_000, disableAfter: 5 })),
+        );
+        expect(results.filter((r) => r.disabled)).toEqual([{ disabled: true, failures: 5 }]);
+      } finally {
+        await Promise.all(pools.map((p) => p.end()));
+      }
+      expect(await repo.getWebhook(webhook.id)).toMatchObject({ status: 'disabled', consecutiveFailures: 5 });
+      const rows = await repo.listDeliveries(webhook.id, { limit: 50 });
+      expect(rows.map((d) => [d.status, d.lastError])).toEqual(Array.from({ length: 12 }, () => ['failed', 'subscription_disabled']));
+    });
+
+    it('an audited action neither waits for a subscription being deleted nor fails when it goes (OPS-16)', async () => {
+      const repo = await fresh();
+      const engine = new PolicyEngine(repo, Date.now, WEBAUTHN, { issuer: ISSUER, key, webhooks: { secretsKey: randomBytes(32), policy, max: 5 } });
+      const { webhook } = await engine.createWebhook('admin', { url: 'http://127.0.0.1:9/hook', types: ['directory.upsert'] });
+      const deleting = await pool.connect();
+      try {
+        await deleting.query('BEGIN');
+        await deleting.query('DELETE FROM policy_webhooks WHERE id = $1', [webhook.id]);
+        // The deletion holds the subscription's row until it commits: the action goes ahead without it.
+        await engine.putDirectoryEntry('admin', { pubkey: pubkey(), title: 'mientras se borra' });
+        await deleting.query('COMMIT');
+      } finally {
+        deleting.release();
+      }
+      const events = (await engine.listEvents()).events;
+      expect(events.at(-1)?.type).toBe('directory.upsert');
+      expect((await pool.query('SELECT count(*)::int AS n FROM policy_webhook_deliveries')).rows[0].n).toBe(0);
     });
 
     it('concurrent creations cannot go past the limit, and the table holds a salt, never a secret (OPS-16)', async () => {

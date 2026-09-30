@@ -4,7 +4,7 @@
  * too; and an event never carries more than the audit entry it copies.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { generateSecretKey, getPublicKey } from '@sedecim/nostr-core';
 import { createPgPool, migrate, nip98Fetch, resetScope, type Pool } from '@sedecim/service-kit';
@@ -54,7 +54,10 @@ describe('signed events: canonical form, keys, signature and verification (OPS-1
     const fromPem = parseSigningKey(pem);
     const hex = pair.privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(16).toString('hex');
     expect(parseSigningKey(`${hex}\n`).kid).toBe(fromPem.kid);
-    expect(fromPem.publicJwk).toEqual({ kty: 'OKP', crv: 'Ed25519', x: pair.publicKey.export({ format: 'jwk' }).x, kid: fromPem.kid, alg: 'EdDSA', use: 'sig' });
+    const x = pair.publicKey.export({ format: 'jwk' }).x!;
+    expect(fromPem.publicJwk).toEqual({ kty: 'OKP', crv: 'Ed25519', x, kid: fromPem.kid, alg: 'EdDSA', use: 'sig' });
+    // kid = RFC 7638 thumbprint: SHA-256 of the required members in lexicographic order, without whitespace.
+    expect(fromPem.kid).toBe(createHash('sha256').update(JSON.stringify({ crv: 'Ed25519', kty: 'OKP', x })).digest('base64url'));
     const p256 = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
     for (const bad of [p256, 'ab'.repeat(31), 'not a key', '']) {
       let message = '';
