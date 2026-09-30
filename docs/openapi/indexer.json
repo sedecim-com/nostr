@@ -215,6 +215,42 @@
         }
       }
     },
+    "/v1/unread/recent": {
+      "get": {
+        "operationId": "getV1UnreadRecent",
+        "summary": "Hora de los mensajes más recientes de cada canal que quien firma puede leer, sin los suyos ni los borrados: el cliente cuenta sus no leídos con un cursor que no envía (FR014-04).",
+        "security": [
+          {
+            "nip98": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/read-cursor": {
       "put": {
         "operationId": "putV1ReadCursor",

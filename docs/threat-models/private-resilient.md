@@ -24,6 +24,7 @@ adjuntos cifrados.
 | Signer que firma de más | Bunker con `allowedKinds` y auditoría de peticiones | `signer.test.ts` |
 | Lectura de adjuntos | AES-GCM en el cliente antes de subir; hash verificado antes de abrir | `blossom.test.ts`, `services/blob-store/test` |
 | Duplicados entre relays | Dedup por event_id | `pool.test.ts` |
+| Registro en el operador de qué canales lees y qué buscas | Con identidad pseudónima la web no consulta el mirror: no hay contadores de no leídos ni búsqueda de canales, y la vista lo dice (FR014-04) | `apps/web-saas/test/mirror.test.ts`, `packages/profiles/test/profiles.test.ts` |
 | Oráculo de presencia con los acuses de entrega | Solo a contactos, quien la persona ya escribió (IR-2026-10-09): un desconocido que escribe primero no recibe acuse ni hace que el dispositivo se conecte, y firme un AUTH NIP-42, en sus relays | `packages/messaging/test/inbox.test.ts` |
 
 ## Riesgos residuales
