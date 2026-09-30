@@ -11,7 +11,8 @@
     ".": "./src/index.ts",
     "./key-backup": "./src/key-backup.ts",
     "./backup-vault": "./src/backup-vault.ts",
-    "./public-link": "./src/public-link.ts"
+    "./public-link": "./src/public-link.ts",
+    "./usage": "./src/usage.ts"
   },
   "dependencies": {
     "@noble/ciphers": "2.4.0",

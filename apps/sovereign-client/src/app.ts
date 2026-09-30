@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 import { bytesToHex, getTagValue, normalizePubkey, randomBytes, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { EncryptedStore, FileBackend } from '@sedecim/encrypted-store';
-import { IdentityManager, type BackupPackage, type BackupPackageV2, type PersonaConfig } from '@sedecim/identity';
+import { fileDigest, IdentityManager, ReuseNotConfirmedError, type BackupPackage, type BackupPackageV2, type PersonaConfig, type PersonaUse, type ReuseWarning } from '@sedecim/identity';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
@@ -88,6 +88,11 @@ export interface SovereignOptions {
    * Without it nothing is copied, and a persona that requires the copy keeps its sends held.
    */
   vaultUrl?: string;
+  /**
+   * FR006-07: told what a confirmed reuse crosses (a contact or a file another persona of this device already used)
+   * right before it goes ahead. The CLI prints it next to what it sends.
+   */
+  onConfirmedReuse?: (warnings: ReuseWarning[]) => void;
 }
 
 /** FR009-03: what `watchDms` reports. */
@@ -162,11 +167,19 @@ export class SovereignClient {
   readonly telemetry = new TelemetryPolicy({ level: 'none' });
   private manager?: IdentityManager;
   private readonly sessions = new Map<string, Session>();
+  /** Each store is opened (scrypt) once per client: FR006-07 reads the ledger of every persona before a new use. */
+  private readonly stores = new Map<string, Promise<EncryptedStore>>();
 
   constructor(private readonly opts: SovereignOptions) {}
 
-  private async openStore(dir: string) {
-    return EncryptedStore.open(new FileBackend(dir), this.opts.passphrase, { logN: this.opts.scryptLogN ?? 17 });
+  private openStore(dir: string): Promise<EncryptedStore> {
+    let store = this.stores.get(dir);
+    if (!store) {
+      store = EncryptedStore.open(new FileBackend(dir), this.opts.passphrase, { logN: this.opts.scryptLogN ?? 17 });
+      store.catch(() => this.stores.delete(dir));
+      this.stores.set(dir, store);
+    }
+    return store;
   }
 
   async identities(): Promise<IdentityManager> {
@@ -409,6 +422,22 @@ export class SovereignClient {
     return { format, valid: events.length, invalid, duplicates, published, rejected, othersWraps };
   }
 
+  /**
+   * FR006-07 (spec §14.1): a contact or a file that another persona of this device already used is not used from this
+   * one without the user's explicit confirmation (`confirm`, the CLI's --confirm-reuse): without it this throws
+   * ReuseNotConfirmedError and nothing goes out. Inviting another of your own high-risk identities into a group stays
+   * refused even then: every member would see both. The caller records the use (`recordUsage`) right before its first
+   * network request, so the same crossing is not asked again.
+   */
+  private async allowReuse(personaId: string, use: PersonaUse, confirm = false, opts: { group?: boolean } = {}): Promise<void> {
+    const warnings = await (await this.identities()).reuseCheck(personaId, use);
+    const own = warnings.find((w) => w.kind === 'identity');
+    if (opts.group && own) throw new Error(`compartimentación: ${own.message} No se puede invitar a un grupo a otra de tus identidades de alto riesgo.`);
+    if (!warnings.length) return;
+    if (!confirm) throw new ReuseNotConfirmedError(warnings);
+    this.opts.onConfirmedReuse?.(warnings);
+  }
+
   async readChannel(personaId: string, groupId: string, limit = 50): Promise<NostrEvent[]> {
     const s = await this.session(personaId);
     return s.pool.query(s.persona.relays, [{ ...channelFilter(groupId), limit }], readTimeoutMs(s.persona));
@@ -420,12 +449,12 @@ export class SovereignClient {
    * sender's copy to this persona's relays. Each record keeps `meta.recipient` and `meta.dmRelaySource`.
    * FR011-05: the DM is the operation `opId` (the CLI's --op), stored before its wraps are made. Sent again with the
    * same one, it retries that message: no other rumor, no other event. Another text or recipient under it is refused.
+   * FR006-07: a recipient another persona already wrote to needs `confirmReuse` (checked before the persona is opened).
    */
-  async sendDm(personaId: string, to: string, text: string, opts: { opId?: string } = {}): Promise<OutboxRecord[]> {
-    const s = await this.session(personaId);
+  async sendDm(personaId: string, to: string, text: string, opts: { opId?: string; confirmReuse?: boolean } = {}): Promise<OutboxRecord[]> {
     const recipient = normalizePubkey(to);
-    const warnings = await (await this.identities()).reuseWarnings(personaId, { contact: recipient });
-    if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')} (usa otra persona o confirma explícitamente)`);
+    await this.allowReuse(personaId, { contact: recipient }, opts.confirmReuse);
+    const s = await this.session(personaId);
     await (await this.identities()).recordUsage(personaId, { contact: recipient });
     // The NIP-17 gate is checked by the CLI before a DM is composed (flags.json of the interop gate).
     const messenger = new DirectMessenger(s.signer, { nip17: true, readReceipts: false }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
@@ -566,16 +595,16 @@ export class SovereignClient {
     return (await this.groupSession(personaId)).createGroup({ name, relays: s.persona.relays });
   }
 
-  async groupInvite(personaId: string, groupId: string, member: string): Promise<GroupHandle> {
-    const s = await this.session(personaId);
+  /** FR006-07: a member another persona already wrote to or invited needs `confirmReuse`. */
+  async groupInvite(personaId: string, groupId: string, member: string, opts: { confirmReuse?: boolean } = {}): Promise<GroupHandle> {
     const pubkey = normalizePubkey(member);
-    const mgr = await this.identities();
-    const warnings = await mgr.reuseWarnings(personaId, { contact: pubkey });
-    if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')}`);
+    await this.allowReuse(personaId, { contact: pubkey }, opts.confirmReuse, { group: true });
+    const s = await this.session(personaId);
     const gs = await this.groupSession(personaId);
+    // Recorded before the lookup: the relay already sees this persona ask for the member's key package.
+    await (await this.identities()).recordUsage(personaId, { contact: pubkey });
     const kp = await gs.findKeyPackage(pubkey, s.persona.relays);
     if (!kp) throw new Error('el invitado no ha publicado un key package en los relays de esta persona');
-    await mgr.recordUsage(personaId, { contact: pubkey });
     // Multi-device (FR025-06): add every current device of the persona in one commit.
     if (isExtendedGroupSession(gs)) return gs.invitePersona(groupId, pubkey, s.persona.relays);
     return gs.invite(groupId, kp);
@@ -591,10 +620,14 @@ export class SovereignClient {
    * Adds the devices of `member` (default: this persona) that are not in the group yet. Admins commit
    * directly; other members send Add proposals for an admin to commit (FR025-06/09).
    */
-  async groupAddDevice(personaId: string, groupId: string, member?: string): Promise<{ committed: true; group: GroupHandle } | { committed: false; proposals: GroupProposal[] }> {
+  async groupAddDevice(personaId: string, groupId: string, member?: string, opts: { confirmReuse?: boolean } = {}): Promise<{ committed: true; group: GroupHandle } | { committed: false; proposals: GroupProposal[] }> {
+    const self = (await (await this.identities()).get(personaId)).pubkey;
+    const pubkey = member ? normalizePubkey(member) : self;
+    // FR006-07: adding the devices of someone else is a use of that contact, as an invitation is.
+    if (pubkey !== self) await this.allowReuse(personaId, { contact: pubkey }, opts.confirmReuse, { group: true });
     const s = await this.session(personaId);
     const gs = await this.extended(personaId);
-    const pubkey = member ? normalizePubkey(member) : s.persona.pubkey;
+    if (pubkey !== self) await (await this.identities()).recordUsage(personaId, { contact: pubkey });
     await gs.sync(groupId);
     const g = await gs.group(groupId);
     if (g.admins.includes(s.persona.pubkey)) return { committed: true, group: await gs.invitePersona(groupId, pubkey, s.persona.relays) };
@@ -613,19 +646,21 @@ export class SovereignClient {
     return (await this.extended(personaId)).removeDevice(groupId, leafIndex);
   }
 
-  /** Non-admin members propose; the proposal travels as a kind 445 group message (FR025-09). */
-  async groupPropose(personaId: string, groupId: string, p: { add?: string; remove?: string }): Promise<GroupProposal[]> {
+  /**
+   * Non-admin members propose; the proposal travels as a kind 445 group message (FR025-09). FR006-07: proposing to add
+   * someone another persona already wrote to or invited needs `confirmReuse`.
+   */
+  async groupPropose(personaId: string, groupId: string, p: { add?: string; remove?: string }, opts: { confirmReuse?: boolean } = {}): Promise<GroupProposal[]> {
+    const add = p.add ? normalizePubkey(p.add) : undefined;
+    if (add) await this.allowReuse(personaId, { contact: add }, opts.confirmReuse, { group: true });
     const s = await this.session(personaId);
     const gs = await this.extended(personaId);
-    if (p.add) {
-      const pubkey = normalizePubkey(p.add);
-      const mgr = await this.identities();
-      const warnings = await mgr.reuseWarnings(personaId, { contact: pubkey });
-      if (warnings.length) throw new Error(`compartimentación: ${warnings.join(' ')}`);
+    if (add) {
       await gs.sync(groupId);
-      const kps = await gs.missingDeviceKeyPackages(groupId, pubkey, s.persona.relays);
+      // Recorded before the lookup: the relay already sees this persona ask for their key packages.
+      await (await this.identities()).recordUsage(personaId, { contact: add });
+      const kps = await gs.missingDeviceKeyPackages(groupId, add, s.persona.relays);
       if (!kps.length) throw new Error('el invitado no tiene key packages de dispositivos fuera del grupo');
-      await mgr.recordUsage(personaId, { contact: pubkey });
       return gs.proposeAdd(groupId, kps);
     }
     if (p.remove) return gs.proposeRemove(groupId, { pubkey: normalizePubkey(p.remove) });
@@ -917,13 +952,17 @@ export class SovereignClient {
    * ciphertext to the persona's Blossom servers (kind 10063; blob-store fallback) → kind 9 with `imeta`.
    * FR019-03: every sovereign profile has stripFileMetadata, so an image whose metadata cannot be removed
    * (HEIC, TIFF/RAW, an image format the sanitizer does not know) is refused before anything is uploaded.
+   * FR006-07: a file another persona of this device already sent needs `confirmReuse`; it is recorded once it passes
+   * the sanitizer, before the upload.
    */
   async groupSendFile(
     personaId: string,
     groupId: string,
     file: { data: Uint8Array; filename: string; mimeType: string; caption?: string },
-    opts: { servers?: string[]; sanitize?: boolean } = {},
+    opts: { servers?: string[]; sanitize?: boolean; confirmReuse?: boolean } = {},
   ): Promise<GroupMediaReference> {
+    const use = { fileHash: await fileDigest(file.data) };
+    await this.allowReuse(personaId, use, opts.confirmReuse);
     const s = await this.session(personaId);
     let data = file.data;
     if (opts.sanitize ?? true) {
@@ -931,6 +970,7 @@ export class SovereignClient {
       if (refusesUnsanitized(clean, this.profileFor(s.persona).stripFileMetadata && 'images', file.mimeType)) throw new UnsanitizableFileError(clean.format, clean.reason);
       data = clean.data;
     }
+    await (await this.identities()).recordUsage(personaId, use);
     const gs = await this.extended(personaId);
     const userServers = opts.servers ?? (await fetchServerList(s.pool, s.persona.relays, s.persona.pubkey).catch(() => []));
     const servers = selectUploadServers({ userServers, encrypted: true, ...(this.opts.blobStore ? { fallback: this.opts.blobStore } : {}) });

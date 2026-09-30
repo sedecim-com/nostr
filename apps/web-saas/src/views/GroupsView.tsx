@@ -6,6 +6,7 @@ import { discardPendingGroupOperation, exclusive, forgetRemovedGroup, GroupHisto
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 import { MaturityChip } from './MaturityChip';
+import { useReuseConfirm } from './ReuseConfirm';
 
 const POLL_MS = 4000;
 
@@ -45,6 +46,7 @@ export function GroupsView() {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | undefined>();
   const history = useRef(new GroupHistory(ws.book.store, s.persona.id));
+  const reuse = useReuseConfirm();
 
   const current = groups.find((g) => g.groupId === openId);
   const isAdmin = !!current?.admins.includes(s.pubkey);
@@ -199,8 +201,7 @@ export function GroupsView() {
     void act(async () => {
       const entries = invitees.split(/[\s,]+/).filter(Boolean);
       const own = new Set(ws.personas.map((p) => p.pubkey));
-      const missing: string[] = [];
-      let added = 0;
+      const pubkeys: string[] = [];
       for (const entry of entries) {
         let pubkey: string;
         try {
@@ -210,7 +211,16 @@ export function GroupsView() {
         }
         // Compartmentalisation (same rule as the sovereign client): never tie two of your own identities.
         if (own.has(pubkey)) throw new Error('compartimentación: esa npub es otra de tus personas; no la invites desde esta.');
-        if (current?.members.includes(pubkey)) continue;
+        if (!current?.members.includes(pubkey) && !pubkeys.includes(pubkey)) pubkeys.push(pubkey);
+      }
+      // FR006-07: someone another persona of this browser already wrote to or invited waits for an explicit
+      // confirmation. Recorded before the key package lookups: the relay already sees this persona ask for them.
+      const uses = pubkeys.map((contact) => ({ contact }));
+      if (uses.length && !(await reuse.confirm(uses))) return;
+      await reuse.record(uses);
+      const missing: string[] = [];
+      let added = 0;
+      for (const pubkey of pubkeys) {
         const keyPackage = await exclusive(gs!, (g) => g.findKeyPackage(pubkey, relays));
         if (!keyPackage) {
           missing.push(pubkey);
@@ -542,6 +552,7 @@ export function GroupsView() {
           </Button>
         </DialogActions>
       </Dialog>
+      {reuse.dialog}
     </Stack>
   );
 }

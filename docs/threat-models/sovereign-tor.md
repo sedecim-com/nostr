@@ -27,7 +27,7 @@ las conversaciones, identidad de las fuentes.
 |---|---|---|
 | Fuga a clearnet | NetworkGuard falla cerrado: sin ruta Tor no hay transmisión; el mensaje queda en outbox | `packages/tor-network/test`, `delivery-engine.test.ts`, `sovereign.test.ts` |
 | Fuga de DNS | `socks5h`: resolución dentro de Tor; ningún `dns.lookup` local | `tor.test.ts` |
-| Correlación entre personas | Circuitos Tor aislados por persona (IsolateSOCKSAuth), stores separados, aviso de reutilización de contactos (archivos: FR006-07), prohibición de invitar a una identidad propia | `packages/identity/test`, `apps/sovereign-client/test/groups.test.ts` |
+| Correlación entre personas | Circuitos Tor aislados por persona (IsolateSOCKSAuth), stores separados, aviso con confirmación explícita (`--confirm-reuse`) antes de usar un contacto o un archivo que ya usó otra persona del dispositivo, con un registro por persona que solo guarda etiquetas HMAC ([threat model](../threat-model.md#compartimentación-aviso-antes-de-reutilizar-un-contacto-o-un-archivo-fr006-07), FR006-07), prohibición de invitar a una identidad propia | `packages/identity/test`, `apps/sovereign-client/test/compartment.test.ts`, `apps/sovereign-client/test/groups.test.ts` |
 | Destinos no autorizados | Allowlist de hosts por persona; `onionOnly` | `sovereign.test.ts` |
 | Compromiso futuro de la llave | Grupos Marmot/MLS con forward secrecy y rotación (PCS) | `packages/marmot-adapter/test` |
 | Expulsado que sigue leyendo | Autoprueba de secreto post-expulsión (falla cerrado con ts-mls vulnerable) | `docs/marmot.md` |

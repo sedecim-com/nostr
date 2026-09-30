@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import { BlossomClient, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
+import { fileDigest } from '@sedecim/identity/usage';
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
 import { cappedQuorumNotice, fileKey, SendOperation } from '../lib/outbox';
 import type { EventTemplate, NostrEvent } from '@sedecim/nostr-core';
@@ -10,6 +11,7 @@ import { canDelete, publishToChannel, reactionToggle, REACTIONS } from '../lib/c
 import { ChannelReadState, countUnread, MIRROR_REFRESH_MS, MirrorClient, mirrorAvailability, refreshesInBackground, unreadLabel, type MirrorHit, type UnreadCount } from '../lib/mirror';
 import { shortNpub } from '../lib/session';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
+import { useReuseConfirm } from './ReuseConfirm';
 
 interface Imeta {
   url: string;
@@ -59,6 +61,7 @@ export function ChannelsView() {
   const blocked = sendBlockedReason(config);
   const sub = useRef<{ close(): void } | undefined>(undefined);
   const operation = useRef(new SendOperation());
+  const reuse = useReuseConfirm();
   const opened = useRef('');
   const view = useMemo(() => channelView(events, { groupId: openId, me: s.pubkey, admins }), [events, openId, s.pubkey, admins]);
   const addEvents = (list: NostrEvent[]) =>
@@ -226,16 +229,21 @@ export function ChannelsView() {
     if (!openId || blocked) return;
     setBusy(true);
     try {
+      const bytes = file ? new Uint8Array(await file.arrayBuffer()) : undefined;
+      // FR006-07: an image another persona of this browser already sent waits for an explicit confirmation.
+      const uses = bytes ? [{ fileHash: await fileDigest(bytes) }] : [];
+      if (uses.length && !(await reuse.confirm(uses))) return;
       const build = async () => {
         // FR015-04: a reply goes in the thread of the message it answers.
         const tmpl = replyTo ? replyMessage(openId, text, replyTo) : chatMessage(openId, text);
-        if (file) {
+        if (file && bytes) {
           // FR018-04: channel images are public to channel members: sanitized (EXIF removed) and stored in Buzz /media.
           if (config.files !== 'relay-plain') throw new Error('Tu perfil exige adjuntos cifrados y los canales NIP-29 no son E2EE: comparte el archivo por mensaje directo.');
           // FR018-05: the user's Blossom servers (kind 10063, primary first), else the relay media server.
           const targets = uploadTargets(ws.cfg, await blossomServersOf(s), false);
           if (targets.length === 0) throw new Error('Este despliegue no tiene servidor de media configurado.');
-          const prepared = prepareBlob(new Uint8Array(await file.arrayBuffer()), { sanitize: true, requireSanitizable: config.stripFileMetadata, mimeType: file.type, fileName: file.name });
+          const prepared = prepareBlob(bytes, { sanitize: true, requireSanitizable: config.stripFileMetadata, mimeType: file.type, fileName: file.name });
+          await reuse.record(uses);
           const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
           tmpl.content = [text, desc.url].filter(Boolean).join('\n');
           (tmpl.tags ??= []).push(['imeta', `url ${desc.url}`, `m ${prepared.mimeType}`, `x ${prepared.sha256}`]);
@@ -429,6 +437,7 @@ export function ChannelsView() {
           </CardContent>
         </Card>
       </Box>
+      {reuse.dialog}
       <Dialog open={!!toDelete} onClose={() => setToDelete(undefined)} aria-labelledby="channel-delete-title">
         <DialogTitle id="channel-delete-title">¿Borrar este mensaje?</DialogTitle>
         <DialogContent>
