@@ -53,6 +53,14 @@ export interface TestRelayOptions {
   channelScopedFanout?: boolean;
   /** NIP-11 `self`: the relay's own signing key (hex), as Buzz advertises the key that signs NIP-29 group state. */
   self?: string;
+  /**
+   * Buzz ingest rules for channel collaboration (FR015-04): a reply (kind 9 with a NIP-10 `reply` marker) needs its
+   * parent in the same channel and the parent's thread root as `root`; a reaction (7) needs a stored target; a
+   * deletion (5 or 9005) names exactly one target; kind 5 only from the target's author; 9005 only in the target's
+   * channel (`h`) and from its author or an admin of that channel's newest kind 39001 (signed by `self` when set). An
+   * accepted 9005 hides its target from reads, as kind 5 already does.
+   */
+  groupModeration?: boolean;
 }
 
 export interface FaultInjection {
@@ -77,6 +85,13 @@ interface ClientState {
 }
 
 const normalizeUrl = (u: string) => u.replace(/\/+$/, '').toLowerCase();
+
+/** NIP-10 `root` and `reply` markers with a valid id, the last of each winning (as Buzz parses them). */
+function threadMarkers(evt: NostrEvent): { root?: string; reply?: string } {
+  const out: { root?: string; reply?: string } = {};
+  for (const t of evt.tags) if (t[0] === 'e' && /^[0-9a-f]{64}$/.test(t[1] ?? '') && (t[3] === 'root' || t[3] === 'reply')) out[t[3]] = t[1];
+  return out;
+}
 
 export class TestRelay {
   readonly events = new Map<string, NostrEvent>();
@@ -235,8 +250,55 @@ export class TestRelay {
     const skew = this.opts.rejectCreatedAtSkewSeconds;
     if (skew !== undefined && Math.abs(Date.now() / 1000 - evt.created_at) > skew) return respond(false, 'invalid: created_at too far from now');
     if (this.events.has(evt.id)) return respond(true, 'duplicate: already have this event');
+    const refused = this.opts.groupModeration ? this.moderationRefusal(evt) : undefined;
+    if (refused) return respond(false, refused);
     this.store(evt);
     return respond(true, '');
+  }
+
+  /** Admins of a channel: its newest kind 39001 (from `self` when set). */
+  private groupAdmins(h: string): Set<string> {
+    const lists = [...this.events.values()].filter((e) => e.kind === 39001 && getTagValue(e, 'd') === h && (!this.opts.self || e.pubkey === this.opts.self));
+    const list = lists.sort((a, b) => b.created_at - a.created_at)[0];
+    return new Set(list ? list.tags.filter((t) => t[0] === 'p' && t[1]).map((t) => t[1]!) : []);
+  }
+
+  /** Why Buzz would refuse a reply, a reaction or a deletion (groupModeration), with its messages; undefined when it accepts it. */
+  private moderationRefusal(evt: NostrEvent): string | undefined {
+    const live = (id: string | undefined) => (id && !this.deleted.has(id) ? this.events.get(id) : undefined);
+    if (evt.kind === 9) {
+      const markers = threadMarkers(evt);
+      if (!markers.reply) return undefined;
+      const parent = live(markers.reply);
+      if (!parent) return 'invalid: reply parent not found';
+      if (getTagValue(parent, 'h') !== getTagValue(evt, 'h')) return 'invalid: parent event belongs to a different channel';
+      const parentMarkers = threadMarkers(parent);
+      // The parent's thread root: its own root, its reply target when it only has that, or itself when top-level.
+      const root = parentMarkers.reply ? (parentMarkers.root ?? parentMarkers.reply) : parent.id;
+      return (markers.root ?? markers.reply) === root ? undefined : 'invalid: root tag does not match thread ancestry';
+    }
+    if (evt.kind === 7) {
+      const target = [...evt.tags].reverse().find((t) => t[0] === 'e')?.[1];
+      if (!target) return 'invalid: reaction must reference a target event via e tag';
+      return live(target) ? undefined : 'invalid: reaction target event not found';
+    }
+    if (evt.kind !== 5 && evt.kind !== 9005) return undefined;
+    const targets = evt.tags.filter((t) => t[0] === 'e' || t[0] === 'a');
+    if (targets.length !== 1) return 'invalid: deletion events must reference exactly one target via e or a tag';
+    const target = targets[0]![0] === 'e' ? this.events.get(targets[0]![1] ?? '') : undefined;
+    if (evt.kind === 9005) return this.groupDeletionRefusal(evt, target);
+    if (targets[0]![0] !== 'e') return undefined;
+    if (!target) return 'invalid: target event not found';
+    return target.pubkey === evt.pubkey ? undefined : 'invalid: must be event author';
+  }
+
+  private groupDeletionRefusal(evt: NostrEvent, target: NostrEvent | undefined): string | undefined {
+    const h = getTagValue(evt, 'h');
+    if (!h) return 'invalid: channel-scoped events must include an h tag';
+    if (!target) return 'invalid: target event not found';
+    if (getTagValue(target, 'h') !== h) return 'invalid: target event belongs to a different channel';
+    if (target.pubkey !== evt.pubkey && !this.groupAdmins(h).has(evt.pubkey)) return 'invalid: must be event author or channel owner/admin';
+    return undefined;
   }
 
   private store(evt: NostrEvent) {
@@ -244,6 +306,10 @@ export class TestRelay {
       for (const t of evt.tags) {
         if (t[0] === 'e' && t[1] && this.events.get(t[1])?.pubkey === evt.pubkey) this.deleted.add(t[1]);
       }
+    }
+    if (evt.kind === 9005 && this.opts.groupModeration) {
+      const target = this.events.get(getTagValue(evt, 'e') ?? '');
+      if (target && !this.groupDeletionRefusal(evt, target)) this.deleted.add(target.id);
     }
     if (!isEphemeralKind(evt.kind)) {
       if (isReplaceableKind(evt.kind) || isAddressableKind(evt.kind)) {
