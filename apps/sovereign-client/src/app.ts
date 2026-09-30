@@ -15,14 +15,17 @@ import {
   hasPendingGroupOperations,
   MarmotTsProvider,
   PoolGroupNetwork,
+  addDevices,
   assertHighSecurity,
-  ciphertextHashFromUrl,
+  fetchGroupMedia,
   isExtendedGroupSession,
+  proposeMemberChange,
+  type AddDevicesResult,
   type ExtendedGroupSession,
+  type FetchedGroupMedia,
   type GroupCryptoProvider,
   type GroupDevice,
   type GroupHandle,
-  type GroupMediaAttachment,
   type GroupMediaReference,
   type GroupMessage,
   type GroupProposal,
@@ -30,7 +33,7 @@ import {
   type PendingGroupOperation,
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
-import { downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
+import { ciphertextUploader, downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, type HttpClient } from '@sedecim/blossom-client';
 import { ArchiveVaultClient, archiveEvent, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, parseVaultExport, restoreHistory, VAULT_EXPORT_FORMAT, vaultExport, type ArchiveMeta, type ArchiveRetention, type ArchiveUsage, type ArchivedGroupMessage, type HistoryArchiveResult, type MlsSnapshot, type RestoredHistory, type VaultExport } from '@sedecim/continuity';
 
 /** VAULT-03: decrypted group messages this device read or sent, kept because MLS deletes the keys of past epochs. */
@@ -618,9 +621,9 @@ export class SovereignClient {
 
   /**
    * Adds the devices of `member` (default: this persona) that are not in the group yet. Admins commit
-   * directly; other members send Add proposals for an admin to commit (FR025-06/09).
+   * directly; other members send Add proposals for an admin to commit (FR025-06/09, `addDevices`, as the web).
    */
-  async groupAddDevice(personaId: string, groupId: string, member?: string, opts: { confirmReuse?: boolean } = {}): Promise<{ committed: true; group: GroupHandle } | { committed: false; proposals: GroupProposal[] }> {
+  async groupAddDevice(personaId: string, groupId: string, member?: string, opts: { confirmReuse?: boolean } = {}): Promise<AddDevicesResult> {
     const self = (await (await this.identities()).get(personaId)).pubkey;
     const pubkey = member ? normalizePubkey(member) : self;
     // FR006-07: adding the devices of someone else is a use of that contact, as an invitation is.
@@ -629,11 +632,7 @@ export class SovereignClient {
     const gs = await this.extended(personaId);
     if (pubkey !== self) await (await this.identities()).recordUsage(personaId, { contact: pubkey });
     await gs.sync(groupId);
-    const g = await gs.group(groupId);
-    if (g.admins.includes(s.persona.pubkey)) return { committed: true, group: await gs.invitePersona(groupId, pubkey, s.persona.relays) };
-    const kps = await gs.missingDeviceKeyPackages(groupId, pubkey, s.persona.relays);
-    if (!kps.length) throw new Error('no hay key packages de dispositivos que no estén ya en el grupo');
-    return { committed: false, proposals: await gs.proposeAdd(groupId, kps) };
+    return addDevices(gs, groupId, await gs.missingDeviceKeyPackages(groupId, pubkey, s.persona.relays));
   }
 
   async groupDevices(personaId: string, groupId: string): Promise<GroupDevice[]> {
@@ -656,14 +655,11 @@ export class SovereignClient {
     const s = await this.session(personaId);
     const gs = await this.extended(personaId);
     if (add) {
-      await gs.sync(groupId);
       // Recorded before the lookup: the relay already sees this persona ask for their key packages.
       await (await this.identities()).recordUsage(personaId, { contact: add });
-      const kps = await gs.missingDeviceKeyPackages(groupId, add, s.persona.relays);
-      if (!kps.length) throw new Error('el invitado no tiene key packages de dispositivos fuera del grupo');
-      return gs.proposeAdd(groupId, kps);
+      return proposeMemberChange(gs, groupId, { add }, s.persona.relays);
     }
-    if (p.remove) return gs.proposeRemove(groupId, { pubkey: normalizePubkey(p.remove) });
+    if (p.remove) return proposeMemberChange(gs, groupId, { remove: normalizePubkey(p.remove) }, s.persona.relays);
     throw new Error('indica --add NPUB o --remove NPUB');
   }
 
@@ -976,32 +972,22 @@ export class SovereignClient {
     const servers = selectUploadServers({ userServers, encrypted: true, ...(this.opts.blobStore ? { fallback: this.opts.blobStore } : {}) });
     if (!servers.length) throw new Error('sin servidor Blossom: publica tu lista (kind 10063) o configura el blob-store');
     const http = await this.blobHttp(personaId, servers);
-    return gs.sendMedia(
-      groupId,
-      { data, filename: file.filename, type: file.mimeType },
-      async (ciphertext, sha256) => {
-        const blob: PreparedBlob = { data: ciphertext, sha256, originalSha256: sha256, mimeType: 'application/octet-stream', removedMetadata: [] };
-        const up = await uploadToServers(blob, servers, s.signer, { http, mirror: true });
-        return { url: up.descriptor.url || `${up.server}/${sha256}` };
-      },
-      file.caption ?? '',
-    );
+    return gs.sendMedia(groupId, { data, filename: file.filename, type: file.mimeType }, ciphertextUploader(servers, s.signer, { http, mirror: true }), file.caption ?? '');
   }
 
-  /** Downloads (hash-verified) and decrypts a MIP-04 attachment received in the group. */
-  async groupFetchFile(personaId: string, groupId: string, sha256: string): Promise<{ data: Uint8Array; attachment: GroupMediaAttachment }> {
+  /**
+   * Downloads (hash-verified) and decrypts a MIP-04 attachment received in the group (`fetchGroupMedia`, as the web): the
+   * shared URL first, then the sender's Blossom servers, through the persona's network policy.
+   */
+  async groupFetchFile(personaId: string, groupId: string, sha256: string): Promise<FetchedGroupMedia> {
     const s = await this.session(personaId);
     const gs = await this.extended(personaId);
     await gs.sync(groupId);
-    const ref = await gs.mediaReference(groupId, sha256);
-    if (!ref) throw new Error('adjunto desconocido en este grupo (ejecuta group read primero)');
-    const url = ref.attachment.url;
-    const hash = url ? ciphertextHashFromUrl(url) : undefined;
-    if (!url || !hash) throw new Error('el adjunto no tiene una URL Blossom válida');
-    const servers = await fetchServerList(s.pool, s.persona.relays, ref.sender).catch(() => []);
-    const http = await this.blobHttp(personaId, [url, ...servers]);
-    const { data } = await downloadFromServers(hash, { url, servers }, s.signer, { http });
-    return { data: await gs.decryptMedia(groupId, data, ref.attachment, ref.epoch), attachment: ref.attachment };
+    return fetchGroupMedia(gs, groupId, sha256, async (hash, url, sender) => {
+      const servers = await fetchServerList(s.pool, s.persona.relays, sender).catch(() => []);
+      const http = await this.blobHttp(personaId, [url, ...servers]);
+      return (await downloadFromServers(hash, { url, servers }, s.signer, { http })).data;
+    });
   }
 
   /**
