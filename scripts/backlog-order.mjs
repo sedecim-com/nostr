@@ -5,7 +5,7 @@
 // most open work come first, then by priority. `blockers` (meta.externalBlockers, hand-maintained and kept by the
 // synchronization) names what no code change can move: a person, AWS or a third party. A task is ready to work on when
 // it has no blocker of its own, no open pull request (evidencia:in-pr) and every open task it waits for is only waiting
-// on such a blocker (its code is merged).
+// on such a blocker (its code is merged; a proposed decision does not count, it has to be taken).
 
 export const isOpen = (t) => t.status !== 'Hecho' && t.status !== 'Descartado';
 
@@ -47,8 +47,9 @@ export function unblockOrder(tasks, blockers = {}) {
     }
     return seen.size;
   };
-  // Only waiting on work that is not code: a partial task whose rest is a person, AWS or a third party.
-  const codeMerged = (id) => byId.get(id).status === 'Parcial' && Boolean(blockers[id]);
+  // Only waiting on work that is not code: a partial task whose rest is a person, AWS or a third party. A decision
+  // (type Decisión) is never built on while it is only proposed: its dependents wait for it to be taken.
+  const codeMerged = (id) => byId.get(id).status === 'Parcial' && Boolean(blockers[id]) && byId.get(id).type !== 'Decisión';
 
   return open
     .map((task) => ({

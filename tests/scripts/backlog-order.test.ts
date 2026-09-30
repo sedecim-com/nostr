@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 // @ts-expect-error plain ESM script without types
 import { unblockOrder } from '../../scripts/backlog-order.mjs';
 
-type T = { id: string; deps: string[]; status: string; priority: string; sp: number; evidenceState?: string };
+type T = { id: string; deps: string[]; status: string; priority: string; sp: number; type?: string; evidenceState?: string };
 const t = (id: string, deps: string[] = [], over: Partial<T> = {}): T => ({ id, deps, status: 'Pendiente', priority: 'P1', sp: 1, ...over });
 type Row = { task: T; wave: number; unlocks: number; waitsOn: string[]; blocker?: string; inPr: boolean; ready: boolean };
 const order = (tasks: T[], blockers: Record<string, string> = {}) => unblockOrder(tasks, blockers) as Row[];
@@ -50,6 +50,17 @@ describe('backlog unblock order (Orden de desbloqueo)', () => {
     expect(ready).toEqual(['AFTER_PERSON', 'FREE', 'OPEN_CODE']);
     expect(rows.find((r) => r.task.id === 'IN_PR')).toMatchObject({ inPr: true, ready: false });
     expect(rows.find((r) => r.task.id === 'PERSON')).toMatchObject({ blocker: 'persona', ready: false });
+  });
+
+  it('does not build on a decision that is only proposed: its dependents wait for it to be taken', () => {
+    const tasks = [
+      t('ADR', [], { status: 'Parcial', type: 'Decisión' }), // drafted, pending approval
+      t('AFTER_ADR', ['ADR']),
+      t('DEV', [], { status: 'Parcial', type: 'Dev' }), // code merged, a person has to act
+      t('AFTER_DEV', ['DEV']),
+    ];
+    const rows = order(tasks, { ADR: 'persona', DEV: 'persona' });
+    expect(rows.filter((r) => r.ready).map((r) => r.task.id)).toEqual(['AFTER_DEV']);
   });
 
   it('does not loop on a dependency cycle (the validator rejects them before the order is drawn)', () => {

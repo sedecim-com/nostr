@@ -42,7 +42,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 - **aws**: faltan la cuenta, la región o el stage reales de AWS
 - **externo**: depende de un tercero: auditor externo, asesoría legal, una publicación upstream o un dispositivo de hardware
 
-**Listas para trabajar ahora (21):** DEC-14, DEC-13, FR004-08, FR006-04, FR006-07, FR014-04, FR015-04, FR020-06, FR023-11, FR025-14, PANEL-06, FR013-05, FR015-05, FR018-06, FR020-02, NFR007-02, NFR007-03, OPS-16, FR005-09, FR005-10, FR003-06. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
+**Listas para trabajar ahora (18):** FR004-08, FR006-04, FR006-07, FR014-04, FR015-04, FR020-06, FR023-11, FR025-14, PANEL-06, FR013-05, FR015-05, FR018-06, FR020-02, NFR007-02, NFR007-03, OPS-16, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
 
 | Ola | ID | Prio | Tarea | Sprint | SP | Desbloquea | Espera a | Bloqueo |
 |---:|---|---|---|---|---:|---:|---|---|
@@ -52,13 +52,13 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | 0 | [SEC-13](https://github.com/sedecim-com/nostr/issues/331) | P1 | Segunda revisión interna de seguridad antes del tag de auditoría | S11 | 5 | 6 | — | persona |
 | 0 | [FR005-05](https://github.com/sedecim-com/nostr/issues/90) | P1 | Tier enclave: firma dentro de Nitro Enclave con KMS condicionado por attestation | S14 | 8 | 2 | — | aws |
 | 0 | [VAULT-07](https://github.com/sedecim-com/nostr/issues/239) | P0 | Threat model y disclosure del Continuity Vault | S10 | 2 | 1 | — | persona |
-| 0 | [DEC-14](https://github.com/sedecim-com/nostr/issues/292) | P2 | Modelo comercial del SaaS: organizaciones, planes y facturación | Diferido | 1 | 1 | — | lista |
+| 0 | [DEC-14](https://github.com/sedecim-com/nostr/issues/292) | P2 | Modelo comercial del SaaS: organizaciones, planes y facturación | Diferido | 1 | 1 | — | persona |
 | 0 | [FR025-08](https://github.com/sedecim-com/nostr/issues/156) | P2 | Migrar a marmot-ts v2 / ts-mls estable cuando se publiquen | Diferido | 3 | 1 | — | externo |
 | 0 | [OPS-12](https://github.com/sedecim-com/nostr/issues/220) | P0 | Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | S11 | 1 | — | — | persona |
 | 0 | [DEC-12](https://github.com/sedecim-com/nostr/issues/44) | P1 | Aprobación legal de los términos de custodia managed y del aviso de privacidad | S13 | 1 | — | — | externo |
 | 0 | [NFR009-02](https://github.com/sedecim-com/nostr/issues/188) | P1 | Corregir los hallazgos de accesibilidad y revisión manual con lector de pantalla | S10 | 3 | — | — | persona |
 | 0 | [DEC-11](https://github.com/sedecim-com/nostr/issues/198) | P2 | Búsqueda y registro de la marca "Acceso Nostr" | S13 | 1 | — | — | externo |
-| 0 | [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | Diferido | 1 | — | — | lista |
+| 0 | [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | Diferido | 1 | — | — | persona |
 | 0 | [FR004-08](https://github.com/sedecim-com/nostr/issues/290) | P2 | Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | Diferido | 3 | — | — | lista |
 | 0 | [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | Diferido | 3 | — | — | lista |
 | 0 | [FR006-07](https://github.com/sedecim-com/nostr/issues/287) | P2 | Compartimentación: avisar antes de reutilizar un contacto o un archivo entre personas | Diferido | 3 | — | — | lista |
@@ -94,7 +94,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | 2 | [FR026-04](https://github.com/sedecim-com/nostr/issues/253) | P0 | Salida de la custodia, borrado verificable y derechos ARCO | S11 | 5 | 6 | FR005-13 | aws |
 | 2 | [NFR001-04](https://github.com/sedecim-com/nostr/issues/256) | P1 | Alta disponibilidad en stage | S11 | 5 | 2 | NFR001-02, NFR001-03 | aws |
 | 2 | [NFR003-03](https://github.com/sedecim-com/nostr/issues/251) | P0 | Simulacro completo de RPO/RTO en stage | S11 | 3 | 1 | NFR001-03 | aws |
-| 2 | [FR003-06](https://github.com/sedecim-com/nostr/issues/79) | P1 | Firma de las releases del generador | S9 | 2 | 1 | NFR010-02 | lista |
+| 2 | [FR003-06](https://github.com/sedecim-com/nostr/issues/79) | P1 | Firma de las releases del generador | S9 | 2 | 1 | NFR010-02 | persona |
 | 2 | [NFR004-02](https://github.com/sedecim-com/nostr/issues/178) | P0 | Dashboard de latencia y degradación sin ocultarla | S11 | 2 | — | NFR001-02 | aws |
 | 2 | [NFR003-04](https://github.com/sedecim-com/nostr/issues/282) | P2 | Copia en una segunda región para el tier institucional | Diferido | 5 | — | NFR001-03 | aws |
 | 3 | [SEC-11](https://github.com/sedecim-com/nostr/issues/257) | P0 | Tag de auditoría firmado y v1.0.0-rc.1 | S12 | 3 | 5 | SEC-13, FR026-04, FR005-13, DEC-10, REL-01 | persona |
