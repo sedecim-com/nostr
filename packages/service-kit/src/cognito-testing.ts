@@ -7,7 +7,10 @@ export interface TestCognito {
   /** JWKS endpoint stand-in to pass as `CognitoConfig.fetch`. */
   jwksFetch: typeof fetch;
   verifier(): CognitoVerifier;
-  /** Signs a Cognito-like token; claims override the defaults of a valid id token for `user-1`. */
+  /**
+   * Signs a Cognito-like token; claims override the defaults of a valid id token for `user-1`, signed in just now
+   * (`auth_time`) in one sign-in shared by every default token (`origin_jti`).
+   */
   token(claims?: Record<string, unknown>, header?: Record<string, unknown>, key?: KeyObject): string;
 }
 
@@ -27,7 +30,7 @@ export function createTestCognito(cfg = { region: 'us-east-1', userPoolId: 'us-e
     verifier: () => new CognitoVerifier({ ...cfg, fetch: jwksFetch }),
     token(claims = {}, header = { alg: 'RS256', kid: 'k1' }, key = privateKey) {
       const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
-      const body = `${enc(header)}.${enc({ iss: issuer, token_use: 'id', aud: cfg.clientId, sub: 'user-1', 'cognito:username': 'ana', exp: Math.floor(Date.now() / 1000) + 600, ...claims })}`;
+      const body = `${enc(header)}.${enc({ iss: issuer, token_use: 'id', aud: cfg.clientId, sub: 'user-1', 'cognito:username': 'ana', exp: Math.floor(Date.now() / 1000) + 600, auth_time: Math.floor(Date.now() / 1000), origin_jti: 'test-login', ...claims })}`;
       return `${body}.${createSign('RSA-SHA256').update(body).sign(key).toString('base64url')}`;
     },
   };

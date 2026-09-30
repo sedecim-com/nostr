@@ -139,6 +139,22 @@ function deviceStoreSuite(name: string, open: () => Promise<DeviceStore>) {
       expect((await store.sessionsOf('ana', at)).map((x) => x.deviceId)).toEqual(['dev-f']);
       expect(await store.dropSessions('ana', [])).toBe(0);
     });
+
+    it('keeps one login cutoff per owner, the latest, and purges the old ones (IR-2026-10-11)', async () => {
+      const store = await open();
+      const at = Date.UTC(2026, 7, 1);
+      expect(await store.loginCutoff('ana')).toBeUndefined();
+      await store.setLoginCutoff({ owner: 'ana', at, keep: 'laptop-login' });
+      await store.setLoginCutoff({ owner: 'bea', at: at - 5000 });
+      expect(await store.loginCutoff('ana')).toEqual({ owner: 'ana', at, keep: 'laptop-login' });
+      // Closing again replaces it: the login kept before is no longer special.
+      await store.setLoginCutoff({ owner: 'ana', at: at + 1000 });
+      expect(await store.loginCutoff('ana')).toEqual({ owner: 'ana', at: at + 1000 });
+      expect(await store.loginCutoff('bea')).toEqual({ owner: 'bea', at: at - 5000 });
+      expect(await store.purgeLoginCutoffsBefore(at)).toBe(1);
+      expect(await store.loginCutoff('bea')).toBeUndefined();
+      expect(await store.loginCutoff('ana')).toMatchObject({ at: at + 1000 });
+    });
   });
 }
 
@@ -170,7 +186,7 @@ if (PG) {
     const pool = createPgPool(PG);
     pools.push(pool);
     if (!reset) {
-      await resetScope(pool, 'managed-signer', ['managed_key_usage', 'managed_keys', 'managed_signer_device_sessions', 'managed_signer_revoked_devices']);
+      await resetScope(pool, 'managed-signer', ['managed_key_usage', 'managed_keys', 'managed_signer_device_sessions', 'managed_signer_revoked_devices', 'managed_signer_login_cutoffs']);
       reset = true;
     }
     await migrate(pool, MIGRATIONS, 'managed-signer');

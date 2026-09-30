@@ -4,7 +4,7 @@
  * servers, identity-service and a simulated Acceso (Cognito) endpoint.
  */
 import { createServer } from 'node:http';
-import { createSign, generateKeyPairSync, randomBytes } from 'node:crypto';
+import { createSign, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
@@ -703,9 +703,11 @@ try {
     if (target.endsWith('InitiateAuth')) {
       const { AuthParameters } = JSON.parse(r.request().postData() ?? '{}');
       if (AuthParameters?.PASSWORD !== 'acceso-pass') return r.fulfill({ status: 400, contentType: 'application/x-amz-json-1.1', body: JSON.stringify({ __type: 'NotAuthorizedException', message: 'Incorrect username or password.' }) });
+      // Like Cognito, both tokens of a sign-in carry when it happened and its own id (IR-2026-10-03, IR-2026-10-11).
+      const signIn = { auth_time: Math.floor(Date.now() / 1000), origin_jti: randomUUID() };
       return r.fulfill({
         contentType: 'application/x-amz-json-1.1',
-        body: JSON.stringify({ AuthenticationResult: { IdToken: jwt({ token_use: 'id', aud: cognito.userPoolClientId, 'cognito:username': 'ana' }), AccessToken: jwt({ token_use: 'access', client_id: cognito.userPoolClientId, username: 'ana' }), RefreshToken: 'refresh', ExpiresIn: 3600, TokenType: 'Bearer' }, ChallengeParameters: {} }),
+        body: JSON.stringify({ AuthenticationResult: { IdToken: jwt({ token_use: 'id', aud: cognito.userPoolClientId, 'cognito:username': 'ana', ...signIn }), AccessToken: jwt({ token_use: 'access', client_id: cognito.userPoolClientId, username: 'ana', ...signIn }), RefreshToken: 'refresh', ExpiresIn: 3600, TokenType: 'Bearer' }, ChallengeParameters: {} }),
       });
     }
     return r.fulfill({ status: 400, contentType: 'application/x-amz-json-1.1', body: JSON.stringify({ __type: 'InvalidParameterException', message: `unexpected ${target}` }) });
@@ -844,6 +846,13 @@ try {
   await tab(rec, 'Personas');
   await rec.locator('#managed-sessions li').nth(1).waitFor({ timeout: 15_000 });
   assert((await rec.locator('#managed-sessions li').count()) === 2 && (await rec.locator('#managed-usage').textContent())?.includes('este navegador'), 'the new browser sees both sessions and its own signature in the usage log');
+  // IR-2026-10-03/-11: closing the others asks for the Acceso password again (a wrong one changes nothing).
+  assert(await rec.locator('#managed-close-others').isDisabled(), 'closing the other sessions waits for the Acceso password');
+  await rec.fill('#sessions-reauth', 'mala');
+  await rec.locator('#managed-close-others').click();
+  await rec.locator('#managed-activity').getByText('Incorrect username or password.').waitFor({ timeout: 15_000 });
+  assert((await managedCore.listDeviceSessions(owner)).length === 2, 'a wrong Acceso password closes nothing');
+  await rec.fill('#sessions-reauth', 'acceso-pass');
   await rec.locator('#managed-close-others').click();
   await rec.waitForFunction(() => document.querySelectorAll('#managed-sessions li').length === 1, undefined, { timeout: 15_000 });
   assert((await managedCore.listDeviceSessions(owner)).length === 1, 'the user closes the other browser’s session from the new one (FR005-11)');
@@ -870,16 +879,30 @@ try {
   await rec.locator('#managed-activity').getByText(/Tu organización revocó este dispositivo/).waitFor({ timeout: 15_000 });
   assert(!(await channelMessage('después de la revocación', 4)) && (await managedCore.listDeviceSessions(owner)).length === 0, 'the revoked browser signs nothing more and cannot open another session with the login; the web says why');
   await recCtx.close();
-  // The first browser, still logged in, opens another session with its login on its next signature.
+  // IR-2026-10-11: the first browser signed in before the other one closed its sessions, so its login opens no other
+  // session (not even refreshed) until the password is typed again; then it signs again.
   await tab(saas, 'Canales');
   await saas.locator('#channel-list').getByText('General').click();
   await saas.fill('#channel-text', 'después de cerrar mi sesión');
   await saas.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
-  assert((await channelMessage('después de cerrar mi sesión'))?.pubkey === managedKey!.pubkey, 'a browser whose session was closed opens another one with the Acceso login and signs again; the device the organisation revoked was only the other browser’s (FR024-03)');
+  assert(!(await channelMessage('después de cerrar mi sesión', 4)), 'a login older than the closing of the other sessions signs nothing (IR-2026-10-11)');
+  await tab(saas, 'Personas');
+  await saas.locator('#managed-cut-off').waitFor({ timeout: 15_000 });
+  await saas.fill('#sessions-reauth', 'acceso-pass');
+  await saas.locator('#managed-sign-in-again').click();
+  await saas.locator('#managed-cut-off').waitFor({ state: 'detached', timeout: 15_000 });
+  await tab(saas, 'Canales');
+  await saas.locator('#channel-list').getByText('General').click();
+  await saas.fill('#channel-text', 'después de volver a entrar');
+  await saas.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
+  assert((await channelMessage('después de volver a entrar'))?.pubkey === managedKey!.pubkey, 'with the Acceso password typed again, the first browser opens another session and signs; the device the organisation revoked was only the other browser’s (FR024-03)');
 
   // --- migration back to local custody with verification (FR026-03)
   await tab(saas, 'Personas');
   await saas.fill('#migration-pass', 'exportacion-segura-123');
+  // IR-2026-10-03: exporting asks for the Acceso password again; deleting right after does not ask twice.
+  assert(await saas.getByRole('button', { name: 'Exportar y verificar' }).isDisabled(), 'the export waits for the Acceso password');
+  await saas.fill('#migration-reauth', 'acceso-pass');
   await saas.getByRole('button', { name: 'Exportar y verificar' }).click();
   await saas.getByText('Tu llave ya vive en este navegador').waitFor({ timeout: 60_000 });
   // The banner follows the persona reload that the success message can precede.

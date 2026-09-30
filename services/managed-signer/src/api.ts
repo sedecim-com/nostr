@@ -1,6 +1,6 @@
 import { Service, HttpError, requireFields, isHex64, lookupToken, CognitoTokenError, type CognitoVerifier, type Req, type ServiceOptions } from '@sedecim/service-kit';
 import type { EventTemplate } from '@sedecim/nostr-core';
-import { DEVICE_SESSION_PREFIX, ManagedSigner, ManagedSignerError, RateLimitedError, type Actor } from './service';
+import { DEVICE_SESSION_PREFIX, ManagedSigner, ManagedSignerError, RateLimitedError, ReauthRequiredError, type Actor } from './service';
 
 export interface ManagedSignerApiOptions extends Omit<ServiceOptions, 'bearerTokens'> {
   /** End users authorize with their Acceso (Cognito) token; the key owner is `${issuer}#${sub}` (FR005-04). */
@@ -12,7 +12,17 @@ export interface ManagedSignerApiOptions extends Omit<ServiceOptions, 'bearerTok
   revocationTokens?: Record<string, string>;
   /** Key operations only through device sessions (`sds_...`): a bare Acceso token only opens sessions. */
   requireDeviceSession?: boolean;
+  /**
+   * IR-2026-10-03: how recent (seconds) the Acceso sign-in must be to export a key, confirm its migration, delete it,
+   * cancel its custody or close the other sessions (default 300). Those calls never go through a device session.
+   */
+  reauthMaxAgeSeconds?: number;
 }
+
+/** IR-2026-10-03: default age limit of the Acceso sign-in for the calls that let a key out or destroy it. */
+export const DEFAULT_REAUTH_MAX_AGE_S = 300;
+/** A sign-in stamped this far ahead of our clock is still believed (clock skew with Cognito). */
+const AUTH_TIME_SKEW_S = 60;
 
 interface Caller extends Actor {
   owner: string;
@@ -20,6 +30,9 @@ interface Caller extends Actor {
   viaDeviceSession?: boolean;
   /** That session's public id (FR005-11). */
   sessionId?: string;
+  /** Acceso callers: when they last signed in with their password (`auth_time`, seconds) and which sign-in it is. */
+  authTime?: number;
+  loginId?: string;
 }
 
 const SESSION_ID = /^[0-9a-f]{32}$/;
@@ -45,7 +58,7 @@ function consentVersion(body: { consent_version?: unknown }): string {
  * named in `x-account-id` was removed (FR005-12): that header is refused, never ignored.
  */
 export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerApiOptions) {
-  const { cognito, revocationTokens, requireDeviceSession, ...serviceOpts } = opts;
+  const { cognito, revocationTokens, requireDeviceSession, reauthMaxAgeSeconds = DEFAULT_REAUTH_MAX_AGE_S, ...serviceOpts } = opts;
   const svc = new Service(serviceOpts);
   const log = svc.logger;
 
@@ -82,7 +95,23 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
       throw err;
     }
     const owner = `${who.issuer}#${who.subject}`;
-    return { owner, principal: owner, ...(deviceId ? { deviceId } : {}) };
+    // IR-2026-10-11: a login from before its owner closed their other sessions (a lost device's) is turned away.
+    await core.assertLoginCurrent(owner, who.authTime, who.loginId);
+    return { owner, principal: owner, ...(deviceId ? { deviceId } : {}), ...(who.authTime !== undefined ? { authTime: who.authTime } : {}), ...(who.loginId ? { loginId: who.loginId } : {}) };
+  };
+
+  /**
+   * IR-2026-10-03: letting the key out (export, confirming the migration) or destroying it (delete, cancel), and cutting
+   * off the other logins (closing the other sessions, IR-2026-10-11), take the owner's password again: an Acceso token
+   * whose sign-in is at most `reauthMaxAgeSeconds` old, never a device session or an older login that a stolen browser
+   * keeps refreshing.
+   */
+  const assertRecentSignIn = (c: Caller) => {
+    if (c.viaDeviceSession) throw new ReauthRequiredError('this needs the Acceso login, not a device session: sign in again with your password', reauthMaxAgeSeconds);
+    const age = Math.floor(Date.now() / 1000) - (c.authTime ?? -Infinity);
+    if (!(age <= reauthMaxAgeSeconds && age >= -AUTH_TIME_SKEW_S)) {
+      throw new ReauthRequiredError(`this needs a sign-in with your Acceso password from the last ${reauthMaxAgeSeconds} seconds: sign in again`, reauthMaxAgeSeconds);
+    }
   };
 
   const mapErrors = async (fn: () => Promise<unknown>) => {
@@ -93,15 +122,29 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
         log.warn('managed signer rate limited', { scope: err.scope, retry_after_s: err.retryAfterSeconds });
         return { status: 429, headers: { 'retry-after': String(err.retryAfterSeconds) }, body: { error: err.message } };
       }
+      if (err instanceof ReauthRequiredError) {
+        // RFC 9470 step-up; the body says the same for clients that cannot read the header.
+        const maxAge = err.maxAgeSeconds === undefined ? '' : `, max_age=${err.maxAgeSeconds}`;
+        log.info('managed signer asked for a recent sign-in', { max_age_s: err.maxAgeSeconds ?? null });
+        return {
+          status: 401,
+          headers: { 'www-authenticate': `Bearer error="insufficient_user_authentication", error_description="${err.message}"${maxAge}` },
+          body: { error: err.message, error_code: 'insufficient_user_authentication', ...(err.maxAgeSeconds === undefined ? {} : { max_age: err.maxAgeSeconds }) },
+        };
+      }
       if (err instanceof ManagedSignerError) throw new HttpError(err.status, err.message);
       throw err;
     }
   };
-  /** `keyOp`: operations on keys, which `requireDeviceSession` restricts to device sessions. */
-  const route = (fn: (req: Req, caller: Caller) => Promise<unknown>, keyOp = true) => (req: Req) =>
+  /**
+   * `kind`: 'key' operations, which `requireDeviceSession` restricts to device sessions; 'account' calls (the owner's
+   * own sessions), open to both; 'sensitive' ones, only with a recent Acceso sign-in (assertRecentSignIn).
+   */
+  const route = (fn: (req: Req, caller: Caller) => Promise<unknown>, kind: 'key' | 'account' | 'sensitive' = 'key') => (req: Req) =>
     mapErrors(async () => {
       const caller = await authenticate(req);
-      if (keyOp && requireDeviceSession && !caller.viaDeviceSession) throw new HttpError(403, 'device session required');
+      if (kind === 'key' && requireDeviceSession && !caller.viaDeviceSession) throw new HttpError(403, 'device session required');
+      if (kind === 'sensitive') assertRecentSignIn(caller);
       return fn(req, caller);
     });
 
@@ -116,10 +159,10 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
     const s = await core.openDeviceSession(c.owner, c.principal, body.device_id, body.ttl_seconds === undefined ? undefined : body.ttl_seconds * 1000);
     log.info('device session opened', { device_id: body.device_id });
     return { status: 201, body: { token: s.token, device_id: body.device_id, expires_at: new Date(s.expiresAt).toISOString() } };
-  }, false), 'none', { rateClass: 'auth' });
+  }, 'account'), 'none', { rateClass: 'auth' });
   // FR005-11: the user's own sessions. Listed with the Acceso login or any of them; closed with the Acceso login, or
   // one by itself (sign out). Closing one never revokes its device (that is the organisation's call, below).
-  svc.get('/v1/device-sessions', route(async (_req, c) => ({ sessions: await core.listDeviceSessions(c.owner, c.sessionId) }), false));
+  svc.get('/v1/device-sessions', route(async (_req, c) => ({ sessions: await core.listDeviceSessions(c.owner, c.sessionId) }), 'account'));
   svc.delete('/v1/device-sessions/:id', route(async (req, c) => {
     const id = req.params.id!;
     if (!SESSION_ID.test(id)) throw new HttpError(400, 'invalid session id');
@@ -128,15 +171,16 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
     if (closed === 0) throw new HttpError(404, 'no such session');
     log.info('device session closed', { by: c.viaDeviceSession ? 'itself' : 'owner' });
     return { closed };
-  }, false));
+  }, 'account'));
+  // IR-2026-10-11: it also cuts off the owner's other logins signed in before now (this one keeps working), so it takes a
+  // recent sign-in: a thief with a stolen browser cannot lock its owner out.
   svc.delete('/v1/device-sessions', route(async (req, c) => {
-    if (c.viaDeviceSession) throw new HttpError(403, 'closing every session needs the Acceso login');
     const except = req.query.get('except') ?? undefined;
     if (except !== undefined && !SESSION_ID.test(except)) throw new HttpError(400, 'invalid except');
-    const closed = await core.closeDeviceSessions(c.owner, except === undefined ? {} : { except });
-    log.info('device sessions closed', { closed, kept: except ? 1 : 0 });
+    const closed = await core.closeDeviceSessions(c.owner, except === undefined ? {} : { except }, c.loginId);
+    log.info('device sessions closed', { closed, kept: except ? 1 : 0, login_kept: !!c.loginId });
     return { closed };
-  }, false));
+  }, 'sensitive'));
   // Called by the policy side when a device is revoked (idempotent). Revocation tokens only.
   svc.post('/v1/devices/:id/revoke', (req) =>
     mapErrors(async () => {
@@ -186,24 +230,25 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
       return op === 'encrypt' ? { ciphertext: out } : { plaintext: out };
     }));
   }
+  // IR-2026-10-03: the calls that let the key out or destroy it take a recent sign-in with the Acceso password.
   svc.post('/v1/keys/:id/export', route(async (req, c) => {
     const { password } = req.json<{ password: string }>();
     return core.export(req.params.id!, c.owner, c.principal, password ?? '');
-  }));
+  }, 'sensitive'));
   svc.post('/v1/keys/:id/confirm-migration', route(async (req, c) => {
     const { proof } = req.json<{ proof: unknown }>();
     return { state: (await core.confirmMigration(req.params.id!, c.owner, c.principal, proof)).state };
-  }));
+  }, 'sensitive'));
   svc.delete('/v1/keys/:id', route(async (req, c) => {
     const { destroyAfter } = await core.delete(req.params.id!, c.owner, c.principal);
     return { deleted: true, destroy_after: new Date(destroyAfter).toISOString() };
-  }));
+  }, 'sensitive'));
   svc.post('/v1/keys/:id/cancel', route(async (req, c) => {
     const { confirm } = req.json<{ confirm?: unknown }>();
     const { destroyAfter } = await core.cancel(req.params.id!, c.owner, c.principal, confirm);
     log.info('managed key cancelled', { key_id: req.params.id });
     return { cancelled: true, destroy_after: new Date(destroyAfter).toISOString() };
-  }));
+  }, 'sensitive'));
   svc.get('/v1/keys/:id/usage', route(async (req, c) => ({ usage: await core.usageOf(req.params.id!, c.owner) })));
   return svc;
 }

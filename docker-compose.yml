@@ -335,6 +335,8 @@ services:
       MANAGED_SIGNER_REVOCATION_TOKENS: ${MANAGED_SIGNER_REVOCATION_TOKENS:-}
       # true: key operations only through device-bound sessions (POST /v1/device-sessions).
       MANAGED_SIGNER_REQUIRE_DEVICE_SESSION: ${MANAGED_SIGNER_REQUIRE_DEVICE_SESSION:-false}
+      # IR-2026-10-03: export, migration, deletion, cancellation and closing the other sessions take a recent sign-in.
+      MANAGED_SIGNER_REAUTH_MAX_AGE_S: ${MANAGED_SIGNER_REAUTH_MAX_AGE_S:-300}
       # FR005-06: per-key / per-kind limits per minute (and per-kind overrides kind:perMin[:burst]).
       MANAGED_SIGNER_RATE_PER_KEY: ${MANAGED_SIGNER_RATE_PER_KEY:-120}
       MANAGED_SIGNER_RATE_PER_KIND: ${MANAGED_SIGNER_RATE_PER_KIND:-60}

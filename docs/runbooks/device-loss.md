@@ -16,15 +16,21 @@ Primero, identifica qué custodia tenía la persona de ese dispositivo; los paso
 ## 1. Persona gestionada (custodia managed, web SaaS)
 
 La llave no está en el dispositivo: vive en el managed-signer (KMS). El navegador perdido solo tiene una sesión de
-dispositivo (`sds_…`, 12 h), que se puede cerrar desde otro navegador.
+dispositivo (`sds_…`, 12 h como mucho), que se puede cerrar desde otro navegador. Con ella se puede firmar mientras
+siga abierta, pero no exportar la llave, migrarla, borrarla ni cancelar la custodia: eso pide la contraseña de Acceso
+de los últimos minutos (IR-2026-10-03).
 
 1. En otro navegador, entra con el mismo login de Acceso y abre la persona: «Nueva persona» → «Recuperar mi persona
    gestionada».
 2. En la tarjeta «Actividad de tu llave gestionada», revisa las operaciones recientes. Cada una nombra el
-   dispositivo que la hizo. Busca firmas que no reconozcas.
-3. Pulsa «Cerrar las demás sesiones», o «Cerrar» en la del dispositivo perdido.
-4. **Cambia la contraseña de Acceso.** Cerrar una sesión no basta si el dispositivo sigue con el login abierto: en
-   su siguiente firma abriría otra.
+   dispositivo que la hizo. Busca firmas que no reconozcas, y cualquier exportación, migración o borrado: siguen en
+   el log aunque la llave ya no esté.
+3. Escribe tu contraseña de Acceso y pulsa «Cerrar las demás sesiones». Cierra la sesión del dispositivo perdido y
+   deja fuera su login: aunque lo refresque, no abre otra sesión ni firma hasta que alguien vuelva a escribir la
+   contraseña (IR-2026-10-11). «Cerrar» en esa sola sesión no deja fuera su login.
+4. **Cambia la contraseña de Acceso.** El corte del paso 3 dura hasta que alguien entre otra vez con la contraseña:
+   si el dispositivo la tenía guardada o alguien la conoce, podría volver a entrar. Tus otros navegadores también
+   te la pedirán una vez.
 5. En modo institucional, además, sigue la sección 3. Si ese navegador estaba vinculado al dispositivo de la
    organización («Dispositivo de tu organización» en la misma tarjeta), revocarlo hace que el managed-signer lo rechace
    para siempre, aunque tenga el login. Si no lo estaba, la revocación no le llega: los pasos 3 y 4 son los que

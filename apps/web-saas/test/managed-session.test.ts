@@ -3,9 +3,9 @@ import { EncryptedStore, MemoryBackend } from '@sedecim/encrypted-store';
 import { verifyEvent } from '@sedecim/nostr-core';
 import { createManagedSignerApi, ManagedSigner, MemoryVault } from '@sedecim/managed-signer';
 import { createTestCognito } from '@sedecim/service-kit';
-import { ManagedSignerClient } from '@sedecim/signer';
+import { ManagedSignerClient, ManagedSignerReauthError } from '@sedecim/signer';
 import { createLogger } from '@sedecim/telemetry-policy';
-import { BrowserManagedSession, DeviceRevokedError } from '../src/lib/managed-session';
+import { BrowserManagedSession, DeviceRevokedError, SessionsClosedError } from '../src/lib/managed-session';
 
 describe('the browser session of a managed persona and the organisation’s device (FR024-03)', () => {
   const acceso = createTestCognito();
@@ -45,5 +45,27 @@ describe('the browser session of a managed persona and the organisation’s devi
     expect(refused).toBeInstanceOf(DeviceRevokedError);
     expect((refused as Error).message).toMatch(/Tu organización revocó este dispositivo \(dev-org-1\)/);
     expect(await sessions()).toEqual([]);
+  });
+
+  it('once another browser closed the other sessions, this login opens none until the password is typed again (IR-2026-10-11)', async () => {
+    const store = EncryptedStore.withKey(new MemoryBackend(), new Uint8Array(32).fill(2));
+    const nowS = Math.floor(Date.now() / 1000);
+    // This browser signed in ten minutes ago; every refresh of its login keeps that sign-in.
+    let login = acceso.token({ sub: 'eva', origin_jti: 'eva-phone', auth_time: nowS - 600 });
+    const session = new BrowserManagedSession(store as unknown as ConstructorParameters<typeof BrowserManagedSession>[0], base, async () => login);
+    const key = await ManagedSignerClient.createKey(session.login(), { consentVersion: 'textos test' });
+    const signer = new ManagedSignerClient({ ...session.connection(), keyId: key.keyId });
+    expect(verifyEvent(await signer.signEvent({ kind: 1, content: 'antes' }))).toBe(true);
+
+    // Eva, in another browser and with her password just typed, closes the other sessions.
+    await ManagedSignerClient.closeDeviceSessions({ baseUrl: base, token: async () => acceso.token({ sub: 'eva', origin_jti: 'eva-laptop' }) });
+    const refused = await signer.signEvent({ kind: 1, content: 'después' }).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(SessionsClosedError);
+    expect(refused).toBeInstanceOf(ManagedSignerReauthError);
+    expect((refused as Error).message).toMatch(/Se cerraron las sesiones de tu llave gestionada desde otro navegador/);
+
+    // Signing in again here (what accesoReauthenticate leaves in place) makes it sign again.
+    login = acceso.token({ sub: 'eva', origin_jti: 'eva-phone-2' });
+    expect(verifyEvent(await signer.signEvent({ kind: 1, content: 'de vuelta' }))).toBe(true);
   });
 });
