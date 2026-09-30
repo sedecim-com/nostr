@@ -67,6 +67,9 @@ spec:
             # FR005-06: rate-limit counters for Prometheus (cluster-internal).
             - name: METRICS_PORT
               value: "9464"
+            # NFR007-02: fraction of requests traced (0..1, 0 = off), one log line per span (docs/slo.md).
+            - name: TRACE_SAMPLE_RATE
+              value: "0"
             - name: CORS_ORIGINS
               value: $(WEB_ORIGIN)
           volumeMounts:

@@ -125,6 +125,71 @@ se calculan en el navegador y no se envían a ningún sitio.
 2. Si todos los relays de una región se degradan a la vez, sospechar de la red del cluster o del propio
    indexer (la sonda sale de él).
 
+## Trazas (NFR007-02)
+
+Los servicios con API HTTP (identity-service, policy-engine, continuity-vault, managed-signer,
+notification-gateway, indexer y blob-store) pueden trazar sus peticiones. **Están apagadas por defecto**
+(`TRACE_SAMPLE_RATE=0`): sin esa variable no se crea ninguna traza. **Los clientes no trazan**: la web, el CLI y
+la consola no tienen trazador ni envían trazas (un test recorre sus fuentes), como dice su texto de telemetría.
+
+**Qué se traza.** Un span por petición (el servidor común de `service-kit`, y el propio de blob-store) y, dentro
+de él, un span hijo por cada `pool.query` a Postgres (`createPgPool`; las consultas de una transacción abierta con
+`pool.connect()` no tienen span propio). Los workers (`rotation-worker`, `relay-allowlist`) solo sirven `/health`
+y no trazan su trabajo de fondo.
+
+**Muestreo.** Se decide una vez por traza, al empezar la petición, con probabilidad `TRACE_SAMPLE_RATE`: una
+traza se guarda entera o no se guarda. Una traza no muestreada no crea spans ni ids. No se lee ni se envía
+`traceparent`: las trazas no se encadenan entre servicios y un cliente no puede pedir que lo tracen.
+
+**Redacción por construcción.** Un span solo puede llevar estos atributos. Una clave distinta se descarta, y un
+valor que no cumple la regla de su clave también: no se limpia ni se recorta.
+
+| Atributo | Valor |
+|---|---|
+| `http.request.method` | `GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS` o `_OTHER` |
+| `http.route` | La ruta tal como se registró (`/v1/keys/:id`), nunca la pedida; en blob-store, `/:sha256` |
+| `http.response.status_code` | 100-599 |
+| `error.type` | En los 5xx y en las consultas que fallan, la clase del error (`TypeError`, `HttpError`) o `_OTHER`; nunca el mensaje |
+| `db.system`, `db.operation.name` | `postgresql` y la primera palabra de la sentencia (`SELECT`, `INSERT`…), nunca la sentencia ni sus valores |
+
+Además, cada span tiene ids aleatorios de traza y de span (node:crypto), un nombre (`GET /v1/keys/:id`,
+`db.query`), su tipo, su duración y su estado. No lleva URLs con parámetros, cabeceras, cuerpos, IPs, pubkeys,
+npub, tokens, contenido ni mensajes de error. Las pruebas intentan colar cada tipo de dato (pubkey hex, npub,
+nsec, ncryptsec, IPv4 e IPv6, token Bearer, JWT, email y query string) por atributos, nombres y errores, también
+con fuzzing, y miran el log y el cuerpo OTLP (`packages/telemetry-policy/test/tracing.test.ts`,
+`packages/service-kit/test/tracing.test.ts`, `services/blob-store/test/tracing.test.ts`).
+
+**Salidas.** Una línea `span` por span terminado en el log estructurado del servicio (nivel `info`, con la
+redacción de secretos del logger). Si el operador fija `TRACE_EXPORT_URL`, además OTLP/HTTP JSON a su colector:
+es el único destino que la política permite, sin seguir redirecciones, con una cola de 2048 spans (los que no
+caben se descartan y se cuentan), un envío a la vez con un timeout de 5 s y sin reintentos. El envío no está en
+el camino de la petición: un colector caído o lento no la retrasa. Los descartes se registran (`trace export
+dropped spans`, con el motivo y el número de spans, sin la dirección del colector). Lo que queda en cola cuando
+el proceso termina se pierde.
+
+**Perfiles Tor y sovereign.** En los clientes, los perfiles sovereign y sovereign-tor tienen telemetría `none`:
+su `TelemetryPolicy` no emite nada. Un servicio no sabe qué perfil tiene quien lo llama; para él, «apagadas en
+perfiles Tor» significa dos cosas:
+
+- **Un despliegue con `TELEMETRY_LEVEL=none`** (el nivel de esos perfiles) no tiene trazador: no crea spans ni
+  ids ni exporta, y las variables `TRACE_*` ni se leen, así que ninguna variable de entorno enciende las trazas.
+  `minimal` tampoco traza: las trazas solo existen con `standard`.
+- **Una petición dirigida a un `.onion`** (cabecera `Host`), como la de una persona `--onion-only` al vault o
+  al blob-store publicados como servicio onion, nunca se traza, diga lo que diga el muestreo.
+
+Lo que queda: una persona Tor que llega por un nodo de salida al nombre clearnet de un servicio con trazas
+activas se muestrea como cualquier otra petición. Su span no lleva su IP ni su pubkey, pero sí la hora, la ruta
+como plantilla y la duración.
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `TELEMETRY_LEVEL` | `standard` | `none`: sin trazas (y, en el indexer, sin métricas); `minimal`: sin trazas |
+| `TRACE_SAMPLE_RATE` | `0` | Fracción de peticiones trazadas, de 0 a 1 |
+| `TRACE_EXPORT_URL` | — | Colector OTLP/HTTP del operador (`http(s)://…/v1/traces`, sin credenciales en la URL). Sin ella, solo el log |
+
+En compose y en Kubernetes, `TRACE_SAMPLE_RATE` está con el resto de la observabilidad del indexer y del
+managed-signer, a `0`. Los demás servicios la leen igual si se añade a su entorno.
+
 ## Alertas (multi-ventana, multi-tasa de consumo)
 
 Método del *SRE Workbook* ("Alerting on SLOs"). La *tasa de consumo* es cuántas veces más rápido que lo
