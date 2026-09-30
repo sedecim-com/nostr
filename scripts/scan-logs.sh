@@ -34,7 +34,7 @@ if [ "$RUN_GITLEAKS" -eq 1 ]; then
     --report-format json --report-path "$report" "$(cd "$(dirname "$LOG")" && pwd)/$(basename "$LOG")"); then
     echo "scan-logs: gitleaks found secrets in $LOG"
     # `docker compose logs` starts every line with "<service>-<n> |": name the service that wrote each finding.
-    for n in $(sed -n 's/^ *"StartLine": \([0-9][0-9]*\),*$/\1/p' "$report"); do
+    sed -n 's/^ *"StartLine": \([0-9][0-9]*\),*$/\1/p' "$report" | while read -r n; do
       service=$(sed -n "${n}p" "$LOG" | sed -n 's/^\([^ |]*\) *|.*/\1/p')
       echo "  finding on line $n${service:+, written by $service}"
     done
