@@ -22,6 +22,8 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 OUT=${TOR_CHECK_OUT:-$ROOT/tor-profile-results}
 TIMEOUT=${TOR_CHECK_TIMEOUT:-420}
+BOOTSTRAP_TIMEOUT=${TOR_CHECK_BOOTSTRAP_TIMEOUT:-600}
+BOOTSTRAP_STALL=${TOR_CHECK_BOOTSTRAP_STALL:-180}
 TSX="$ROOT/node_modules/.bin/tsx"
 SOCKS="127.0.0.1:${TOR_SOCKS_PORT:-9050}"
 COMPOSE=(docker compose --profile tor)
@@ -92,8 +94,37 @@ BUZZ_HTTP_URL=$BUZZ_HTTP_URL "$TSX" scripts/buzz-provision-community.ts "$RELAY_
   fail "could not provision the Buzz community for $RELAY_ONION: $(cat "$OUT/buzz.provision.log") (RELAY_OPERATOR_PUBKEYS must hold the operator key and RELAY_OPERATOR_API_ORIGIN the URL called)"
 cat "$OUT/buzz.provision.log"
 
-bootstrapped() { "${COMPOSE[@]}" logs --no-color tor | grep -q 'Bootstrapped 100%'; }
-wait_until "Tor bootstrap (Bootstrapped 100%)" "$TIMEOUT" bootstrapped
+# OPS-21: Tor can stall while loading relay descriptors (a slow directory mirror or guard): in one CI run it sat at
+# 69% for five minutes. If the bootstrap makes no progress for BOOTSTRAP_STALL seconds, tor is restarted once; a new
+# bootstrap picks other mirrors and guards. The onion keys are in the tor-data volume, so the addresses stay the same.
+bootstrap_progress() { "${COMPOSE[@]}" logs --no-color tor 2> /dev/null | sed -n 's/.*Bootstrapped \([0-9]*\)%.*/\1/p' | tail -n 1; }
+wait_bootstrap() {
+  local start=$SECONDS since=$SECONDS last=-1 p restarted=0
+  while :; do
+    p=$(bootstrap_progress)
+    p=${p:-0}
+    if [ "$p" -ge 100 ]; then
+      echo "ready: Tor bootstrap (Bootstrapped 100%) ($((SECONDS - start))s)"
+      return 0
+    fi
+    if [ "$p" != "$last" ]; then
+      last=$p
+      since=$SECONDS
+    elif [ "$restarted" = 0 ] && [ $((SECONDS - since)) -gt "$BOOTSTRAP_STALL" ]; then
+      echo "  Tor bootstrap stalled at $p% for $((SECONDS - since))s: restarting tor once"
+      "${COMPOSE[@]}" logs --no-color tor > "$OUT/tor.before-restart.log" 2>&1 || true
+      "${COMPOSE[@]}" restart tor > /dev/null 2>&1 || fail "could not restart tor after the bootstrap stalled at $p%"
+      restarted=1
+      last=-1
+      since=$SECONDS
+    fi
+    if [ $((SECONDS - start)) -gt "$BOOTSTRAP_TIMEOUT" ]; then
+      fail "timeout after ${BOOTSTRAP_TIMEOUT}s waiting for Tor bootstrap (Bootstrapped 100%), last at $p%"
+    fi
+    sleep 3
+  done
+}
+wait_bootstrap
 # Descriptors are published after bootstrap; the first circuits to a fresh onion often fail.
 wait_until "secure-relay onion answering NIP-11 through the compose SOCKS port" "$TIMEOUT" nip11 --socks5-hostname "$SOCKS" "http://$SECURE_ONION/"
 wait_until "relay onion answering NIP-11 through the compose SOCKS port" "$TIMEOUT" nip11 --socks5-hostname "$SOCKS" "http://$RELAY_ONION/"
@@ -144,23 +175,28 @@ dm_relays_ready() {
   grep -q 'relays de DM (kind 10050): REPLICATED' "$log"
 }
 
-# read_dm LOG DIR PERSONA TEXT: reads the persona's DM inbox until TEXT shows up. Each attempt keeps its output
-# (LOG.N) and says how long it took, so a failure shows where the time went.
-read_dm() {
-  local log=$1 dir=$2 persona=$3 text=$4 start=$SECONDS t
+# read_until LOG DIR TEXT WHAT CMD...: runs the read command CMD until TEXT shows up. Each attempt keeps its output
+# (LOG.N) and says how long it took, so a failure shows where the time went. OPS-21: over Tor a single read can end
+# before the relay has answered with the event, even after the publish was accepted.
+read_until() {
+  local log=$1 dir=$2 text=$3 what=$4 start=$SECONDS t
+  shift 4
   for i in 1 2 3 4 5 6 7 8; do
     t=$SECONDS
-    cli "$dir" dm inbox --persona "$persona" > "$log.$i" 2>&1 || true
+    cli "$dir" "$@" > "$log.$i" 2>&1 || true
     cp "$log.$i" "$log"
     if grep -qF "$text" "$log"; then
-      echo "ok - $dir: DM read on attempt $i, $((SECONDS - start))s after the first"
+      echo "ok - $dir: $what read on attempt $i, $((SECONDS - start))s after the first"
       return 0
     fi
-    echo "  $dir: attempt $i did not show the DM ($((SECONDS - t))s): $(tail -n 1 "$log")"
+    echo "  $dir: attempt $i did not show the $what ($((SECONDS - t))s): $(tail -n 1 "$log")"
     sleep $((i * 5))
   done
   return 1
 }
+
+# read_dm LOG DIR PERSONA TEXT: reads the persona's DM inbox until TEXT shows up.
+read_dm() { read_until "$1" "$2" "$4" DM dm inbox --persona "$3"; }
 
 # --- secure-relay .onion: channel message published and read back
 cli secure persona create --label tor-secure --relay "ws://$SECURE_ONION" --tor --high-risk > "$OUT/secure.persona.json" || fail "persona create (secure-relay onion)"
@@ -168,8 +204,9 @@ S=$(persona_id "$OUT/secure.persona.json")
 TEXT="tor profile check $(date +%s)"
 send_with_retry "$OUT/secure.send.log" secure "$S" channel send --persona "$S" --group tor-check "$TEXT" ||
   fail "channel message to the secure-relay .onion was not accepted (see $OUT/secure.send.log)"
-cli secure channel read --persona "$S" --group tor-check | tee "$OUT/secure.read.log" || true
-grep -qF "$TEXT" "$OUT/secure.read.log" || fail "the message published to the secure-relay .onion was not read back through Tor"
+read_until "$OUT/secure.read.log" secure "$TEXT" "channel message" channel read --persona "$S" --group tor-check ||
+  fail "the message published to the secure-relay .onion was not read back through Tor (see $OUT/secure.read.log.*)"
+cat "$OUT/secure.read.log"
 echo "ok - secure-relay .onion: published and read back through the compose Tor SOCKS port"
 
 # --- secure-relay .onion: NIP-17 DM from the Tor persona above to a second one, read back by the recipient

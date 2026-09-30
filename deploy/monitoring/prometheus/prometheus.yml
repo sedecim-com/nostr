@@ -55,8 +55,9 @@ scrape_configs:
     scrape_interval: 30s
     scrape_timeout: 10s
     static_configs:
-      - targets: ['http://relay:8080/_readiness']
-        labels: { service: relay, module: http_2xx }
+      # Buzz: /_status and its dependencies, not /_readiness (process only since 8519db1, docs/buzz-integration.md).
+      - targets: ['http://relay:8080/_status']
+        labels: { service: relay, module: http_buzz_status }
       - targets: ['http://secure-relay:8080/']
         labels: { service: secure-relay, module: http_nip11 }
       - targets: ['http://indexer:8081/health']

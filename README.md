@@ -41,22 +41,22 @@ Cada fila tiene el nivel de evidencia más bajo que alcanzan todas sus tareas de
 
 | Perfil o capacidad | Tipo | Nivel de evidencia | Tareas hechas | Abiertas (sprint) |
 |---|---|---|---:|---|
-| convenience (SaaS) | Perfil | En curso | 9 de 15 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR004-02 (S11), NFR001-04 (S11) y 3 más |
+| convenience (SaaS) | Perfil | En curso | 10 de 15 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR004-02 (S11), NFR001-04 (S11) y 2 más |
 | private-resilient | Perfil | En curso | 13 de 14 | VAULT-07 (S10) |
-| institutional | Perfil | En curso | 10 de 14 | FR024-03 (S10), FR023-10 (S10), FR024-05 (S10), FR023-13 (S10) |
+| institutional | Perfil | Merged | 14 de 14 | — |
 | sovereign (self-hosted) | Perfil | En curso | 9 de 10 | NFR003-03 (S11), NFR003-04 (Diferido) |
-| sovereign-tor | Perfil | En curso | 4 de 7 | FR020-02 (Diferido), FR025-12 (S10), FR020-05 (S10), FR020-06 (Diferido), OPS-21 (S9) |
+| sovereign-tor | Perfil | En curso | 6 de 7 | FR020-02 (Diferido), FR020-06 (Diferido), OPS-21 (S9) |
 | Identidad, personas y custodia en el dispositivo | Capacidad | En curso | 27 de 29 | FR003-06 (S9), FR003-07 (S9), FR006-04 (Diferido), FR004-08 (Diferido) |
-| Custodia gestionada y Nitro Enclave | Capacidad | En curso | 12 de 16 | FR005-05 (S14), FR026-04 (S11), FR005-13 (S11), FR005-11 (S10), FR005-09 (Diferido) y 1 más |
-| Entrega fiable (outbox, quorum, acuses) | Capacidad | En curso | 17 de 20 | NFR002-03 (S11), FR025-12 (S10), FR011-06 (S10) |
+| Custodia gestionada y Nitro Enclave | Capacidad | En curso | 13 de 16 | FR005-05 (S14), FR026-04 (S11), FR005-13 (S11), FR005-09 (Diferido), FR005-10 (Diferido) |
+| Entrega fiable (outbox, quorum, acuses) | Capacidad | En curso | 19 de 20 | NFR002-03 (S11) |
 | DMs NIP-17 y canales NIP-29 | Capacidad | Merged | 8 de 8 | — |
 | Grupos Marmot/MLS | Capacidad | Merged | 9 de 9 | FR025-08 (Diferido), FR025-14 (Diferido) |
 | Continuity Vault | Capacidad | En curso | 6 de 7 | VAULT-07 (S10) |
 | Adjuntos Blossom sin metadatos | Capacidad | Merged | 8 de 8 | — |
-| Panel de soberanía, madurez y disclosures | Capacidad | En curso | 4 de 7 | FR028-02 (S13), VAULT-07 (S10), PANEL-07 (S9), NFR007-03 (Diferido) |
+| Panel de soberanía, madurez y disclosures | Capacidad | En curso | 5 de 7 | FR028-02 (S13), VAULT-07 (S10), NFR007-03 (Diferido) |
 | Notificaciones push | Capacidad | Merged | 2 de 2 | DEC-13 (Diferido) |
-| Sin telemetría ni secretos en los logs | Capacidad | En curso | 6 de 7 | NFR006-04 (S10) |
-| Releases firmados, SBOM e imágenes reproducibles | Capacidad | En curso | 2 de 5 | FR003-06 (S9), NFR010-02 (S9), NFR010-04 (S9) |
+| Sin telemetría ni secretos en los logs | Capacidad | Merged | 7 de 7 | — |
+| Releases firmados, SBOM e imágenes reproducibles | Capacidad | En curso | 3 de 5 | FR003-06 (S9), NFR010-02 (S9) |
 | Accesibilidad | Capacidad | En curso | 1 de 2 | NFR009-02 (S10) |
 <!-- status:end -->
 

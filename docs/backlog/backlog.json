@@ -2593,9 +2593,10 @@
     "FR024-05"
    ],
    "sprint": "S10",
-   "status": "Parcial",
-   "evidence": "Managed-signer: sesiones ligadas a dispositivo (POST /v1/device-sessions, solo hash), POST /v1/devices/:id/revoke (tokens MANAGED_SIGNER_REVOCATION_TOKENS) que borra sus sesiones y bloquea nuevas; el worker lo propaga desde la auditoría del policy-engine. Bunker NIP-46: revokeDevice/revokeClient y rotación del secreto. Tests: devices-limits.test.ts, signer.test.ts, device-loss.test.ts. Reabierta por la revisión del 27/09/2026: el propagador pierde revocaciones (B2, FR024-04) y la web no usa sesiones de dispositivo (FR024-05).",
-   "issue": 169
+   "status": "Hecho",
+   "evidence": "Commit f8dfaa5 (PR #365):\n\n- Web: la persona gestionada liga su sesión del managed-signer al dispositivo que la organización registró en el policy-engine (`BrowserManagedSession.bindDevice`, `organizationDevices` en config.json).\n- Al revocar ese dispositivo, el managed-signer tira la sesión y no deja abrir otra ni con el login; la web lo explica (`DeviceRevokedError`).\n- Tests:\n  - tests/browser/web-saas.e2e.ts, con el policy-engine real y el feed del worker: el navegador vinculado deja de firmar tras la revocación y el otro navegador de la persona sigue;\n  - apps/web-saas/test/managed-session.test.ts, contra el managed-signer real.\n- Docs: docs/institutional.md («Navegadores como dispositivos de la organización») y docs/runbooks/device-loss.md.\n\nCommit 35bc287 (PR #364), FR024-05:\n\n- El worker de rotaciones corre como servicio (compose y k8s) y lleva cada revocación al managed-signer sin que nadie ejecute el CLI.\n\nAntes (PR #214 y FR024-04):\n\n- Managed-signer: sesiones ligadas a dispositivo (`POST /v1/device-sessions`, solo hash) y `POST /v1/devices/:id/revoke` (tokens `MANAGED_SIGNER_REVOCATION_TOKENS`), que borra sus sesiones y bloquea nuevas.\n- Bunker NIP-46: revokeDevice/revokeClient y rotación del secreto.\n- El propagador lee `GET /v1/revocations` sin perder revocaciones.\n- Tests: devices-limits.test.ts, signer.test.ts, device-loss.test.ts.",
+   "issue": 169,
+   "evidenceState": "merged"
   },
   {
    "id": "NFR001-01",
@@ -3135,7 +3136,7 @@
    "sp": 3,
    "deps": [],
    "sprint": "S9",
-   "status": "Pendiente",
+   "status": "Hecho",
    "evidence": "El payload sellado del mirror lleva como AAD `acceso-nostr/mirror/v2/<event_id>` y `seal_version` 2 (migración `services/indexer/migrations/005_seal_version.sql`): movido a otra fila no autentica, y no se puede leer como el formato sin AAD. Toda lectura exige además que el evento sea el que nombra el `event_id` de su fila. Las filas selladas antes se siguen leyendo, solo en su propia fila, y el indexer las vuelve a sellar al arrancar (`PgEventRepository.resealLegacy`, seguro con varias réplicas). Tests en `services/indexer/test/seal.test.ts`: intercambio entre filas en Postgres, y un mirror en las migraciones 001–004 con filas antiguas (una manipulada) actualizado a 005 y re-sellado. IR-2026-09-15 queda Corregido en `docs/security/internal-review-2026-09.md`; actualizados el inventario criptográfico y los threat models. Commit 39c456c (PR #329).",
    "issue": 222,
    "evidenceState": "merged"
@@ -3153,8 +3154,8 @@
     "SEC-03"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "`packages/nostr-core/test/nip44-vectors.test.ts` corre el `nip44.vectors.json` oficial completo, tras comprobar su SHA-256 publicado en la NIP. `packages/nostr-core/test/vectors/generate.ts` escribe `nip49.vectors.json` y `nip59.vectors.json` de forma determinista con `@noble`: el vector de NIP-49, NFKC, casos válidos con sal y nonce e inválidos; un DM NIP-59 y su copia, y cinco rechazos. `nip49-vectors.test.ts` y `packages/messaging/test/nip59-vectors.test.ts` los validan contra el SDK, y otra prueba exige que coincidan con el generador. El formato está en el README de la carpeta. Commit 8cee819 (PR #334).",
    "issue": 223,
    "evidenceState": "merged"
   },
@@ -3639,9 +3640,10 @@
     "OPS-17"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 250
+   "status": "Hecho",
+   "evidence": "Commit 2914c0b (PR #338):\n\n- scripts/traceability.mjs genera docs/requirements-traceability.md y docs/status.md desde backlog.json (los issues) y desde los tests que citan cada tarea o requisito.\n- `--check` falla si no están al día o si la evidencia de una tarea no Pendiente cita un archivo, una prueba, un commit (de main si está Hecha) o un ADR que no existe.\n- Job `traceability` de CI con la historia completa, exigido por el gate de release; backlog-sync los regenera y comprueba.\n- `pull` guarda el nivel `evidencia:*` de cada issue y el tablero lo cuenta.\n- Tests: tests/scripts/traceability.test.ts, tests/scripts/backlog-github.test.ts. Reglas para citar: docs/backlog/GITHUB.md.",
+   "issue": 250,
+   "evidenceState": "merged"
   },
   {
    "id": "NFR003-03",
@@ -3709,9 +3711,10 @@
     "FR023-04"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 254
+   "status": "Hecho",
+   "evidence": "Commit bbdb81e (PR #367):\n\n- Policy-engine: `GET /v1/relay/grants`, por cada recurso `channel` y `group`, las pubkeys del allowlist que pueden publicar en él. Se calcula con `evaluate` sin registrar accesos.\n- Relay seguro: la admisión gRPC de `relay-allowlist` deniega por `h` a quien no puede publicar en un recurso registrado (`restricted: not allowed to publish in <h>`), con fail closed hasta leer los permisos.\n- Buzz: con `BUZZ_MEMBERSHIP_NSEC`, `relay-allowlist` hace que la membresía NIP-29 de los canales privados registrados siga a la política (kinds 9000/9001). El estado 39000–39002 se verifica con la llave del relay.\n- Worker de rotaciones: acepta el `nostr_group_id` (el `h` que ven los relays); el CLI lo muestra como `h=`.\n- Tests:\n  - `services/policy-engine/test/policy-engine.test.ts`, `services/policy-engine/test/allowlist-sync.test.ts`, `services/policy-engine/test/membership-sync.test.ts`, `tests/fuzz/nauthz-proto.test.ts`;\n  - `tests/interop/institutional.interop.test.ts` (test de denegación contra el nostr-rs-relay real y, en el job `stack`, contra Buzz).\n- Docs: `docs/institutional.md` («Publicar por recurso en los relays»), `docs/buzz-integration.md` y `docs/threat-model.md`.",
+   "issue": 254,
+   "evidenceState": "merged"
   },
   {
    "id": "FR005-13",
@@ -3806,8 +3809,8 @@
     "PANEL-05"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Hecho",
+   "evidence": "Catálogo único en `packages/profiles/src/maturity.ts` (`maturity.test.ts`): Grupos Marmot Beta, sovereign-tor y push Experimental, enclave Preview, nada GA antes de v1.0, y `configMaturity` nunca deja private-resilient por encima de Beta sin Continuity Vault en el despliegue; coincide con `deploy/production-gates.json` en enclave y push. Web: `MaturityChip` en el panel, grupos, notificaciones y custodia gestionada (`web-saas.e2e.ts`, `web-groups.e2e.ts`). CLI: `sovereign maturity` y la línea de madurez de `whoami` (`tor-hardening.test.ts`). README y notas: tabla generada por `scripts/maturity.ts` (`--check` en CI), y el gate de release exige en las notas del tag la del README (`release-gate.test.ts`). NIP-17 ya se habilita solo con el gate de interop (`apps/web-saas/src/views/Workspace.tsx`, `apps/sovereign-client/src/cli.ts`). Commit a96580a (PR #337).",
    "issue": 259,
    "evidenceState": "merged"
   },
@@ -3825,9 +3828,10 @@
     "PANEL-07"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 260
+   "status": "Hecho",
+   "evidence": "Commit 6c684bc (PR #341):\n\n- README.md sin checkmarks: la sección «Estado por perfil y capacidad» la genera scripts/traceability.mjs desde los issues.\n  - Da el nivel de evidencia de cada perfil y capacidad (el más bajo de sus tareas; «En curso» mientras falte alguna), sus tareas hechas y abiertas.\n  - Lleva la advertencia de no aptitud para alto riesgo mientras nada tenga auditoría externa.\n- Filas en `meta.capabilities` de docs/backlog/backlog.json, validadas por scripts/backlog.mjs.\n- El job `traceability` falla si el bloque no está al día; backlog-sync lo regenera.\n- Tests: tests/scripts/traceability.test.ts.",
+   "issue": 260,
+   "evidenceState": "merged"
   },
   {
    "id": "NFR010-04",
@@ -3842,9 +3846,10 @@
     "NFR010-01"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 261
+   "status": "Hecho",
+   "evidence": "Commit 2b9f533 (PR #339):\n\n- Dockerfile: la imagen de los servicios sale de una instalación `npm ci --omit=dev` (etapa prod-deps); tsx pasa a dependencia.\n- scripts/image-sbom.sh hace el SBOM de la propia imagen con syft (versión y checksum fijados), y scripts/image-sbom-check.mjs falla si un paquete npm de /app es solo de desarrollo en package-lock.json.\n- .github/workflows/reproducible-images.yml lo hace en cada PR que toca las imágenes.\n- .github/workflows/release.yml atesta el SBOM de cada imagen (tor incluida) y el de la imagen de Buzz fijada (sbom-buzz.cdx.json); scripts/verify-release.sh los verifica.\n- Tests: tests/scripts/image-sbom.test.ts. En local, la imagen indexer real pasa el check (272 paquetes, ninguno de desarrollo), falla con vitest añadido, y los siete servicios arrancan desde ella.",
+   "issue": 261,
+   "evidenceState": "merged"
   },
   {
    "id": "OPS-13",
@@ -3859,9 +3864,10 @@
     "OPS-05"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 262
+   "status": "Hecho",
+   "evidence": "Commit b6dacdb (PR #340):\n\n- Todas las acciones de los workflows van por SHA con la versión en un comentario.\n- Las imágenes de terceros van por digest en:\n  - docker-compose.yml;\n  - los servicios de CI;\n  - deploy/k8s/base/kustomization.yaml;\n  - deploy/monitoring/kustomization.yaml;\n  - deploy/k8s/scripts/mirror-ecr-deps.sh.\n- gitleaks y promtool se contrastan con el sha256 de su release.\n- .github/dependabot.yml cubre infra/tor y docker-compose.\n- npm audit es gate en el job test.\n- `release-gate.mjs codeql` exige el análisis de CodeQL y ninguna alerta alta o crítica abierta.\n- Tests: tests/scripts/supply-chain.test.ts, tests/scripts/release-gate.test.ts. Docs: docs/building.md, docs/release-checklist.md.\n\nCommit 2dd47a0 (PR #352) corrige la configuración de Dependabot:\n\n- ignora Buzz por el nombre que Dependabot usa (`block/buzz`, sin registro), porque su pin sigue el gate de buzz-upstream.yml (ADR 0003);\n- no propone versiones mayores de postgres ni de redis, que exigen migrar datos.",
+   "issue": 262,
+   "evidenceState": "merged"
   },
   {
    "id": "NFR002-03",
@@ -3893,9 +3899,10 @@
     "FR005-04"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 264
+   "status": "Hecho",
+   "evidence": "Commit d31efb7 (PR #362):\n\n- services/managed-signer: el usuario lista sus sesiones de dispositivo (`GET /v1/device-sessions`) y las cierra (`DELETE /v1/device-sessions/:id`, o todas menos una con `?except=`). Nunca se ven tokens ni sesiones ajenas, y cerrar una sesión no revoca el dispositivo. Migración 004.\n- packages/signer: `ManagedSignerClient` con `listDeviceSessions`, `closeDeviceSession(s)`, `usage()` y renovación de la sesión ante un 401.\n- Web:\n  - la persona gestionada firma por una sesión de dispositivo del navegador, abierta con el login de Acceso;\n  - «Recuperar mi persona gestionada» reabre en un navegador nuevo la llave que ya existe (misma npub, ninguna llave nueva);\n  - la tarjeta «Actividad de tu llave gestionada» muestra el log de uso y las sesiones, con «Cerrar» y «Cerrar las demás sesiones».\n- Tests:\n  - services/managed-signer/test/own-sessions.test.ts;\n  - registry.test.ts (memoria y Postgres);\n  - tests/browser/web-saas.e2e.ts, con el managed-signer en modo estricto: un navegador nuevo recupera la persona, firma y cierra la sesión del otro.\n- Docs: docs/architecture.md («Custodia gestionada: sesiones del navegador y recuperación»).",
+   "issue": 264,
+   "evidenceState": "merged"
   },
   {
    "id": "FR024-05",
@@ -3911,9 +3918,10 @@
     "FR024-04"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 265
+   "status": "Hecho",
+   "evidence": "Commit 35bc287 (PR #364):\n\n- services/rotation-worker: el worker de rotaciones como servicio:\n  - estado MLS cifrado con `ROTATION_STATE_KEY` en su volumen;\n  - entra en los grupos que lo tienen como admin, saca a los miembros revocados y propaga las revocaciones de dispositivo al managed-signer;\n  - `GET /health` con el error de cada paso.\n- compose (perfil `institutional`, volumen `rotation-state`) y k8s `components/institutional` (1 réplica `Recreate`, PVC, Service); init-env, stack-profiles, wait-stack, backup/restore y generate-secret.\n- El worker lee el policy-engine con su token de servicio (`GET /v1/rotations` lo acepta): ya no es admin del engine.\n- Web: con `rotationWorker` en config.json, los grupos nuevos lo tienen como admin, lo invitan y lo muestran.\n- docs/runbooks/device-loss.md; docs/institutional.md («Worker de rotaciones»).\n- Tests:\n  - services/rotation-worker/test/service.test.ts (relay con NIP-42 y URL pública, policy-engine y managed-signer reales, reinicio sobre el mismo estado);\n  - packages/rotation-worker/test/service.test.ts;\n  - tests/browser/web-groups.e2e.ts;\n  - tests/scripts (deploy-manifests, init-env, stack-profiles);\n  - CI `stack`: `wait-stack.sh` espera al primer ciclo sin errores.\n\nCommit d31efb7 (PR #362):\n\n- La persona gestionada de la web firma por una sesión de dispositivo revocable (`BrowserManagedSession`), también con `MANAGED_SIGNER_REQUIRE_DEVICE_SESSION=true` (tests/browser/web-saas.e2e.ts).",
+   "issue": 265,
+   "evidenceState": "merged"
   },
   {
    "id": "FR023-12",
@@ -3928,9 +3936,10 @@
     "FR023-08"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 266
+   "status": "Hecho",
+   "evidence": "Commit 5888e20 (PR #363):\n\n- policy-engine:\n  - las decisiones de `POST /v1/evaluate` van a `policy_access_log` (migración 003), no a la auditoría append-only. `GET /v1/access-log` (admin) las lista;\n  - se podan a los `ACCESS_LOG_RETENTION_DAYS` días (90), salvo las de recursos con legal hold; con un hold sobre un espacio de trabajo no se poda nada;\n  - la migración copia al registro las decisiones que ya estaban en la auditoría, que no se tocan.\n- Legal hold solo donde el modelo lo permite: `PUT /v1/retention` sobre un grupo MLS responde 409, y una política que quedara sobre un grupo ni se aplica ni se lista.\n- indexer: en modo institucional las versiones que reemplaza un evento reemplazable o direccionable pasan a `events_superseded` (migración 006), también las que llegan fuera de orden. La retención borra las que no cubre ningún legal hold.\n- Consola: pantalla «Accesos» y «No aplica» para los grupos en «Retención».\n- Tests:\n  - services/policy-engine/test/policy-engine.test.ts (memoria y Postgres, incluida la actualización de una base existente);\n  - services/indexer/test/indexer.test.ts, bloque «Retention» (memoria y Postgres);\n  - tests/browser/admin-console.e2e.ts;\n  - tests/e2e/institutional-policy.test.ts.\n- Docs: docs/institutional.md («Qué cubre y qué no»), docs/admin-console.md, docs/architecture.md.",
+   "issue": 266,
+   "evidenceState": "merged"
   },
   {
    "id": "FR023-13",
@@ -3945,9 +3954,10 @@
     "OPS-07"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 267
+   "status": "Hecho",
+   "evidence": "Commit f2c1557 (PR #359), con el arreglo que encontró en f36dfd1 (PR #358):\n\n- tests/browser/admin-console.e2e.ts: la consola corre contra `createPolicyApi` + `PolicyEngine` reales (repositorio en memoria, verificación WebAuthn real de la passkey) y lo que guarda cada acción se lee del motor. Se borra el stub del policy-engine que usaba antes la prueba.\n- Job `stack` de .github/workflows/ci.yml: reinicia el relay seguro con infra/secure-relay/config.institutional.toml y corre tests/interop/institutional.interop.test.ts contra el relay, relay-allowlist y el policy-engine reales. Una persona con dispositivo activo publica, una llave ajena recibe `restricted: pubkey not in the institutional allowlist` y, tras revocarla, deja de publicar.\n- Job `compose`: valida todos los perfiles (tor, managed, push, institutional) y el institucional con esa configuración del relay.\n- Job `deploy-config`: renderiza la base con deploy/k8s/components/institutional. tests/scripts/deploy-manifests.test.ts comprueba relay-allowlist con su token, el relay con `event_admission_server` y Buzz con su allowlist.\n- Encontrado en el camino: el relay institucional responde `blocked: auth-required: …` a un evento enviado antes del AUTH, y el outbox lo daba por FAILED. relay-pool y el delivery engine ya lo tratan como petición de NIP-42 (f36dfd1; tests en packages/relay-pool/test/pool.test.ts y packages/delivery-engine/test/engine.test.ts).",
+   "issue": 267,
+   "evidenceState": "merged"
   },
   {
    "id": "FR011-05",
@@ -3962,9 +3972,10 @@
     "FR011-01"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 268
+   "status": "Hecho",
+   "evidence": "Commit 6c85360 (PR #356):\n\n- packages/delivery-engine/src/engine.ts:\n  - `submit` se serializa por opId y un submit repetido reenvía la operación;\n  - `submitOnce(opId, build)` construye el evento solo la primera vez.\n- packages/messaging/src/messenger.ts y packages/messaging/src/operations.ts:\n  - `sendDmOnce` y `sendFileOnce` guardan el rumor en el store cifrado de la persona antes de crear ningún seal o wrap;\n  - cada wrap va al outbox como `<operación>:<pubkey>`, y un reintento solo crea los que falten;\n  - otro texto con el mismo id se rechaza.\n- Web: apps/web-saas/src/lib/outbox.ts (`SendOperation`) en DmView y ChannelsView.\n- CLI: `--op` en `dm send` y `channel send`, con el id impreso antes de enviar.\n- Tests:\n  - packages/delivery-engine/test/engine.test.ts;\n  - packages/messaging/test/operations.test.ts;\n  - apps/sovereign-client/test/operation-id.test.ts, con procesos reales del CLI;\n  - apps/web-saas/test/send-operation.test.ts.\n- Docs: docs/architecture.md.",
+   "issue": 268,
+   "evidenceState": "merged"
   },
   {
    "id": "FR025-12",
@@ -3979,9 +3990,10 @@
     "FR025-11"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 269
+   "status": "Hecho",
+   "evidence": "Commit 228d079 (PR #361):\n\n- packages/marmot-adapter/src/marmot-ts.ts: lo que ningún relay toma queda pendiente, sellado con el estado MLS (`mls-outbox`), y sale en la siguiente sincronización o con `retryPending`.\n  - Mensajes: se reenvía el mismo cifrado; si cambia la época, se vuelve a cifrar.\n  - Commits: los construye el adaptador y guarda el evento, el estado al que llevan y los Welcomes. Así se aplica un commit que un relay guardó sin OK (orden MIP-03), o se reconstruye si otro ganó la época.\n  - Nada adelanta a un commit pendiente.\n- CLI: `group pending|retry|discard`; lo pendiente sale al final de cualquier comando de la persona. Web: la vista de grupos lo lista y lo reintenta en cada sondeo y al volver la conexión.\n- Tests:\n  - packages/marmot-adapter/test/group-outbox.test.ts (mensaje sin red, cambio de época, expulsión sin red, OK perdido, carrera de commits, Welcome, rechazo definitivo; cada mecanismo con su prueba de mutación);\n  - apps/sovereign-client/test/groups.test.ts (persona Tor-only con el proxy SOCKS caído);\n  - tests/browser/web-groups.e2e.ts (navegador sin red y de vuelta);\n  - packages/marmot-adapter/test/multidevice.test.ts (`rejoin` pendiente).\n- Docs: docs/marmot.md («Sin red: mensajes y commits pendientes»).",
+   "issue": 269,
+   "evidenceState": "merged"
   },
   {
    "id": "FR020-05",
@@ -3996,9 +4008,10 @@
     "FR020-03"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 270
+   "status": "Hecho",
+   "evidence": "Commit 3ed7746 (PR #366):\n\n- `scripts/leak-test.sh`, fase `tor-groups`: dos personas Tor, cada una con su directorio de datos, trabajan solo por el proxy SOCKS mientras se captura el enlace.\n  - MLS por Tor: key package, grupo, invitación, mensaje y lectura.\n  - Media del grupo (MIP-04) en un Blossom `.onion`: la otra persona lo baja y descifra idéntico.\n  - DM NIP-17 y `dm inbox`.\n  - `group rotation-worker --once` contra un policy-engine `.onion` (NIP-98) que saca a la persona revocada.\n- Veredicto: cero DNS, cero IPv6 y nada fuera del proxy; cada CONNECT con las credenciales de su persona (`--all-personas`, `--socks-allow` en `tests/leak/check.ts`).\n- `scripts/mls-negative-control.sh`, en el job `leak-tests`: con ts-mls 2.0.0-rc.10 (tarball fijado por integridad), la autoprueba (`tests/security/mls-selftest.ts`) debe fallar cerrada; restaurado, debe pasar.\n- Tests: `tests/leak/leak.test.ts` (dos personas, aislamiento y hosts extra).\n- Docs: `docs/sovereign-tor.md`, `docs/marmot.md` y `docs/threat-model.md`.",
+   "issue": 270,
+   "evidenceState": "merged"
   },
   {
    "id": "NFR006-04",
@@ -4013,9 +4026,10 @@
     "NFR006-03"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 271
+   "status": "Hecho",
+   "evidence": "Commit 04c315d (PR #357):\n\n- scripts/stack-profiles.sh:\n  - `configure` activa los cuatro perfiles con secretos generados que el escaneo conoce: KEK del signer, nsec y llave VAPID del gateway, token del allowlist.\n  - `exercise` envía una credencial canario a managed-signer, notification-gateway, policy-engine e identity-service.\n  - `logged` exige que cada servicio del stack salga en el log escaneado.\n- scripts/wait-stack.sh espera a los servicios de los perfiles activos.\n- .github/workflows/ci.yml: el job stack usa las tres órdenes.\n- En la ejecución de la PR:\n  - todos los servicios aparecen en compose.log (managed-signer, notification-gateway, relay-allowlist, tor, secure-relay-onion y el stack base);\n  - gitleaks escaneó 274 KB;\n  - el canario comprobó 15 valores secretos sin hallazgos.\n- Tests: tests/scripts/stack-profiles.test.ts.",
+   "issue": 271,
+   "evidenceState": "merged"
   },
   {
    "id": "FR011-06",
@@ -4030,9 +4044,10 @@
     "FR011-03"
    ],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 272
+   "status": "Hecho",
+   "evidence": "Commit 616cf78 (PR #355): se retira del monitoreo del SaaS.\n\n- Motivo: los outboxes están en los clientes (web y CLI), que no envían telemetría al SaaS. El único exportador desplegado, el indexer, no tiene outbox y publicaba `nostr_outbox_*` a cero.\n- packages/metrics/src/exporter.ts registra las métricas de outbox solo al conectar un DeliveryEngine (attachEngine).\n- deploy/monitoring/prometheus/rules/relay-latency.rules.yml queda sin la alerta ni la regla de outbox. También salen sus tests de promtool y los paneles de outbox del dashboard.\n- docs/slo.md explica por qué.\n- Tests:\n  - packages/metrics/test/metrics.test.ts: sin motor no hay métricas de outbox; con motor, sí.\n  - tests/scripts/deploy-manifests.test.ts: ninguna regla ni dashboard del SaaS usa métricas de outbox.",
+   "issue": 272,
+   "evidenceState": "merged"
   },
   {
    "id": "DEC-15",
@@ -4045,8 +4060,8 @@
    "sp": 1,
    "deps": [],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Commit 8243e88 (PR #354): docs/adr/0012-estructura-de-repositorios.md, en estado Propuesto.\n\n- Mapea cada repositorio del scope a su directorio: platform, nostr-sdk, sovereign, key-tool, buzz-fork (no existe, ADR 0002) y security-specs.\n- Justifica un solo repositorio y una sola versión por release:\n  - los cambios cruzan SDK, servicios y clientes;\n  - hay un gate de interop y un release con su DoD;\n  - la cadena de suministro se configura una vez;\n  - los threat models y los vectores se versionan con el código.\n- Recoge sus costes y cuándo reabrir la decisión.\n\nFalta: que el responsable de producto lo apruebe (estado Aceptado en el ADR y en docs/adr/README.md). Con eso, la tarea se cierra.",
    "issue": 273
   },
   {
@@ -4060,8 +4075,8 @@
    "sp": 5,
    "deps": [],
    "sprint": "S10",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Commit 8617474 (PR #368):\n\n- SDK: referencia con TypeDoc de los 20 paquetes (`npm run docs:api`, portada en `docs/sdk.md`), que falla con cualquier aviso. En CI, el job `docs` la genera y la sube como artefacto `sdk-api-reference`.\n- APIs: OpenAPI 3.1 de los 9 servicios en `docs/openapi/`, generado desde las rutas que registra cada servicio (`Service.describe()` de service-kit y `scripts/openapi.ts`). `--check`, en el job `docs`, falla si los documentos no están al día, si una ruta no tiene resumen o si un resumen no tiene ruta.\n- ADR 0013 (`docs/adr/0013-distribucion-del-sdk.md`, **Propuesto**): los 15 paquetes de cliente se publican en npm bajo `@sedecim`, como ESM con `.d.ts`, desde `release.yml` con Trusted Publishing y provenance.\n  - Falta que lo apruebe el responsable de producto. Según `docs/adr/README.md`, esa aprobación es la que cierra la tarea, así que hasta entonces queda Parcial.\n- Tests: `tests/scripts/openapi.test.ts`.",
    "issue": 274
   },
   {
@@ -4528,7 +4543,7 @@
    "epic": "OPS · Despliegue y DevSecOps",
    "req": "FR-021 (FR021-02)",
    "title": "El job tor-profile no falla por la latencia de Tor",
-   "done": "scripts/tor-profile-check.sh no envía el DM hasta que el 10050 del destinatario está REPLICATED y da a cada lectura por Tor el margen de un circuito lento; si aun así falla, el log dice en qué paso y tras cuánto tiempo; el job tor-profile pasa en 5 ejecuciones seguidas",
+   "done": "scripts/tor-profile-check.sh no envía el DM hasta que el 10050 del destinatario está REPLICATED (en Buzz, que no acepta el kind 10050, hasta que el relay lo rechaza: ese DM va a los relays del emisor) y da a cada lectura por Tor el margen de un circuito lento; si aun así falla, el log dice en qué paso y tras cuánto tiempo; el job tor-profile pasa en 5 ejecuciones seguidas",
    "type": "Infra",
    "priority": "P1",
    "sp": 2,
@@ -4536,8 +4551,8 @@
     "FR021-02"
    ],
    "sprint": "S9",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Commits 090fd28, eec6291 y 8721843 (PR #336, merge 7f7246d):\n\n- relay-pool: con un challenge NIP-42 tardío se autentica y repite los REQ de gift wraps (packages/relay-pool/src/connection.ts; test con un enlace de 300 ms en packages/relay-pool/test/pool.test.ts).\n- CLI: 30 s por lectura en Tor (apps/sovereign-client/src/app.ts) y el motivo del relay cuando el 10050 queda FAILED (apps/sovereign-client/test/tor-hardening.test.ts).\n- scripts/tor-profile-check.sh:\n  - republica el 10050 mientras siga QUEUED; el secure relay lo acepta y Buzz lo rechaza con `restricted: unknown event kind`;\n  - relee el inbox hasta 8 veces y guarda cada intento con su duración.\n- tor-profile en verde en las 2 ejecuciones de la PR con el cambio completo (eec6291 y 8721843).\n\nCommits 6fc0ec6 y 57b1ce8 (PR #370, merge e974237):\n\n- scripts/tor-profile-check.sh:\n  - `read_until` repite también la relectura del mensaje del canal por el .onion. Antes era una sola lectura, y así falló en la PR #351.\n  - Si el arranque de Tor no avanza en 180 s (`TOR_CHECK_BOOTSTRAP_STALL`), guarda el log y reinicia tor una vez. En la PR #370, Tor se quedó cinco minutos en el 69 %.\n  - El arranque tiene su propio límite de 600 s (`TOR_CHECK_BOOTSTRAP_TIMEOUT`), y el fallo dice en qué porcentaje se quedó.\n- tor-profile en verde en la PR #370 con los dos cambios.\n\nFalta: 5 ejecuciones seguidas del job en verde.",
    "issue": 330
   },
   {
