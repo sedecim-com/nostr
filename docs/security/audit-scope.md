@@ -55,7 +55,7 @@ Preguntas concretas para el revisor:
    `sedecim-store-*`) y los backups (`BACKUP_AAD`)?
 3. ¿El tier enclave cumple lo que promete [docs/managed-enclave.md](../managed-enclave.md)? En especial: la
    verificación de attestation, el uso de `Recipient` de KMS, la ligadura del blob sellado a la pubkey y los
-   riesgos residuales ya conocidos (el padre puede pedir firmas y exportaciones, IR-2026-09-01).
+   riesgos residuales ya conocidos (el padre puede pedir firmas; en una exportación ve el token del dueño y la contraseña, IR-2026-09-01). Además, la verificación de la prueba del dueño dentro del enclave (`proof.ts`, FR005-09): ¿resisten las reglas del JWT (algoritmo fijo, llaves fijadas, `auth_time`, `jti`) y el reloj del NSM un padre hostil?
 4. ¿Los parsers escritos a mano (CBOR ×2, DER, CMS, protobuf nauthz, JPEG/PNG/WebP) resisten entradas
    adversariales? Hay fuzzing en `tests/fuzz`, pero no sustituye a una revisión.
 5. ¿Es sólida la integración con marmot-ts/ts-mls (versiones alpha/rc): almacenamiento del estado MLS,
@@ -110,7 +110,7 @@ Fronteras que más interesan:
 | F2 | Navegador → APIs (identity, policy, indexer, blob, gateway) | NIP-98 (kind 27235, ±60 s, `u`/`method`/`payload`, cada id una sola vez); Blossom kind 24242 | nsec; backups sin cifrar |
 | F3 | Navegador → managed-signer | Token Acceso (Cognito RS256) o sesión de dispositivo `sds_…` | Operaciones sobre llaves de otro dueño |
 | F4 | Servicios → servicios | Bearer por servicio (comparación en tiempo constante) | Privilegios de administrador |
-| F5 | managed-signer (padre) ⇄ enclave | vsock, sin autenticación de usuario dentro del enclave | nsec en claro hacia el padre |
+| F5 | managed-signer (padre) ⇄ enclave | vsock. Solo la exportación exige una prueba del dueño (token de Acceso verificado dentro del enclave, FR005-09); firmar y cifrar obedecen al padre | nsec en claro hacia el padre |
 | F6 | Enclave → KMS | TLS terminado en el enclave + attestation (PCR) en `Recipient` | Data keys en claro fuera del enclave |
 | F7 | notification-gateway → servicios push | VAPID (ES256), cifrado RFC 8291, allowlist de hosts | Contenido, remitente o recuento de mensajes |
 | F8 | Servicios → Postgres/Secrets Manager | Credenciales de servicio, TLS a RDS | Secretos de llaves fuera del vault |

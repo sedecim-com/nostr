@@ -7,6 +7,7 @@ import { deviceKeyAllowed, setProtection } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
 import { LinkPersonas } from './LinkPersonas';
 import { BlossomServers } from './BlossomServers';
+import { PublicProfileCard } from './Profile';
 import { ContinuityVault } from './ContinuityVault';
 import { RemoteSigner } from './RemoteSigner';
 import { CancelCustody, ClosedManagedKeys, ManagedActivity, ManagedOptIn, ManagedRecovery, MigrationWizard } from './ManagedCustody';
@@ -235,6 +236,7 @@ export function PersonasView() {
 
       {session && <LinkPersonas />}
       {session && <BlossomServers key={session.persona.id} />}
+      {session && <PublicProfileCard key={`profile-${session.persona.id}`} />}
       {session && cfg.continuityVault && <ContinuityVault key={session.persona.id} url={cfg.continuityVault} />}
       {session?.persona.managedKeyId && session.persona.custody === 'managed' && managedAvailable && <ManagedActivity key={session.persona.id} />}
       {session?.persona.managedKeyId && managedAvailable && <MigrationWizard key={session.persona.id} />}

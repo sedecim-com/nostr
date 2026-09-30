@@ -22,13 +22,23 @@ import type { SovereigntyConfig } from '@sedecim/profiles';
 import { LocalSigner } from '@sedecim/signer';
 import { MAX_BACKUP_LOG_N, openKeyBackup } from './key-backup';
 import type { AuditEntry, BackupContents, BackupPackage, BackupPackageV2, Compartment, IdentityLink, LinkVisibility, PersonaConfig } from './types';
+import { findReuse, UsageLedger, type PersonaUse, type ReusePersona, type ReuseWarning } from './usage';
 
 const BACKUP_AAD = utf8ToBytes('sedecim-identity-backup-v2');
 /** Persona-store collection used by the delivery engine's outbox (see apps/sovereign-client). */
 export const OUTBOX_COLLECTION = 'outbox';
 /** VAULT-02: persona-store collection holding the archive key of the Continuity Vault (ADR 0011). */
 const ARCHIVE_COLLECTION = 'archive';
+/** FR006-07: persona-store collection of its usage ledger (keyed tags, see usage.ts); never part of a backup. */
+const USAGE_COLLECTION = 'usage';
 const HEX32 = /^[0-9a-f]{64}$/;
+
+/** What recordUsage kept before FR006-07: one account-level list per persona, npubs and file hashes in clear. */
+interface LegacyUsage {
+  personaId: string;
+  contacts?: string[];
+  files?: string[];
+}
 
 function toBase64(bytes: Uint8Array): string {
   let s = '';
@@ -105,9 +115,13 @@ export class IdentityManager {
   private readonly personas: Collection<PersonaConfig>;
   private readonly links: Collection<IdentityLink>;
   private readonly audit: Collection<AuditEntry>;
-  private readonly usage: Collection<{ personaId: string; contacts: string[]; files: string[] }>;
+  /** Before FR006-07 only: moved to the persona ledgers and deleted on first use (see `migrateLegacyUsage`). */
+  private readonly legacyUsage: Collection<LegacyUsage>;
   /** VAULT-04: archive keys being made, so concurrent callers share one (see `archiveKey`). */
   private readonly creatingArchiveKeys = new Map<string, Promise<string>>();
+  /** FR006-07: one ledger per persona, so its key is made once. */
+  private readonly ledgers = new Map<string, Promise<UsageLedger>>();
+  private legacyMigrated?: Promise<void>;
 
   constructor(
     accountStore: EncryptedStore,
@@ -118,7 +132,7 @@ export class IdentityManager {
     this.personas = accountStore.collection('personas');
     this.links = accountStore.collection('links');
     this.audit = accountStore.collection('audit');
-    this.usage = accountStore.collection('usage');
+    this.legacyUsage = accountStore.collection('usage');
   }
 
   private async log(entry: Omit<AuditEntry, 'at'>) {
@@ -326,27 +340,64 @@ export class IdentityManager {
     return `Enviando como ${p.label} (${npub.slice(0, 12)}…${npub.slice(-4)}) · ${CUSTODY_BANNER[p.custody]} · ${network} · ${level}`;
   }
 
-  /** Record use of a contact/file by a persona so reuse across compartments can be warned about. */
-  async recordUsage(personaId: string, use: { contact?: string; fileHash?: string }): Promise<void> {
-    const u = (await this.usage.get(personaId)) ?? { personaId, contacts: [], files: [] };
-    if (use.contact && !u.contacts.includes(use.contact)) u.contacts.push(use.contact);
-    if (use.fileHash && !u.files.includes(use.fileHash)) u.files.push(use.fileHash);
-    await this.usage.put(personaId, u);
+  /** FR006-07: the persona's usage ledger, in its own store. */
+  private ledger(personaId: string): Promise<UsageLedger> {
+    let ledger = this.ledgers.get(personaId);
+    if (!ledger) {
+      ledger = this.openPersonaStore(personaId).then((store) => new UsageLedger(store.collection<string>(USAGE_COLLECTION)));
+      ledger.catch(() => this.ledgers.delete(personaId));
+      this.ledgers.set(personaId, ledger);
+    }
+    return ledger;
   }
 
-  /** §14.1: warn before reusing an identity, file or contact across high-risk compartments. */
-  async reuseWarnings(personaId: string, use: { contact?: string; fileHash?: string }): Promise<string[]> {
+  /**
+   * FR006-07: what recordUsage kept before (the npubs and file hashes of every persona in clear, in one account-level
+   * list) moves once to each persona's own ledger, as keyed tags, and is deleted.
+   */
+  private migrateLegacyUsage(): Promise<void> {
+    this.legacyMigrated ??= (async () => {
+      // A value that is not hex (never written by the clients) is dropped rather than blocking every later check.
+      const hex = (values: string[] | undefined) => (values ?? []).map((v) => String(v).toLowerCase()).filter((v) => HEX32.test(v));
+      for (const { id, value } of await this.legacyUsage.all()) {
+        if (value?.personaId && (await this.personas.get(value.personaId))) {
+          const ledger = await this.ledger(value.personaId);
+          for (const contact of hex(value.contacts)) await ledger.record({ contact });
+          for (const fileHash of hex(value.files)) await ledger.record({ fileHash });
+        }
+        await this.legacyUsage.delete(id);
+      }
+    })();
+    this.legacyMigrated.catch(() => (this.legacyMigrated = undefined));
+    return this.legacyMigrated;
+  }
+
+  /**
+   * FR006-07: notes that the persona used a contact (hex pubkey) and/or a file (`fileDigest`), in its own ledger, so
+   * that another persona using them later is warned first.
+   */
+  async recordUsage(personaId: string, use: PersonaUse): Promise<void> {
+    await this.get(personaId);
+    await this.migrateLegacyUsage();
+    await (await this.ledger(personaId)).record(use);
+  }
+
+  /**
+   * FR006-07 (spec §14.1): what using `use` from this persona would cross with the other personas of this account: a
+   * contact or a file another persona already used (whatever the compartments), and, when one of the two is high-risk,
+   * writing to another of your own identities. Nothing is recorded: the caller confirms, then calls `recordUsage`.
+   */
+  async reuseCheck(personaId: string, use: PersonaUse): Promise<ReuseWarning[]> {
     const me = await this.get(personaId);
-    const warnings: string[] = [];
-    for (const p of await this.list()) {
-      if (p.id === personaId) continue;
-      if (me.compartment !== 'high-risk' && p.compartment !== 'high-risk') continue;
-      if (use.contact === p.pubkey) warnings.push(`El contacto es otra de tus identidades (${p.label}): usarlo puede correlacionar ambas.`);
-      const u = await this.usage.get(p.id);
-      if (use.contact && u?.contacts.includes(use.contact)) warnings.push(`Este contacto ya se usó desde la persona "${p.label}" (compartimento ${p.compartment}).`);
-      if (use.fileHash && u?.files.includes(use.fileHash)) warnings.push(`Este archivo ya se compartió desde la persona "${p.label}": reutilizarlo puede vincular identidades.`);
-    }
-    return warnings;
+    await this.migrateLegacyUsage();
+    const ref = (p: PersonaConfig): ReusePersona => ({ id: p.id, label: p.label, pubkey: p.pubkey, highRisk: p.compartment === 'high-risk' });
+    const others = (await this.list()).filter((p) => p.id !== me.id).map(ref);
+    return findReuse(ref(me), others, (id) => this.ledger(id), use);
+  }
+
+  /** The messages of `reuseCheck`. */
+  async reuseWarnings(personaId: string, use: PersonaUse): Promise<string[]> {
+    return (await this.reuseCheck(personaId, use)).map((w) => w.message);
   }
 
   /** Persist the persona's sovereignty/privacy panel configuration in its own compartment (PANEL-03). */
