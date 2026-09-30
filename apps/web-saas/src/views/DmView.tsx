@@ -6,7 +6,8 @@ import { getTagValue, normalizePubkey } from '@sedecim/nostr-core';
 import { BUZZ_PINNED_ADAPTER, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
 import { cappedQuorumNotice, fileKey, SendOperation } from '../lib/outbox';
-import { shortNpub } from '../lib/session';
+import { authorLabel, lookupDmCorrespondents } from '../lib/profiles';
+import { AuthorAvatar, AvatarsToggle, useProfiles } from './Profile';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 import { useReuseConfirm } from './ReuseConfirm';
 
@@ -26,6 +27,9 @@ export function DmView() {
   const wrapOpts = wrapOptionsFromFlags(flags, BUZZ_PINNED_ADAPTER.wrap);
   const messenger = () => new DirectMessenger(s.signer, { nip17, readReceipts: config.readReceipts }, wrapOpts);
   const { inbox, messages, background } = ws.dm;
+  // FR006-04: the public profiles of this persona and of its contacts, and their avatars as the panel allows.
+  useProfiles(s);
+  const [avatars, setAvatars] = useState(config.remotePreviews);
   // FR011-05: «Enviar» again on the same message retries its operation instead of making another rumor or event.
   const operation = useRef(new SendOperation());
   const reuse = useReuseConfirm();
@@ -40,6 +44,13 @@ export function DmView() {
       void inbox?.markRead(m);
     }
   }, [messages, inbox]);
+
+  // FR006-04: only contacts (keys this persona wrote to) are looked up: asking for someone else who wrote would tell
+  // the relays who writes to this persona, which the gift wrap hides.
+  useEffect(() => {
+    const t = setTimeout(() => void lookupDmCorrespondents(s, messages.map((m) => m.sender)), 300);
+    return () => clearTimeout(t);
+  }, [s, messages]);
 
   const send = async (e: FormEvent) => {
     e.preventDefault();
@@ -145,10 +156,12 @@ export function DmView() {
                 : 'Con NIP-07 los mensajes se leen al pulsar «Actualizar»: tu extensión puede pedir permiso para cada descifrado.'}
             </Typography>
           )}
+          <AvatarsToggle pubkeys={messages.map((m) => m.sender)} shown={avatars} onShow={() => setAvatars(true)} />
           <List id="dm-log" aria-live="polite">
             {messages.map((m) => (
               <ListItem key={m.rumor.id} alignItems="flex-start">
-                <ListItemText primary={m.kind === FILE_MESSAGE_KIND ? <EncryptedAttachment message={m} /> : m.rumor.content} secondary={`${m.sender === s.pubkey ? 'tú' : shortNpub(m.sender)} · ${new Date(m.rumor.created_at * 1000).toLocaleString()}`} />
+                <AuthorAvatar pubkey={m.sender} show={avatars} />
+                <ListItemText primary={m.kind === FILE_MESSAGE_KIND ? <EncryptedAttachment message={m} /> : m.rumor.content} secondary={`${m.sender === s.pubkey ? 'tú' : authorLabel(s, m.sender)} · ${new Date(m.rumor.created_at * 1000).toLocaleString()}`} />
               </ListItem>
             ))}
           </List>

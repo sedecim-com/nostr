@@ -4283,9 +4283,10 @@
     "FR006-02"
    ],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 283
+   "status": "Hecho",
+   "evidence": "Commit f10cc49 (PR #410): cada persona puede publicar su perfil público (kind 0: nombre, descripción y avatar) con «Publicar perfil» en su tarjeta «Perfil público» (apps/web-saas/src/views/Profile.tsx, apps/web-saas/src/lib/profiles.ts), firmado por el signer de esa persona sea cual sea su custodia y enviado por su outbox a sus relays; los permisos NIP-46 de la web suman el kind 0 (packages/signer/src/nip46.ts). El perfil se muestra como «nombre · npub» en canales, mensajes directos y grupos (apps/web-saas/src/views/ChannelsView.tsx, apps/web-saas/src/views/DmView.tsx, apps/web-saas/src/views/GroupsView.tsx). En una persona seudónima no se publica nada sin la elección explícita de marcar que el perfil es público y puede vincular identidades, tampoco al crear la persona; una configuración Tor-only no publica ni sube nada desde el navegador; «Retirar perfil» publica uno vacío que sustituye al anterior. La lectura es defensiva (packages/messaging/src/profile.ts): tope de longitud, sin caracteres de control, de ancho cero ni de dirección, solo avatares http o https, y caché por persona en memoria con vigencia de 10 minutos. Solo se buscan perfiles donde no dicen nada nuevo a los relays de la persona (autores de los mensajes del canal, la propia persona y sus contactos): no se busca a quien escribe sin ser contacto ni a los miembros de un grupo seguro, salvo que el usuario lo pida. Los avatares ajenos no se descargan hasta «Mostrar avatares» cuando las previews remotas están bloqueadas, y la descarga va sin cookies ni referrer, sin redirecciones, comprobada contra el hash cuando la dirección es de Blossom, solo JPEG, PNG o WebP de hasta 1 MB. El avatar propio se sube sin metadatos. Pruebas: packages/messaging/test/profile.test.ts, apps/web-saas/test/profile.test.ts, apps/web-saas/test/nip46-permissions.test.ts (en los dos sentidos), packages/profiles/test/profiles.test.ts (textos de consecuencias en el catálogo revisado, packages/profiles/src/disclose.ts) y los E2E de navegador tests/browser/web-saas.e2e.ts, tests/browser/web-leaks.e2e.ts y tests/browser/web-groups.e2e.ts (job test de CI). Documentación: docs/threat-model.md (qué se publica y cuándo, qué se busca, qué ve cada parte, riesgo residual). Límites declarados: un perfil publicado se copia y se conserva fuera de tu control, así que retirarlo no borra esas copias; el servidor de un avatar ajeno ve la IP de quien lo mira y cuándo, solo tras «Mostrar avatares» o con las previews remotas activadas; el CLI no publica perfiles.",
+   "issue": 283,
+   "evidenceState": "merged"
   },
   {
    "id": "FR014-04",
