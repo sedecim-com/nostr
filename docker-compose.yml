@@ -18,7 +18,7 @@ x-service: &service
 services:
   relay:
     # Buzz early-release relay, pinned by digest (infra/buzz/PIN). NIP-01/29/42, Blossom at /media.
-    image: ${BUZZ_IMAGE:-ghcr.io/block/buzz@sha256:10343a68e68b8cbc908c40de1525c280a47b406553fb85366cc86e61e58e5b65}
+    image: ${BUZZ_IMAGE:-ghcr.io/block/buzz@sha256:56658526d46599299c46a290e02f5dae0bde8b1b5e02c418e3ef7f95fa3a6776}
     environment:
       BUZZ_BIND_ADDR: 0.0.0.0:3000
       BUZZ_HEALTH_PORT: "8080"
