@@ -135,8 +135,8 @@ run_apply() {
     kubectl -n "${NAMESPACE}" rollout status statefulset/postgres --timeout=300s
   fi
   kubectl -n "${NAMESPACE}" rollout status statefulset/redis --timeout=180s
+  # IR-2026-10-12: SeaweedFS creates its buckets from inside its own pod, so its readiness (which waits for them) is enough.
   kubectl -n "${NAMESPACE}" rollout status statefulset/seaweedfs --timeout=300s
-  kubectl -n "${NAMESPACE}" wait --for=condition=complete job/seaweedfs-init --timeout=300s
   for d in relay indexer identity-service policy-engine blob-store managed-signer web edge prometheus blackbox-exporter alertmanager grafana; do
     kubectl -n "${NAMESPACE}" rollout status "deployment/${d}" --timeout=300s
   done

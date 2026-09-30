@@ -272,8 +272,11 @@ despliegue igual que con cualquier otro.
 - **En el compose.** El servicio `continuity-vault` (puerto 8088) guarda las filas en la base de la plataforma
   y los sobres en su propio bucket de SeaweedFS, `continuity-vault`:
   - tiene llaves S3 propias (`VAULT_S3_ACCESS_KEY`/`VAULT_S3_SECRET_KEY`, que genera `scripts/init-env.sh`)
-    que solo llegan a su bucket: el vault no puede leer ni borrar la media de Buzz;
-  - `seaweedfs-init` crea el bucket;
+    que solo llegan a su bucket: el vault no puede leer ni borrar la media de Buzz. Buzz, a su vez, solo llega a
+    su bucket de media (sin `Admin` global), así que sus llaves tampoco tocan los sobres del vault (IR-2026-10-12);
+  - de SeaweedFS solo la API S3 (8333) está en la red del compose: el master, el volumen y el filer escuchan en
+    `127.0.0.1`, y el contenedor crea los buckets contra su master local, así que ningún contenedor llega al filer
+    sin autenticar (IR-2026-10-12);
   - `VAULT_NIP98` es `open` por defecto: cualquier llave Nostr abre una cuenta, lo que se acepta en
     self-hosted (ver Consecuencias). `allowlist` u `off` lo cierran;
   - `infra/web/config.json` lo publica como `continuityVault`, así la web del despliegue lo usa;
@@ -286,7 +289,8 @@ despliegue igual que con cualquier otro.
   restaura y comprueba que el sobre vuelve y abre con su llave.
 - **Imagen.** `nostr-continuity-vault` se publica como las demás (reproducible, firmada, con SBOM).
 - **Kubernetes.** El componente opt-in `deploy/k8s/components/continuity-vault` lo despliega igual: filas en la
-  base de la plataforma, sobres en su bucket del SeaweedFS del clúster con llaves que solo llegan a él, y el
+  base de la plataforma, sobres en su bucket del SeaweedFS del clúster con llaves que solo llegan a él (y solo la API
+  S3 expuesta, con una NetworkPolicy y los internos en `127.0.0.1`, IR-2026-10-12), y el
   host `nostr-<env>-vault` en el edge. Stage no lo activa: antes hay que decidir su host público (el ALB
   enruta hosts explícitos) y quién abre cuentas. Por eso el componente trae `VAULT_NIP98=allowlist` con la
   lista vacía, y el vault no arranca hasta que el overlay elige `allowlist` con llaves u `off` con Acceso.

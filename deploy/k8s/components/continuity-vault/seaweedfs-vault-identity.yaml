@@ -9,18 +9,33 @@ spec:
     spec:
       containers:
         - name: seaweedfs
+          # IR-2026-10-12: same hardening as the base (Buzz scoped to its bucket, internals on 127.0.0.1, only S3 on the
+          # pod network, buckets created from inside the pod), plus the vault identity and its bucket.
           args:
             - |
               set -eu
               case "$S3_ACCESS_KEY$S3_SECRET_KEY${VAULT_S3_ACCESS_KEY:-}${VAULT_S3_SECRET_KEY:-}" in *[!A-Za-z0-9]*) echo "S3 keys must be alphanumeric"; exit 1;; esac
+              case "$S3_BUCKET" in *[!a-z0-9-]* | '') echo "S3_BUCKET: lowercase letters, digits and -"; exit 1;; esac
               case "$VAULT_S3_BUCKET" in *[!a-z0-9-]* | '') echo "VAULT_S3_BUCKET: lowercase letters, digits and -"; exit 1;; esac
               umask 077
               vault=
+              buckets="$S3_BUCKET"
               if [ -n "${VAULT_S3_ACCESS_KEY:-}" ] && [ -n "${VAULT_S3_SECRET_KEY:-}" ]; then
                 vault=$(printf ',{"name":"continuity-vault","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s"]}' "$VAULT_S3_ACCESS_KEY" "$VAULT_S3_SECRET_KEY" "$VAULT_S3_BUCKET" "$VAULT_S3_BUCKET" "$VAULT_S3_BUCKET")
+                buckets="$S3_BUCKET $VAULT_S3_BUCKET"
               fi
-              printf '{"identities":[{"name":"buzz","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}%s]}' "$S3_ACCESS_KEY" "$S3_SECRET_KEY" "$vault" > /tmp/s3.json
-              exec weed server -dir=/data -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=/tmp/s3.json
+              printf '{"identities":[{"name":"buzz","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s","Tagging:%s"]}%s]}' "$S3_ACCESS_KEY" "$S3_SECRET_KEY" "$S3_BUCKET" "$S3_BUCKET" "$S3_BUCKET" "$S3_BUCKET" "$vault" > /tmp/s3.json
+              (
+                for i in $(seq 1 60); do
+                  ok=1
+                  for bucket in $buckets; do
+                    echo "s3.bucket.create -name $bucket" | weed shell -master=127.0.0.1:9333 2>&1 | grep -Eq "created bucket|already exists" || ok=
+                  done
+                  [ -n "$ok" ] && { echo ready > /tmp/buckets-ready; break; }
+                  sleep 2
+                done
+              ) &
+              exec weed server -dir=/data -ip=127.0.0.1 -ip.bind=127.0.0.1 -s3 -s3.port=8333 -s3.ip.bind=0.0.0.0 -s3.port.iceberg=0 -s3.port.lance=0 -s3.config=/tmp/s3.json
           env:
             - name: VAULT_S3_ACCESS_KEY
               valueFrom:
