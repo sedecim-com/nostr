@@ -5,6 +5,9 @@
 - **Commit de referencia:** `aac285be38d94ff110adb91a9884c49f9a7aea5c` más los commits de la revisión interna
   previa ([internal-review-2026-09.md](internal-review-2026-09.md)). Antes de firmar hay que fijar el commit
   exacto que se entrega (un tag `audit-2026-XX`) y congelarlo mientras dure el trabajo de campo.
+- **Segunda revisión interna (SEC-13):** [internal-review-2026-10.md](internal-review-2026-10.md) revisó lo fusionado
+  hasta `d6aaee8`. Su alcance entra en las tablas de abajo (Continuity Vault y worker de rotaciones) y sus hallazgos,
+  corregidos o abiertos, van en el paquete que reciben los auditores.
 
 > Este documento prepara la contratación. **No sustituye** a ninguna de las dos auditorías: ni la revisión
 > interna ni las herramientas automáticas (CodeQL, fuzzing, `npm audit`) cumplen el criterio de hecho de
@@ -41,6 +44,7 @@ Todas las rutas son relativas a la raíz del repositorio en el commit de referen
 | WebAuthn (registro de dispositivos, ES256, attestation `packed`/`none`) | `services/policy-engine/src/webauthn.ts` | P1 |
 | Web Push (RFC 8291/8292) | `services/notification-gateway/src/webpush.ts` | P1 |
 | Adjuntos cifrados (AES-GCM) y saneado de metadatos | `packages/blossom-client/src/` | P1 |
+| Continuity Vault: sobres sellados (XChaCha20-Poly1305, HKDF por uso, AAD con `key_id` e id), llave de archivo, copia y restauración del historial | `packages/continuity/src/`, `services/continuity-vault/src/` | P0 |
 | Espejo cifrado en reposo | `services/indexer/src/codec.ts` | P2 |
 
 Preguntas concretas para el revisor:
@@ -71,6 +75,8 @@ Preguntas concretas para el revisor:
 | blob-store (Blossom) | Subida/descarga por hash, autorización kind 24242 | `https://nostr-stage-blobs.ai.acce.so` |
 | managed-signer | Firma custodial, NIP-44, import/export, sesiones de dispositivo (Cognito o `sds_…`) | `https://nostr-stage-signer.ai.acce.so` |
 | notification-gateway | Registro de push opaco (NIP-98) y envío a servicios push | componente `deploy/k8s/components/notification-gateway` |
+| continuity-vault | Sobres opacos por cuenta (NIP-98 con la llave derivada de la de archivo, o token de Acceso), cuotas, retención y borrado; backend SeaweedFS o S3 | componente `deploy/k8s/components/continuity-vault` |
+| rotation-worker | Worker de rotaciones MLS del modo institucional: rotaciones y revocaciones con su token de servicio | componente `deploy/k8s/components/institutional` |
 | Cliente soberano (CLI, Tor) | `apps/sovereign-client`, fugas de red en perfiles Tor | local, contra el stack de compose |
 
 Las URLs salen de `deploy/k8s/overlays/stage/` (`kustomization.yaml`, `files/web-config.json`,
