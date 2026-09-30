@@ -1,6 +1,6 @@
 import type { CustodyMode, EventTemplate, NostrEvent, Signer } from '@sedecim/nostr-core';
 
-interface Nip07Provider {
+export interface Nip07Provider {
   getPublicKey(): Promise<string>;
   signEvent(evt: EventTemplate & { created_at: number }): Promise<NostrEvent>;
   nip44?: { encrypt(pk: string, pt: string): Promise<string>; decrypt(pk: string, ct: string): Promise<string> };

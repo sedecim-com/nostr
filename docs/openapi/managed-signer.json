@@ -1,0 +1,797 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "managed-signer",
+    "version": "0.1.0",
+    "description": "Custodia gestionada de llaves Nostr en KMS (FR005): firma y NIP-44 con sesiones de dispositivo revocables. docs/managed-enclave.md.",
+    "license": {
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8084",
+      "description": "Stack de docker compose en local"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Salud del servicio.",
+        "security": [
+          {}
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/device-sessions": {
+      "post": {
+        "operationId": "postV1DeviceSessions",
+        "summary": "Abre una sesión de dispositivo (`sds_…`, 12 h) con el login de Acceso; nunca desde otra sesión (FR024-03).",
+        "security": [
+          {
+            "acceso": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getV1DeviceSessions",
+        "summary": "Sesiones de dispositivo del usuario (FR005-11).",
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1DeviceSessions",
+        "summary": "Cierra las demás sesiones del usuario.",
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/device-sessions/{id}": {
+      "delete": {
+        "operationId": "deleteV1DeviceSessionsById",
+        "summary": "Cierra una sesión: con el login de Acceso, o la propia sesión.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices/{id}/revoke": {
+      "post": {
+        "operationId": "postV1DevicesByIdRevoke",
+        "summary": "Revoca un dispositivo: borra sus sesiones y rechaza las nuevas (FR024-03/04).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "revocationToken": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys": {
+      "get": {
+        "operationId": "getV1Keys",
+        "summary": "Llaves gestionadas del usuario.",
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "postV1Keys",
+        "summary": "Crea una llave gestionada.",
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys/import": {
+      "post": {
+        "operationId": "postV1KeysImport",
+        "summary": "Importa una llave existente a custodia gestionada.",
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys/{id}": {
+      "get": {
+        "operationId": "getV1KeysById",
+        "summary": "Describe una llave: pubkey y estado.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteV1KeysById",
+        "summary": "Programa el borrado de la llave (`destroy_after`).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys/{id}/sign": {
+      "post": {
+        "operationId": "postV1KeysByIdSign",
+        "summary": "Firma un evento Nostr con la llave.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys/{id}/nip44/encrypt": {
+      "post": {
+        "operationId": "postV1KeysByIdNip44Encrypt",
+        "summary": "Cifra con NIP-44 para un destinatario.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys/{id}/nip44/decrypt": {
+      "post": {
+        "operationId": "postV1KeysByIdNip44Decrypt",
+        "summary": "Descifra con NIP-44 de un remitente.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys/{id}/export": {
+      "post": {
+        "operationId": "postV1KeysByIdExport",
+        "summary": "Exporta la llave cifrada con una contraseña (NIP-49) para pasar a custodia propia.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys/{id}/confirm-migration": {
+      "post": {
+        "operationId": "postV1KeysByIdConfirmMigration",
+        "summary": "Confirma la migración con una prueba firmada por la llave exportada.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys/{id}/usage": {
+      "get": {
+        "operationId": "getV1KeysByIdUsage",
+        "summary": "Operaciones recientes de la llave, cada una con su dispositivo (FR005-11).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "acceso": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token de ID del login de Acceso (Cognito, ADR 0008)."
+      },
+      "deviceSession": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Sesión de dispositivo del managed-signer (`sds_…`, FR024-03)."
+      },
+      "revocationToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Token de revocación (`MANAGED_SIGNER_REVOCATION_TOKENS`), solo para revocar dispositivos."
+      }
+    }
+  }
+}

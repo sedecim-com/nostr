@@ -83,6 +83,7 @@ Antes de v1.0 nada es GA: falta la revisión externa (SEC-01 y SEC-02). La web, 
 Trazabilidad FR/NFR → tareas → tests y tablero de estado, generados desde los issues y el código (CI comprueba que toda la evidencia citada exista): [docs/requirements-traceability.md](docs/requirements-traceability.md) · [docs/status.md](docs/status.md).
 Backlog con tareas atómicas, prioridad, dependencias y sprint: vive en [GitHub Issues](https://github.com/sedecim-com/nostr/issues?q=label%3Abacklog) (milestones = sprints, epics con sub-issues) y se sincroniza a [docs/backlog/](docs/backlog/README.md) con una PR automática (ver [GITHUB.md](docs/backlog/GITHUB.md)).
 Arquitectura: [docs/architecture.md](docs/architecture.md) · Threat model: [docs/threat-model.md](docs/threat-model.md).
+SDK: referencia con TypeDoc (`npm run docs:api`, portada en [docs/sdk.md](docs/sdk.md)) · APIs HTTP de los servicios: [docs/openapi/](docs/openapi/README.md) (OpenAPI 3.1, `npm run docs:openapi`) · distribución del SDK: [ADR 0013](docs/adr/0013-distribucion-del-sdk.md).
 Releases firmados (cosign keyless + provenance SLSA), imágenes reproducibles, build desde source y verificación: [docs/building.md](docs/building.md) (`sh scripts/verify-release.sh <tag>`, `sh scripts/rebuild-image.sh <tag> <servicio>`). Definition of Done de un release: [docs/release-checklist.md](docs/release-checklist.md); notas: [docs/releases/](docs/releases/).
 
 ## Inicio rápido

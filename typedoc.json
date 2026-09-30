@@ -1,0 +1,19 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "Acceso Nostr SDK",
+  "entryPointStrategy": "packages",
+  "entryPoints": [
+    "packages/*"
+  ],
+  "packageOptions": {
+    "entryPoints": [
+      "src/index.ts"
+    ],
+    "tsconfig": "../../tsconfig.sdk.json"
+  },
+  "out": "docs-api",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "readme": "docs/sdk.md",
+  "treatWarningsAsErrors": true
+}
