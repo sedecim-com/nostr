@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **248 tareas** · 182 hechas · 22 parciales · 38 pendientes · 6 descartadas
-- **224 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **249 tareas** · 182 hechas · 22 parciales · 39 pendientes · 6 descartadas
+- **227 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -25,7 +25,7 @@
 | S7 (cerrado) | 2027-01-04 → 2027-01-15 | F5 | Modo institucional | 10 | 38 | 1 |
 | S8 (cerrado) | 2027-01-18 → 2027-01-29 | Release | Hardening, escalabilidad y release | 2 | 8 | 0 |
 | S9 | 2026-09-28 → 2026-10-09 | G0 | Código de la auditoría y v0.1.0 firmada | 30 | 67 | 11 |
-| S10 | 2026-10-12 → 2026-10-23 | G1 | Resto del código, vault aprobado y v0.2.0 | 27 | 88 | 6 |
+| S10 | 2026-10-12 → 2026-10-23 | G1 | Resto del código, vault aprobado y v0.2.0 | 28 | 91 | 6 |
 | S11 | 2026-10-26 → 2026-11-06 | G2 | Stage real en AWS | 15 | 54 | 9 |
 | S12 | 2026-11-09 → 2026-11-20 | G3 | Freeze de auditoría y v1.0.0-rc.1 | 1 | 3 | 1 |
 | S13 | 2026-11-23 → 2026-12-04 | G4 | Auditoría en campo y aprobación legal | 3 | 4 | 0 |
@@ -44,7 +44,7 @@
 | FR-004 | 7 | 6 | FR004-08 (Diferido) |
 | FR-005 | 12 | 9 | FR005-05 (S14), FR005-13 (S11), FR005-10 (Diferido) |
 | FR-006 | 4 | 3 | FR006-04 (Diferido) |
-| FR-007 | 5 | 5 | — |
+| FR-007 | 6 | 5 | FR007-06 (S10) |
 | FR-008 | 3 | 3 | — |
 | FR-009 | 3 | 3 | — |
 | FR-010 | 5 | 5 | — |
@@ -242,7 +242,7 @@
 | [OPS-10](https://github.com/sedecim-com/nostr/issues/61) | P2 | Backlog vivo en GitHub Issues con sincronización automática a docs/backlog | Proceso, PRD GC-E06 | Infra | 3 | — | Hecho | Cada tarea es un issue (milestone = sprint, labels de prioridad/epic/estado, campos Priority/Effort/fechas, sub-issues del epic y "blocked by"); un workflow regenera docs/backlog desde los issues y abre la PR de sync sin intervención, con Actions autorizado a abrir PRs. No bloquea el RC |
 | [OPS-13](https://github.com/sedecim-com/nostr/issues/262) | P2 | Higiene de la cadena de suministro en CI | §21.2 | Infra | 2 | OPS-05 | Hecho | Acciones por SHA, imágenes por digest, checksums de herramientas, Dependabot para infra/tor y compose, npm audit y CodeQL como gate |
 
-## S10 · Resto del código, vault aprobado y v0.2.0 (G1, 2026-10-12 → 2026-10-23) — 88 SP
+## S10 · Resto del código, vault aprobado y v0.2.0 (G1, 2026-10-12 → 2026-10-23) — 91 SP
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
@@ -264,6 +264,12 @@
 | [OPS-06](https://github.com/sedecim-com/nostr/issues/57) | P1 | Servicio notification-gateway con perfiles de privacidad | §17.1, ADR 0010, PRD GC-G01, GC-G02 | Dev | 3 | DEC-08 | Hecho | Push opaco sin contenido ni remitente y deshabilitado en perfiles Tor, detrás de un flag apagado por defecto donde el relay no permite un disparador seguro; la web no muestra avisos activos si el gateway no puede observar la actividad; ninguna solución da al gateway lectura de DMs ni metadatos adicionales; ADR 0010 con la matriz real por relay |
 | [FR006-06](https://github.com/sedecim-com/nostr/issues/243) | P2 | Test de aislamiento de circuitos Tor por persona | §14.1 | QA | 1 | FR006-03 | Hecho | Credenciales SOCKS distintas por persona verificadas contra un servidor SOCKS con autenticación |
 | [FR007-05](https://github.com/sedecim-com/nostr/issues/245) | P2 | «Enviando como…» muestra el nivel de vínculo | §16.1, FR-007 | Dev | 1 | FR007-03, FR006-02 | Hecho | El banner del composer indica identidad, custodia, red y nivel de vínculo (ninguno, privado, selectivo o público) en la web y en el CLI |
+| [FR007-06](https://github.com/sedecim-com/nostr/issues/388) | P2 | Retirar un vínculo entre personas en el servicio y en la web | FR-007 | Dev | 3 | FR007-02, FR007-04, FR007-05 | Pendiente | Corrección (feature freeze hasta rc.1): la web ya promete el borrado («aunque borres el vínculo después») y no se podía hacer (revisión interna del 27/09).
+
+- identity-service: `DELETE /v1/links/:linkId` con NIP-98. Solo la cuenta dueña de las dos personas puede borrarlo; responde 404 si el vínculo no existe o no es suyo, y audita `link.removed`. `removeLink` en los repositorios en memoria y Postgres. El OpenAPI del servicio incluye la ruta.
+- Web: en la lista de vínculos de la persona, «Retirar vínculo» con confirmación. Si el vínculo es público y se publicó como evento Nostr firmado (FR007-04), avisa de que las copias en relays ajenos no se pueden retirar y publica una solicitud de borrado NIP-09. El banner «Enviando como…» (FR007-05) actualiza el nivel de vínculo.
+- Pruebas: API (borrar el propio, 404 con el ajeno o inexistente, auditoría) y E2E de la web del flujo de retirar.
+- El texto de la web coincide con lo que hace. |
 | [FR011-05](https://github.com/sedecim-com/nostr/issues/268) | P2 | Identificador de operación estable en la UI | §11.2 | Dev | 2 | FR011-01 | Hecho | Reintentar desde la web o el CLI no crea otro evento ni otro rumor; los wraps se crean después de persistir |
 | [FR011-06](https://github.com/sedecim-com/nostr/issues/272) | P2 | Métricas de outbox reales o alerta retirada | FR-011, NFR-004 | Infra | 2 | FR011-03 | Hecho | La alerta OutboxOldestPendingTooOld se alimenta de un proceso real o se retira del monitoreo del SaaS |
 | [FR021-03](https://github.com/sedecim-com/nostr/issues/244) | P2 | Endurecimiento del modo Tor | §14, §18.1 | Dev | 2 | FR020-01 | Hecho | Opción onion-only en el cliente soberano, mensaje de fallo unificado «No enviado: red de privacidad no disponible» y relays sin IPs en los logs de los perfiles soberanos |
