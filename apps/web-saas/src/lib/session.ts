@@ -203,11 +203,21 @@ export interface ManagedEnv {
   baseUrl?: string;
   token?: AccessTokenProvider;
   session?: BrowserManagedSession;
+  /** IR-2026-10-03: signs in again with the Acceso password; the login of this browser is then a recent one. */
+  reauthenticate?: (password: string) => Promise<void>;
 }
 
 /** How this browser talks to the managed-signer: through its device session when there is one, else the login. */
 export function managedConnection(managed: ManagedEnv): ManagedSignerConnection {
   if (managed.session) return managed.session.connection();
+  return managedLogin(managed);
+}
+
+/**
+ * IR-2026-10-03: the Acceso login itself, never the device session: what exporting, migrating, deleting or cancelling
+ * the key and closing the other sessions go through, right after signing in again (ManagedEnv.reauthenticate).
+ */
+export function managedLogin(managed: ManagedEnv): ManagedSignerConnection {
   if (!managed.baseUrl || !managed.token) throw new Error('la persona gestionada necesita el managed-signer y una sesión de Acceso');
   return { baseUrl: managed.baseUrl, token: managed.token };
 }
