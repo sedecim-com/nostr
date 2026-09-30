@@ -299,6 +299,15 @@ describe('web secure groups: devices, rotation, proposals and encrypted files (F
     // Stale proposals cannot be confirmed any more, and the web says why.
     const stale = await exclusive(alice.gs, (g) => decideProposals(g, gid, [pending[0]!.ref])).catch((e: unknown) => e);
     expect(groupErrorMessage(stale)).toMatch(/ya no están pendientes/);
+
+    // A rotation by any member, not only by an admin, discards what was pending.
+    await exclusive(bob.gs, (g) => proposeChange(g, gid, { remove: D }, groupRelays));
+    await sync(carol, gid);
+    expect(await exclusive(carol.gs, (g) => pendingProposals(g, gid))).toHaveLength(1);
+    await exclusive(carol.gs, (g) => g.rotate(gid));
+    await sync(alice, gid);
+    expect(await exclusive(alice.gs, (g) => pendingProposals(g, gid))).toEqual([]);
+    expect((await handle(alice, gid)).members).toContain(D);
   }, 300_000);
 
   it('a file goes without its metadata and encrypted, only ciphertext reaches Blossom, members open it with its hash checked, a tampered copy is refused and a removed member cannot open newer files (FR025-14)', async () => {
@@ -390,6 +399,31 @@ describe('web secure groups: devices, rotation, proposals and encrypted files (F
       await expect((carol.gs as ExtendedGroupSession).decryptMedia(gid, ciphertext, next.attachment, next.epoch)).rejects.toBeInstanceOf(MediaKeyUnavailableError);
       expect(groupErrorMessage(new MediaKeyUnavailableError(next.epoch))).toMatch(/no tiene la clave de la época/);
       await expect(fetchGroupFile(carol.gs, gid, next.attachment.sha256, groupMediaDownloader(carol.s))).rejects.toThrow(/adjunto desconocido/);
+
+      // A download waits outside the session's queue: the group keeps working while a server is slow.
+      let releaseDownload!: () => void;
+      const downloadHeld = new Promise<void>((r) => (releaseDownload = r));
+      const slowDownload = fetchGroupFile(bob.gs, gid, next.attachment.sha256, async (hash, url, sender) => {
+        await downloadHeld;
+        return groupMediaDownloader(bob.s)(hash, url, sender);
+      });
+      expect(await Promise.race([handle(bob, gid).then(() => 'free'), new Promise((r) => setTimeout(() => r('held'), 5000))])).toBe('free');
+      releaseDownload();
+      expect(new TextDecoder().decode((await slowDownload).data)).toBe('segundo documento');
+      // An upload holds the queue while it runs (the epoch must not change under it): the limit the docs state.
+      let releaseUpload!: () => void;
+      const uploadHeld = new Promise<void>((r) => (releaseUpload = r));
+      const sending = exclusive(alice.gs, (g) =>
+        sendGroupFile(g, gid, { data: new TextEncoder().encode('lento'), filename: 'lento.txt', type: 'text/plain' }, async (ciphertext, sha256) => {
+          await uploadHeld;
+          return upload2(ciphertext, sha256);
+        }),
+      );
+      const waitingForIt = handle(alice, gid);
+      expect(await Promise.race([waitingForIt.then(() => 'free'), new Promise((r) => setTimeout(() => r('held'), 3000))])).toBe('held');
+      releaseUpload();
+      await sending;
+      await waitingForIt;
     } finally {
       await primary.stop().catch(() => undefined);
       await second.stop();
