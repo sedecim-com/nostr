@@ -1,5 +1,5 @@
-import { sha256 } from '@noble/hashes/sha256';
-import { bytesToHex } from '@noble/hashes/utils';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 
 export interface RelayLabelOptions {
   /** Replace every relay host by a stable hash (telemetry level 'minimal': which relays a user talks to is a fingerprint). */

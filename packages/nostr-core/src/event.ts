@@ -1,5 +1,5 @@
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { sha256 } from '@noble/hashes/sha256';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes, isHex, utf8ToBytes } from './utils';
 
 /** Canonical signed Nostr event (NIP-01). The signed event is the canonical object. */

@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdir, readFile, rm, writeFile, rename, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { sha256 } from '@noble/hashes/sha256';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, getTagValue, getTagValues, verifyEvent, type NostrEvent } from '@sedecim/nostr-core';
 import { createLogger, type Logger } from '@sedecim/telemetry-policy';
 import { HttpRateLimiter, logRateLimited, retryAfterSeconds, type HttpRateLimitOptions, type RateClass, type RateScope } from '@sedecim/service-kit';

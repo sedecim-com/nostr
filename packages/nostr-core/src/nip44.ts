@@ -8,9 +8,9 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { chacha20 } from '@noble/ciphers/chacha.js';
 import { equalBytes as nobleEqualBytes } from '@noble/ciphers/utils.js';
-import { extract as hkdfExtract, expand as hkdfExpand } from '@noble/hashes/hkdf';
-import { hmac } from '@noble/hashes/hmac';
-import { sha256 } from '@noble/hashes/sha256';
+import { extract as hkdfExtract, expand as hkdfExpand } from '@noble/hashes/hkdf.js';
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { base64 } from '@scure/base';
 import { concatBytes, hexToBytes, randomBytes, utf8ToBytes, bytesToUtf8 } from './utils';
 

@@ -1,6 +1,6 @@
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
-import { scryptAsync } from '@noble/hashes/scrypt';
-import { bytesToHex, concatBytes, hexToBytes, randomBytes, utf8ToBytes } from '@noble/hashes/utils';
+import { scryptAsync } from '@noble/hashes/scrypt.js';
+import { bytesToHex, concatBytes, hexToBytes, randomBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import type { StorageBackend } from './backends';
 import { EncryptedStore, WrongPassphraseError } from './store';
 

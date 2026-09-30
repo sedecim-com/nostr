@@ -1,5 +1,5 @@
 import { gcm } from '@noble/ciphers/aes.js';
-import { sha256 } from '@noble/hashes/sha256';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes, randomBytes, type Signer } from '@sedecim/nostr-core';
 import { base64 } from '@scure/base';
 import { neutralFileName, refusesUnsanitized, sanitizeMetadata, type SanitizeRequirement } from './sanitize';
