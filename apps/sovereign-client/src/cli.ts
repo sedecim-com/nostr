@@ -76,6 +76,7 @@
  *                                        revocation; with --managed-signer, propagates device revocations)
  *
  * Env: SOVEREIGN_DATA_DIR (default ./.data/sovereign), SOVEREIGN_PASSPHRASE, TOR_SOCKS (127.0.0.1:9050),
+ *      SOVEREIGN_PASSPHRASE_FILE (a file with the passphrase, e.g. a compose secret; when set it is the only source),
  *      SOVEREIGN_BACKUP_PASSWORD (backup files, when --password-file is not given),
  *      SOVEREIGN_BLOB_STORE (fallback Blossom/blob-store URL for encrypted group media),
  *      SOVEREIGN_VAULT_URL (Continuity Vault URL, when --vault is not given),
@@ -134,6 +135,22 @@ function sendOperation(): string {
   return op;
 }
 
+/**
+ * FR020-06: passphrase of the local stores. SOVEREIGN_PASSPHRASE_FILE, when set, is the only source (the compose
+ * service reads a secret file and ignores any variable); otherwise SOVEREIGN_PASSPHRASE.
+ */
+function storePassphrase(): string {
+  const file = process.env.SOVEREIGN_PASSPHRASE_FILE;
+  if (!file) {
+    const pass = process.env.SOVEREIGN_PASSPHRASE;
+    if (!pass) throw new Error('set SOVEREIGN_PASSPHRASE or SOVEREIGN_PASSPHRASE_FILE (protects the local encrypted stores)');
+    return pass;
+  }
+  const pass = readFileSync(file, 'utf8').replace(/\r?\n$/, '');
+  if (!pass) throw new Error(`empty passphrase file: ${file} (SOVEREIGN_PASSPHRASE_FILE)`);
+  return pass;
+}
+
 /** Password of a backup file: --password-file (first line) or SOVEREIGN_BACKUP_PASSWORD. */
 function backupPassword(): string {
   const file = opt('--password-file');
@@ -148,8 +165,7 @@ async function main() {
     for (const m of MATURITY) console.log(`${MATURITY_LABELS[m.level].padEnd(14)} ${m.name}: ${m.why} En v1.0: ${m.atV1}`);
     return;
   }
-  const passphrase = process.env.SOVEREIGN_PASSPHRASE;
-  if (!passphrase) throw new Error('set SOVEREIGN_PASSPHRASE (protects the local encrypted stores)');
+  const passphrase = storePassphrase();
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
   const needsDm = argv[0] === 'dm' && argv[1] === 'send';
   const watching = argv[0] === 'dm' && argv[1] === 'watch';
