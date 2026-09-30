@@ -54,6 +54,7 @@ export function createServiceTracer(name: string, opts: ServiceTracingOptions | 
     const onDrop = (reason: 'queue-full' | 'send-failed', spans: number) => logger.warn('trace export dropped spans', { reason, spans });
     exporters.push(new OtlpHttpExporter({ url: opts.exportUrl, policy, serviceName: name, onDrop }));
   }
+  logger.info('tracing on', { sample_rate: opts.sampleRate, export: opts.exportUrl ? 'log+otlp' : 'log' });
   return createTracer({ policy, exporters });
 }
 

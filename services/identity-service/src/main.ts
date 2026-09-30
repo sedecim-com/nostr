@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, type ReplayStore } from '@sedecim/service-kit';
+import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, tracingFromEnv, type ReplayStore } from '@sedecim/service-kit';
 import { CognitoVerifier, createIdentityApi, MemoryIdentityRepository, PgIdentityRepository } from './index';
 
 const env = process.env;
@@ -30,6 +30,8 @@ const api = createIdentityApi(repo, {
   corsOrigins,
   backupVault,
   rateLimit: rateLimitFromEnv(env),
+  // NFR007-02: TELEMETRY_LEVEL / TRACE_SAMPLE_RATE / TRACE_EXPORT_URL; off by default.
+  tracing: tracingFromEnv(env),
   ...(replayStore ? { replayStore } : {}),
   ...(cognito ? { cognito } : {}),
 });
