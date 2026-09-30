@@ -1,4 +1,4 @@
-import { bytesToHex, hexToBytes, randomBytes, utf8ToBytes, concatBytes } from '@noble/hashes/utils';
+import { bytesToHex, hexToBytes, randomBytes, utf8ToBytes, concatBytes } from '@noble/hashes/utils.js';
 
 export { bytesToHex, hexToBytes, randomBytes, utf8ToBytes, concatBytes };
 

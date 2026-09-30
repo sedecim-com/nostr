@@ -13,7 +13,7 @@ Versiones exactas en `package.json` de cada workspace y en `package-lock.json` (
 | Biblioteca | Versión | Quién la usa | Para qué |
 |---|---|---|---|
 | `@noble/curves` | 2.4.0 (nostr-core); 2.2.0 (marmot-adapter y dentro de marmot-ts) | nostr-core, marmot | secp256k1, BIP-340 Schnorr, ECDH |
-| `@noble/hashes` | 1.8.0 (nostr-core, encrypted-store, blob-store, metrics, blossom-client); 2.2.0 (marmot) | varios | SHA-256, HMAC, HKDF, scrypt |
+| `@noble/hashes` | 2.4.0 (nostr-core, encrypted-store, continuity, blob-store, metrics, blossom-client, test-relay, marmot-adapter); 2.2.0 (transitiva: marmot-ts y `@noble/curves` 2.2.0) | varios | SHA-256, HMAC, HKDF, scrypt |
 | `@noble/ciphers` | 2.4.0 (nostr-core, encrypted-store, identity, indexer, managed-signer, blossom-client); 2.2.0 (marmot) | varios | ChaCha20, XChaCha20-Poly1305, AES-GCM |
 | `@scure/base` | 2.4.0 | nostr-core, blossom-client, marmot-adapter | bech32 (NIP-19/49), base64 |
 | `ts-mls` | 2.0.0-rc.16 (forzada con `overrides` en la raíz) | marmot-adapter, marmot-ts | MLS (RFC 9420) |
@@ -207,7 +207,7 @@ revisión interna (IR-2026-09-14).
 
 ## 4. Fuentes de aleatoriedad
 
-- `@noble/hashes/utils` `randomBytes` → `crypto.getRandomValues` (Node y navegador): llaves, nonces, sales,
+- `@noble/hashes/utils.js` `randomBytes` → `crypto.getRandomValues` (Node y navegador): llaves, nonces, sales,
   ids (`packages/nostr-core/src/utils.ts:1`).
 - `node:crypto.randomBytes` en servicios (tokens, ids, IV de GCM/CBC, desafíos WebAuthn, sesiones).
 - WebCrypto `getRandomValues` en `encrypted-store/browser.ts:99`.

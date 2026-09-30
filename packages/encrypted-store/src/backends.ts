@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, rename, rm, open } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bytesToHex, randomBytes } from '@noble/hashes/utils';
+import { bytesToHex, randomBytes } from '@noble/hashes/utils.js';
 
 /** Raw key/value backend. Keys are opaque ASCII strings; values are already-encrypted bytes. */
 export interface StorageBackend {

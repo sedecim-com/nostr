@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { sha256 } from '@noble/hashes/sha256';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, getTagValue, getTagValues, verifyEvent, type NostrEvent } from '@sedecim/nostr-core';
 
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-sha-256', 'access-control-allow-methods': 'GET, HEAD, PUT' };

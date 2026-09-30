@@ -10,9 +10,9 @@
  *   to the persona's pubkey, and a remote signer (NIP-46, managed) is never asked to sign vault requests.
  */
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
-import { hkdf } from '@noble/hashes/hkdf';
-import { hmac } from '@noble/hashes/hmac';
-import { sha256 } from '@noble/hashes/sha256';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { base64 } from '@scure/base';
 import { bytesToHex, bytesToUtf8, concatBytes, equalBytes, getPublicKey, isValidSecretKey, randomBytes, utf8ToBytes } from '@sedecim/nostr-core';
 import { ARCHIVE_FORMAT, ARCHIVE_LENGTH_BYTES, ARCHIVE_NONCE_BYTES, ARCHIVE_VERSION, ArchiveEnvelopeError, isArchiveId, paddedLength, parseArchiveEnvelope, type ArchiveEnvelope } from './envelope';

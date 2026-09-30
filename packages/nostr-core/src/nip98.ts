@@ -1,5 +1,5 @@
 /** NIP-98 HTTP Auth: used by the platform's own APIs so that clients authenticate with their Nostr key. */
-import { sha256 } from '@noble/hashes/sha256';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { base64 } from '@scure/base';
 import { getTagValue, verifyEvent, type NostrEvent, type EventTemplate } from './event';
 import { bytesToHex, randomBytes, utf8ToBytes, bytesToUtf8 } from './utils';

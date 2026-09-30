@@ -3,7 +3,7 @@ import { request } from 'node:http';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sha256 } from '@noble/hashes/sha256';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, generateSecretKey } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import { BlobStore } from '../src/index';
