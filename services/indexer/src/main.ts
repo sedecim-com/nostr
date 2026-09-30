@@ -4,7 +4,7 @@ import WebSocket from 'ws';
 import { generateSecretKey, getPublicKey, hexToBytes, nip19, npubEncode } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
-import { createPgPool, HttpRateLimiter, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, type ReplayStore } from '@sedecim/service-kit';
+import { createPgPool, HttpRateLimiter, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, tracingFromEnv, type ReplayStore } from '@sedecim/service-kit';
 import { createLogger, type TelemetryLevel } from '@sedecim/telemetry-policy';
 import { NostrMetricsExporter, parseRegionMap, startAckProbe } from '@sedecim/metrics';
 import { startMetricsServer } from '@sedecim/metrics/server';
@@ -189,5 +189,7 @@ const api = createIndexerApi(repo, {
   ...(replayStore ? { replayStore } : {}),
   ...(policy ? { policy } : {}),
   groups,
+  // NFR007-02: TELEMETRY_LEVEL / TRACE_SAMPLE_RATE / TRACE_EXPORT_URL; off by default.
+  tracing: tracingFromEnv(env),
 });
 await api.listen(Number(env.PORT ?? 8081), env.HOST ?? '0.0.0.0');

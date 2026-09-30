@@ -105,6 +105,9 @@ spec:
               value: "9464"
             - name: TELEMETRY_LEVEL
               value: standard
+            # NFR007-02: fraction of requests traced (0..1, 0 = off), one log line per span (docs/slo.md).
+            - name: TRACE_SAMPLE_RATE
+              value: "0"
             - name: RELAY_DEFAULT_REGION
               value: us-east-1
             - name: ACK_PROBE_INTERVAL_MS

@@ -135,3 +135,33 @@ cuándo, solo tras «Mostrar avatares» o con las previews remotas activadas.
 **Riesgo residual.** Un perfil publicado se copia y se conserva fuera de tu control: retirarlo no borra esas copias.
 Un nombre o una foto pueden identificar a una persona seudónima; por eso hace falta la elección explícita, que es del
 usuario y no se puede deshacer una vez publicado.
+
+## Trazas de los servicios (NFR007-02)
+
+Las trazas son la telemetría del operador sobre sus propios servicios; el detalle está en
+[`slo.md`](slo.md#trazas-nfr007-02). Implementación en `packages/telemetry-policy/src/tracing.ts` y
+`packages/service-kit/src/tracing.ts`; pruebas en `packages/telemetry-policy/test/tracing.test.ts`,
+`packages/service-kit/test/tracing.test.ts` y `services/blob-store/test/tracing.test.ts`.
+
+**Cuándo existen.** Solo si el operador fija `TRACE_SAMPLE_RATE` por encima de 0 con `TELEMETRY_LEVEL=standard`
+(el nivel por defecto). Con `none`, el nivel de los despliegues sovereign y Tor, el servicio no tiene
+trazador y ninguna variable lo cambia. Una petición dirigida a un `.onion` nunca se traza. Los clientes (web, CLI y
+consola) no trazan.
+
+**Qué se guarda.** Por cada petición muestreada: el servicio, el método, la ruta como plantilla (`/v1/keys/:id`),
+el estado, la hora, la duración, la clase del error en los 5xx y la operación (`SELECT`…) de cada consulta. Nada
+más cabe en un span: sus atributos son una lista cerrada con reglas por valor, así que no hay IPs, pubkeys, ids de
+la ruta, cabeceras, cuerpos, tokens ni mensajes de error.
+
+**Qué ve cada parte.** El operador, en el log del servicio y, si lo configura, en su colector OTLP: lo anterior,
+que es parte de lo que ya recibe con cada petición (ruta, hora, estado), sin la IP ni la pubkey de quien pide. El
+colector es suyo (una sola URL, sin redirecciones): ningún exportador sale por defecto hacia fuera. Los servicios no
+leen ni envían `traceparent`, así que una traza no une peticiones de servicios distintos. Quien usa el servicio no
+ve nada nuevo y no envía nada nuevo.
+
+**Riesgo residual.** Las horas y las duraciones de las trazas, junto con los logs de acceso del operador, permiten
+las mismas correlaciones temporales que esos logs por sí solos. Una persona Tor que llega por un nodo de salida al
+nombre clearnet de un servicio con trazas activas se muestrea como cualquiera; con `--onion-only` solo alcanza
+`.onion`, que no se trazan. Una ruta o un nombre de span que el código construyera con datos solo pasarían si
+tuvieran forma de palabras en minúsculas (sin hex ni cuatro dígitos seguidos, sin `@`, `:`, `?` ni `=`, y sin puntos
+en una ruta): las rutas de los servicios son plantillas fijas.

@@ -1,4 +1,4 @@
-import { CognitoVerifier, rateLimitFromEnv } from '@sedecim/service-kit';
+import { CognitoVerifier, rateLimitFromEnv, tracingFromEnv } from '@sedecim/service-kit';
 import { startMetricsServer } from '@sedecim/metrics/server';
 import { createManagedSignerApi, DEFAULT_AWS_REGION, DEFAULT_RATE_LIMITS, DEFAULT_REAUTH_MAX_AGE_S, DEFAULT_SCRYPT_LIMITS, parseKindLimits, enclaveBackendFromEnv, flagFromEnv, ManagedSigner } from './index';
 import { openStorage } from './storage';
@@ -84,6 +84,8 @@ const api = createManagedSignerApi(core, {
   reauthMaxAgeSeconds,
   // IR-2026-09-05: per-IP buckets (RATE_LIMIT_* env); the per-key signing limits above stay separate.
   rateLimit: rateLimitFromEnv(env),
+  // NFR007-02: TELEMETRY_LEVEL / TRACE_SAMPLE_RATE / TRACE_EXPORT_URL; off by default.
+  tracing: tracingFromEnv(env),
 });
 if (!Object.keys(revocationTokens).length) api.logger.warn('MANAGED_SIGNER_REVOCATION_TOKENS empty: device revocations cannot be received');
 

@@ -59,6 +59,10 @@ Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-c
 - **Antes de cada envío (FR007-05),** el CLI muestra quién envía: identidad, custodia, red y nivel de vínculo
   (también con `sovereign whoami`).
 - Telemetría `none`: cero llamadas externas.
+- **Trazas de los servicios (NFR007-02).** Los servicios del stack no trazan salvo que el operador fije
+  `TRACE_SAMPLE_RATE`; con `TELEMETRY_LEVEL=none` no pueden, y una petición dirigida a un `.onion` (el vault o el
+  blob-store publicados como servicio onion) nunca se traza. Pruebas en `packages/service-kit/test/tracing.test.ts`
+  y `services/blob-store/test/tracing.test.ts`; detalle en [`slo.md`](slo.md#trazas-nfr007-02).
 
 ## Custodia: llave en el dispositivo o signer NIP-46 (FR004-08)
 

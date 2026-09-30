@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, type ReplayStore } from '@sedecim/service-kit';
+import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, tracingFromEnv, type ReplayStore } from '@sedecim/service-kit';
 import { CognitoVerifier, createContinuityVaultApi, FileObjectStore, MemoryArchiveRepository, MemoryObjectStore, PgArchiveRepository, S3ObjectStore, VaultSweeper, type ArchiveRepository, type Nip98Policy, type ObjectStore, type VaultLimits } from './index';
 
 const env = process.env;
@@ -79,6 +79,8 @@ const api = createContinuityVaultApi(repo, objects, {
   limits,
   ...(retentionDays ? { retentionDays } : {}),
   rateLimit: rateLimitFromEnv(env),
+  // NFR007-02: TELEMETRY_LEVEL / TRACE_SAMPLE_RATE / TRACE_EXPORT_URL; off by default.
+  tracing: tracingFromEnv(env),
   ...(replayStore ? { replayStore } : {}),
   ...(cognito ? { cognito } : {}),
 });
