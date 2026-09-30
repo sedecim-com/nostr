@@ -146,6 +146,24 @@ describe('egress allowlist per profile (FR022-02)', () => {
     expect(() => networkAllowlist(parsePersonaList('cccc  x  direct  standard  wss://relay.example')[0]!, SOCKS)).toThrow(/IP literal/);
   });
 
+  it('FR020-05: two Tor personas in one capture, each CONNECT under its own credentials, plus the Blossom and policy onions', () => {
+    const a = { id: 'aaaa', network: 'tor-only' as const, relays: [new URL('ws://relay.onion')] };
+    const b = { id: 'bbbb', network: 'tor-only' as const, relays: [new URL('ws://relay.onion')] };
+    const extraHosts = ['blob.onion:80', 'policy.onion:80'];
+    const ok: SocksRequest[] = [
+      { host: 'relay.onion', port: 80, addressType: 'domain', username: 'aaaa' },
+      { host: 'relay.onion', port: 80, addressType: 'domain', username: 'bbbb' },
+      { host: 'blob.onion', port: 80, addressType: 'domain', username: 'bbbb' },
+      { host: 'policy.onion', port: 80, addressType: 'domain', username: 'aaaa' },
+    ];
+    expect(checkSocksRequests(ok, [a, b], { requireIsolation: true, extraHosts })).toEqual([]);
+    // Without the extra hosts, the Blossom and policy onions are outside the allowlist.
+    expect(checkSocksRequests(ok, [a, b], { requireIsolation: true }).filter((p) => /outside the persona allowlist/.test(p))).toHaveLength(2);
+    // A CONNECT under neither persona's credentials is reported, whatever it reaches.
+    expect(checkSocksRequests([{ host: 'relay.onion', port: 80, addressType: 'domain', username: 'cccc' }], [a, b], { requireIsolation: true, extraHosts })[0]).toMatch(/username cccc, expected one of aaaa, bbbb/);
+    expect(checkSocksRequests([{ host: 'tracker.example', port: 443, addressType: 'domain', username: 'aaaa' }], [a, b], { requireIsolation: true, extraHosts })[0]).toMatch(/outside the persona allowlist/);
+  });
+
   it('negative: SOCKS requests outside the allowlist, by address, or from a direct persona are reported', () => {
     const tor = personas[1]!;
     expect(checkSocksRequests([{ host: 'abc.onion', port: 80, addressType: 'domain' }], tor)).toEqual([]);

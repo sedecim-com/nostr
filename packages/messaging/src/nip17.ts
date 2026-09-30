@@ -46,24 +46,33 @@ async function wrapForAll(signer: Signer, rumor: Rumor, recipients: string[], op
   return { rumor, wraps };
 }
 
-export async function createDirectMessage(signer: Signer, input: DirectMessageInput, opts: WrapOptions = {}): Promise<WrappedMessage> {
+/** The kind 14 rumor of a direct message, before any seal or wrap. */
+export async function directMessageRumor(signer: Signer, input: DirectMessageInput): Promise<Rumor> {
   if (input.recipients.length === 0) throw new Error('at least one recipient required');
   const tags = pTags(input);
   if (input.replyTo) tags.push(['e', input.replyTo]);
   if (input.subject) tags.push(['subject', input.subject]);
-  const rumor = createRumor({ kind: DM_KIND, content: input.content, tags }, await signer.getPublicKey());
-  return wrapForAll(signer, rumor, input.recipients, opts);
+  return createRumor({ kind: DM_KIND, content: input.content, tags }, await signer.getPublicKey());
 }
 
-export async function createFileMessage(signer: Signer, input: FileMessageInput, opts: WrapOptions = {}): Promise<WrappedMessage> {
+/** The kind 15 rumor of a file message, before any seal or wrap. */
+export async function fileMessageRumor(signer: Signer, input: FileMessageInput): Promise<Rumor> {
+  if (input.recipients.length === 0) throw new Error('at least one recipient required');
   const tags = [...pTags(input), ['file-type', input.mimeType], ['x', input.sha256]];
   if (input.originalSha256) tags.push(['ox', input.originalSha256]);
   if (input.size !== undefined) tags.push(['size', String(input.size)]);
   if (input.encryption) {
     tags.push(['encryption-algorithm', input.encryption.algorithm], ['decryption-key', input.encryption.keyHex], ['decryption-nonce', input.encryption.nonceHex]);
   }
-  const rumor = createRumor({ kind: FILE_MESSAGE_KIND, content: input.url, tags }, await signer.getPublicKey());
-  return wrapForAll(signer, rumor, input.recipients, opts);
+  return createRumor({ kind: FILE_MESSAGE_KIND, content: input.url, tags }, await signer.getPublicKey());
+}
+
+export async function createDirectMessage(signer: Signer, input: DirectMessageInput, opts: WrapOptions = {}): Promise<WrappedMessage> {
+  return wrapForAll(signer, await directMessageRumor(signer, input), input.recipients, opts);
+}
+
+export async function createFileMessage(signer: Signer, input: FileMessageInput, opts: WrapOptions = {}): Promise<WrappedMessage> {
+  return wrapForAll(signer, await fileMessageRumor(signer, input), input.recipients, opts);
 }
 
 export interface DirectMessage extends Unwrapped {

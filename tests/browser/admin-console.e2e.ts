@@ -1,8 +1,8 @@
 /**
  * Browser E2E for the admin console (OPS-07). Run with: npm run test:browser
  * Serves the Vite build like nginx does (per-request CSP nonce) on http://localhost (WebAuthn needs a
- * domain RP id) against an in-process policy-engine stub of the admin contract, the real
- * identity-service, and a test relay for the NIP-46 bunker sign-in.
+ * domain RP id) against the real policy-engine (FR023-13: its API and engine in process, memory repository,
+ * WebAuthn verification included), the real identity-service, and a test relay for the NIP-46 bunker sign-in.
  */
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
@@ -18,7 +18,7 @@ import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestRelay } from '@sedecim/test-relay';
 import { nip98Fetch } from '@sedecim/service-kit';
 import { createIdentityApi, MemoryIdentityRepository } from '@sedecim/identity-service';
-import { createPolicyStub, RETENTION_NOTICE } from './policy-engine-stub';
+import { createPolicyApi, DEFAULT_ACCESS_LOG_RETENTION_DAYS, GROUP_RETENTION_REFUSED, MemoryPolicyRepository, PolicyEngine, RETENTION_NOTICE } from '@sedecim/policy-engine';
 
 const dist = new URL('../../apps/admin-console/dist/', import.meta.url).pathname;
 const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -72,8 +72,18 @@ await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
 const base = `http://localhost:${(server.address() as AddressInfo).port}`;
 
 // --- backends
-const stub = createPolicyStub({ adminPubkeys: [adminPk], corsOrigins: [base], seedAudit: 45 });
-const policyUrl = await stub.svc.listen();
+// FR023-13: the real policy-engine. WebAuthn: the console's origin, RP id localhost, `none` attestation accepted.
+const engine = new PolicyEngine(new MemoryPolicyRepository(), Date.now, { rpId: 'localhost', rpName: 'Acceso Nostr', origins: [base] });
+// Older entries so the audit table has several pages.
+for (let i = 0; i < 45; i++) await engine.repo.appendAudit({ at: Date.now() - 5_000_000 + i, actor: 'seed', action: i % 2 ? 'seed.even' : 'seed.odd', target: `seed-${i}` });
+const policy = createPolicyApi(engine, { name: 'policy-e2e', adminPubkeys: [adminPk], corsOrigins: [base] });
+const policyUrl = await policy.listen();
+// What the engine holds, read back through its own API (never through the console).
+const subjectOf = async (pk: string) => (await engine.listSubjects()).find((x) => x.pubkey === pk);
+const resourceOf = async (id: string) => (await engine.listResources()).find((x) => x.id === id);
+const directoryOf = async (pk: string) => (await engine.listDirectory()).find((x) => x.pubkey === pk);
+const retentionOf = async (id: string) => (await engine.listRetention()).find((x) => x.resourceId === id);
+const auditLog = () => engine.listAudit({ limit: 1000 });
 const identityRepo = new MemoryIdentityRepository();
 const identity = createIdentityApi(identityRepo, { name: 'identity-e2e', corsOrigins: [base] });
 const identityUrl = await identity.listen();
@@ -90,7 +100,7 @@ const link = await nip98Fetch(aliceSk, `${identityUrl}/v1/links`, 'POST', { from
 const config = { policyEngineUrl: policyUrl, identityServiceUrl: identityUrl, devLocalKey: true };
 const browser: Browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const errors: string[] = [];
-const stubRequests: Array<{ method: string; url: string; auth?: string }> = [];
+const policyRequests: Array<{ method: string; url: string; auth?: string }> = [];
 const newContext = async (o: { bypassCSP?: boolean } = {}) => {
   const ctx = await browser.newContext(o);
   await ctx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(config) }));
@@ -100,7 +110,7 @@ const watch = (page: Page) => {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => /Content Security Policy/i.test(m.text()) && errors.push(m.text()));
   if (process.env.DEBUG_E2E) page.on('console', (m) => console.log('[browser]', m.type(), m.text()));
-  page.on('request', (r) => r.url().startsWith(policyUrl) && stubRequests.push({ method: r.method(), url: r.url(), ...(r.headers().authorization ? { auth: r.headers().authorization } : {}) }));
+  page.on('request', (r) => r.url().startsWith(policyUrl) && policyRequests.push({ method: r.method(), url: r.url(), ...(r.headers().authorization ? { auth: r.headers().authorization } : {}) }));
 };
 const tab = (p: Page, name: string) => p.getByRole('tab', { name }).click();
 const signInLocal = async (p: Page, sk: Uint8Array) => {
@@ -114,7 +124,7 @@ const bunkerPool = new RelayPool({ webSocketFactory: factory, signer: new LocalS
 try {
   assert(link.status === 201, 'fixture: identity-service holds a public link for Alice');
 
-  // --- the stub enforces NIP-98 and the admin allowlist
+  // --- the policy-engine enforces NIP-98 and the admin allowlist
   const noAuth = await fetch(`${policyUrl}/v1/subjects`);
   assert(noAuth.status === 401, 'request without NIP-98 is rejected (401)');
   const wrongUrlEvt = finalizeEvent(toUnsigned(nip98.buildHttpAuthTemplate(`${policyUrl}/v1/resources`, 'GET'), adminPk), adminSk);
@@ -149,13 +159,13 @@ try {
   await page.fill('#subject-attributes', 'clearance=secret\nunit=ops|legal');
   await page.getByRole('button', { name: 'Guardar' }).click();
   await row(page, 'pubkey', alicePk).waitFor();
-  const alice = stub.subjects.get(alicePk);
+  const alice = await subjectOf(alicePk);
   assert(alice?.roles.join() === 'staff,legal' && alice.attributes.clearance === 'secret' && (alice.attributes.unit as string[]).join() === 'ops,legal', 'subject created with roles and (multi-valued) attributes from an npub');
   await row(page, 'pubkey', alicePk).getByRole('button', { name: 'Editar' }).click();
   assert(await page.locator('#subject-pubkey').isDisabled(), 'the pubkey of an existing subject is not editable');
   await page.fill('#subject-roles', 'staff');
   await page.getByRole('button', { name: 'Guardar' }).click();
-  await until(() => stub.subjects.get(alicePk)?.roles.join() === 'staff', 'subject edit');
+  await until(async () => (await subjectOf(alicePk))?.roles.join() === 'staff', 'subject edit');
   assert(true, 'subject roles edited');
 
   // --- resources: validation, create a group with Alice as member
@@ -167,18 +177,18 @@ try {
   await page.fill('#resource-rules', '[{ "actions": ["fly"] }]');
   await page.getByRole('button', { name: 'Guardar' }).click();
   await page.getByText('regla 0: "actions"').waitFor();
-  assert(!stub.resources.has('grupo-a'), 'invalid rules are rejected before calling the API');
+  assert(!(await resourceOf('grupo-a')), 'invalid rules are rejected before calling the API');
   await page.fill('#resource-rules', '[{ "actions": ["read", "publish"], "anyRole": ["staff"], "minDeviceTrust": "registered" }]');
   await page.fill('#resource-members', npubEncode(alicePk));
   await page.getByRole('button', { name: 'Guardar' }).click();
   await row(page, 'resource', 'grupo-a').waitFor();
-  const res = stub.resources.get('grupo-a');
+  const res = await resourceOf('grupo-a');
   assert(res?.kind === 'group' && res.sensitivity === 'confidential' && res.rules[0]?.anyRole?.[0] === 'staff' && res.members?.[0] === alicePk, 'resource saved with kind, sensitivity, rules and members');
   await page.getByRole('button', { name: 'Nuevo recurso' }).click();
   await page.fill('#resource-id', 'canal-general');
   await page.getByRole('button', { name: 'Guardar' }).click();
   await row(page, 'resource', 'canal-general').waitFor();
-  assert(stub.resources.get('canal-general')?.members === undefined, 'resource without members omits the field');
+  assert((await resourceOf('canal-general'))?.members === undefined, 'resource without members omits the field');
 
   // --- devices: register, passkey through Chromium's virtual authenticator, revoke → rotations
   const cdp = await ctx.newCDPSession(page);
@@ -190,31 +200,32 @@ try {
   await page.getByText('Sin dispositivos.').waitFor();
   await page.getByRole('button', { name: 'Registrar dispositivo' }).click();
   await page.locator('#devices-notice').waitFor();
-  const [d1] = [...stub.devices.values()];
+  const [d1] = await engine.listDevices();
   assert(d1?.ownerPubkey === alicePk && d1.trust === 'registered', 'device registered for the owner');
   await row(page, 'device', d1!.id).getByText('Registrado').waitFor();
   await row(page, 'device', d1!.id).getByRole('button', { name: 'Registrar passkey' }).click();
   await page.getByText('Passkey registrada').waitFor({ timeout: 15_000 });
   await row(page, 'device', d1!.id).getByText('Atestiguado (passkey)').waitFor();
   const creds = (await cdp.send('WebAuthn.getCredentials', { authenticatorId })).credentials;
-  assert(stub.devices.get(d1!.id)?.trust === 'attested' && creds.length === 1 && stub.devices.get(d1!.id)?.credentialId === Buffer.from(creds[0]!.credentialId, 'base64').toString('base64url'), 'passkey: options → navigator.credentials.create → register; device is attested with that credential');
+  const attested = await engine.getDevice(d1!.id);
+  assert(attested?.trust === 'attested' && creds.length === 1 && attested.credentialId === Buffer.from(creds[0]!.credentialId, 'base64').toString('base64url'), 'passkey: options → navigator.credentials.create → register, verified by the policy-engine; device attested with that credential');
   await page.getByRole('button', { name: 'Registrar dispositivo' }).click();
-  await until(() => stub.devices.size === 2, 'second device');
-  const d2 = [...stub.devices.values()][1]!;
+  await until(async () => (await engine.listDevices()).length === 2, 'second device');
+  const d2 = (await engine.listDevices()).find((d) => d.id !== d1!.id)!;
   await row(page, 'device', d2.id).getByRole('button', { name: 'Revocar' }).click();
   await page.fill('#revoke-reason', 'perdido');
   await page.getByRole('button', { name: 'Revocar dispositivo' }).click();
   await page.locator('#device-revoke-result').waitFor();
   assert((await page.textContent('#device-revoke-result'))?.includes('Grupo grupo-a'), 'revoking a device shows the MLS rotations it queued');
-  assert(stub.devices.get(d2.id)?.revokedAt !== undefined && stub.audit.some((a) => a.action === 'device.revoke' && a.details?.reason === 'perdido'), 'device revoked with the given reason');
+  assert((await engine.getDevice(d2.id))?.revokedAt !== undefined && (await auditLog()).some((a) => a.action === 'device.revoke' && a.details?.reason === 'perdido'), 'device revoked with the given reason');
   await row(page, 'device', d2.id).getByText(/Revocado/).waitFor();
 
   // --- pending rotations: mark done
   await tab(page, 'Rotaciones pendientes');
-  const rot = stub.rotations.find((r) => r.status === 'pending')!;
-  await row(page, 'rotation', rot.id).getByRole('button', { name: 'Marcar como hecha' }).click();
+  const [rot] = await engine.listRotations('pending');
+  await row(page, 'rotation', rot!.id).getByRole('button', { name: 'Marcar como hecha' }).click();
   await page.getByText('No hay rotaciones pendientes.').waitFor();
-  assert(rot.status === 'done', 'rotation marked done');
+  assert((await engine.listRotations()).find((r) => r.id === rot!.id)?.status === 'done', 'rotation marked done');
 
   // --- revoke a subject: confirm dialog explains MLS consequences, rotations shown
   await tab(page, 'Personas');
@@ -226,7 +237,7 @@ try {
   await page.locator('#subject-revoke-result').waitFor();
   assert((await page.textContent('#subject-revoke-result'))?.includes('Grupo grupo-a'), 'subject revocation shows the returned rotations');
   await row(page, 'pubkey', alicePk).getByText('Revocada').waitFor();
-  assert(stub.subjects.get(alicePk)?.suspended === true && stub.devices.get(d1!.id)?.revokedAt !== undefined && !stub.resources.get('grupo-a')?.members?.includes(alicePk), 'subject suspended, devices revoked, removed from members');
+  assert((await subjectOf(alicePk))?.suspended === true && (await engine.getDevice(d1!.id))?.revokedAt !== undefined && !(await resourceOf('grupo-a'))?.members?.includes(alicePk), 'subject suspended, devices revoked, removed from members');
   await tab(page, 'Rotaciones pendientes');
   await page.locator('tr[data-rotation]').first().waitFor();
   assert((await page.locator('tr[data-rotation]').count()) === 1, 'the new rotation is listed as pending');
@@ -242,7 +253,7 @@ try {
   assert((await reactivateDialog.textContent())?.includes('siguen revocados'), 'the reactivation dialog says devices stay revoked');
   await reactivateDialog.getByRole('button', { name: 'Reactivar persona' }).click();
   await row(page, 'pubkey', alicePk).getByText('Activa').waitFor();
-  assert(stub.subjects.get(alicePk)?.suspended === undefined && stub.audit.some((a) => a.action === 'subject.reactivate' && a.target === alicePk), 'subject reactivated explicitly, with its own audit entry');
+  assert(!(await subjectOf(alicePk))?.suspended && (await auditLog()).some((a) => a.action === 'subject.reactivate' && a.target === alicePk), 'subject reactivated explicitly, with its own audit entry');
 
   // --- directory
   await tab(page, 'Directorio');
@@ -252,7 +263,8 @@ try {
   await page.fill('#dir-unit', 'TI');
   await page.getByRole('button', { name: 'Guardar entrada' }).click();
   await row(page, 'directory', bobPk).waitFor();
-  assert(stub.directory.get(bobPk)?.title === 'Jefe de sistemas' && stub.directory.get(bobPk)?.unit === 'TI', 'directory entry saved');
+  const entry = await directoryOf(bobPk);
+  assert(entry?.title === 'Jefe de sistemas' && entry.unit === 'TI', 'directory entry saved');
   await row(page, 'directory', bobPk).getByRole('button', { name: 'Editar' }).click();
   await page.fill('#dir-unit', 'Seguridad');
   await page.getByRole('button', { name: 'Guardar entrada' }).click();
@@ -260,23 +272,30 @@ try {
   await row(page, 'directory', bobPk).getByRole('button', { name: 'Borrar' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Borrar' }).click();
   await page.getByText('El directorio está vacío.').waitFor();
-  assert(!stub.directory.has(bobPk), 'directory entry edited and deleted');
+  assert(!(await directoryOf(bobPk)), 'directory entry edited and deleted');
 
   // --- retention: API notice shown prominently, per-resource days and legal hold
   await tab(page, 'Retención');
   await page.locator('#retention-notice').waitFor();
   assert((await page.textContent('#retention-notice'))?.includes(RETENTION_NOTICE), 'retention shows the API notice text');
-  await row(page, 'retention', 'grupo-a').getByRole('button', { name: 'Editar' }).click();
+  await row(page, 'retention', 'canal-general').getByRole('button', { name: 'Editar' }).click();
   await page.fill('#retention-days', '30');
   await page.check('#retention-hold');
   await page.getByRole('button', { name: 'Guardar' }).click();
-  await row(page, 'retention', 'grupo-a').getByText('Retención legal activa').waitFor();
-  assert(stub.retention.get('grupo-a')?.days === 30 && stub.retention.get('grupo-a')?.legalHold === true, 'retention days and legal hold saved');
+  await row(page, 'retention', 'canal-general').getByText('Retención legal activa').waitFor();
+  const kept = await retentionOf('canal-general');
+  assert(kept?.days === 30 && kept.legalHold === true, 'retention days and legal hold saved');
   await row(page, 'retention', 'canal-general').getByRole('button', { name: 'Editar' }).click();
   await page.fill('#retention-days', '');
   await page.getByRole('button', { name: 'Guardar' }).click();
   await row(page, 'retention', 'canal-general').getByText('Sin límite').waitFor();
-  assert(stub.retention.get('canal-general')?.days === null, 'empty days means no automatic deletion (null)');
+  const unlimited = await retentionOf('canal-general');
+  assert(unlimited?.days === null && unlimited.legalHold === true, 'empty days means no automatic deletion (null); the hold stays');
+  // FR023-12: an MLS group has no copy for a retention or a hold to act on; the console says so and offers no edit.
+  await row(page, 'retention', 'grupo-a').getByText('No aplica (grupo MLS)').waitFor();
+  assert((await row(page, 'retention', 'grupo-a').getByRole('button', { name: 'Editar' }).count()) === 0 && !(await retentionOf('grupo-a')), 'a group takes no retention policy');
+  const refused = await nip98Fetch(adminSk, `${policyUrl}/v1/retention/grupo-a`, 'PUT', { days: null, legalHold: true });
+  assert(refused.status === 409 && refused.json.error === GROUP_RETENTION_REFUSED, 'the policy-engine refuses a hold on a group');
 
   // --- audit: server pagination (limit/before), client-side filters
   await tab(page, 'Auditoría');
@@ -288,7 +307,7 @@ try {
   await until(async () => (await page.locator('#audit-rows tr[data-action]').first().textContent()) !== page1[0], 'audit page 2');
   const page2 = await page.locator('#audit-rows tr[data-action]').allTextContents();
   assert(page2.length === 20 && !page2.some((r) => page1.includes(r)), 'second page holds older, different entries');
-  assert(stubRequests.some((r) => /\/v1\/audit\?limit=20&before=\d+$/.test(r.url)), 'pagination uses limit and before');
+  assert(policyRequests.some((r) => /\/v1\/audit\?limit=20&before=\d+$/.test(r.url)), 'pagination uses limit and before');
   await page.fill('#audit-action', 'seed.even');
   const filtered = await page.locator('#audit-rows tr[data-action]').evaluateAll((rs) => rs.map((r) => r.getAttribute('data-action')));
   assert(filtered.length > 0 && filtered.length < 20 && filtered.every((a) => a === 'seed.even'), 'client-side filter by action');
@@ -298,6 +317,25 @@ try {
   await page.getByRole('button', { name: 'Más recientes' }).click();
   await page.getByText('Página 1').waitFor();
 
+  // --- FR023-12: access decisions, apart from the audit, with a retention of their own
+  for (let i = 0; i < 25; i++) await engine.repo.appendAccess({ at: Date.now() - 4_000_000 + i, pubkey: bobPk, resourceId: 'canal-general', action: 'read', allow: false });
+  await engine.evaluate({ pubkey: alicePk, resourceId: 'grupo-a', action: 'read' });
+  assert(!(await auditLog()).some((a) => a.action === 'policy.evaluate'), 'decisions are not in the audit');
+  await tab(page, 'Accesos');
+  await until(async () => (await page.locator('#access-rows tr[data-resource]').count()) === 20, 'access page 1');
+  assert((await page.locator('#access-rows tr[data-resource]').first().getAttribute('data-resource')) === 'grupo-a', 'access decisions newest first');
+  assert((await page.textContent('#access-scope'))?.includes(`Se guardan ${DEFAULT_ACCESS_LOG_RETENTION_DAYS} días`), 'the access log states its retention');
+  await page.getByRole('button', { name: 'Anteriores' }).click();
+  await page.getByText('Página 2').waitFor();
+  await until(async () => (await page.locator('#access-rows tr[data-resource]').count()) >= 6, 'access page 2');
+  await page.fill('#access-resource', 'grupo-a');
+  await page.getByRole('button', { name: 'Filtrar' }).click();
+  await page.getByText('Página 1').waitFor();
+  await until(async () => (await page.locator('#access-rows tr[data-resource]').count()) >= 1 && (await page.locator('#access-rows tr[data-resource="canal-general"]').count()) === 0, 'access filtered by resource');
+  assert(policyRequests.some((r) => /\/v1\/access-log\?limit=20&resource=grupo-a$/.test(r.url)), 'the resource filter is applied by the server');
+  await page.getByRole('button', { name: 'Ver todos' }).click();
+  await until(async () => (await page.locator('#access-rows tr[data-resource]').count()) === 20, 'access unfiltered again');
+
   // --- identity-service: visible links lookup (no admin listing exists there)
   await tab(page, 'Vínculos de identidad');
   await page.fill('#identity-pubkey', npubEncode(alicePk));
@@ -306,16 +344,16 @@ try {
   assert(true, 'identity lookup shows the public link through NIP-98');
 
   // every browser request to the policy-engine carried a NIP-98 header for its exact URL and method
-  assert(stubRequests.length > 20, `browser called the policy-engine (${stubRequests.length} requests)`);
-  const signedBy = (r: (typeof stubRequests)[number]) => {
+  assert(policyRequests.length > 20, `browser called the policy-engine (${policyRequests.length} requests)`);
+  const signedBy = (r: (typeof policyRequests)[number]) => {
     if (!r.auth?.startsWith('Nostr ')) return undefined;
     const evt = JSON.parse(Buffer.from(r.auth.slice(6), 'base64').toString('utf8')) as { pubkey: string; tags: string[][] };
     return evt.tags.find((t) => t[0] === 'u')?.[1] === r.url && evt.tags.find((t) => t[0] === 'method')?.[1] === r.method ? evt.pubkey : undefined;
   };
-  const bad = stubRequests.filter((r) => signedBy(r) === undefined);
+  const bad = policyRequests.filter((r) => signedBy(r) === undefined);
   assert(bad.length === 0, `every request carries a NIP-98 Authorization for its URL and method (${bad.map((r) => r.url).join(', ')})`);
-  assert(stubRequests.filter((r) => signedBy(r) !== adminPk).length === 1, 'only the refused outsider attempt was signed by another key');
-  assert(stub.calls.every((c) => c.pubkey === adminPk), 'stub saw only the admin key');
+  assert(policyRequests.filter((r) => signedBy(r) !== adminPk).length === 1, 'only the refused outsider attempt was signed by another key');
+  assert((await auditLog()).filter((a) => a.actor !== 'seed').every((a) => a.actor === adminPk), 'every change the policy-engine audited was made by the admin key');
 
   await page.getByRole('button', { name: 'Cerrar sesión' }).click();
   await page.locator('#dev-nsec').waitFor();
@@ -403,6 +441,7 @@ try {
     ['Directorio', '#directory-notice'],
     ['Retención', '#retention-notice'],
     ['Auditoría', '#audit-rows tr[data-action]'],
+    ['Accesos', '#access-rows tr[data-resource]'],
     ['Vínculos de identidad', '#identity-pubkey'],
   ] as const) {
     await a11y.getByRole('tab', { name }).click();
@@ -416,7 +455,7 @@ try {
   await browser.close();
   bunkerPool.close();
   server.close();
-  await stub.svc.close();
+  await policy.close();
   await identity.close();
   await relay.stop();
 }

@@ -18,7 +18,9 @@ import type { AddressInfo } from 'node:net';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import WebSocket from 'ws';
 import { bytesToHex, generateSecretKey, getPublicKey, nip19, npubEncode, type Filter } from '@sedecim/nostr-core';
+import { MarmotTsProvider, PoolGroupNetwork, VolatileGroupStorage } from '@sedecim/marmot-adapter';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
+import { LocalSigner } from '@sedecim/signer';
 import { TestRelay } from '@sedecim/test-relay';
 import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '@sedecim/continuity-vault';
 
@@ -72,9 +74,9 @@ const config = { mode: 'self-hosted', relays: [relay.url], secureRelays: [secure
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const errors: string[] = [];
 
-async function newUser(name: string, opts: { bypassCSP?: boolean } = {}): Promise<{ ctx: BrowserContext; page: Page; sk: Uint8Array; pubkey: string }> {
+async function newUser(name: string, opts: { bypassCSP?: boolean; config?: Record<string, unknown> } = {}): Promise<{ ctx: BrowserContext; page: Page; sk: Uint8Array; pubkey: string }> {
   const ctx = await browser.newContext(opts.bypassCSP ? { bypassCSP: true } : {});
-  await ctx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(config) }));
+  await ctx.route('**/config.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(opts.config ?? config) }));
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
   page.on('console', (m) => /Content Security Policy/i.test(m.text()) && errors.push(`${name}: ${m.text()}`));
@@ -198,6 +200,20 @@ try {
   await logHas(bob.page, 'después de recargar');
   assert(true, 'the restored MLS state decrypts new messages');
 
+  // --- FR025-12: without network a group message is kept, not lost, and goes out on its own once back online
+  const onRelay = (await secureQuery([{ kinds: [445] }])).length;
+  await alice.ctx.setOffline(true);
+  await alice.page.fill('#group-text', 'escrito sin red');
+  await alice.page.locator('#group-send').getByRole('button', { name: 'Enviar' }).click();
+  await alice.page.getByText(/el mensaje quedó pendiente/).waitFor({ timeout: 60_000 });
+  await alice.page.locator('#group-log').getByText(/pendiente de enviar/).waitFor({ timeout: 20_000 });
+  assert(await alice.page.locator('#group-pending').isVisible(), 'without network the group message stays pending, shown as such (FR025-12)');
+  assert((await secureQuery([{ kinds: [445] }])).length === onRelay, 'nothing reached the secure relay while offline');
+  await alice.ctx.setOffline(false);
+  await logHas(bob.page, 'escrito sin red', 60_000);
+  await alice.page.locator('#group-pending').waitFor({ state: 'detached', timeout: 30_000 });
+  assert(true, 'back online, the pending message goes out by itself and Bob reads it');
+
   // --- Alice removes Bob; Bob cannot read later messages
   await alice.page.getByRole('button', { name: /^Expulsar a/ }).click();
   await alice.page.getByRole('dialog').getByRole('button', { name: 'Expulsar' }).click();
@@ -246,7 +262,7 @@ try {
   await alice.page.locator('#vault-push').click();
   await alice.page.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.includes('operaciones'), undefined, { timeout: 30_000 });
   const pushStatus = (await alice.page.textContent('#vault-status')) ?? '';
-  assert(/ 5 mensajes de grupo nuevos, ledger de \d+ operaciones y estado de los grupos\./.test(pushStatus), `Alice seals the group chat (read and sent) and the MLS state in the vault (${pushStatus})`);
+  assert(/ 6 mensajes de grupo nuevos, ledger de \d+ operaciones y estado de los grupos\./.test(pushStatus), `Alice seals the group chat (read and sent) and the MLS state in the vault (${pushStatus})`);
   let vaultHeld = '';
   for await (const k of vaultObjects.list()) vaultHeld += new TextDecoder().decode((await vaultObjects.get(k))!);
   assert(!['hola bob', 'sigo aquí', 'Redacción', alice.pubkey].some((t) => vaultHeld.includes(t)), 'the vault holds no group text, group name or npub (sealed in the browser)');
@@ -279,10 +295,10 @@ try {
     await clean.locator('#vault-restore').click();
     await clean.waitForFunction(() => document.querySelector('#vault-status')?.textContent?.startsWith('Restaurado desde el vault'), undefined, { timeout: 30_000 });
     const restoreStatus = (await clean.textContent('#vault-status')) ?? '';
-    assert(restoreStatus.includes('; 5 mensajes de grupo;') && restoreStatus.includes('Los grupos seguros vuelven como copia del otro dispositivo') && !/rechazados|no se abren/.test(restoreStatus), `the clean browser restores the group chat and the MLS state from the vault (${restoreStatus})`);
+    assert(restoreStatus.includes('; 6 mensajes de grupo;') && restoreStatus.includes('Los grupos seguros vuelven como copia del otro dispositivo') && !/rechazados|no se abren/.test(restoreStatus), `the clean browser restores the group chat and the MLS state from the vault (${restoreStatus})`);
     await openGroups(clean);
     await clean.locator('#group-list').getByText('Redacción').click();
-    for (const t of ['hola bob', 'hola alice', 'después de recargar', 'secreto posterior', 'sigo aquí']) await logHas(clean, t);
+    for (const t of ['hola bob', 'hola alice', 'después de recargar', 'escrito sin red', 'secreto posterior', 'sigo aquí']) await logHas(clean, t);
     await waitState(clean, /Época 2 · 1 miembro · 1 admin/);
     assert(true, 'the restored browser reads the whole group conversation, sent and received messages alike');
     assert((await clean.locator('#group-restored').isVisible()) && (await clean.locator('#group-send').count()) === 0, 'the restored group is a copy of the other device: readable, but no composer until this browser joins again (FR025-06)');
@@ -296,6 +312,29 @@ try {
   } finally {
     await cleanCtx.close();
     await emptyRelay.stop();
+  }
+
+  // --- FR024-05: with the organisation's rotation worker in the configuration, a new group lists it as an admin and
+  // invites it, and shows it as such to the members.
+  const workerSk = generateSecretKey();
+  const worker = getPublicKey(workerSk);
+  const workerPool = new RelayPool({ webSocketFactory: (url) => new WebSocket(url) as unknown as WebSocketLike, signer: new LocalSigner(workerSk), authMode: 'auto' });
+  const workerSession = await new MarmotTsProvider().openSession({ signer: new LocalSigner(workerSk), network: new PoolGroupNetwork(workerPool, [secureUrl]), storage: new VolatileGroupStorage(), deviceId: 'rotation-worker' });
+  const org = await newUser('Organización', { config: { ...config, rotationWorker: npubEncode(worker) } });
+  try {
+    await workerSession.publishKeyPackage([secureUrl]);
+    await openGroups(org.page);
+    await org.page.fill('#group-name', 'Con worker');
+    await org.page.locator('#groups-create').getByRole('button', { name: 'Crear grupo' }).click();
+    await org.page.locator('#group-members').getByText('worker de rotaciones de la organización', { exact: false }).waitFor({ timeout: 30_000 });
+    await waitState(org.page, /· 2 miembros · 2 admins/);
+    assert(true, 'a group created with the rotation worker configured lists it as a member and an admin, labelled as such');
+    const joined = await workerSession.acceptInvites();
+    assert(joined.length === 1 && joined[0]!.name === 'Con worker' && joined[0]!.admins.includes(worker) && joined[0]!.admins.includes(org.pubkey), 'the worker receives the invitation and is an admin of the group, so it can remove revoked devices');
+  } finally {
+    await org.ctx.close();
+    workerSession.close();
+    workerPool.close();
   }
 
   assert(errors.length === 0, `no page errors or CSP violations (${errors.join('; ')})`);

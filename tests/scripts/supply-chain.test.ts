@@ -40,6 +40,22 @@ describe('supply chain (OPS-13)', () => {
     for (const [, src] of mirror.matchAll(/^\s+"([^|"]+)\|/gm)) if (!src!.includes('BUZZ_IMAGE')) expect(src, 'mirror-ecr-deps.sh').toMatch(DIGEST);
   });
 
+  it('compose names each third-party image with its tag and digest, so Dependabot follows releases and not latest', () => {
+    // A digest without a tag made Dependabot propose the digest of `latest`: caddy 2.11 under a 2.10.2 label (#344),
+    // an unreleased nostr-rs-relay build (#345). Buzz is the exception: it follows infra/buzz/PIN (ADR 0003).
+    for (const file of ['docker-compose.yml', 'compose.tls.yml']) {
+      for (const [, image] of read(file).matchAll(/^\s+image:\s*(\S+)/gm)) {
+        if (image!.includes('BUZZ_IMAGE')) continue;
+        const ref = /^\$\{\w+:-(.+)\}$/.exec(image!)?.[1] ?? image!;
+        expect(ref, file).toMatch(/^[\w./-]+:[\w.-]+@sha256:[0-9a-f]{64}$/);
+      }
+    }
+    // The Caddyfile is validated with the Caddy image of compose.tls.yml, not a digest of its own.
+    const ci = read('.github/workflows/ci.yml');
+    expect(ci).toMatch(/name: Validate Caddyfile\n\s+run: \|\n\s+caddy_image=\$\(sed [^\n]+ compose\.tls\.yml\)/);
+    expect(ci).not.toMatch(/caddy@sha256:/);
+  });
+
   it('every downloaded tool is checked against its published checksum before it runs', () => {
     for (const wf of workflows) {
       const text = read(`.github/workflows/${wf}`);
@@ -54,6 +70,10 @@ describe('supply chain (OPS-13)', () => {
     const cfg = read('.github/dependabot.yml');
     const updates = cfg.split(/^\s+- package-ecosystem: /m).slice(1).map((u) => `${u.split('\n')[0]} ${/directory: (\S+)/.exec(u)?.[1]}`);
     expect(updates).toEqual(expect.arrayContaining(['npm /', 'github-actions /', 'docker /', 'docker /infra/tor', 'docker-compose /']));
+    // Buzz follows buzz-upstream.yml (ADR 0003). Dependabot names images without their registry: an ignore
+    // written as ghcr.io/block/buzz matches nothing.
+    expect(cfg).toMatch(/^\s+- dependency-name: block\/buzz$/m);
+    expect(cfg).not.toMatch(/dependency-name: \S*\.\S+\//);
   });
 
   it('npm audit gates CI, and CodeQL gates the release', () => {

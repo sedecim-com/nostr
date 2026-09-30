@@ -1,9 +1,10 @@
 import { bytesToHex, hexToBytes, nip19, nip49, generateSecretKey, getPublicKey, npubEncode, selfTestKey, wipe, CUSTODY_FACTS, type Signer } from '@sedecim/nostr-core';
 import { NetworkBlockedError, RelayPool, type WebSocketFactory } from '@sedecim/relay-pool';
-import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS, type AccessTokenProvider } from '@sedecim/signer';
+import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS, type AccessTokenProvider, type ManagedKeyInfo, type ManagedSignerConnection } from '@sedecim/signer';
+import type { BrowserManagedSession } from './managed-session';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type ContinuitySink, type OutboxRecord } from '@sedecim/delivery-engine';
-import { DmInbox, dmRouter, publishDmRelayList, type DirectMessage, type Receipt, type WrapOptions } from '@sedecim/messaging';
+import { DmInbox, dmRouter, publishDmRelayList, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
 import { continuityPolicy, preset, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
 import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
@@ -21,6 +22,8 @@ export interface PersonaSession {
   engine: DeliveryEngine;
   /** FR010-03: where recipients' DM relay lists are looked up (the persona's relays plus the deployment's). */
   dmDiscovery: string[];
+  /** FR011-05: the DMs being sent, stored (encrypted, in the vault) before their wraps are made. */
+  dmOperations: DmOperationStore;
   close(): void;
 }
 
@@ -32,7 +35,9 @@ export type NewPersona =
   | { kind: 'nip07' }
   | { kind: 'nip46'; bunker: string }
   /** Custodial key created in the managed-signer after an explicit opt-in (FR005-07) whose version is recorded (FR005-08). */
-  | { kind: 'managed'; baseUrl: string; token: AccessTokenProvider; consentVersion: string }
+  | { kind: 'managed'; conn: ManagedSignerConnection; consentVersion: string }
+  /** FR005-11: a managed key its owner already has (created in another browser), reopened with the Acceso login. */
+  | { kind: 'managed-existing'; key: ManagedKeyInfo }
   /** Already connected through a client-initiated nostrconnect:// offer (FR004-03). */
   | { kind: 'nip46-connected'; signer: Nip46Signer; clientSecretKey: Uint8Array };
 
@@ -47,7 +52,7 @@ const torOnlyBlocked: WebSocketFactory = (url) => {
 /** Pool for NIP-46 traffic: NIP-42 on the signer relays authenticates the ephemeral client key only. */
 const nip46Pool = (clientKey: Uint8Array, webSocketFactory?: WebSocketFactory) => new RelayPool({ signer: new LocalSigner(clientKey), authMode: 'on-demand', webSocketFactory });
 
-const CUSTODY_OF_INPUT: Record<NewPersona['kind'], PersonaCustody> = { create: 'local', import: 'local', secret: 'local', nip07: 'nip07', nip46: 'nip46', 'nip46-connected': 'nip46', managed: 'managed' };
+const CUSTODY_OF_INPUT: Record<NewPersona['kind'], PersonaCustody> = { create: 'local', import: 'local', secret: 'local', nip07: 'nip07', nip46: 'nip46', 'nip46-connected': 'nip46', managed: 'managed', 'managed-existing': 'managed' };
 
 /**
  * PANEL-05: the custody a persona really has, whatever its preset says: the panel and its disclosures describe
@@ -127,11 +132,20 @@ export async function createPersona(book: PersonaBook, input: NewPersona, opts: 
       break;
     }
     case 'managed': {
-      const key = await ManagedSignerClient.createKey({ baseUrl: input.baseUrl, token: input.token }, { consentVersion: input.consentVersion });
+      const key = await ManagedSignerClient.createKey(input.conn, { consentVersion: input.consentVersion });
       custody = 'managed';
       pubkey = key.pubkey;
       managedKeyId = key.keyId;
       managedConsent = { version: input.consentVersion, acceptedAt: key.consentAt ?? Date.now() };
+      break;
+    }
+    case 'managed-existing': {
+      // Only a key that still signs: an exported or migrated one belongs to the persona's new custody.
+      if (input.key.state !== 'active') throw new Error('esa llave gestionada ya no firma (exportada o migrada)');
+      custody = 'managed';
+      pubkey = input.key.pubkey;
+      managedKeyId = input.key.keyId;
+      if (input.key.consentVersion) managedConsent = { version: input.key.consentVersion, acceptedAt: input.key.consentAt ?? input.key.createdAt };
       break;
     }
     case 'nip46-connected':
@@ -181,10 +195,21 @@ export async function setArchiveKey(book: PersonaBook, persona: PersonaRecord, k
   return next;
 }
 
-/** What a managed persona needs to reach its signer; the token proves the Acceso user on each call. */
+/**
+ * What a managed persona needs to reach its signer. `token` is the Acceso login; `session` signs through this
+ * browser's device session, opened with it (FR005-11), which the user can list and close.
+ */
 export interface ManagedEnv {
   baseUrl?: string;
   token?: AccessTokenProvider;
+  session?: BrowserManagedSession;
+}
+
+/** How this browser talks to the managed-signer: through its device session when there is one, else the login. */
+export function managedConnection(managed: ManagedEnv): ManagedSignerConnection {
+  if (managed.session) return managed.session.connection();
+  if (!managed.baseUrl || !managed.token) throw new Error('la persona gestionada necesita el managed-signer y una sesión de Acceso');
+  return { baseUrl: managed.baseUrl, token: managed.token };
 }
 
 /**
@@ -231,8 +256,7 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
     signer = new LocalSigner(sk, 'local');
     wipe(sk);
   } else if (persona.custody === 'managed') {
-    if (!managed.baseUrl || !managed.token) throw new Error('la persona gestionada necesita el managed-signer y una sesión de Acceso');
-    signer = new ManagedSignerClient({ baseUrl: managed.baseUrl, keyId: persona.managedKeyId!, token: managed.token });
+    signer = new ManagedSignerClient({ ...managedConnection(managed), keyId: persona.managedKeyId! });
   } else if (persona.custody === 'nip07') signer = new Nip07Signer();
   else {
     const opts = { permissions: WEB_NIP46_PERMISSIONS, onAuthUrl: raiseSignerAuthUrl };
@@ -264,6 +288,7 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
     pool,
     engine,
     dmDiscovery,
+    dmOperations: book.store.collection<DmOperation>(`dm-ops-${persona.id}`),
     close: () => {
       offReconnect();
       pool.close();

@@ -100,4 +100,5 @@ coherencia con el informe y los flags versionados, texto de la PR).
   gift wraps ajenos.
 - Con `BUZZ_REQUIRE_AUTH_TOKEN=false` los clientes de terceros se autentican solo con NIP-42; activar
   `BUZZ_PUBKEY_ALLOWLIST=true` para relays privados; en modo institucional el servicio `relay-allowlist`
-  mantiene la tabla `pubkey_allowlist` desde el policy-engine (FR023-04, `docs/institutional.md`).
+  mantiene la tabla `pubkey_allowlist` desde el policy-engine (FR023-04, `docs/institutional.md`) y, con
+  `BUZZ_MEMBERSHIP_NSEC`, la membresía NIP-29 de los canales privados registrados (kinds 9000/9001, FR023-10).

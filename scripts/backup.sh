@@ -7,7 +7,8 @@
 # - Postgres: pg_dump (custom format) of Buzz's database and of the platform database (mirror, identity,
 #   managed-signer registry).
 # - Volumes: tar of relay-git, seaweedfs-data (Buzz media), blob-data (encrypted attachments),
-#   secure-relay-data and, when those services run, managed-vault, tor-data and secure-relay-onion-data. Each service is paused
+#   secure-relay-data and, when those services run, managed-vault, tor-data, secure-relay-onion-data and rotation-state
+#   (the rotation worker's MLS state, encrypted with ROTATION_STATE_KEY from .env). Each service is paused
 #   (`docker compose pause`) during its copy, so the archive is a consistent snapshot (a few seconds).
 # - Continuity Vault (VAULT-06): its rows are in the platform database and its envelopes in SeaweedFS. It is paused
 #   from before the dumps until seaweedfs-data is copied, so no backed-up row points to an envelope the backup lacks
@@ -64,7 +65,7 @@ docker compose exec -T postgres sh -c 'exec pg_dump -U "$POSTGRES_USER" -Fc -d "
 # service  mount path  archive name
 for entry in relay:/data/git:relay-git seaweedfs:/data:seaweedfs-data blob-store:/data:blob-data \
   secure-relay:/usr/src/app/db:secure-relay-data secure-relay-onion:/usr/src/app/db:secure-relay-onion-data \
-  managed-signer:/data:managed-vault tor:/var/lib/tor:tor-data; do
+  managed-signer:/data:managed-vault tor:/var/lib/tor:tor-data rotation-worker:/data:rotation-state; do
   svc=${entry%%:*}
   rest=${entry#*:}
   path=${rest%%:*}

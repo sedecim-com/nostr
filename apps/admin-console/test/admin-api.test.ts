@@ -26,7 +26,13 @@ describe('PolicyAdminApi', () => {
     await api.audit({ limit: 20, before: 123 });
     await api.putRetention('grupo-a', { days: null, legalHold: true });
     await api.deleteDirectory('ab'.repeat(32));
-    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET http://policy.test/v1/audit?limit=20&before=123', 'PUT http://policy.test/v1/retention/grupo-a', `DELETE http://policy.test/v1/directory/${'ab'.repeat(32)}`]);
+    await api.accessLog({ limit: 20, before: 7, resource: 'canal general' });
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'GET http://policy.test/v1/audit?limit=20&before=123',
+      'PUT http://policy.test/v1/retention/grupo-a',
+      `DELETE http://policy.test/v1/directory/${'ab'.repeat(32)}`,
+      'GET http://policy.test/v1/access-log?limit=20&before=7&resource=canal+general',
+    ]);
     expect(calls[1]!.body).toBe('{"days":null,"legalHold":true}');
     expect(calls.every((c) => c.pubkey === getPublicKey(sk))).toBe(true);
   });

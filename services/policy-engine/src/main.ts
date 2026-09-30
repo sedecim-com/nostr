@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, type ReplayStore } from '@sedecim/service-kit';
-import { createPolicyApi, MemoryPolicyRepository, PgPolicyRepository, PolicyEngine, type PolicyRepository } from './index';
+import { createPolicyApi, DEFAULT_ACCESS_LOG_RETENTION_DAYS, MemoryPolicyRepository, PgPolicyRepository, PolicyEngine, type PolicyRepository } from './index';
 
 const env = process.env;
 const admins = (env.POLICY_ADMIN_PUBKEYS ?? '').split(',').filter(Boolean);
@@ -30,11 +30,24 @@ const webauthn = {
   allowNone: env.WEBAUTHN_REQUIRE_ATTESTATION !== 'true',
 };
 const corsOrigins = (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-const api = createPolicyApi(new PolicyEngine(repo, Date.now, webauthn), {
+const engine = new PolicyEngine(repo, Date.now, webauthn);
+// FR023-12: access decisions are kept ACCESS_LOG_RETENTION_DAYS (90), except on resources under legal hold. Every
+// replica prunes; the delete is idempotent.
+const accessDays = Number(env.ACCESS_LOG_RETENTION_DAYS ?? DEFAULT_ACCESS_LOG_RETENTION_DAYS);
+if (!(Number.isInteger(accessDays) && accessDays > 0)) throw new Error('ACCESS_LOG_RETENTION_DAYS must be a positive whole number of days');
+const pruneAccessLog = () =>
+  engine.pruneAccessLog(accessDays).then(
+    (n) => n > 0 && console.info(`access log: ${n} decisions older than ${accessDays} days deleted`),
+    (err: Error) => console.warn(`access log retention failed: ${err.message}`),
+  );
+setInterval(() => void pruneAccessLog(), Number(env.ACCESS_LOG_PRUNE_INTERVAL_MS ?? 3_600_000)).unref();
+void pruneAccessLog();
+const api = createPolicyApi(engine, {
   name: 'policy-engine',
   publicBaseUrl: env.PUBLIC_BASE_URL,
   bearerTokens: tokens,
   adminPubkeys: admins,
+  accessLogRetentionDays: accessDays,
   corsOrigins,
   rateLimit: rateLimitFromEnv(env),
   ...(replayStore ? { replayStore } : {}),

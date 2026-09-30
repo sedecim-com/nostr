@@ -10,27 +10,55 @@ control institucional. **La centralización es una capa voluntaria de convenienc
 
 ## Qué incluye
 
-| Área | Dónde | Estado |
+| Área | Dónde | Notas |
 |---|---|---|
-| SDK Nostr propio (desacoplado de Buzz) | `packages/*` | ✅ |
-| Identidad, personas, custodia (local, offline, NIP-46, NIP-07, managed) | `packages/identity`, `packages/signer` | ✅ |
-| Máquina de estados de entrega + outbox cifrada + quorum multi-relay | `packages/delivery-engine` | ✅ |
-| DMs NIP-17 (NIP-44 + NIP-59) tras feature flag, canales NIP-29 | `packages/messaging` | ✅ gate en cada CI contra el Buzz fijado en `infra/buzz/PIN` (informe `docs/interop/buzz-upstream-ac4521f3e464-report.json`); requiere el adaptador de jitter acotado (300 s) |
-| Grupos high-security Marmot/MLS | `packages/marmot-adapter`, `docs/marmot.md` | ✅ marmot-ts + ts-mls (alpha y RC upstream; vía relay secundario, Buzz no acepta los kinds) |
-| Blossom con saneamiento EXIF y cifrado cliente | `packages/blossom-client`, `services/blob-store` | ✅ (cifrados → blob-store; Buzz `/media` solo imágenes en claro) |
-| Sovereign Tor Mode (fail closed, DNS remoto, circuitos por persona) | `packages/tor-network`, `apps/sovereign-client` | ✅ |
-| Panel de soberanía con consecuencias verificables | `packages/profiles`, `apps/web-saas` | ✅ |
-| Generador de llaves offline standalone (bundle reproducible + checksum, QR, hoja imprimible, HTML air-gapped) | `apps/key-generator`, `packages/qr` | ✅ |
-| Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | ✅ vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
-| Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | ✅ |
-| Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | ✅ |
-| Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md), [threat model](docs/threat-models/continuity-vault.md) | 🟡 servicio y sobres (VAULT-01); la llave de archivo viaja en los backups de la web y del CLI (VAULT-02); la web y el CLI sellan el historial (canales, DMs, mensajes de grupo, ledger y estado MLS) y un dispositivo limpio lo recupera con relays vacíos (VAULT-03); cada envío se copia según la política de la persona (off, best-effort o required-for-resilient), con `CONTINUITY_BACKED_UP` aparte de los ACK (VAULT-04); retención por cuenta dentro del máximo del operador, exportación a un JSON abierto y borrado de la cuenta entera (VAULT-05); en el compose, con sus sobres en un bucket propio de SeaweedFS (o en un directorio o cualquier S3-compatible), en el backup y en el restore drill (VAULT-06); en Kubernetes es un componente opt-in que stage aún no activa |
-| Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma y NIP-44 en el servidor autorizados con el token de Acceso o una sesión de dispositivo, consentimiento registrado con su versión) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | ✅ (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
-| Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | ✅ (Postgres, tablas `policy_*`; sin `DATABASE_URL`, en memoria) |
-| Consola de administración web (NIP-98; personas, recursos, dispositivos y passkeys, rotaciones, directorio, retención, auditoría) | `apps/admin-console`, [docs/admin-console.md](docs/admin-console.md) | ✅ servida por la imagen web en `/admin/` |
-| Notificaciones push opacas por perfil (Web Push VAPID + RFC 8291; sin contenido, remitente ni recuento; deshabilitadas en sovereign/Tor) | `services/notification-gateway`, [ADR 0010](docs/adr/0010-notificaciones-push-por-perfil.md) | 🟡 opt-in (perfil compose `push`; registros en memoria). El gateway solo acepta registros en relays donde su canario ve actividad sin leer DMs. Con Buzz y el secure relay fijados no la ve: no hay push web y la web explica por qué (matriz por relay en el ADR 0010, OPS-06) |
-| Stack self-hosted Docker Compose (Buzz fijado por digest, Tor opcional) | `docker-compose.yml`, `infra/` | ✅ |
-| Buzz upstream sin fork, fijado por digest | `infra/buzz/PIN`, `docs/adr/0002-subset-y-pin-de-buzz.md`, `docs/buzz-integration.md` | ✅ (política de actualización: ADR 0003) |
+| SDK Nostr propio (desacoplado de Buzz) | `packages/*` | — |
+| Identidad, personas, custodia (local, offline, NIP-46, NIP-07, managed) | `packages/identity`, `packages/signer` | — |
+| Máquina de estados de entrega + outbox cifrada + quorum multi-relay | `packages/delivery-engine` | — |
+| DMs NIP-17 (NIP-44 + NIP-59) tras feature flag, canales NIP-29 | `packages/messaging` | gate en cada CI contra el Buzz fijado en `infra/buzz/PIN` (informe `docs/interop/buzz-upstream-ac4521f3e464-report.json`); requiere el adaptador de jitter acotado (300 s) |
+| Grupos high-security Marmot/MLS | `packages/marmot-adapter`, `docs/marmot.md` | marmot-ts + ts-mls (alpha y RC upstream; vía relay secundario, Buzz no acepta los kinds) |
+| Blossom con saneamiento EXIF y cifrado cliente | `packages/blossom-client`, `services/blob-store` | cifrados → blob-store; Buzz `/media` solo imágenes en claro |
+| Sovereign Tor Mode (fail closed, DNS remoto, circuitos por persona) | `packages/tor-network`, `apps/sovereign-client` | — |
+| Panel de soberanía con consecuencias verificables | `packages/profiles`, `apps/web-saas` | — |
+| Generador de llaves offline standalone (bundle reproducible + checksum, QR, hoja imprimible, HTML air-gapped) | `apps/key-generator`, `packages/qr` | — |
+| Web SaaS como cliente Nostr de primera clase (React 19 + MUI 7 + Vite; personas, canales, DMs, adjuntos) | `apps/web-saas` | vault IndexedDB (ADR 0007), login de Acceso en SaaS (ADR 0008) |
+| Indexer / mirror ciphertext-first (Postgres) | `services/indexer` | — |
+| Servicio de identidad (NIP-98, vínculos con consentimiento) | `services/identity-service` | — |
+| Continuity Vault: copia del historial independiente de los relays, en sobres sellados en el cliente con una llave de archivo distinta de la nsec; el operador ve cuenta, tamaño y frecuencia, nunca el contenido | `services/continuity-vault`, `packages/continuity`, [ADR 0011](docs/adr/0011-continuity-vault.md), [threat model](docs/threat-models/continuity-vault.md) | servicio y sobres (VAULT-01); la llave de archivo viaja en los backups de la web y del CLI (VAULT-02); la web y el CLI sellan el historial (canales, DMs, mensajes de grupo, ledger y estado MLS) y un dispositivo limpio lo recupera con relays vacíos (VAULT-03); cada envío se copia según la política de la persona (off, best-effort o required-for-resilient), con `CONTINUITY_BACKED_UP` aparte de los ACK (VAULT-04); retención por cuenta dentro del máximo del operador, exportación a un JSON abierto y borrado de la cuenta entera (VAULT-05); en el compose, con sus sobres en un bucket propio de SeaweedFS (o en un directorio o cualquier S3-compatible), en el backup y en el restore drill (VAULT-06); en Kubernetes es un componente opt-in que stage aún no activa |
+| Managed signer custodial y opt-in (AWS Secrets Manager + KMS en us-east-1, registro en Postgres, firma y NIP-44 en el servidor autorizados con el token de Acceso o una sesión de dispositivo, consentimiento registrado con su versión) | `services/managed-signer`, [ADR 0009](docs/adr/0009-custodia-managed-region-y-marco-legal.md) | (términos pendientes de legal; tier enclave Nitro: prototipo con attestation verificada localmente, falta probarlo en AWS, [docs/managed-enclave.md](docs/managed-enclave.md)) |
+| Modo institucional: RBAC/ABAC, device trust, revocación, auditoría | `services/policy-engine` | Postgres, tablas `policy_*`; sin `DATABASE_URL`, en memoria |
+| Consola de administración web (NIP-98; personas, recursos, dispositivos y passkeys, rotaciones, directorio, retención, auditoría) | `apps/admin-console`, [docs/admin-console.md](docs/admin-console.md) | servida por la imagen web en `/admin/` |
+| Notificaciones push opacas por perfil (Web Push VAPID + RFC 8291; sin contenido, remitente ni recuento; deshabilitadas en sovereign/Tor) | `services/notification-gateway`, [ADR 0010](docs/adr/0010-notificaciones-push-por-perfil.md) | opt-in (perfil compose `push`; registros en memoria). El gateway solo acepta registros en relays donde su canario ve actividad sin leer DMs. Con Buzz y el secure relay fijados no la ve: no hay push web y la web explica por qué (matriz por relay en el ADR 0010, OPS-06) |
+| Stack self-hosted Docker Compose (Buzz fijado por digest, Tor opcional) | `docker-compose.yml`, `infra/` | — |
+| Buzz upstream sin fork, fijado por digest | `infra/buzz/PIN`, `docs/adr/0002-subset-y-pin-de-buzz.md`, `docs/buzz-integration.md` | política de actualización: ADR 0003 |
+
+## Estado por perfil y capacidad (OPS-19)
+
+<!-- status:start (scripts/traceability.mjs desde los issues del backlog; no editar a mano) -->
+> ⚠️ Ningún perfil ni capacidad tiene todavía una auditoría externa ni está activo en producción: no es apto para perfiles de alto riesgo (ver [SECURITY.md](SECURITY.md)).
+
+Cada fila tiene el nivel de evidencia más bajo que alcanzan todas sus tareas del programa: **Merged** → **CI Verified** → **Stage Verified** → **Externally Audited** → **Production Enabled** (labels `evidencia:*`, OPS-17). Las tareas hechas antes de OPS-17 cuentan como Merged. Mientras falte alguna, la fila está **En curso**. Detalle: [docs/status.md](docs/status.md) y [docs/requirements-traceability.md](docs/requirements-traceability.md).
+
+| Perfil o capacidad | Tipo | Nivel de evidencia | Tareas hechas | Abiertas (sprint) |
+|---|---|---|---:|---|
+| convenience (SaaS) | Perfil | En curso | 9 de 15 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR004-02 (S11), NFR001-04 (S11) y 3 más |
+| private-resilient | Perfil | En curso | 13 de 14 | VAULT-07 (S10) |
+| institutional | Perfil | En curso | 10 de 14 | FR024-03 (S10), FR023-10 (S10), FR024-05 (S10), FR023-13 (S10) |
+| sovereign (self-hosted) | Perfil | En curso | 9 de 10 | NFR003-03 (S11), NFR003-04 (Diferido) |
+| sovereign-tor | Perfil | En curso | 4 de 7 | FR020-02 (Diferido), FR025-12 (S10), FR020-05 (S10), FR020-06 (Diferido), OPS-21 (S9) |
+| Identidad, personas y custodia en el dispositivo | Capacidad | En curso | 27 de 29 | FR003-06 (S9), FR003-07 (S9), FR006-04 (Diferido), FR004-08 (Diferido) |
+| Custodia gestionada y Nitro Enclave | Capacidad | En curso | 12 de 16 | FR005-05 (S14), FR026-04 (S11), FR005-13 (S11), FR005-11 (S10), FR005-09 (Diferido) y 1 más |
+| Entrega fiable (outbox, quorum, acuses) | Capacidad | En curso | 17 de 20 | NFR002-03 (S11), FR025-12 (S10), FR011-06 (S10) |
+| DMs NIP-17 y canales NIP-29 | Capacidad | Merged | 8 de 8 | — |
+| Grupos Marmot/MLS | Capacidad | Merged | 9 de 9 | FR025-08 (Diferido), FR025-14 (Diferido) |
+| Continuity Vault | Capacidad | En curso | 6 de 7 | VAULT-07 (S10) |
+| Adjuntos Blossom sin metadatos | Capacidad | Merged | 8 de 8 | — |
+| Panel de soberanía, madurez y disclosures | Capacidad | En curso | 4 de 7 | FR028-02 (S13), VAULT-07 (S10), PANEL-07 (S9), NFR007-03 (Diferido) |
+| Notificaciones push | Capacidad | Merged | 2 de 2 | DEC-13 (Diferido) |
+| Sin telemetría ni secretos en los logs | Capacidad | En curso | 6 de 7 | NFR006-04 (S10) |
+| Releases firmados, SBOM e imágenes reproducibles | Capacidad | En curso | 2 de 5 | FR003-06 (S9), NFR010-02 (S9), NFR010-04 (S9) |
+| Accesibilidad | Capacidad | En curso | 1 de 2 | NFR009-02 (S10) |
+<!-- status:end -->
 
 ## Madurez por perfil y función
 
@@ -55,6 +83,7 @@ Antes de v1.0 nada es GA: falta la revisión externa (SEC-01 y SEC-02). La web, 
 Trazabilidad FR/NFR → tareas → tests y tablero de estado, generados desde los issues y el código (CI comprueba que toda la evidencia citada exista): [docs/requirements-traceability.md](docs/requirements-traceability.md) · [docs/status.md](docs/status.md).
 Backlog con tareas atómicas, prioridad, dependencias y sprint: vive en [GitHub Issues](https://github.com/sedecim-com/nostr/issues?q=label%3Abacklog) (milestones = sprints, epics con sub-issues) y se sincroniza a [docs/backlog/](docs/backlog/README.md) con una PR automática (ver [GITHUB.md](docs/backlog/GITHUB.md)).
 Arquitectura: [docs/architecture.md](docs/architecture.md) · Threat model: [docs/threat-model.md](docs/threat-model.md).
+SDK: referencia con TypeDoc (`npm run docs:api`, portada en [docs/sdk.md](docs/sdk.md)) · APIs HTTP de los servicios: [docs/openapi/](docs/openapi/README.md) (OpenAPI 3.1, `npm run docs:openapi`) · distribución del SDK: [ADR 0013](docs/adr/0013-distribucion-del-sdk.md).
 Releases firmados (cosign keyless + provenance SLSA), imágenes reproducibles, build desde source y verificación: [docs/building.md](docs/building.md) (`sh scripts/verify-release.sh <tag>`, `sh scripts/rebuild-image.sh <tag> <servicio>`). Definition of Done de un release: [docs/release-checklist.md](docs/release-checklist.md); notas: [docs/releases/](docs/releases/).
 
 ## Inicio rápido
@@ -161,6 +190,7 @@ npm run sovereign -- persona create --label Fuente --relay ws://<onion>.onion --
 | `npm run test:interop` | Gate contra Buzz real (`BUZZ_RELAY_URL`), genera `interop-report.json` |
 | `sh scripts/backup.sh` / `sh scripts/restore.sh DIR` | Backup y restore del stack self-hosted (`docs/runbooks/restore.md`; drill nocturno `restore-drill.yml`) |
 | `sh scripts/scan-logs.sh compose.log .env` | Busca secretos en los logs del stack: reglas de gitleaks + valores de `.env` (job `stack` de CI) |
+| `sh scripts/stack-profiles.sh configure\|exercise\|logged` | Solo stacks de prueba: activa los perfiles opcionales (managed, push, institutional, tor) con secretos generados, les envía una credencial canario y exige que cada servicio salga en el log escaneado (job `stack` de CI) |
 
 ## Estructura
 ```

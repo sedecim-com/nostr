@@ -1,5 +1,5 @@
 import { bytesToHex, randomBytes, type EventTemplate, type NostrEvent, type Signer } from '@sedecim/nostr-core';
-import { normalizeRelayUrl } from '@sedecim/relay-pool';
+import { asksForAuth, normalizeRelayUrl } from '@sedecim/relay-pool';
 import { classifyFailure, stateRank, type AttemptEvent, type ContinuityPolicy, type ContinuitySink, type ContinuityStatus, type DeliveryState, type OutboxStats, type EventLookup, type OutboxRecord, type Publisher, type RecordStore, type RelayAttempt, type RetryPolicy } from './types';
 
 /** Relays for a record that depend on when it is published (see DeliveryEngineOptions.router). */
@@ -79,6 +79,8 @@ export class DeliveryEngine {
   private readonly running = new Map<string, Promise<OutboxRecord>>();
   private readonly rerun = new Set<string>();
   private readonly writers = new Map<string, Promise<unknown>>();
+  /** Operations whose first signing is under way in submit(): a round waits for it rather than sign again. */
+  private readonly preparing = new Map<string, Promise<void>>();
   private readonly listeners = new Set<(r: OutboxRecord) => void>();
   private readonly attemptListeners = new Set<(a: AttemptEvent) => void>();
   private stopped = false;
@@ -146,47 +148,71 @@ export class DeliveryEngine {
 
   /**
    * Accepts a template (signed here) or an already-signed event (e.g. a NIP-59 gift wrap).
-   * Persists locally BEFORE any transmission (FR-008). Idempotent on opId.
+   * Persists locally BEFORE any transmission (FR-008). Idempotent on opId: a second submit with the same id, even a
+   * concurrent one, stores nothing new and re-drives the operation (FR011-05).
    */
   async submit(input: { template: EventTemplate } | { event: NostrEvent }, opts: SubmitOptions): Promise<OutboxRecord> {
     const opId = opts.opId ?? bytesToHex(randomBytes(16));
-    const existing = await this.opts.store.get(opId);
-    if (existing) {
-      if (opts.wait) return this.process(opId);
-      return existing;
+    const rec = await this.exclusive(opId, async () => {
+      if (await this.opts.store.get(opId)) return undefined;
+      const relays = [...new Set(opts.relays.map(normalizeRelayUrl))];
+      if (relays.length === 0) throw new Error('at least one relay is required');
+      // FR010-04: a quorum above the relays could never be met. It is capped, never in silence: the record keeps
+      // what was asked for so the outbox and the UI can say so.
+      const requested = Math.max(1, opts.quorum ?? 1);
+      const quorum = Math.min(requested, relays.length);
+      const t = this.now();
+      const created: OutboxRecord = {
+        opId,
+        ...(opts.groupId ? { groupId: opts.groupId } : {}),
+        state: 'DRAFT',
+        relays,
+        quorum,
+        ...(requested > quorum ? { requestedQuorum: requested } : {}),
+        relayStatus: Object.fromEntries(relays.map((r) => [r, { relay: r, attemptCount: 0 } satisfies RelayAttempt])),
+        createdAt: t,
+        updatedAt: t,
+        history: [{ state: 'DRAFT', at: t }],
+        ...(opts.meta ? { meta: opts.meta } : {}),
+      };
+      if ('template' in input) created.template = input.template;
+      else created.event = input.event;
+      // VAULT-04: a best-effort copy needs a vault to go to; a required one is kept even without it (the send is held).
+      const policy = this.opts.continuity?.policy() ?? 'off';
+      if (policy === 'required-for-resilient' || (policy === 'best-effort' && this.opts.continuity?.sink)) created.continuity = { policy, state: 'PENDING', attemptCount: 0 };
+      this.transition(created, 'LOCAL_PERSISTED');
+      return this.save(created);
+    });
+    if (!rec) return this.redrive(opId, opts.wait);
+    const prepared = this.prepare(rec);
+    this.preparing.set(opId, prepared);
+    try {
+      await prepared;
+    } finally {
+      this.preparing.delete(opId);
     }
-    const relays = [...new Set(opts.relays.map(normalizeRelayUrl))];
-    if (relays.length === 0) throw new Error('at least one relay is required');
-    // FR010-04: a quorum above the relays could never be met. It is capped, never in silence: the record keeps
-    // what was asked for so the outbox and the UI can say so.
-    const requested = Math.max(1, opts.quorum ?? 1);
-    const quorum = Math.min(requested, relays.length);
-    const t = this.now();
-    const rec: OutboxRecord = {
-      opId,
-      ...(opts.groupId ? { groupId: opts.groupId } : {}),
-      state: 'DRAFT',
-      relays,
-      quorum,
-      ...(requested > quorum ? { requestedQuorum: requested } : {}),
-      relayStatus: Object.fromEntries(relays.map((r) => [r, { relay: r, attemptCount: 0 } satisfies RelayAttempt])),
-      createdAt: t,
-      updatedAt: t,
-      history: [{ state: 'DRAFT', at: t }],
-      ...(opts.meta ? { meta: opts.meta } : {}),
-    };
-    if ('template' in input) rec.template = input.template;
-    else rec.event = input.event;
-    // VAULT-04: a best-effort copy needs a vault to go to; a required one is kept even without it (the send is held).
-    const policy = this.opts.continuity?.policy() ?? 'off';
-    if (policy === 'required-for-resilient' || (policy === 'best-effort' && this.opts.continuity?.sink)) rec.continuity = { policy, state: 'PENDING', attemptCount: 0 };
-    this.transition(rec, 'LOCAL_PERSISTED');
-    await this.save(rec);
-    await this.prepare(rec);
     const run = this.process(opId);
     if (opts.wait) return run;
     run.catch(() => undefined);
     return structuredClone(rec);
+  }
+
+  /**
+   * FR011-05 (scope §11.2): submit() under the operation id the UI keeps while the user retries the same send. The
+   * event (or template) is built only the first time; a retry re-drives the stored operation and builds nothing, so
+   * it never makes another event, and an upload inside `build` is not repeated.
+   */
+  async submitOnce(opId: string, build: () => Promise<{ template: EventTemplate } | { event: NostrEvent }>, opts: Omit<SubmitOptions, 'opId'>): Promise<OutboxRecord> {
+    if (await this.opts.store.get(opId)) return this.redrive(opId, opts.wait);
+    return this.submit(await build(), { ...opts, opId });
+  }
+
+  /** A retry of an operation already stored: re-driven now, as resume() would, never rebuilt. */
+  private async redrive(opId: string, wait?: boolean): Promise<OutboxRecord> {
+    const run = this.process(opId);
+    if (wait) return run;
+    run.catch(() => undefined);
+    return (await this.opts.store.get(opId))!;
   }
 
   private async prepare(rec: OutboxRecord) {
@@ -283,6 +309,7 @@ export class DeliveryEngine {
   }
 
   private async round(opId: string): Promise<OutboxRecord> {
+    await this.preparing.get(opId)?.catch(() => undefined);
     const rec = await this.opts.store.get(opId);
     if (!rec) throw new Error(`unknown operation ${opId}`);
     if (rec.state === 'FAILED' || this.stopped) return rec;
@@ -333,7 +360,8 @@ export class DeliveryEngine {
           // (A relay `reconcile` found holding the event meanwhile stays accepted.)
           s.lastError = res.message;
           if (res.blocked) anyBlocked = true;
-          else if (PERMANENT_PREFIXES.some((p) => res.message.startsWith(p))) s.permanent = true;
+          // A relay asking for NIP-42 is not refusing the event for good, even behind `blocked:` (asksForAuth).
+          else if (PERMANENT_PREFIXES.some((p) => res.message.startsWith(p)) && !asksForAuth(res.message)) s.permanent = true;
           if (this.retry.maxAttempts !== undefined && s.attemptCount >= this.retry.maxAttempts) s.permanent = true;
         }
         const attempt: AttemptEvent = { relay, ok: res.ok, latencyMs: res.latencyMs, permanent: !!s.permanent, ...(res.ok ? {} : { failure: classifyFailure(res.message, res.blocked) }) };

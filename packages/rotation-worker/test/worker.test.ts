@@ -110,6 +110,24 @@ describe('rotation worker (FR024-02)', () => {
     expect((await w.admin.group(w.groupId)).epoch).toBe(epoch);
   });
 
+  it('FR023-10: a resource that names the group by its nostr_group_id (the h the relays see) is rotated too', async () => {
+    const w = await world();
+    const h = (await w.admin.group(w.groupId)).nostrGroupId;
+    expect(h).not.toBe(w.groupId);
+    const feed: RotationFeedItem[] = [
+      { at: 1, resourceId: h, reason: 'device b revoked', removedPubkey: w.bob.pubkey },
+      { at: 1, resourceId: 'ab'.repeat(32), reason: 'device b revoked', removedPubkey: w.bob.pubkey },
+    ];
+    const { stub, base } = await policy(feed, w.admin.pubkey);
+    const worker = new RotationWorker({ source: new HttpPolicySource({ baseUrl: base, signer: w.adminSigner }), session: w.admin, logger: createLogger({ write: () => {} }) });
+    const out = await worker.runOnce();
+    expect(out[0]).toMatchObject({ result: 'removed' });
+    // A group the worker holds under neither id is still an error, never marked done.
+    expect(out[1]).toMatchObject({ result: 'failed', error: expect.stringMatching(/group not held by the worker identity/) });
+    expect(stub.rotations().map((r) => r.status)).toEqual(['done', 'pending']);
+    expect((await w.admin.group(w.groupId)).members).not.toContain(w.bob.pubkey);
+  });
+
   it('never marks done on failure and retries with backoff', async () => {
     const w = await world();
     const feed: RotationFeedItem[] = [
@@ -120,14 +138,14 @@ describe('rotation worker (FR024-02)', () => {
     let now = 0;
     const worker = new RotationWorker({ source: new HttpPolicySource({ baseUrl: base, signer: w.adminSigner }), session: w.admin, now: () => now, backoff: { baseMs: 1000, maxMs: 4000 }, logger: createLogger({ write: () => {} }) });
 
-    // Relays reject the commit: nothing is marked done, the member is still there.
+    // Relays down: the commit waits in the session (FR025-12); nothing is marked done, the member is still there.
     w.flaky.failGroupMessages = true;
     let out = await worker.runOnce();
     expect(out.map((o) => [o.result, o.retryAt])).toEqual([
       ['failed', 1000],
       ['failed', 1000],
     ]);
-    expect(out[0]!.error).toMatch(/publish commit|not accepted/);
+    expect(out[0]!.error).toMatch(/remove commit pending/);
     expect(out[1]!.error).toMatch(/not held/);
     expect(stub.done.size).toBe(0);
     expect((await w.admin.group(w.groupId)).members).toContain(w.bob.pubkey);
@@ -197,8 +215,11 @@ describe('device revocation propagation (FR024-03, FR024-04)', () => {
       ],
     });
     expect(await p.runOnce()).toEqual(['d2']);
+    // FR024-05: what failed is reported (the service's health shows it).
+    expect([p.failing, p.lastError]).toEqual([1, 'bunker offline']);
     failD3 = false;
     expect(await p.runOnce()).toEqual(['d3']);
+    expect(p.failing).toBe(0);
     expect(await p.runOnce()).toEqual([]);
     expect(calls).toEqual(['signer:d2:lost phone', 'bunker:d2', 'signer:d3:', 'signer:d3:', 'bunker:d3']);
   });

@@ -11,7 +11,7 @@ export interface DeploymentFlags {
   generatedAt: string;
 }
 
-interface InteropReport {
+export interface InteropReport {
   relay?: string;
   finishedAt?: string;
   nip17?: { enableFlag?: boolean; recommendedJitterSeconds?: number | null };

@@ -3,7 +3,7 @@ import WebSocket from 'ws';
 import { generateSecretKey, type NostrEvent } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import { TestRelay } from '@sedecim/test-relay';
-import { RelayPool, percentile, relayDegradation, type WebSocketLike } from '../src/index';
+import { asksForAuth, RelayPool, percentile, relayDegradation, type WebSocketLike } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
 /** Delivers what the relay sends `ms` late and in order, as a slow circuit (e.g. Tor) does. */
@@ -72,6 +72,20 @@ describe('RelayPool', () => {
     expect(pool.health()[0]!.authenticatedAs).toEqual([await signer.getPublicKey()]);
     const got = await pool.query([r.url], [{ ids: [evt.id] }], 3000);
     expect(got.map((e) => e.id)).toEqual([evt.id]);
+  });
+
+  // FR023-13: nostr-rs-relay behind its nauthz admission server (the institutional secure relay) wraps the
+  // answer to an event sent before AUTH in its own `blocked:` prefix. It still asks for NIP-42.
+  it('authenticates and retries when the relay answers blocked: auth-required: (nostr-rs-relay with nauthz)', async () => {
+    const r = await startRelay({ requireAuth: true, eventAuthRequiredMessage: 'blocked: auth-required: NIP-42 authentication required to publish' });
+    pool = new RelayPool({ webSocketFactory: factory, signer, authMode: 'on-demand' });
+    const evt = await signer.signEvent({ kind: 1, content: 'institutional' });
+    const res = await pool.publishTo(evt, r.url);
+    expect(res.ok, res.message).toBe(true);
+    expect(pool.health()[0]!.authenticatedAs).toEqual([await signer.getPublicKey()]);
+    expect(asksForAuth('blocked: auth-required: x')).toBe(true);
+    expect(asksForAuth('auth-required: x')).toBe(true);
+    expect(asksForAuth('blocked: restricted: pubkey not in the institutional allowlist')).toBe(false);
   });
 
   it('reports auth failure as recoverable when not allowlisted', async () => {
