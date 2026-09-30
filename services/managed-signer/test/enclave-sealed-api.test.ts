@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { generateSecretKey, getPublicKey, nip49 } from '@sedecim/nostr-core';
-import { sealToEnclave, verifyNitroAttestation } from '@sedecim/signer';
+import { ManagedSignerClient, ManagedSignerHttpError, sealToEnclave, verifyNitroAttestation } from '@sedecim/signer';
 import { createLogger } from '@sedecim/telemetry-policy';
 import { createAccesoPool } from './acceso-pool';
 import { createManagedSignerApi, createSimulatedEnclave, EnclaveClient, inProcessTransport, ManagedSigner, MemoryVault, ownerTag, PinnedJwksProofVerifier, type EnclaveRequest, type EnclaveTransport } from '../src/index';
@@ -76,8 +76,11 @@ describe('managed-signer API with secrets sealed to the enclave', () => {
 
   it('FR005-10: POST /v1/keys/import with sealed_secrets: the key is imported for the caller, sealed for the owner of the envelope', async () => {
     const sk = generateSecretKey();
-    const r = await call(s, '/v1/keys/import', 'POST', { sealed_secrets: await sealedImport(s, nip49.encryptKey(sk, IMPORT_PASSWORD, 4)), consent_version: 'textos test' });
+    const envelope = await sealedImport(s, nip49.encryptKey(sk, IMPORT_PASSWORD, 4));
+    const r = await call(s, '/v1/keys/import', 'POST', { sealed_secrets: envelope, consent_version: 'textos test' });
     expect(r.status).toBe(201);
+    // The same envelope sent again (within its minutes) gives the same key, and the registry already has it.
+    expect((await call(s, '/v1/keys/import', 'POST', { sealed_secrets: envelope, consent_version: 'textos test' })).status).toBe(409);
     expect(r.json.pubkey).toBe(getPublicKey(sk));
     expect(r.json.owner).toBe(OWNER);
     expect(r.json.custody).toBe('managed-enclave');
@@ -181,5 +184,16 @@ describe('managed-signer on the vault tier (no enclave)', () => {
     const clear = await call(s, '/v1/keys/import', 'POST', { ncryptsec: nip49.encryptKey(sk, IMPORT_PASSWORD, 4), password: IMPORT_PASSWORD, consent_version: 'textos test' });
     expect(clear.status).toBe(201);
     expect(clear.json.pubkey).toBe(getPublicKey(sk));
+  });
+
+  it('FR005-10: a client told to seal to an enclave stops at the 404 and does not fall back to sending the password in clear', async () => {
+    const created = await call(s, '/v1/keys', 'POST', { consent_version: 'textos test' });
+    const posted: string[] = [];
+    const f: typeof fetch = (input, init) => (typeof init?.body === 'string' && posted.push(init.body), fetch(input, { ...init, headers: { ...(init?.headers as Record<string, string>), connection: 'close' } }));
+    const client = new ManagedSignerClient({ baseUrl: s.base, token: async () => token(), fetch: f, keyId: created.json.keyId! });
+    const err = await client.exportForMigration(EXPORT_PASSWORD, { enclave: { pcrs: { 0: 'a'.repeat(96), 1: 'b'.repeat(96), 2: 'c'.repeat(96) } } }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ManagedSignerHttpError);
+    expect((err as ManagedSignerHttpError).status).toBe(404);
+    expect(posted).toEqual([]);
   });
 });
