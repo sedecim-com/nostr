@@ -6,7 +6,7 @@
 |---|---|---|
 | [policy-engine](policy-engine.json) | 26 | Modo institucional (spec §16): personas, recursos, dispositivos, revocación, auditoría y retención. docs/institutional.md. |
 | [managed-signer](managed-signer.json) | 17 | Custodia gestionada de llaves Nostr en KMS (FR005): firma y NIP-44 con sesiones de dispositivo revocables. docs/managed-enclave.md. |
-| [identity-service](identity-service.json) | 18 | Cuentas SaaS: personas, vínculos entre personas, login de Acceso asociado y backups cifrados en el cliente. |
+| [identity-service](identity-service.json) | 19 | Cuentas SaaS: personas, vínculos entre personas, login de Acceso asociado y backups cifrados en el cliente. |
 | [continuity-vault](continuity-vault.json) | 8 | Continuity Vault (ADR 0011): sobres de archivo sellados en cada dispositivo; el operador ve cuentas, tamaños y fechas, nunca contenido ni llaves. |
 | [indexer](indexer.json) | 7 | Mirror e índice de los relays: lecturas, no leídos y búsqueda; en modo institucional, filtrados por la política (FR023-05). |
 | [notification-gateway](notification-gateway.json) | 5 | Notificaciones push opacas (ADR 0010): observa los relays que puede observar sin leer DMs. |

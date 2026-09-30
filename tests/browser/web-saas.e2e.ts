@@ -592,6 +592,55 @@ try {
   await page.getByRole('option', { name: /Trabajo/ }).click();
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
 
+  // --- removing a link (FR007-06): it says first what removing does not undo; then the service and both banners drop it
+  const personaIds = personasOf.map((p) => p.personaId);
+  const personalPub = personasOf.find((p) => p.pubkey !== webPub)!.pubkey;
+  await tab(page, 'Personas');
+  await page.getByRole('button', { name: /^Retirar vínculo con Personal/ }).click();
+  assert((await page.getByRole('dialog').textContent())?.includes('quien ya lo vio pudo guardarlo o compartirlo'), 'removing a selective link explains first what it does not undo (FR007-06)');
+  assert((await identityRepo.linksOf(personaIds)).length === 1, 'nothing is removed before confirming');
+  await page.getByRole('dialog').getByRole('button', { name: 'Retirar vínculo', exact: true }).click();
+  await page.getByText('Vínculo retirado', { exact: true }).waitFor({ timeout: 10_000 });
+  assert((await identityRepo.linksOf(personaIds)).length === 0 && (await identityRepo.auditOf(acct)).some((x) => x.action === 'link.removed' && x.actor === webPub), 'the identity service removed the link and audited it (link.removed)');
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.endsWith('· sin vínculo'));
+  assert((await page.locator('#persona-links').count()) === 0, 'the banner is back to «sin vínculo» and the list of links is empty (FR007-05)');
+
+  // A public link also published on Nostr, removed from the other persona: the deletion request is signed by the author.
+  await page.locator('#link-target').click();
+  await page.getByRole('option', { name: /^Personal/ }).click();
+  await page.getByLabel('Público', { exact: true }).check();
+  await page.locator('#link-publish-nostr').check();
+  await page.getByRole('button', { name: 'Vincular…' }).click();
+  await page.locator('#link-ack-permanent').check();
+  await page.getByRole('button', { name: 'Entiendo las consecuencias, vincular' }).click();
+  await page.getByText('Personas vinculadas; el vínculo firmado por ambas se está publicando en tus relays').waitFor({ timeout: 10_000 });
+  const linkAddr = `30078:${webPub}:acceso-nostr:persona-link:${personalPub}`;
+  const onRelay = async (kind: number) => {
+    for (let i = 0; i < 40; i++) {
+      const e = (await probe.query([relay.url], [{ kinds: [kind], authors: [webPub] }], 2000)).find((x) => kind !== 5 || x.tags.some((t) => t[0] === 'a' && t[1] === linkAddr));
+      if (e) return e;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  };
+  assert(await onRelay(30078), 'the public link was published on Nostr (FR007-04)');
+  await page.locator('#persona-select').click();
+  await page.getByRole('option', { name: /^Personal/ }).click();
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Personal'));
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.endsWith('· vínculo público'));
+  await tab(page, 'Personas');
+  assert((await page.locator('#persona-links').textContent())?.includes('publicado en Nostr'), 'the other persona knows the link was published on Nostr, also after reading its links from the service');
+  await page.getByRole('button', { name: /^Retirar vínculo con Trabajo/ }).click();
+  assert((await page.locator('#unlink-nostr-warning').textContent())?.includes('las copias en relays ajenos no se pueden retirar'), 'removing a link published on Nostr warns that copies on other relays cannot be removed (FR007-06)');
+  await page.getByRole('dialog').getByRole('button', { name: 'Retirar vínculo', exact: true }).click();
+  await page.getByText('Vínculo retirado; la solicitud de borrado del evento se está publicando en los relays').waitFor({ timeout: 10_000 });
+  assert((await onRelay(5))?.tags.some((t) => t[0] === 'k' && t[1] === '30078'), 'a NIP-09 deletion request signed by the persona that published the link reaches its relays');
+  assert((await identityRepo.linksOf(personaIds)).length === 0, 'the identity service no longer has the public link');
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.endsWith('· sin vínculo'));
+  await page.locator('#persona-select').click();
+  await page.getByRole('option', { name: /Trabajo/ }).click();
+  await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
+  assert((await page.textContent('#sending-as'))?.endsWith('· sin vínculo'), 'both personas are back to «sin vínculo» (FR007-05)');
+
   // --- panel: per-dimension indicators backed by statements (PANEL-04)
   await tab(page, 'Soberanía y privacidad');
   await page.locator('#dim-privacidad-operador-h').click();

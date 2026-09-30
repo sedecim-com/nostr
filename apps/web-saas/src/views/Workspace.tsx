@@ -10,7 +10,7 @@ import { BrowserManagedSession } from '../lib/managed-session';
 import type { PersonaBook, PersonaRecord } from '../lib/vault';
 import { sendBlockedReason, WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
 import { onSignerAuthUrl } from '../lib/authUrl';
-import { fetchLinks, LINK_LEVEL_LABEL, linkLevel } from '../lib/identity';
+import { fetchLinks, keepNostrAuthor, LINK_LEVEL_LABEL, linkLevel } from '../lib/identity';
 import { BRAND } from '../theme';
 import { ChannelsView } from './ChannelsView';
 import { DmView } from './DmView';
@@ -91,9 +91,11 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
       // account there (links made from another device); a persona without one never asks it.
       if (p.identityAccount && cfg.identityService)
         void fetchLinks(s.signer, cfg.identityService)
-          .then(async (links) => {
+          .then(async (fetched) => {
             const now = current.current?.persona;
-            if (!now || now.id !== p.id || JSON.stringify(now.links ?? []) === JSON.stringify(links)) return;
+            if (!now || now.id !== p.id) return;
+            const links = keepNostrAuthor(fetched, now.links);
+            if (JSON.stringify(now.links ?? []) === JSON.stringify(links)) return;
             const next = { ...now, links };
             await book.save(next);
             await updatePersona(next);

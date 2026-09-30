@@ -52,6 +52,30 @@ function suite(name: string, makeRepo: () => Promise<IdentityRepository>) {
       expect(audit).toEqual(['account.created', 'key_metadata.updated', 'persona.registered', 'link.created']);
     });
 
+    it('removes a link only for the account that owns both personas, and audits it (FR007-06)', async () => {
+      const [pa, pb, pv] = [getPublicKey(a), getPublicKey(b), getPublicKey(viewer)];
+      const [link] = (await nip98Fetch(a, `${base}/v1/accounts/me`)).json.links;
+      const url = `${base}/v1/links/${link.linkId}`;
+      const stranger = generateSecretKey();
+      expect((await nip98Fetch(stranger, `${base}/v1/accounts`, 'POST', {})).status).toBe(201);
+      expect((await nip98Fetch(stranger, url, 'DELETE')).status).toBe(404);
+      expect((await fetch(url, { method: 'DELETE' })).status).toBe(401);
+      expect((await nip98Fetch(a, `${base}/v1/links/${'0'.repeat(24)}`, 'DELETE')).status).toBe(404);
+      expect((await nip98Fetch(a, `${base}/v1/accounts/me`)).json.links).toHaveLength(1);
+      // Any persona of the account can remove it; then it is gone for every reader.
+      expect((await nip98Fetch(b, url, 'DELETE')).status).toBe(200);
+      expect((await nip98Fetch(a, `${base}/v1/accounts/me`)).json.links).toEqual([]);
+      expect((await nip98Fetch(viewer, `${base}/v1/links/visible/${pa}`)).json.links).toEqual([]);
+      expect((await nip98Fetch(a, url, 'DELETE')).status).toBe(404);
+      const audit = (await nip98Fetch(a, `${base}/v1/accounts/me/audit`)).json.audit;
+      expect(audit.filter((x: { action: string }) => x.action === 'link.removed')).toEqual([
+        { at: expect.any(String), actor: pb, action: 'link.removed', details: { link: link.linkId, from: link.fromPersona, to: link.toPersona, visibility: 'selective' } },
+      ]);
+      expect((await nip98Fetch(stranger, `${base}/v1/accounts/me/audit`)).json.audit.map((x: { action: string }) => x.action)).toEqual(['account.created']);
+      // Linking again after removing works (the pair is free again).
+      expect((await nip98Fetch(a, `${base}/v1/links`, 'POST', { from: pa, to: pb, visibility: 'selective', audience: [pv], confirm: true })).status).toBe(201);
+    });
+
     it('links an Acceso (Cognito) login only with a valid token, and never to two accounts (ADR 0008)', async () => {
       const url = `${base}/v1/accounts/me/external-logins`;
       const c = generateSecretKey();

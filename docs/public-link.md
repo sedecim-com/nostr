@@ -89,3 +89,13 @@ kind 30078 con otro `d` no es un vínculo.
 `publicLinkDeletion(B, A)` genera una solicitud de borrado NIP-09 (kind 5 con la etiqueta
 `a` = `30078:<A>:acceso-nostr:persona-link:<B>`). Los relays y los lectores **pueden ignorarla** y las copias
 ya descargadas siguen siendo verificables: retirar el vínculo no deshace la desanonimización.
+
+En la web (FR007-06), *Personas → Vínculos de esta persona → Retirar vínculo* pide confirmación y explica qué no
+se deshace. Después:
+
+1. Borra el vínculo del servicio de identidad (`DELETE /v1/links/:linkId`, auditado como `link.removed`) y de
+   las dos personas en el navegador. El banner «Enviando como…» vuelve a su nivel de vínculo.
+2. Si el vínculo se publicó como evento desde este navegador, publica `publicLinkDeletion` firmada por la persona
+   que lo publicó (A), en sus relays, aunque se retire desde B. El diálogo avisa antes de que las copias en relays
+   ajenos no se pueden retirar y de que la solicitud de borrado también nombra a las dos personas. Si A ya no está
+   en el navegador, el vínculo se retira del servicio y la web avisa de que no pudo pedir el borrado.
