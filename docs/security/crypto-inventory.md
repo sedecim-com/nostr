@@ -212,7 +212,8 @@ revisión interna (IR-2026-09-14).
 
 - `@noble/hashes/utils.js` `randomBytes` → `crypto.getRandomValues` (Node y navegador): llaves, nonces, sales,
   ids (`packages/nostr-core/src/utils.ts:1`).
-- `node:crypto.randomBytes` en servicios (tokens, ids, IV de GCM/CBC, desafíos WebAuthn, sesiones).
+- `node:crypto.randomBytes` en servicios (tokens, ids, IV de GCM/CBC, desafíos WebAuthn, sesiones, ids de traza y
+  de span de `packages/telemetry-policy`).
 - WebCrypto `getRandomValues` en `encrypted-store/browser.ts:99`.
 - `randomInt` sin sesgo (muestreo por rechazo) para el jitter de NIP-59 (`utils.ts:30`).
 - `Math.random` **solo** para jitter de reintentos (`packages/delivery-engine/src/engine.ts:44`,
