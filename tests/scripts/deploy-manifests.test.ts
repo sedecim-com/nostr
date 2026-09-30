@@ -5,8 +5,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 
 const root = new URL('../..', import.meta.url).pathname;
 const read = (p: string) => readFileSync(join(root, p), 'utf8');
@@ -79,6 +80,7 @@ describe('every compose service has a Kubernetes workload', () => {
     read('deploy/k8s/components/notification-gateway/notification-gateway.yaml'),
     read('deploy/k8s/components/continuity-vault/continuity-vault.yaml'),
     read('deploy/k8s/components/institutional/relay-allowlist.yaml'),
+    read('deploy/k8s/components/institutional/rotation-worker.yaml'),
   ].join('\n---\n');
   const servicesBlock = compose.slice(compose.indexOf('\nservices:\n'), compose.indexOf('\nvolumes:\n'));
   const services = [...servicesBlock.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((m) => m[1]!);
@@ -127,10 +129,59 @@ describe('monitoring kustomization ships every rules file, test and dashboard (N
     expect(read('deploy/monitoring/prometheus/prometheus.yml')).toMatch(/job_name: nostr-metrics\n[\s\S]*?targets: \['indexer:9464'\]/);
     expect(read('deploy/k8s/base/indexer.yaml')).toMatch(/name: METRICS_PORT\n\s+value: "9464"/);
   });
+  // FR011-06: the only exporter (the indexer) has no outbox, so an outbox rule or panel could never show a problem.
+  it('neither alerts on nor charts outbox metrics that no deployed process exports', () => {
+    for (const f of rules) expect(read(`deploy/monitoring/prometheus/rules/${f}`), f).not.toMatch(/nostr_outbox_|outbox:/);
+    for (const f of dashboards) expect(read(`deploy/monitoring/grafana/dashboards/${f}`), f).not.toMatch(/nostr_outbox_|outbox:/);
+  });
 });
 
 const kubectl = process.env.KUBECTL ?? 'kubectl';
 const hasKubectl = spawnSync(kubectl, ['version', '--client'], { encoding: 'utf8' }).status === 0;
+
+// FR023-13: no overlay uses the institutional component yet, so it is rendered on top of the base.
+describe.skipIf(!hasKubectl)('kubectl kustomize base + components/institutional (FR023-13)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'institutional-'));
+  const k8s = relative(dir, join(root, 'deploy/k8s'));
+  writeFileSync(join(dir, 'kustomization.yaml'), `apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: acceso-nostr\nresources:\n  - ${k8s}/base\ncomponents:\n  - ${k8s}/components/institutional\n`);
+  const out = spawnSync(kubectl, ['kustomize', dir], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  // vitest runs this body even when the suite is skipped (no kubectl): nothing was rendered then.
+  const docs = (out.stdout ?? '').split('\n---\n');
+
+  it('renders', () => {
+    expect(out.status, out.stderr).toBe(0);
+  });
+
+  it('runs relay-allowlist with its policy token, the secure relay admitting events through it, and Buzz enforcing its allowlist', () => {
+    const allowlist = docs.find((d) => /^kind: Deployment$/m.test(d) && /^  name: relay-allowlist$/m.test(d));
+    expect(allowlist).toBeDefined();
+    expect(allowlist).toMatch(/name: POLICY_ENGINE_TOKEN\n\s+valueFrom:\n\s+secretKeyRef:\n\s+key: RELAY_ALLOWLIST_POLICY_TOKEN\n\s+name: acceso-nostr-secrets/);
+    expect(allowlist).toMatch(/runAsNonRoot: true/);
+    // FR023-10: the NIP-29 membership identity only by reference, and optional; Buzz reached with its public URL.
+    expect(allowlist).toMatch(/name: BUZZ_MEMBERSHIP_NSEC\n\s+valueFrom:\n\s+secretKeyRef:\n\s+key: BUZZ_MEMBERSHIP_NSEC\n\s+name: acceso-nostr-secrets\n\s+optional: true/);
+    expect(allowlist).toMatch(/name: BUZZ_MEMBERSHIP_RELAY\n\s+value: \$\(RELAY_URL\)=ws:\/\/relay:3000/);
+    expect(docs.some((d) => /^kind: Service$/m.test(d) && /^  name: relay-allowlist$/m.test(d) && /port: 50051/.test(d))).toBe(true);
+    expect(out.stdout).toContain('event_admission_server = "http://relay-allowlist:50051"');
+    expect(out.stdout).toMatch(/BUZZ_PUBKEY_ALLOWLIST: "true"/);
+    expect(out.stdout).toMatch(/INDEXER_POLICY_ENGINE_URL: http:\/\/policy-engine:8083/);
+  });
+
+  // FR024-05: one writer of the MLS state, on its own volume; its secrets only by reference.
+  it('runs the rotation worker as a single replica with its state on a volume and its secrets by reference', () => {
+    const worker = docs.find((d) => /^kind: Deployment$/m.test(d) && /^  name: rotation-worker$/m.test(d));
+    expect(worker).toBeDefined();
+    expect(worker).toMatch(/replicas: 1\n/);
+    expect(worker).toMatch(/strategy:\n\s+type: Recreate/);
+    expect(worker).toMatch(/claimName: rotation-worker-state/);
+    expect(worker).toMatch(/runAsNonRoot: true/);
+    expect(worker).toMatch(/readOnlyRootFilesystem: true/);
+    for (const key of ['ROTATION_WORKER_POLICY_TOKEN', 'ROTATION_WORKER_NSEC', 'ROTATION_STATE_KEY', 'ROTATION_MANAGED_SIGNER_TOKEN']) {
+      expect(worker).toMatch(new RegExp(`secretKeyRef:\\n\\s+key: ${key}\\n\\s+name: acceso-nostr-secrets`));
+    }
+    expect(docs.some((d) => /^kind: PersistentVolumeClaim$/m.test(d) && /^  name: rotation-worker-state$/m.test(d))).toBe(true);
+    expect(out.stdout).toMatch(/ROTATION_WORKER_RELAYS: ws:\/\/localhost:7000=ws:\/\/secure-relay:8080/);
+  });
+});
 
 describe.skipIf(!hasKubectl)('kubectl kustomize deploy/k8s/overlays/stage', () => {
   const out = spawnSync(kubectl, ['kustomize', join(root, 'deploy/k8s/overlays/stage')], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });

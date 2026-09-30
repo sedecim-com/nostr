@@ -51,6 +51,18 @@ export interface Actor {
 const asActor = (a: string | Actor): Actor => (typeof a === 'string' ? { principal: a } : a);
 export const DEVICE_SESSION_PREFIX = 'sds_';
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
+/** FR005-11: the public id of a session, derived from its token hash: it names the session, it cannot open it. */
+const sessionId = (tokenHash: string) => createHash('sha256').update(`sds-id:${tokenHash}`).digest('hex').slice(0, 32);
+
+/** FR005-11: a device session as its owner sees it. */
+export interface DeviceSessionView {
+  id: string;
+  deviceId: string;
+  createdAt: number;
+  expiresAt: number;
+  /** The session this request came through. */
+  current?: true;
+}
 
 export interface ManagedSignerOptions {
   /** Key registry and usage log; defaults to memory (tests/dev). Production uses PgKeyRegistry. */
@@ -155,7 +167,7 @@ export class ManagedSigner {
   }
 
   /** Resolves a device session token; fails if unknown, expired or its device was revoked. */
-  async resolveDeviceSession(token: string): Promise<{ owner: string; principal: string; deviceId: string }> {
+  async resolveDeviceSession(token: string): Promise<{ owner: string; principal: string; deviceId: string; sessionId: string }> {
     const s = await this.devices.session(hashToken(token));
     if (!s || s.expiresAt <= this.now()) throw new ManagedSignerError(401, 'invalid or expired device session');
     // Checked on every use: a revocation that raced with the session's creation still applies.
@@ -163,7 +175,28 @@ export class ManagedSigner {
       this.metrics.deviceRejections.inc();
       throw new ManagedSignerError(401, 'device revoked');
     }
-    return { owner: s.owner, principal: s.principal, deviceId: s.deviceId };
+    return { owner: s.owner, principal: s.principal, deviceId: s.deviceId, sessionId: sessionId(s.tokenHash) };
+  }
+
+  /**
+   * FR005-11: the owner's open sessions, as they can see them: the device, when it was opened and when it expires,
+   * never the token. `current` marks the session the call came through.
+   */
+  async listDeviceSessions(owner: string, current?: string): Promise<DeviceSessionView[]> {
+    return (await this.devices.sessionsOf(owner, this.now())).map((s) => {
+      const id = sessionId(s.tokenHash);
+      return { id, deviceId: s.deviceId, createdAt: s.createdAt, expiresAt: s.expiresAt, ...(id === current ? { current: true } : {}) };
+    });
+  }
+
+  /**
+   * FR005-11: the owner closes their own sessions: the ones named, or all but `except`. A closed session stops
+   * signing at once; its device can open another one only with its owner's Acceso login. Returns how many closed.
+   */
+  async closeDeviceSessions(owner: string, which: { ids: string[] } | { except?: string }): Promise<number> {
+    const mine = await this.devices.sessionsOf(owner, this.now());
+    const drop = mine.filter((s) => ('ids' in which ? which.ids.includes(sessionId(s.tokenHash)) : sessionId(s.tokenHash) !== which.except));
+    return this.devices.dropSessions(owner, drop.map((s) => s.tokenHash));
   }
 
   /**

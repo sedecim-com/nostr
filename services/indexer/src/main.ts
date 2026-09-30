@@ -13,6 +13,7 @@ import {
   createIndexerApi,
   DEFAULT_MIRROR_KINDS,
   enforceRetention,
+  purgeSupersededVersions,
   GroupAuthorities,
   Indexer,
   MemoryEventRepository,
@@ -40,7 +41,8 @@ if (env.DATABASE_URL) {
   const applied = await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'indexer');
   logger.info('migrations applied', { applied: applied.join(',') || 'none' });
   await migrateReplayStore(pool);
-  const pg = new PgEventRepository(pool, codec);
+  // FR023-12: in institutional mode superseded versions are archived for legal hold (see purgeSupersededVersions).
+  const pg = new PgEventRepository(pool, codec, { keepSuperseded: !!env.POLICY_ENGINE_URL });
   repo = pg;
   // SEC-06: payloads sealed before the AAD are re-sealed in the background; reads accept both formats meanwhile.
   pg.resealLegacy().then(
@@ -51,7 +53,7 @@ if (env.DATABASE_URL) {
   replayStore = new PgReplayStore(pool);
 } else {
   logger.warn('DATABASE_URL not set: using in-memory repository (single replica)');
-  repo = new MemoryEventRepository(codec);
+  repo = new MemoryEventRepository(codec, { keepSuperseded: !!env.POLICY_ENGINE_URL });
   coordinator = new MemoryShardCoordinator();
 }
 // Unique per replica: the pod name in Kubernetes, the container id in compose.
@@ -153,9 +155,12 @@ if (env.POLICY_ENGINE_URL) {
   if (every > 0) {
     const runRetention = async () => {
       try {
-        const res = await enforceRetention(repo, (await client.retention()).policies);
+        const { policies } = await client.retention();
+        const res = await enforceRetention(repo, policies);
         const deleted = res.reduce((n, r) => n + r.deleted, 0);
         if (deleted) logger.info('retention applied', { deleted, resources: res.filter((r) => r.deleted).map((r) => r.resourceId).join(',') });
+        const superseded = await purgeSupersededVersions(repo, policies);
+        if (superseded) logger.info('superseded versions deleted (no legal hold covers them)', { deleted: superseded });
       } catch (err) {
         logger.warn('retention run failed', { error: (err as Error).message });
       }

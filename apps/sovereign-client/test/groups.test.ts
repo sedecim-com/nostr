@@ -240,6 +240,51 @@ describe('sovereign client — Marmot/MLS high-security groups (FR-025)', () => 
     }
   });
 
+  it('with Tor down a group message and a commit stay pending, and go out at the end of the next command (FR025-12)', async () => {
+    const tor = new TestSocksServer({ [ONION]: { host: '127.0.0.1', port: onion.port } });
+    const port = await tor.start();
+    const dirA = await mkdtemp(join(tmpdir(), 'sovereign-tor-down-'));
+    const run = () => new SovereignClient({ dataDir: dirA, passphrase: 'pa', scryptLogN: 4, socksPort: port });
+    const first = run();
+    const other = new SovereignClient({ dataDir: await mkdtemp(join(tmpdir(), 'sovereign-tor-down-b-')), passphrase: 'pb', scryptLogN: 4, socksPort: port });
+    try {
+      const a = await first.createPersona({ label: 'Fuente C', relays: [`ws://${ONION}`], highRisk: true });
+      const b = await other.createPersona({ label: 'Fuente D', relays: [`ws://${ONION}`], highRisk: true });
+      await other.groupPublishKeyPackage(b.id);
+      const g = await first.groupCreate(a.id, 'sin tor');
+      await first.groupInvite(a.id, g.groupId, b.pubkey);
+      await other.groupAccept(b.id);
+
+      await tor.stop(); // Tor down: the persona is Tor-only, so nothing may go out any other way
+      const sent = await first.groupSend(a.id, g.groupId, 'escrito sin tor');
+      expect(sent.pending).toBe(true);
+      const rotated = await first.groupRotate(a.id, g.groupId);
+      expect(rotated.epoch).toBe(g.epoch + 1); // the invitation's epoch: the rotation waits
+      expect((await first.groupPending(a.id)).map((p) => [p.type, p.groupId])).toEqual([
+        ['message', g.groupId],
+        ['rotate', g.groupId],
+      ]);
+      first.close();
+
+      await tor.start(port); // Tor back; a later run of any command of the persona sends what waited
+      const second = run();
+      try {
+        await second.outbox(a.id);
+        await second.settle();
+        expect(await second.groupPending(a.id)).toEqual([]);
+        expect((await second.groupList(a.id))[0]!.epoch).toBe(g.epoch + 2);
+      } finally {
+        second.close();
+      }
+      expect((await other.groupSync(b.id, g.groupId)).map((m) => m.content)).toContain('escrito sin tor');
+      expect((await other.groupList(b.id))[0]!.epoch).toBe(g.epoch + 2);
+      expect(tor.requests.every((r) => r.host === ONION)).toBe(true);
+    } finally {
+      other.close();
+      await tor.stop();
+    }
+  }, 180_000);
+
   it('refuses to invite another of your own high-risk identities (compartmentation)', async () => {
     const x = await client.createPersona({ label: 'Riesgo X', relays: [`ws://${ONION}`], highRisk: true });
     const y = await client.createPersona({ label: 'Riesgo Y', relays: [`ws://${ONION}`], highRisk: true });

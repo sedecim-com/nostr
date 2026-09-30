@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.27.0@sha256:bde3983e9c939224420ddaf6b784cc30e09b035a4dea01f581230c50809f372e
-# One image for all TypeScript services; select with --build-arg SERVICE=<indexer|identity-service|policy-engine|managed-signer|blob-store|notification-gateway|continuity-vault>
+# One image for all TypeScript services; select with --build-arg SERVICE=<indexer|identity-service|policy-engine|managed-signer|blob-store|notification-gateway|continuity-vault|rotation-worker>
 # NFR010-03: reproducible. Base images are pinned by digest (bump tag and digest together) and release
 # images are built with scripts/build-image.sh (SOURCE_DATE_EPOCH + rewrite-timestamp, docs/building.md).
 ARG NODE_IMAGE=node:26.10.0-alpine3.24@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80

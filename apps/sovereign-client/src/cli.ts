@@ -14,9 +14,11 @@
  *                                        then the maturity of its configuration, PANEL-07)
  *   sovereign maturity                   (maturity of each profile and function today and at v1.0; no passphrase)
  *   sovereign channel join --persona ID --group G         (NIP-29 join request)
- *   sovereign channel send --persona ID --group G "text"
+ *   sovereign channel send --persona ID --group G "text" [--op ID]
  *   sovereign channel read --persona ID --group G
- *   sovereign dm send --persona ID --to NPUB "text"   (to the recipient's DM relays, kind 10050, like the web)
+ *   sovereign dm send --persona ID --to NPUB "text" [--op ID]   (to the recipient's DM relays, kind 10050, like the web)
+ *     (FR011-05: each send is an operation, and its id is printed first; --op ID retries that send, even one cut
+ *      off half way, without another event or rumor. Another text or recipient under the same id is refused)
  *   sovereign dm inbox --persona ID     (reads its DM relays; receipts for its DMs move them to RECIPIENT_ACKED/READ)
  *   sovereign dm watch --persona ID     (keeps reading them: DMs and receipts as they arrive; Ctrl-C to stop)
  *   sovereign dm relays --persona ID     (publish this persona's DM relay list, kind 10050; also on create/import)
@@ -47,12 +49,13 @@
  *   sovereign group create --persona ID --name NAME     (Marmot/MLS: forward secrecy + PCS)
  *   sovereign group invite --persona ID --group GID --to NPUB
  *   sovereign group accept --persona ID                 (join groups from pending Welcomes)
- *   sovereign group send --persona ID --group GID "text"
+ *   sovereign group send --persona ID --group GID "text"   (without a relay it stays pending and goes out later, FR025-12)
  *   sovereign group read --persona ID --group GID
  *   sovereign group history --persona ID --group GID    (messages kept on this device, restored ones included)
  *   sovereign group remove --persona ID --group GID --member NPUB
  *   sovereign group rotate --persona ID --group GID     (self-update: post-compromise security)
- *   sovereign group list --persona ID
+ *   sovereign group list --persona ID                   (MLS id, name, epoch, members and h=nostr_group_id: the id
+ *                                        relays see, which an organisation registers the group by, FR023-10)
  *   sovereign group device --persona ID [--label NAME]           (this installation's MLS device id / label)
  *   sovereign group devices --persona ID --group GID             (leaves: one per device of each persona)
  *   sovereign group add-device --persona ID --group GID [--member NPUB]
@@ -62,6 +65,10 @@
  *   sovereign group proposals --persona ID --group GID
  *   sovereign group commit --persona ID --group GID [--ref REF ...]          (admin commits proposals)
  *   sovereign group rejoin --persona ID [--group GID]            (after backup restore: new leaf, old removed)
+ *   sovereign group pending --persona ID [--group GID]           (FR025-12: messages and commits waiting for a relay;
+ *                                        they go out on the next sync and at the end of any command of the persona)
+ *   sovereign group retry --persona ID [--group GID]             (sync and send them again now)
+ *   sovereign group discard --persona ID --op ID                 (forget one, e.g. one every relay refused)
  *   sovereign group send-file --persona ID --group GID --file PATH [--mime TYPE] [--server URL] ["caption"]
  *   sovereign group fetch-file --persona ID --group GID --sha HEX --out FILE (MIP-04 download + decrypt)
  *   sovereign group rotation-worker --persona ID --policy URL [--managed-signer URL] [--interval S] [--once]
@@ -74,14 +81,15 @@
  *      SOVEREIGN_VAULT_URL (Continuity Vault URL, when --vault is not given),
  *      SOVEREIGN_DISCOVERY_RELAYS (comma-separated relays where recipients' DM relay lists are also looked up),
  *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present),
- *      SOVEREIGN_POLICY_BEARER (optional service bearer for POST /v1/rotations/:id/done and GET /v1/revocations;
- *        NIP-98 otherwise),
+ *      SOVEREIGN_POLICY_BEARER (optional service bearer for GET /v1/rotations, POST /v1/rotations/:id/done and
+ *        GET /v1/revocations; NIP-98 otherwise),
  *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer)
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
+import type { PendingGroupOperation } from '@sedecim/marmot-adapter';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
 import { CONTINUITY_VAULT_TEXTS, configMaturity, disclose, MATURITY, MATURITY_LABELS } from '@sedecim/profiles';
 import { SovereignClient } from './app';
@@ -115,6 +123,16 @@ export function maskIps(text: string): string {
 const dmLine = (m: DirectMessage) => `[${new Date(m.rumor.created_at * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.rumor.content}`;
 /** FR009-03: a receipt for one of our DMs, and the state of that operation after it. */
 const receiptLine = (r: Receipt, rec: OutboxRecord) => `acuse (${r.type === 'read' ? 'leído' : 'recibido'}) de ${r.from.slice(0, 8)}: ${rec.state}`;
+
+/**
+ * FR011-05: the operation of a send: --op repeats one (a retry), otherwise a new one. It is printed before anything
+ * is sent, so a send that is cut off half way can still be retried without making it twice.
+ */
+function sendOperation(): string {
+  const op = opt('--op') ?? randomBytes(16).toString('hex');
+  console.error(`operación ${op} (para reintentar este envío sin duplicarlo: --op ${op})`);
+  return op;
+}
 
 /** Password of a backup file: --password-file (first line) or SOVEREIGN_BACKUP_PASSWORD. */
 function backupPassword(): string {
@@ -222,13 +240,13 @@ async function main() {
       console.log(`válidos=${r.valid} inválidos=${r.invalid.length} duplicados=${r.duplicates} publicados=${r.published} rechazados=${r.rejected}${r.format === 'vault-export' ? ` (exportación del vault; ${r.othersWraps} cifrados para otras personas no se publican)` : ''}`);
     } else if (a === 'channel' && b === 'send') {
       await banner(need());
-      const rec = await client.sendChannel(need(), opt('--group')!, positional().join(' '));
+      const rec = await client.sendChannel(need(), opt('--group')!, positional().join(' '), { opId: sendOperation() });
       console.log(`${rec.state}${rec.blockedReason ? ` — ${maskIps(rec.blockedReason)}` : ''} (op ${rec.opId})`);
     } else if (a === 'channel' && b === 'read') {
       for (const e of await client.readChannel(need(), opt('--group')!)) console.log(`[${new Date(e.created_at * 1000).toISOString()}] ${e.pubkey.slice(0, 8)}: ${e.content}`);
     } else if (a === 'dm' && b === 'send') {
       await banner(need());
-      const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '));
+      const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '), { opId: sendOperation() });
       for (const r of recs) console.log(`${r.meta?.recipient?.slice(0, 8)} ${r.state}${r.blockedReason ? ` — ${maskIps(r.blockedReason)}` : ''}`);
       // As in the web: a recipient without DM relays gets the wrap on a guess, and the user is told.
       for (const r of recs) if (r.meta?.dmRelaySource && r.meta.dmRelaySource !== 'self' && r.meta.dmRelaySource !== 'dm-relays') console.error(`aviso: ${r.meta.recipient?.slice(0, 8)} no publicó relays de DM (kind 10050): la entrega es incierta`);
@@ -259,12 +277,28 @@ async function main() {
     } else if (a === 'group') {
       const id = need();
       const gid = opt('--group');
-      const show = (g: { groupId: string; name: string; epoch: number; members: string[] }) => console.log(`${g.groupId}  ${g.name}  epoch=${g.epoch}  members=${g.members.length}`);
+      const pendingLine = (p: PendingGroupOperation) =>
+        `${p.id}  ${p.type.padEnd(9)} ${new Date(p.createdAt).toISOString()}  intentos=${p.attempts}${p.target ? `  ${p.target.slice(0, 8)}` : ''}${p.failed ? `  RECHAZADA: ${p.failed}` : p.lastError ? `  (${p.lastError})` : ''}`;
+      // FR023-10: `h=` is the id relays see (nostr_group_id): an organisation registers the group by it in its policy.
+      const show = (g: { groupId: string; nostrGroupId?: string; name: string; epoch: number; members: string[]; pending?: PendingGroupOperation[] }) => {
+        console.log(`${g.groupId}  ${g.name}  epoch=${g.epoch}  members=${g.members.length}${g.nostrGroupId ? `  h=${g.nostrGroupId}` : ''}`);
+        // FR025-12: what no relay took yet is not lost: it goes out on the next sync (group pending / group retry).
+        if (g.pending?.length) console.log(`pendiente sin relay (se reintenta solo; group pending para verlo):\n${g.pending.map((p) => `  ${pendingLine(p)}`).join('\n')}`);
+      };
       if (b === 'keypackage') console.log(`key package publicado: ${(await client.groupPublishKeyPackage(id)).id}`);
       else if (b === 'create') show(await client.groupCreate(id, opt('--name') ?? 'grupo'));
       else if (b === 'invite') show(await client.groupInvite(id, gid!, opt('--to')!));
       else if (b === 'accept') (await client.groupAccept(id)).forEach(show);
-      else if (b === 'send') await banner(id).then(() => client.groupSend(id, gid!, positional().join(' ')));
+      else if (b === 'send') {
+        await banner(id);
+        const m = await client.groupSend(id, gid!, positional().join(' '));
+        if (m.pending) console.log(`pendiente: ningún relay lo tomó; se reintenta en la próxima sincronización o comando (group pending --persona ${id})`);
+      } else if (b === 'pending') for (const p of await client.groupPending(id, gid)) console.log(pendingLine(p));
+      else if (b === 'retry') {
+        const left = await client.groupRetry(id, gid);
+        console.log(left.length ? `siguen pendientes ${left.length}:` : 'nada pendiente');
+        for (const p of left) console.log(`  ${pendingLine(p)}`);
+      } else if (b === 'discard') await client.groupDiscard(id, opt('--op')!);
       else if (b === 'read')
         for (const m of await client.groupSync(id, gid!)) {
           console.log(`[${new Date(m.createdAt * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.content}`);

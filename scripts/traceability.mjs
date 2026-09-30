@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// OPS-18 (PRD GC-F03): docs/requirements-traceability.md and docs/status.md are generated, never edited by hand.
+// OPS-18 (PRD GC-F03): docs/requirements-traceability.md and docs/status.md are generated, never edited by hand,
+// and so is the status block of README.md (OPS-19, PRD GC-F04: each profile and capability by level of evidence).
 // They come from the backlog (docs/backlog/backlog.json, itself generated from GitHub Issues) and from the code:
 // the tests that cite each task or requirement. The evidence of every task that is not Pendiente is checked against
 // the repository: the files and tests it names exist, its commits exist (for a task Hecho, in the history of HEAD)
@@ -14,6 +15,9 @@ import { fileURLToPath } from 'node:url';
 import { EVIDENCE_STATES } from './backlog-github.mjs';
 
 export const OUTPUTS = { traceability: 'docs/requirements-traceability.md', status: 'docs/status.md' };
+export const README = 'README.md';
+export const README_START = '<!-- status:start (scripts/traceability.mjs desde los issues del backlog; no editar a mano) -->';
+export const README_END = '<!-- status:end -->';
 
 const EXT = /\.(?:[cm]?[jt]sx?|md|json|ya?ml|sh|sql|toml|html|css|rs|txt|csv|conf|proto)$/;
 const TEST_NAME = /\.(?:test|e2e|spec)\.[cm]?[jt]sx?$/;
@@ -268,6 +272,70 @@ export function renderStatus(backlog) {
   return lines.join('\n') + '\n';
 }
 
+/**
+ * The tasks a row of `meta.capabilities` stands for: `FR-017` selects the tasks of that requirement, `VAULT-*` the
+ * tasks whose id starts that way, and `OPS-06` that task.
+ */
+export function selectTasks(tasks, select) {
+  const picked = new Set();
+  for (const sel of select)
+    for (const t of tasks)
+      if (/^N?FR-\d{3}$/.test(sel) ? reqsOf(t).includes(sel) : sel.endsWith('*') ? t.id.startsWith(sel.slice(0, -1)) : t.id === sel) picked.add(t);
+  return tasks.filter((t) => picked.has(t));
+}
+
+const LEVELS = EVIDENCE_STATES.map(([slug]) => slug);
+
+/**
+ * OPS-19: the level of evidence of a profile or capability, the lowest that all its tasks of the program reach
+ * (deferred and discarded ones aside). A task done before OPS-17 has no label: it is in main, so it counts as
+ * Merged. Until every task is done the row is "En curso".
+ */
+export function capabilityLevel(ts, deferred = new Set()) {
+  const active = ts.filter((t) => t.status !== 'Descartado' && !deferred.has(t.sprint));
+  const done = active.filter((t) => t.status === 'Hecho');
+  const open = ts.filter((t) => t.status === 'Pendiente' || t.status === 'Parcial');
+  if (!active.length) return { level: undefined, done: 0, active: 0, open };
+  if (done.length < active.length) return { level: 'en-curso', done: done.length, active: active.length, open };
+  const level = done.map((t) => LEVELS.indexOf(t.evidenceState ?? 'merged')).reduce((a, b) => Math.min(a, b));
+  return { level: LEVELS[level], done: done.length, active: active.length, open };
+}
+
+/** The status block of README.md: every profile and capability by level of evidence, and the high-risk warning. */
+export function renderReadmeStatus(backlog) {
+  const { meta, tasks } = backlog;
+  const deferred = deferredSprints(meta);
+  const rows = (meta.capabilities ?? []).map((c) => ({ ...c, ...capabilityLevel(selectTasks(tasks, c.select), deferred) }));
+  const reached = (slug) => rows.filter((r) => r.level && r.level !== 'en-curso' && LEVELS.indexOf(r.level) >= LEVELS.indexOf(slug));
+  const audited = reached('externally-audited');
+  const lines = [
+    audited.length
+      ? `> ⚠️ Solo ${audited.map((r) => r.name).join(', ')} ${audited.length === 1 ? 'tiene' : 'tienen'} una auditoría externa. Lo demás no es apto para perfiles de alto riesgo (ver [SECURITY.md](SECURITY.md)).`
+      : '> ⚠️ Ningún perfil ni capacidad tiene todavía una auditoría externa ni está activo en producción: no es apto para perfiles de alto riesgo (ver [SECURITY.md](SECURITY.md)).',
+    '',
+    `Cada fila tiene el nivel de evidencia más bajo que alcanzan todas sus tareas del programa: ${EVIDENCE_STATES.filter(([slug]) => LEVELS.indexOf(slug) >= LEVELS.indexOf('merged'))
+      .map(([, label]) => `**${label}**`)
+      .join(' → ')} (labels \`evidencia:*\`, OPS-17). Las tareas hechas antes de OPS-17 cuentan como Merged. Mientras falte alguna, la fila está **En curso**. Detalle: [docs/status.md](docs/status.md) y [docs/requirements-traceability.md](docs/requirements-traceability.md).`,
+    '',
+    '| Perfil o capacidad | Tipo | Nivel de evidencia | Tareas hechas | Abiertas (sprint) |',
+    '|---|---|---|---:|---|',
+  ];
+  const openCell = (open) => (open.length ? open.slice(0, 5).map((t) => `${t.id} (${t.sprint})`).join(', ') + (open.length > 5 ? ` y ${open.length - 5} más` : '') : '—');
+  for (const r of rows) {
+    const level = r.level === 'en-curso' ? 'En curso' : r.level ? LEVEL.get(r.level) : '—';
+    lines.push(`| ${cell(r.name)} | ${r.kind} | ${level} | ${r.done} de ${r.active} | ${openCell(r.open)} |`);
+  }
+  return lines.join('\n');
+}
+
+/** `text` with the block between `start` and `end` replaced by `content`, or undefined without the markers. */
+export function replaceBlock(text, start, end, content) {
+  const i = text.indexOf(start);
+  const j = text.indexOf(end, i);
+  if (i < 0 || j < 0) return undefined;
+  return `${text.slice(0, i)}${start}\n${content}\n${text.slice(j)}`;
+}
+
 /** The repository at `root`, through git: tracked files, their text and the commit history. */
 export function gitRepo(root) {
   const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 << 20 });
@@ -311,6 +379,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     [OUTPUTS.traceability, renderTraceability(backlog, cites)],
     [OUTPUTS.status, renderStatus(backlog)],
   ];
+  const readme = replaceBlock(repo.read(README), README_START, README_END, renderReadmeStatus(backlog));
+  if (readme === undefined) problems.push(`${README}: faltan las líneas "${README_START}" y "${README_END}" del bloque de estado (OPS-19)`);
+  else out.push([README, readme]);
   if (check) {
     for (const [f, c] of out) if (repo.read(f) !== c) problems.push(`${f} no está al día: node scripts/traceability.mjs`);
     if (problems.length) {

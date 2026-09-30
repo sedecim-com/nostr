@@ -11,6 +11,7 @@ import { RotationsView } from './views/RotationsView';
 import { DirectoryView } from './views/DirectoryView';
 import { RetentionView } from './views/RetentionView';
 import { AuditView } from './views/AuditView';
+import { AccessLogView } from './views/AccessLogView';
 import { IdentityView } from './views/IdentityView';
 
 type Boot = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; cfg: AdminConfig };
@@ -53,7 +54,7 @@ export function App() {
   );
 }
 
-const TABS = ['Personas', 'Recursos y políticas', 'Dispositivos', 'Rotaciones pendientes', 'Directorio', 'Retención', 'Auditoría', 'Vínculos de identidad'] as const;
+const TABS = ['Personas', 'Recursos y políticas', 'Dispositivos', 'Rotaciones pendientes', 'Directorio', 'Retención', 'Auditoría', 'Accesos', 'Vínculos de identidad'] as const;
 
 function Console({ cfg, session, onSignOut }: { cfg: AdminConfig; session: AdminSession; onSignOut(): void }) {
   const api = useMemo(() => new PolicyAdminApi(cfg.policyEngineUrl, session.signer), [cfg, session]);
@@ -85,6 +86,7 @@ function Console({ cfg, session, onSignOut }: { cfg: AdminConfig; session: Admin
         {current === 'Directorio' && <DirectoryView api={api} />}
         {current === 'Retención' && <RetentionView api={api} />}
         {current === 'Auditoría' && <AuditView api={api} />}
+        {current === 'Accesos' && <AccessLogView api={api} />}
         {current === 'Vínculos de identidad' && identity && <IdentityView api={identity} />}
       </Container>
     </>

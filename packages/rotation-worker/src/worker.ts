@@ -57,21 +57,33 @@ export class RotationWorker {
     return gid;
   }
 
+  /**
+   * The MLS group id the worker holds for `gid`. FR023-10: a resource may also name the group by its nostr_group_id, the
+   * `h` of its kind 445 events: that is the id the relays see, and the secure relay applies the resource's publish grants.
+   */
+  private async held(gid: string): Promise<string> {
+    const s = this.opts.session;
+    try {
+      return (await s.group(gid)).groupId;
+    } catch {
+      const byH = (await s.groups()).find((g) => g.nostrGroupId === gid);
+      if (byH) return byH.groupId;
+      throw new Error('group not held by the worker identity (add it as admin of the group)');
+    }
+  }
+
   private async rotate(r: Rotation): Promise<Omit<RotationOutcome, 'id'>> {
     const s = this.opts.session;
     if (!HEX64.test(r.removedPubkey)) throw new Error('invalid removed pubkey');
     if (r.removedPubkey === s.pubkey) throw new Error('the worker identity cannot remove itself: use another admin');
-    const gid = this.groupId(r);
-    try {
-      await s.group(gid);
-    } catch {
-      throw new Error('group not held by the worker identity (add it as admin of the group)');
-    }
+    const gid = await this.held(this.groupId(r));
     // Catch up first: another admin may already have removed the member.
     await s.sync(gid);
     const before = await s.group(gid);
     if (!before.members.includes(r.removedPubkey)) return { result: 'already-removed', epoch: before.epoch };
     const after = await s.removeMember(gid, r.removedPubkey);
+    // FR025-12: without network the commit waits in the session and goes out on its next sync (this retry's included).
+    if (after.pending?.some((p) => p.type === 'remove' && p.target === r.removedPubkey && !p.failed)) throw new Error('remove commit pending: no relay took it yet');
     if (after.members.includes(r.removedPubkey) || after.epoch <= before.epoch) throw new Error('remove commit not applied');
     return { result: 'removed', epoch: after.epoch };
   }

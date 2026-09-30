@@ -25,6 +25,10 @@ export interface DeviceStore {
   revoke(r: DeviceRevocation): Promise<{ alreadyRevoked: boolean; sessionsDropped: number }>;
   insertSession(s: DeviceSession): Promise<void>;
   session(tokenHash: string): Promise<DeviceSession | undefined>;
+  /** FR005-11: the owner's sessions still valid at `now`, oldest first. */
+  sessionsOf(owner: string, now: number): Promise<DeviceSession[]>;
+  /** FR005-11: closes these sessions of `owner` (by token hash); returns how many. Another owner's are untouched. */
+  dropSessions(owner: string, tokenHashes: string[]): Promise<number>;
   /** Deletes sessions expired at `now`; returns how many. */
   purgeExpiredSessions(now: number): Promise<number>;
 }
@@ -50,6 +54,14 @@ export class MemoryDeviceStore implements DeviceStore {
   async session(tokenHash: string) {
     const s = this.sessions.get(tokenHash);
     return s ? { ...s } : undefined;
+  }
+  async sessionsOf(owner: string, now: number) {
+    return [...this.sessions.values()].filter((s) => s.owner === owner && s.expiresAt > now).sort((a, b) => a.createdAt - b.createdAt).map((s) => ({ ...s }));
+  }
+  async dropSessions(owner: string, tokenHashes: string[]) {
+    let n = 0;
+    for (const h of tokenHashes) if (this.sessions.get(h)?.owner === owner) (this.sessions.delete(h), n++);
+    return n;
   }
   async purgeExpiredSessions(now: number) {
     let n = 0;
@@ -91,6 +103,18 @@ export class PgDeviceStore implements DeviceStore {
     );
     const r = rows[0];
     return r ? { tokenHash: r.token_hash, deviceId: r.device_id, owner: r.owner, principal: r.principal, createdAt: r.created_at.getTime(), expiresAt: r.expires_at.getTime() } : undefined;
+  }
+  async sessionsOf(owner: string, now: number) {
+    const { rows } = await this.pool.query<{ token_hash: string; device_id: string; owner: string; principal: string; created_at: Date; expires_at: Date }>(
+      'SELECT * FROM managed_signer_device_sessions WHERE owner = $1 AND expires_at > $2 ORDER BY created_at, token_hash',
+      [owner, new Date(now)],
+    );
+    return rows.map((r) => ({ tokenHash: r.token_hash, deviceId: r.device_id, owner: r.owner, principal: r.principal, createdAt: r.created_at.getTime(), expiresAt: r.expires_at.getTime() }));
+  }
+  async dropSessions(owner: string, tokenHashes: string[]) {
+    if (tokenHashes.length === 0) return 0;
+    const r = await this.pool.query('DELETE FROM managed_signer_device_sessions WHERE owner = $1 AND token_hash = ANY($2)', [owner, tokenHashes]);
+    return r.rowCount ?? 0;
   }
   async purgeExpiredSessions(now: number) {
     const r = await this.pool.query('DELETE FROM managed_signer_device_sessions WHERE expires_at <= $1', [new Date(now)]);

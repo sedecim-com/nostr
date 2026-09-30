@@ -1,0 +1,314 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "indexer",
+    "version": "0.1.0",
+    "description": "Mirror e índice de los relays: lecturas, no leídos y búsqueda; en modo institucional, filtrados por la política (FR023-05).",
+    "license": {
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8081",
+      "description": "Stack de docker compose en local"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Salud del servicio y estadísticas del mirror.",
+        "security": [],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "getV1Events",
+        "summary": "Eventos del mirror por filtro; con política, solo los que quien firma puede leer.",
+        "security": [
+          {},
+          {
+            "nip98": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events/{id}": {
+      "get": {
+        "operationId": "getV1EventsById",
+        "summary": "Un evento del mirror por id.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {},
+          {
+            "nip98": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channels/{h}/summary": {
+      "get": {
+        "operationId": "getV1ChannelsByHSummary",
+        "summary": "Resumen de un canal: último mensaje y conteos.",
+        "parameters": [
+          {
+            "name": "h",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {},
+          {
+            "nip98": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/unread": {
+      "get": {
+        "operationId": "getV1Unread",
+        "summary": "No leídos por canal de quien firma (FR014-03).",
+        "security": [
+          {
+            "nip98": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/read-cursor": {
+      "put": {
+        "operationId": "putV1ReadCursor",
+        "summary": "Marca hasta dónde leyó quien firma en un canal.",
+        "security": [
+          {
+            "nip98": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "operationId": "getV1Search",
+        "summary": "Búsqueda en mensajes en claro de los canales que quien firma puede leer (nunca gift wraps).",
+        "security": [
+          {},
+          {
+            "nip98": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "nip98": {
+        "type": "http",
+        "scheme": "Nostr",
+        "description": "NIP-98: `Authorization: Nostr <evento kind 27235 en base64>`, firmado para esta URL y este método."
+      }
+    }
+  }
+}

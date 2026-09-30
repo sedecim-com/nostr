@@ -56,10 +56,12 @@ export interface RouteOptions {
   rateClass?: RateClass | 'none';
 }
 
-type Handler = (req: Req) => Promise<Res | unknown> | Res | unknown;
+export type Handler = (req: Req) => Promise<Res | unknown> | Res | unknown;
 
 interface Route {
   method: string;
+  /** As registered, with `:param` placeholders (OPS-14: `describe`). */
+  path: string;
   pattern: RegExp;
   keys: string[];
   handler: Handler;
@@ -102,8 +104,13 @@ export class Service {
     const pattern = new RegExp('^' + path.replace(/:([a-zA-Z_]+)/g, (_m, k: string) => (keys.push(k), '([^/]+)')) + '/?$');
     const m = method.toUpperCase();
     const rateClass = ropts.rateClass ?? (auth === 'bearer' ? 'service' : m === 'GET' || m === 'HEAD' ? 'read' : 'mutating');
-    this.routes.push({ method: m, pattern, keys, handler, auth, rateClass });
+    this.routes.push({ method: m, path, pattern, keys, handler, auth, rateClass });
     return this;
+  }
+
+  /** OPS-14: the routes as registered (method, path with `:param` placeholders, auth), for the OpenAPI documents. */
+  describe(): Array<{ method: string; path: string; auth: AuthMode }> {
+    return this.routes.map(({ method, path, auth }) => ({ method, path, auth }));
   }
 
   get = (p: string, h: Handler, a?: AuthMode, o?: RouteOptions) => this.route('GET', p, h, a, o);

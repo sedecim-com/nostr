@@ -18,9 +18,13 @@ const varint = (n: number): number[] => {
 const lenField = (f: number, b: Uint8Array) => [...varint((f << 3) | 2), ...varint(b.length), ...b];
 const intField = (f: number, v: number) => [...varint(f << 3), ...varint(v)];
 
-/** nauthz EventRequest { event = 1 (Event { id = 1, pubkey = 2, created_at = 3, kind = 4, ... }), ip_addr = 2, origin = 3, user_agent = 4, auth_pubkey = 5 }. */
-function encodeEventRequest(r: { eventPubkey: Uint8Array; kind: number; createdAt: number; authPubkey?: Uint8Array; ip?: string }) {
-  const event = new Uint8Array([...lenField(1, new Uint8Array(32)), ...lenField(2, r.eventPubkey), ...intField(3, r.createdAt), ...intField(4, r.kind), ...lenField(5, new TextEncoder().encode('hola'))]);
+/**
+ * nauthz EventRequest { event = 1 (Event { id = 1, pubkey = 2, created_at = 3, kind = 4, content = 5, tags = 6 (TagEntry {
+ * values = 1 }) }), ip_addr = 2, origin = 3, user_agent = 4, auth_pubkey = 5 }.
+ */
+function encodeEventRequest(r: { eventPubkey: Uint8Array; kind: number; createdAt: number; authPubkey?: Uint8Array; ip?: string; tags?: string[][] }) {
+  const tags = (r.tags ?? []).flatMap((t) => lenField(6, new Uint8Array(t.flatMap((v) => lenField(1, new TextEncoder().encode(v))))));
+  const event = new Uint8Array([...lenField(1, new Uint8Array(32)), ...lenField(2, r.eventPubkey), ...intField(3, r.createdAt), ...intField(4, r.kind), ...lenField(5, new TextEncoder().encode('hola')), ...tags]);
   return new Uint8Array([...lenField(1, event), ...(r.ip ? lenField(2, new TextEncoder().encode(r.ip)) : []), ...(r.authPubkey ? lenField(5, r.authPubkey) : [])]);
 }
 
@@ -48,7 +52,16 @@ function decodeReply(b: Uint8Array): { decision?: number; message?: string } {
 }
 
 const key32 = fc.uint8Array({ minLength: 32, maxLength: 32 });
-const request = fc.record({ eventPubkey: key32, kind: fc.nat({ max: 65535 }), createdAt: fc.nat({ max: 2 ** 40 }), authPubkey: fc.option(key32, { nil: undefined }), ip: fc.option(fc.ipV4(), { nil: undefined }) });
+// FR023-10: tags, `h` ones among them (the channel or group an event is for).
+const tag = fc.oneof(fc.tuple(fc.constant('h'), fc.string({ maxLength: 64 })).map((t) => [...t]), fc.array(fc.string({ maxLength: 20 }), { maxLength: 4 }));
+const request = fc.record({
+  eventPubkey: key32,
+  kind: fc.nat({ max: 65535 }),
+  createdAt: fc.nat({ max: 2 ** 40 }),
+  authPubkey: fc.option(key32, { nil: undefined }),
+  ip: fc.option(fc.ipV4(), { nil: undefined }),
+  tags: fc.array(tag, { maxLength: 6 }),
+});
 
 describe('nauthz protobuf codec (fuzz)', () => {
   it('decodes what a relay encodes', () => {
@@ -58,6 +71,8 @@ describe('nauthz protobuf codec (fuzz)', () => {
         expect(d.eventPubkey).toBe(Buffer.from(r.eventPubkey).toString('hex'));
         expect(d.kind).toBe(r.kind);
         expect(d.authPubkey).toBe(r.authPubkey ? Buffer.from(r.authPubkey).toString('hex') : undefined);
+        const h = r.tags.filter((t) => t[0] === 'h' && t[1] !== undefined).map((t) => t[1]);
+        expect(d.h).toEqual(h.length ? h : undefined);
       }),
       runs(500),
     );
@@ -76,6 +91,8 @@ describe('nauthz protobuf codec (fuzz)', () => {
     const allowed = new Uint8Array(32).fill(0xab);
     const server = new AdmissionServer();
     server.set([Buffer.from(allowed).toString('hex')]);
+    // No channel registered: an `h` is left to the allowlist (FR023-10).
+    server.setGrants([]);
     fc.assert(
       fc.property(request, (r) => {
         const d = server.decide(decodeEventRequest(encodeEventRequest(r)));

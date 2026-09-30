@@ -21,3 +21,4 @@ leak-results/
 tor-profile-results/
 interop/mdk-harness/target/
 interop-mdk-report.json
+docs-api/
