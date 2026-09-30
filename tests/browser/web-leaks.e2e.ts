@@ -22,7 +22,7 @@ import { bytesToHex, finalizeEvent, generateSecretKey, getPublicKey, nip19, toUn
 import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { TestBlossomServer, TestRelay } from '@sedecim/test-relay';
-import { chatMessage, createDirectMessage } from '@sedecim/messaging';
+import { buildProfile, chatMessage, createDirectMessage } from '@sedecim/messaging';
 import { preset, type PresetName } from '@sedecim/profiles';
 
 const dist = new URL('../../apps/web-saas/dist/', import.meta.url).pathname;
@@ -164,6 +164,8 @@ async function scenario(presetName: PresetName) {
   const other = new LocalSigner(generateSecretKey());
   const pool = new RelayPool({ webSocketFactory: factory, signer: other });
   pools.push(pool);
+  // FR006-04: the other client has a public profile whose avatar sits on a canary host.
+  await pool.publishTo(await other.signEvent(buildProfile({ name: `Vecino ${presetName}`, picture: 'https://leak-canary-avatar.example/a.png' })), relay.url);
   await pool.publishTo(await other.signEvent(chatMessage(group, canaryText('otro cliente'))), relay.url);
   const plain = chatMessage(group, 'adjunto remoto');
   const withImage = { ...plain, tags: [...(plain.tags ?? []), ['imeta', `url https://leak-canary-imeta.example/${IMG_SHA}.png`, `x ${IMG_SHA}`, 'm image/png']] };
@@ -172,6 +174,8 @@ async function scenario(presetName: PresetName) {
   await page.locator('#channel-list').getByText(`Fugas ${presetName}`).click();
   await page.locator('#channel-log').getByText('otro cliente: mira').waitFor({ timeout: 10_000 });
   await page.getByRole('button', { name: /Mostrar imagen/ }).waitFor({ timeout: 10_000 });
+  await page.locator('#channel-log').getByText(`Vecino ${presetName} · npub1`, { exact: false }).first().waitFor({ timeout: 10_000 });
+  assert(true, `${presetName}: the channel shows the author's public name, looked up on the channel relay, without loading the avatar (FR006-04)`);
   await page.fill('#channel-text', canaryText('yo'));
   await page.locator('#channel-send').getByRole('button', { name: 'Enviar' }).click();
   await page.locator('#channel-log').getByText('yo: mira').waitFor({ timeout: 10_000 });
@@ -192,12 +196,32 @@ async function scenario(presetName: PresetName) {
   assert(remote.length === 0, `${presetName}: no request to any host other than the local app and relay (${remote.join(', ')})`);
   assert(errors.length === 0, `${presetName}: no page errors (${errors.join('; ')})`);
 
+  // --- FR006-04: a pseudonymous persona publishes no public profile until the user explicitly chooses to
+  const ownProfiles = () => relay.query([{ kinds: [0], authors: [webPub] }]);
+  await tab(page, 'Personas');
+  await page.locator('#profile-pseudonymous').waitFor({ timeout: 10_000 });
+  await page.waitForFunction(() => {
+    const el = document.querySelector('#profile-name') as HTMLInputElement | null;
+    return !!el && !el.disabled;
+  });
+  await page.fill('#profile-name', `Sensible ${presetName}`);
+  assert(await page.isDisabled('#profile-publish'), `${presetName}: publishing waits for the explicit acknowledgement of what the profile reveals (FR006-04)`);
+  assert(ownProfiles().length === 0, `${presetName}: nothing was published for the pseudonymous persona on its own (FR006-04)`);
+  await page.locator('#profile-ack').check();
+  await page.locator('#profile-publish').click();
+  for (let i = 0; i < 40 && ownProfiles().length === 0; i++) await page.waitForTimeout(250);
+  assert(JSON.parse(ownProfiles()[0]?.content ?? '{}').name === `Sensible ${presetName}`, `${presetName}: after the explicit choice the profile is published (FR006-04)`);
+
   // --- negative control: an explicit click loads the image, and the interception records it
   await tab(page, 'Canales');
   await page.locator('#channel-list').getByText(`Fugas ${presetName}`).click();
   await page.getByRole('button', { name: /Mostrar imagen/ }).click();
   for (let i = 0; i < 40 && !remote.some((u) => u.includes('leak-canary-imeta.example')); i++) await page.waitForTimeout(100);
   assert(remote.some((u) => u.includes('leak-canary-imeta.example')), `${presetName}: negative control - the explicit "Mostrar imagen" request is detected by the interception`);
+  // FR006-04: the same for avatars: «Mostrar avatares» asks the other client's avatar host, and the interception sees it.
+  await page.locator('#avatars-show').click();
+  for (let i = 0; i < 40 && !remote.some((u) => u.includes('leak-canary-avatar.example')); i++) await page.waitForTimeout(100);
+  assert(remote.some((u) => u.includes('leak-canary-avatar.example')), `${presetName}: negative control - «Mostrar avatares» requests the avatar and the interception detects it (FR006-04)`);
   await context.close();
 }
 

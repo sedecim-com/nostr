@@ -4,6 +4,7 @@ export * from './cms';
 export * from './client';
 export * from './enclave';
 export * from './kms';
+export * from './proof';
 export * from './protocol';
 export * from './simulated';
 export * from './wiring';

@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.8.0** · huella `9b95a3a34164e5b1` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.11.0** · huella `7d98f0e859013455` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -66,6 +66,21 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | cloudBackup | continuity-vault (deletion) | Borrar quita del servidor los archivos y sus metadatos en el momento; las copias de seguridad del operador pueden conservar los archivos, cifrados, y sus metadatos hasta que caduquen. | — | — | — |
 | cloudBackup | continuity-vault (retention) | Cada archivo se guarda hasta que lo borras o hasta que vence su plazo, contado desde la última vez que se guardó: el operador del vault puede fijar un plazo máximo y tú puedes elegir uno más corto. Al vencer, el servidor borra el archivo y sus metadatos. | — | — | — |
 | cloudBackup | continuity-vault (export) | Puedes exportar el vault en un archivo JSON abierto: tus eventos firmados, que cualquier cliente Nostr puede verificar y publicar, los mensajes de tus grupos seguros y tu estado de entrega. El archivo no va cifrado: los mensajes de grupo quedan en claro, así que guárdalo con cuidado. | — | — | — |
+| identity | public-profile (what) | Tu perfil público (kind 0) es un evento firmado con tu clave: el nombre, la descripción y la dirección del avatar que elijas. Se publica en los relays de esta persona y cualquiera que los lea puede verlo, copiarlo y guardarlo. | — | — | — |
+| identity | public-profile (pseudonymous) | Esta persona tiene un perfil seudónimo: no se publica ningún perfil salvo que lo elijas aquí. Un nombre, una foto o el servidor donde está el avatar pueden relacionarla con otras identidades tuyas o con tu identidad real. | — | — | — |
+| identity | public-profile (acknowledge) | Entiendo que el perfil es público y que puede relacionar esta persona con otras identidades mías | — | — | — |
+| identity | public-profile (withdraw) | Retirar el perfil publica uno vacío que lo sustituye en los relays que respetan los eventos reemplazables; las copias que otros ya guardaron no desaparecen. | — | — | — |
+| identity | public-profile (avatar) | El avatar se sube sin cifrar, tras quitarle los metadatos (EXIF), a tu servidor de archivos o al del despliegue: su operador ve la imagen y tu dirección IP. | — | — | — |
+| identity | public-profile (others) | Los avatares de otras personas están en servidores que ellas eligen: cargarlos le dice a ese servidor tu dirección IP y cuándo miras. Con las previews remotas bloqueadas solo se cargan si pulsas «Mostrar avatares». | — | — | — |
+| identity | public-profile (groups) | Buscar los perfiles de los miembros les dice a tus relays a quién buscas: podrían deducir quién está en este grupo. Por eso solo se buscan si lo pides; si no, se muestran los que ya conocías por los canales o los mensajes directos. | — | — | — |
+| persistence | borrado en canales (message) | Borrar un mensaje de canal publica una petición firmada con tu npub (NIP-29, kind 9005). El relay del canal y el mirror la aplican si la firma el autor del mensaje o un admin del canal: dejan de servirlo, y la web lo oculta. | — | — | — |
+| persistence | borrado en canales (copies) | Borrar no retira las copias que ya circularon: quien recibió el mensaje, otros clientes y otros relays pueden conservarlo, y la petición de borrado es un evento público firmado con tu npub. | — | — | — |
+| persistence | borrado en canales (reaction) | Quitar tu reacción publica un borrado NIP-09 (kind 5) de esa reacción: los clientes que lo aplican dejan de contarla, pero quien ya la vio puede conservarla. | — | — | — |
+| identity | mirror de canales (uses) | Los contadores de no leídos y la búsqueda de canales los calcula el mirror del operador. Cada consulta va firmada con tu npub (NIP-98): el operador ve qué canales consultas, cuándo, desde qué dirección IP y el texto que buscas. | — | — | — |
+| identity | mirror de canales (readState) | Hasta dónde leíste cada canal se guarda cifrado en este navegador, aparte para cada persona, y no se envía al mirror: el mirror devuelve la hora de los mensajes recientes y los no leídos se cuentan aquí. En otro navegador, cada canal empieza como leído. | — | — | — |
+| identity | mirror de canales (scope) | El mirror solo responde por los canales en los que el relay te lista como miembro y, en una organización, por los que su política te deja leer. La búsqueda cubre sus mensajes en claro, nunca los mensajes directos ni los grupos seguros, y puede no llegar a todo el historial. | — | — | — |
+| identity | mirror de canales (pseudonymous) | Esta persona es pseudónima: la web no consulta el mirror del operador, así que no hay contadores de no leídos ni búsqueda de canales. Cada consulta iría firmada con tu npub y le diría al operador qué canales lees y qué buscas. | — | — | — |
+| network | mirror de canales (torOnly) | En Tor-only la web no conecta con el mirror del operador, igual que con los relays: no hay contadores de no leídos ni búsqueda de canales. | — | — | — |
 
 ## Aprobación
 

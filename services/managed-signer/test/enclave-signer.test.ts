@@ -6,9 +6,9 @@ import type { Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bytesToHex, finalizeEvent, generateSecretKey, getPublicKey, nip49, toUnsigned, verifyEvent } from '@sedecim/nostr-core';
-import { createTestCognito } from '@sedecim/service-kit';
 import { LocalSigner } from '@sedecim/signer';
 import { createLogger } from '@sedecim/telemetry-policy';
+import { createAccesoPool, type AccesoPool } from './acceso-pool';
 import {
   AttestationError,
   awsEnclaveKms,
@@ -20,13 +20,21 @@ import {
   inProcessTransport,
   ManagedSigner,
   MemoryVault,
+  ownerTag,
+  PinnedJwksProofVerifier,
   serveEnclave,
   simulatedPcrs,
   socketTransport,
 } from '../src/index';
 
+/** The Acceso user pool the enclave has pinned, and the owner of the keys these tests create. */
+const pool = createAccesoPool();
+const verifier = (p: AccesoPool = pool) => new PinnedJwksProofVerifier({ issuer: p.issuer, clientId: p.clientId, jwks: p.jwks });
+const OWNER = `${pool.issuer}#user-e`;
+const proofOf = (sub = 'user-e', claims: Record<string, unknown> = {}) => pool.token({ sub, ...claims });
+
 describe('enclave signer over a local socket (vsock stand-in)', () => {
-  const sim = createSimulatedEnclave();
+  const sim = createSimulatedEnclave({ proof: verifier() });
   let server: Server;
   let client: EnclaveClient;
 
@@ -45,10 +53,13 @@ describe('enclave signer over a local socket (vsock stand-in)', () => {
   });
 
   it('generates a key inside the enclave and signs: the parent only gets a pubkey, a sealed blob and events', async () => {
-    const { pubkey, sealed } = await client.generate();
+    const { pubkey, sealed } = await client.generate(OWNER);
     expect(pubkey).toMatch(/^[0-9a-f]{64}$/);
     const blob = JSON.parse(Buffer.from(Buffer.from(sealed).toString('utf8'), 'base64').toString('utf8')) as Record<string, string>;
-    expect(Object.keys(blob).sort()).toEqual(['alg', 'ct', 'edk', 'iv', 'tag', 'v']);
+    // v2 (FR005-09): the owner is a hash in the blob, never the Acceso account itself.
+    expect(Object.keys(blob).sort()).toEqual(['alg', 'ct', 'edk', 'iv', 'ot', 'tag', 'v']);
+    expect(blob.ot).toBe(ownerTag(OWNER));
+    expect(JSON.stringify(blob)).not.toContain('user-e');
     const signer = client.signer(sealed, pubkey);
     expect(signer.custody).toBe('managed-enclave');
     const evt = await signer.signEvent({ kind: 1, content: 'firmado en el enclave', tags: [['t', 'x']] });
@@ -66,12 +77,12 @@ describe('enclave signer over a local socket (vsock stand-in)', () => {
 
   it('imports an ncryptsec without the plaintext reaching the sealed blob, and exports for FR-026', async () => {
     const sk = generateSecretKey();
-    const { pubkey, sealed } = await client.importNcryptsec(nip49.encryptKey(sk, 'contraseña larga 123', 4), 'contraseña larga 123');
+    const { pubkey, sealed } = await client.importNcryptsec(OWNER, nip49.encryptKey(sk, 'contraseña larga 123', 4), 'contraseña larga 123');
     expect(pubkey).toBe(getPublicKey(sk));
     const raw = Buffer.from(Buffer.from(Buffer.from(sealed).toString('utf8'), 'base64'));
     expect(raw.includes(Buffer.from(sk))).toBe(false);
     expect(raw.toString('utf8')).not.toContain(bytesToHex(sk));
-    const exported = await client.exportNcryptsec(sealed, pubkey, 'otra contraseña larga', 4);
+    const exported = await client.exportNcryptsec(sealed, pubkey, 'otra contraseña larga', 4, proofOf());
     expect(bytesToHex(nip49.decryptKey(exported, 'otra contraseña larga').secretKey)).toBe(bytesToHex(sk));
   });
 
@@ -79,18 +90,18 @@ describe('enclave signer over a local socket (vsock stand-in)', () => {
     const sim = createSimulatedEnclave();
     // Same NSM/KMS, but an enclave built with the production default.
     const locked = new EnclaveClient({ transport: inProcessTransport(new EnclaveSigner({ nsm: sim.nsm, kms: sim.kms, kmsKeyId: 'alias/simulated-enclave' })), attestation: sim.policy });
-    const { pubkey, sealed } = await locked.generate();
-    await expect(locked.exportNcryptsec(sealed, pubkey, 'una contraseña larga', 4)).rejects.toThrow(/export disabled/);
+    const { pubkey, sealed } = await locked.generate(OWNER);
+    await expect(locked.exportNcryptsec(sealed, pubkey, 'una contraseña larga', 4, proofOf())).rejects.toThrow(/export disabled/);
   });
 
   it('refuses a sealed blob presented with another pubkey (KMS context + enclave check)', async () => {
-    const a = await client.generate();
-    const b = await client.generate();
+    const a = await client.generate(OWNER);
+    const b = await client.generate(OWNER);
     await expect(client.signer(a.sealed, b.pubkey).signEvent({ kind: 1, content: 'x' })).rejects.toThrow(/enclave:/);
   });
 
   it('KMS denies the parent: no Recipient attestation, no data key', async () => {
-    const { sealed, pubkey } = await client.generate();
+    const { sealed, pubkey } = await client.generate(OWNER);
     const blob = JSON.parse(Buffer.from(Buffer.from(sealed).toString('utf8'), 'base64').toString('utf8')) as { edk: string };
     await expect(
       sim.kms.decrypt({ keyId: 'alias/simulated-enclave', ciphertextBlob: Buffer.from(blob.edk, 'base64'), context: { app: 'acceso-nostr', purpose: 'enclave-key', pubkey }, attestationDocument: new Uint8Array() }),
@@ -103,7 +114,7 @@ describe('attestation-conditioned KMS and parent checks', () => {
     const sim = createSimulatedEnclave({ pcrs: simulatedPcrs('tampered-image') });
     // The parent is configured with the tampered PCRs, so only KMS stands in the way.
     const client = new EnclaveClient({ transport: inProcessTransport(sim.enclave), attestation: { ...sim.policy, expectedPcrs: { 0: sim.pcrs[0] } } });
-    await expect(client.generate()).rejects.toThrow(/PCR0 does not match/);
+    await expect(client.generate(OWNER)).rejects.toThrow(/PCR0 does not match/);
     expect(sim.kms.calls).toEqual([{ op: 'generateDataKey', ok: false }]);
   });
 
@@ -111,12 +122,12 @@ describe('attestation-conditioned KMS and parent checks', () => {
     const sim = createSimulatedEnclave();
     const client = new EnclaveClient({ transport: inProcessTransport(sim.enclave), attestation: { ...sim.policy, expectedPcrs: { 2: simulatedPcrs('other')[2] } } });
     await expect(client.verify()).rejects.toBeInstanceOf(AttestationError);
-    await expect(client.generate()).rejects.toThrow(/PCR2/);
+    await expect(client.generate(OWNER)).rejects.toThrow(/PCR2/);
   });
 
   it('the parent rejects forged events from a compromised channel', async () => {
     const sim = createSimulatedEnclave();
-    const { pubkey, sealed } = await new EnclaveClient({ transport: inProcessTransport(sim.enclave), attestation: sim.policy }).generate();
+    const { pubkey, sealed } = await new EnclaveClient({ transport: inProcessTransport(sim.enclave), attestation: sim.policy }).generate(OWNER);
     const forger = generateSecretKey();
     const transport = inProcessTransport({
       handle: async (req) => (req.op === 'sign' ? { ok: true, event: finalizeEvent(toUnsigned({ kind: 1, content: 'x' }, getPublicKey(forger)), forger) } : sim.enclave.handle(req)),
@@ -127,7 +138,7 @@ describe('attestation-conditioned KMS and parent checks', () => {
 });
 
 describe('managed-signer with MANAGED_SIGNER_BACKEND=enclave (simulated)', () => {
-  const acceso = createTestCognito();
+  const acceso = createAccesoPool();
   const token = () => acceso.token({ sub: 'user-e' });
   let api: ReturnType<typeof createManagedSignerApi>;
   let base: string;
@@ -141,7 +152,7 @@ describe('managed-signer with MANAGED_SIGNER_BACKEND=enclave (simulated)', () =>
 
   beforeAll(async () => {
     const warnings: string[] = [];
-    const backend = enclaveBackendFromEnv({ MANAGED_SIGNER_BACKEND: 'enclave', MANAGED_SIGNER_ENCLAVE_SIMULATED: '1' }, (m) => warnings.push(m));
+    const backend = enclaveBackendFromEnv({ MANAGED_SIGNER_BACKEND: 'enclave', MANAGED_SIGNER_ENCLAVE_SIMULATED: '1' }, (m) => warnings.push(m), { proof: verifier(acceso) });
     expect(backend?.simulated).toBe(true);
     expect(warnings.join()).toMatch(/NOT SECURE/);
     const core = new ManagedSigner(vault, { sealedKeys: backend!.client, retentionDays: 0 });

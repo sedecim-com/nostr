@@ -41,7 +41,7 @@ Cada fila tiene el nivel de evidencia más bajo que alcanzan todas sus tareas de
 
 | Perfil o capacidad | Tipo | Nivel de evidencia | Tareas hechas | Abiertas (sprint) |
 |---|---|---|---:|---|
-| convenience (SaaS) | Perfil | En curso | 10 de 15 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR004-02 (S11), NFR001-04 (S11) y 2 más |
+| convenience (SaaS) | Perfil | En curso | 10 de 15 | NFR001-01 (S10), NFR001-02 (S10), NFR001-03 (S10), NFR004-02 (S11), NFR001-04 (S11) y 1 más |
 | private-resilient | Perfil | En curso | 13 de 14 | VAULT-07 (S10) |
 | institutional | Perfil | Merged | 14 de 14 | — |
 | sovereign (self-hosted) | Perfil | En curso | 9 de 10 | NFR003-03 (S11), NFR003-04 (Diferido) |

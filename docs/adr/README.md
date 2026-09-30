@@ -21,5 +21,7 @@ tarea correspondiente del backlog como `Hecho` (`docs/backlog/backlog.json`, lue
 | [0011](0011-continuity-vault.md) | Continuity Vault: sobres de archivo sellados en el cliente | VAULT-01 | Propuesto |
 | [0012](0012-estructura-de-repositorios.md) | Un monorepo en lugar de los seis repositorios del scope | DEC-15 | Propuesto |
 | [0013](0013-distribucion-del-sdk.md) | El SDK de cliente se publica en npm (`@sedecim`) con provenance desde el release | OPS-14 | Propuesto |
+| [0014](0014-aviso-de-notificacion-separado-del-mensaje.md) | No construir ahora un aviso de notificación separado del mensaje; cuándo reabrirlo | DEC-13 | Propuesto |
+| [0015](0015-modelo-comercial-del-saas.md) | Modelo comercial del SaaS: organizaciones, planes y facturación (decisiones de Dirección por tomar) | DEC-14 | Propuesto |
 
 Los threat models por perfil (DEC-10) están en [`../threat-models/`](../threat-models/README.md).

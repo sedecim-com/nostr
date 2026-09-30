@@ -28,9 +28,13 @@
  *   sovereign channel join --persona ID --group G         (NIP-29 join request)
  *   sovereign channel send --persona ID --group G "text" [--op ID]
  *   sovereign channel read --persona ID --group G
- *   sovereign dm send --persona ID --to NPUB "text" [--op ID]   (to the recipient's DM relays, kind 10050, like the web)
+ *   sovereign dm send --persona ID --to NPUB "text" [--op ID] [--confirm-reuse]   (to the recipient's DM relays,
+ *                                        kind 10050, like the web)
  *     (FR011-05: each send is an operation, and its id is printed first; --op ID retries that send, even one cut
  *      off half way, without another event or rumor. Another text or recipient under the same id is refused)
+ *     (FR006-07: a contact or a file another persona of this device already used is refused, with what it would
+ *      cross, and nothing is sent; --confirm-reuse confirms it. Also for group invite, propose --add, add-device
+ *      --member and send-file)
  *   sovereign dm inbox --persona ID     (reads its DM relays; receipts for its DMs move them to RECIPIENT_ACKED/READ)
  *   sovereign dm watch --persona ID     (keeps reading them: DMs and receipts as they arrive; Ctrl-C to stop)
  *   sovereign dm relays --persona ID     (publish this persona's DM relay list, kind 10050; also on create/import)
@@ -59,7 +63,7 @@
  *   sovereign vault delete --persona ID --yes [--vault URL]        (delete every archive and the vault account)
  *   sovereign group keypackage --persona ID            (publish MLS key package so others can add you)
  *   sovereign group create --persona ID --name NAME     (Marmot/MLS: forward secrecy + PCS)
- *   sovereign group invite --persona ID --group GID --to NPUB
+ *   sovereign group invite --persona ID --group GID --to NPUB [--confirm-reuse]
  *   sovereign group accept --persona ID                 (join groups from pending Welcomes)
  *   sovereign group send --persona ID --group GID "text"   (without a relay it stays pending and goes out later, FR025-12)
  *   sovereign group read --persona ID --group GID
@@ -70,10 +74,10 @@
  *                                        relays see, which an organisation registers the group by, FR023-10)
  *   sovereign group device --persona ID [--label NAME]           (this installation's MLS device id / label)
  *   sovereign group devices --persona ID --group GID             (leaves: one per device of each persona)
- *   sovereign group add-device --persona ID --group GID [--member NPUB]
+ *   sovereign group add-device --persona ID --group GID [--member NPUB] [--confirm-reuse]
  *                                        (admin: commit; member: propose; default member = this persona)
  *   sovereign group remove-device --persona ID --group GID --leaf N          (admin)
- *   sovereign group propose --persona ID --group GID (--add NPUB | --remove NPUB)   (any member)
+ *   sovereign group propose --persona ID --group GID (--add NPUB | --remove NPUB) [--confirm-reuse]   (any member)
  *   sovereign group proposals --persona ID --group GID
  *   sovereign group commit --persona ID --group GID [--ref REF ...]          (admin commits proposals)
  *   sovereign group rejoin --persona ID [--group GID]            (after backup restore: new leaf, old removed)
@@ -81,7 +85,7 @@
  *                                        they go out on the next sync and at the end of any command of the persona)
  *   sovereign group retry --persona ID [--group GID]             (sync and send them again now)
  *   sovereign group discard --persona ID --op ID                 (forget one, e.g. one every relay refused)
- *   sovereign group send-file --persona ID --group GID --file PATH [--mime TYPE] [--server URL] ["caption"]
+ *   sovereign group send-file --persona ID --group GID --file PATH [--mime TYPE] [--server URL] [--confirm-reuse] ["caption"]
  *   sovereign group fetch-file --persona ID --group GID --sha HEX --out FILE (MIP-04 download + decrypt)
  *   sovereign group rotation-worker --persona ID --policy URL [--managed-signer URL] [--interval S] [--once]
  *                                        (FR-024: MLS Remove for the rotations the policy-engine flags on
@@ -102,6 +106,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import type { PendingGroupOperation } from '@sedecim/marmot-adapter';
+import { ReuseNotConfirmedError } from '@sedecim/identity';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
 import { CONTINUITY_VAULT_TEXTS, configMaturity, disclose, MATURITY, MATURITY_LABELS } from '@sedecim/profiles';
 import { describePermissions, SOVEREIGN_NIP46_PERMISSIONS } from '@sedecim/signer';
@@ -118,7 +123,9 @@ function relayAdapter() {
 const argv = process.argv.slice(2);
 const opt = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
 const opts = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1]!] : []));
-const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--onion-only', '--dry-run', '--no-mls', '--once', '--no-republish'].includes(argv[i - 1]!))).slice(2);
+const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--onion-only', '--dry-run', '--no-mls', '--once', '--no-republish', '--confirm-reuse'].includes(argv[i - 1]!))).slice(2);
+/** FR006-07: the user confirms that this persona may use a contact or a file another of their personas already used. */
+const confirmReuse = argv.includes('--confirm-reuse');
 const MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.pdf': 'application/pdf', '.txt': 'text/plain' };
 const since = () => (opt('--since') !== undefined ? Number(opt('--since')) : undefined);
 
@@ -182,6 +189,10 @@ async function main() {
     ...((opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL) ? { vaultUrl: opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL } : {}),
     // FR004-08: the signer asks for approval in a web page. Shown, never opened: outside Tor, that page sees the IP.
     onSignerAuthUrl: (url, p) => console.error(`el signer pide tu aprobación en ${url}${p.network === 'tor-only' ? ' (ábrela en Tor Browser: con otro navegador, quien sirve esa página ve tu dirección IP)' : ''}`),
+    // FR006-07: what a confirmed reuse crosses stays on record next to what is sent.
+    onConfirmedReuse: (warnings) => {
+      for (const w of warnings) console.error(`aviso: compartimentación (confirmado con --confirm-reuse): ${w.message}`);
+    },
   });
   /**
    * FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. FAILED
@@ -292,7 +303,7 @@ async function main() {
       for (const e of await client.readChannel(need(), opt('--group')!)) console.log(`[${new Date(e.created_at * 1000).toISOString()}] ${e.pubkey.slice(0, 8)}: ${e.content}`);
     } else if (a === 'dm' && b === 'send') {
       await banner(need());
-      const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '), { opId: sendOperation() });
+      const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '), { opId: sendOperation(), confirmReuse });
       for (const r of recs) console.log(`${r.meta?.recipient?.slice(0, 8)} ${r.state}${r.blockedReason ? ` — ${maskIps(r.blockedReason)}` : ''}`);
       // As in the web: a recipient without DM relays gets the wrap on a guess, and the user is told.
       for (const r of recs) if (r.meta?.dmRelaySource && r.meta.dmRelaySource !== 'self' && r.meta.dmRelaySource !== 'dm-relays') console.error(`aviso: ${r.meta.recipient?.slice(0, 8)} no publicó relays de DM (kind 10050): la entrega es incierta`);
@@ -333,7 +344,7 @@ async function main() {
       };
       if (b === 'keypackage') console.log(`key package publicado: ${(await client.groupPublishKeyPackage(id)).id}`);
       else if (b === 'create') show(await client.groupCreate(id, opt('--name') ?? 'grupo'));
-      else if (b === 'invite') show(await client.groupInvite(id, gid!, opt('--to')!));
+      else if (b === 'invite') show(await client.groupInvite(id, gid!, opt('--to')!, { confirmReuse }));
       else if (b === 'accept') (await client.groupAccept(id)).forEach(show);
       else if (b === 'send') {
         await banner(id);
@@ -362,12 +373,12 @@ async function main() {
       } else if (b === 'devices')
         for (const d of await client.groupDevices(id, gid!)) console.log(`hoja ${d.leafIndex}  ${d.pubkey.slice(0, 8)}  ${d.deviceId ?? '?'}${d.label ? ` (${d.label})` : ''}${d.self ? '  ← este dispositivo' : ''}`);
       else if (b === 'add-device') {
-        const r = await client.groupAddDevice(id, gid!, opt('--member'));
+        const r = await client.groupAddDevice(id, gid!, opt('--member'), { confirmReuse });
         if (r.committed) show(r.group);
         else console.log(`propuesto (${r.proposals.length}); un admin debe ejecutar group commit`);
       } else if (b === 'remove-device') show(await client.groupRemoveDevice(id, gid!, Number(opt('--leaf'))));
       else if (b === 'propose') {
-        const r = await client.groupPropose(id, gid!, { ...(opt('--add') ? { add: opt('--add')! } : {}), ...(opt('--remove') ? { remove: opt('--remove')! } : {}) });
+        const r = await client.groupPropose(id, gid!, { ...(opt('--add') ? { add: opt('--add')! } : {}), ...(opt('--remove') ? { remove: opt('--remove')! } : {}) }, { confirmReuse });
         for (const p of r) console.log(`propuesta ${p.type} ${p.ref}`);
       } else if (b === 'proposals')
         for (const p of await client.groupProposals(id, gid!)) console.log(`${p.ref}  ${p.type.padEnd(7)} de ${p.proposer?.slice(0, 8) ?? '?'} → ${p.target?.slice(0, 8) ?? '-'}${p.admissible ? '' : '  (no admisible)'}`);
@@ -378,7 +389,7 @@ async function main() {
         if (!file) throw new Error('--file PATH required');
         const mimeType = opt('--mime') ?? MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
         const servers = opts('--server');
-        const ref = await client.groupSendFile(id, gid!, { data: new Uint8Array(readFileSync(file)), filename: basename(file), mimeType, caption: positional().join(' ') }, servers.length ? { servers } : {});
+        const ref = await client.groupSendFile(id, gid!, { data: new Uint8Array(readFileSync(file)), filename: basename(file), mimeType, caption: positional().join(' ') }, { ...(servers.length ? { servers } : {}), confirmReuse });
         console.log(`enviado ${ref.attachment.filename} (época ${ref.epoch}) → ${ref.attachment.url}`);
       } else if (b === 'fetch-file') {
         const out = opt('--out');
@@ -481,5 +492,6 @@ async function main() {
 
 main().catch((err: Error) => {
   console.error(`error: ${maskIps(err.message)}`);
+  if (err instanceof ReuseNotConfirmedError) console.error('para usarlo también desde esta persona, repite el comando con --confirm-reuse');
   process.exit(1);
 });

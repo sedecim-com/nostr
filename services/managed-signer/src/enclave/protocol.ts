@@ -21,11 +21,14 @@ type WithCreds<T> = T & { credentials?: AwsCredentials };
 
 export type EnclaveRequest =
   | { op: 'attest'; nonce: string }
-  | WithCreds<{ op: 'generate' }>
-  | WithCreds<{ op: 'import'; ncryptsec: string; password: string }>
+  // `owner` (`${issuer}#${sub}`, as the managed-signer names the key owner) is sealed into the key: export only opens it
+  // for a proof of that owner (FR005-09).
+  | WithCreds<{ op: 'generate'; owner: string }>
+  | WithCreds<{ op: 'import'; owner: string; ncryptsec: string; password: string }>
   | WithCreds<{ op: 'sign'; sealed: string; pubkey: string; template: EventTemplate }>
   | WithCreds<{ op: 'nip44'; sealed: string; pubkey: string; mode: 'encrypt' | 'decrypt'; peer: string; data: string }>
-  | WithCreds<{ op: 'export'; sealed: string; pubkey: string; password: string; logN: number }>;
+  // `proof` is the owner's Acceso token, verified inside the enclave (FR005-09).
+  | WithCreds<{ op: 'export'; sealed: string; pubkey: string; password: string; logN: number; proof: string }>;
 
 export type EnclaveResult =
   | { document: string }
@@ -34,7 +37,8 @@ export type EnclaveResult =
   | { result: string }
   | { ncryptsec: string };
 
-export type EnclaveResponse = ({ ok: true } & EnclaveResult) | { ok: false; error: string };
+/** `status` is set when the enclave turned the request down on purpose (a 4xx of the caller); absent for its own failures. */
+export type EnclaveResponse = ({ ok: true } & EnclaveResult) | { ok: false; error: string; status?: 400 | 401 | 403 };
 
 export const MAX_FRAME = 1 << 20;
 

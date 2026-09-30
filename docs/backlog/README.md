@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **249 tareas** · 182 hechas · 24 parciales · 37 pendientes · 6 descartadas
-- **227 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **249 tareas** · 185 hechas · 28 parciales · 30 pendientes · 6 descartadas
+- **216 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -34,6 +34,77 @@
 | S16 | 2027-01-18 → 2027-01-29 | G5 | v1.0.0 firmada para despliegues controlados | 2 | 4 | 1 |
 | Diferido | sin fecha | — | Después de v1.0: fuera del programa de cierre | 26 | 105 | 0 |
 
+## Orden de desbloqueo
+
+Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera a ninguna tarea abierta y cada ola siguiente solo a las anteriores, así que terminar una ola destraba la siguiente. Dentro de una ola van primero las que más trabajo abierto desbloquean, directa o indirectamente, y después por prioridad. «Bloqueo» es lo que impide cerrarla aunque el código esté listo:
+
+- **persona**: falta que una persona apruebe, configure o ejecute algo (aprobar un ADR o un threat model, configurar GitHub, publicar una release)
+- **aws**: faltan la cuenta, la región o el stage reales de AWS
+- **externo**: depende de un tercero: auditor externo, asesoría legal, una publicación upstream o un dispositivo de hardware
+
+**Listas para trabajar ahora (15):** FR004-08, FR006-04, FR020-06, FR023-11, FR025-14, PANEL-06, FR013-05, FR015-05, FR018-06, FR020-02, NFR007-02, NFR007-03, OPS-16, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
+
+| Ola | ID | Prio | Tarea | Sprint | SP | Desbloquea | Espera a | Bloqueo |
+|---:|---|---|---|---|---:|---:|---|---|
+| 0 | [NFR001-01](https://github.com/sedecim-com/nostr/issues/170) | P0 | Infraestructura como código del SaaS (Helm/Terraform) | S10 | 8 | 18 | — | aws |
+| 0 | [OPS-08](https://github.com/sedecim-com/nostr/issues/59) | P0 | Separación de funciones en releases (quién construye vs quién publica) | S9 | 1 | 11 | — | persona |
+| 0 | [DEC-10](https://github.com/sedecim-com/nostr/issues/45) | P1 | Formalizar threat models por perfil (convenience, resilient, institutional, sovereign, Tor) | S9 | 3 | 8 | — | persona |
+| 0 | [SEC-13](https://github.com/sedecim-com/nostr/issues/331) | P1 | Segunda revisión interna de seguridad antes del tag de auditoría | S11 | 5 | 6 | — | persona |
+| 0 | [FR005-05](https://github.com/sedecim-com/nostr/issues/90) | P1 | Tier enclave: firma dentro de Nitro Enclave con KMS condicionado por attestation | S14 | 8 | 2 | — | aws |
+| 0 | [VAULT-07](https://github.com/sedecim-com/nostr/issues/239) | P0 | Threat model y disclosure del Continuity Vault | S10 | 2 | 1 | — | persona |
+| 0 | [DEC-14](https://github.com/sedecim-com/nostr/issues/292) | P2 | Modelo comercial del SaaS: organizaciones, planes y facturación | Diferido | 1 | 1 | — | persona |
+| 0 | [FR025-08](https://github.com/sedecim-com/nostr/issues/156) | P2 | Migrar a marmot-ts v2 / ts-mls estable cuando se publiquen | Diferido | 3 | 1 | — | externo |
+| 0 | [OPS-12](https://github.com/sedecim-com/nostr/issues/220) | P0 | Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | S11 | 1 | — | — | persona |
+| 0 | [DEC-12](https://github.com/sedecim-com/nostr/issues/44) | P1 | Aprobación legal de los términos de custodia managed y del aviso de privacidad | S13 | 1 | — | — | externo |
+| 0 | [NFR009-02](https://github.com/sedecim-com/nostr/issues/188) | P1 | Corregir los hallazgos de accesibilidad y revisión manual con lector de pantalla | S10 | 3 | — | — | persona |
+| 0 | [DEC-11](https://github.com/sedecim-com/nostr/issues/198) | P2 | Búsqueda y registro de la marca "Acceso Nostr" | S13 | 1 | — | — | externo |
+| 0 | [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | Diferido | 1 | — | — | persona |
+| 0 | [FR004-08](https://github.com/sedecim-com/nostr/issues/290) | P2 | Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | Diferido | 3 | — | — | lista |
+| 0 | [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | Diferido | 3 | — | — | lista |
+| 0 | [FR007-06](https://github.com/sedecim-com/nostr/issues/388) | P2 | Retirar un vínculo entre personas en el servicio y en la web | S10 | 3 | — | — | en PR |
+| 0 | [FR020-06](https://github.com/sedecim-com/nostr/issues/291) | P2 | Cliente soberano como servicio del perfil tor | Diferido | 2 | — | — | lista |
+| 0 | [FR023-11](https://github.com/sedecim-com/nostr/issues/289) | P2 | Device trust en uso: passkey del propio usuario | Diferido | 5 | — | — | lista |
+| 0 | [FR025-14](https://github.com/sedecim-com/nostr/issues/288) | P2 | Grupos completos en la web: multi-dispositivo, rotación, propuestas y media cifrada | Diferido | 5 | — | — | lista |
+| 0 | [OPS-14](https://github.com/sedecim-com/nostr/issues/274) | P2 | Documentación del SDK y de las APIs | S10 | 5 | — | — | persona |
+| 0 | [PANEL-06](https://github.com/sedecim-com/nostr/issues/286) | P2 | Expiración de mensajes por perfil (NIP-40) y borrado con aviso | Diferido | 5 | — | — | lista |
+| 0 | [DEC-15](https://github.com/sedecim-com/nostr/issues/273) | P3 | Estructura de repositorios | S10 | 1 | — | — | persona |
+| 0 | [FR004-07](https://github.com/sedecim-com/nostr/issues/301) | P3 | Signer de hardware (opcional en el scope) | Diferido | 5 | — | — | externo |
+| 0 | [FR013-05](https://github.com/sedecim-com/nostr/issues/299) | P3 | Caché local cifrada de eventos y NIP-77 con estado local | Diferido | 5 | — | — | lista |
+| 0 | [FR015-05](https://github.com/sedecim-com/nostr/issues/298) | P3 | Presencia (NIP-38) opt-in por perfil | Diferido | 3 | — | — | lista |
+| 0 | [FR018-06](https://github.com/sedecim-com/nostr/issues/300) | P3 | Política de tamaño, MIME y antivirus compatible con la confidencialidad | Diferido | 2 | — | — | lista |
+| 0 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | Diferido | 8 | — | — | lista |
+| 0 | [NFR007-02](https://github.com/sedecim-com/nostr/issues/295) | P3 | Tracing con muestreo y redacción según el perfil | Diferido | 3 | — | — | lista |
+| 0 | [NFR007-03](https://github.com/sedecim-com/nostr/issues/296) | P3 | Crash reports opt-in con limpieza y exportación manual local | Diferido | 3 | — | — | lista |
+| 0 | [OPS-16](https://github.com/sedecim-com/nostr/issues/294) | P3 | Webhooks y eventos para integraciones empresariales | Diferido | 5 | — | — | lista |
+| 1 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) | P0 | Firma de releases y provenance (SLSA/cosign) | S9 | 3 | 10 | OPS-08 | persona |
+| 1 | [FR005-13](https://github.com/sedecim-com/nostr/issues/255) | P0 | KMS y Secrets Manager validados en la cuenta y región reales | S11 | 3 | 7 | NFR001-01 | aws |
+| 1 | [NFR001-03](https://github.com/sedecim-com/nostr/issues/172) | P0 | Postgres de alta disponibilidad y backups gestionados | S10 | 3 | 6 | NFR001-01 | aws |
+| 1 | [NFR001-02](https://github.com/sedecim-com/nostr/issues/171) | P0 | Monitorización de SLO (99,9 % mensual) y alertas | S10 | 3 | 4 | NFR001-01 | aws |
+| 1 | [SEC-12](https://github.com/sedecim-com/nostr/issues/258) | P0 | Inventario de la superficie de ataque de Buzz desplegado | S11 | 3 | 2 | NFR001-01 | aws |
+| 1 | [NFR005-02](https://github.com/sedecim-com/nostr/issues/180) | P0 | Pruebas de carga del relay y el indexer | S11 | 5 | — | NFR001-01 | aws |
+| 1 | [FR005-09](https://github.com/sedecim-com/nostr/issues/279) | P1 | Exportar desde el enclave exige una prueba del usuario verificada dentro del enclave | Diferido | 5 | — | FR005-05 | lista |
+| 1 | [FR028-02](https://github.com/sedecim-com/nostr/issues/107) | P1 | Revisión legal/UX de los textos de disclosure | S13 | 2 | — | VAULT-07 | externo |
+| 1 | [SEC-10](https://github.com/sedecim-com/nostr/issues/278) | P1 | Revisión criptográfica delta de MLS estable | Diferido | 3 | — | FR025-08 | externo |
+| 1 | [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | Diferido | 3 | — | FR005-05 | lista |
+| 1 | [OPS-15](https://github.com/sedecim-com/nostr/issues/293) | P2 | Organizaciones y planes en el SaaS | Diferido | 8 | — | DEC-14 | — |
+| 2 | [REL-01](https://github.com/sedecim-com/nostr/issues/196) | P0 | Checklist de Definition of Done automatizado en el pipeline de release | S9 | 3 | 7 | NFR010-02, DEC-10, OPS-08 | persona |
+| 2 | [FR026-04](https://github.com/sedecim-com/nostr/issues/253) | P0 | Salida de la custodia, borrado verificable y derechos ARCO | S11 | 5 | 6 | FR005-13 | aws |
+| 2 | [NFR001-04](https://github.com/sedecim-com/nostr/issues/256) | P1 | Alta disponibilidad en stage | S11 | 5 | 2 | NFR001-02, NFR001-03 | aws |
+| 2 | [NFR003-03](https://github.com/sedecim-com/nostr/issues/251) | P0 | Simulacro completo de RPO/RTO en stage | S11 | 3 | 1 | NFR001-03 | aws |
+| 2 | [FR003-06](https://github.com/sedecim-com/nostr/issues/79) | P1 | Firma de las releases del generador | S9 | 2 | 1 | NFR010-02 | persona |
+| 2 | [NFR004-02](https://github.com/sedecim-com/nostr/issues/178) | P0 | Dashboard de latencia y degradación sin ocultarla | S11 | 2 | — | NFR001-02 | aws |
+| 2 | [NFR003-04](https://github.com/sedecim-com/nostr/issues/282) | P2 | Copia en una segunda región para el tier institucional | Diferido | 5 | — | NFR001-03 | aws |
+| 3 | [SEC-11](https://github.com/sedecim-com/nostr/issues/257) | P0 | Tag de auditoría firmado y v1.0.0-rc.1 | S12 | 3 | 5 | SEC-13, FR026-04, FR005-13, DEC-10, REL-01 | persona |
+| 3 | [REL-02](https://github.com/sedecim-com/nostr/issues/197) | P0 | Release notes con los cambios de trust model por release | S9 | 1 | — | REL-01 | persona |
+| 3 | [FR003-07](https://github.com/sedecim-com/nostr/issues/80) | P1 | Guía de uso air-gapped verificable | S9 | 1 | — | FR003-06 | persona |
+| 3 | [NFR001-05](https://github.com/sedecim-com/nostr/issues/281) | P1 | Entorno de producción del SaaS | Diferido | 8 | — | NFR001-04 | aws |
+| 3 | [NFR002-03](https://github.com/sedecim-com/nostr/issues/263) | P1 | Simulacros de fallo de dependencias en stage | S11 | 5 | — | NFR001-04 | aws |
+| 4 | [SEC-01](https://github.com/sedecim-com/nostr/issues/192) | P0 | Revisión criptográfica independiente (NIP-44/49/59, MLS, key service) | S14 | 8 | 4 | SEC-11 | externo |
+| 5 | [SEC-08](https://github.com/sedecim-com/nostr/issues/275) | P0 | Corregir los hallazgos críticos y altos de SEC-01 y SEC-02 | S15 | 8 | 3 | SEC-01 | externo |
+| 6 | [SEC-02](https://github.com/sedecim-com/nostr/issues/193) | P0 | Pentest de API, relay, key service y cliente | S15 | 8 | 1 | NFR001-01, SEC-11, SEC-12, SEC-08 | externo |
+| 6 | [REL-04](https://github.com/sedecim-com/nostr/issues/276) | P1 | Revisión final de afirmaciones y etiquetas de madurez | S16 | 1 | 1 | SEC-08 | — |
+| 7 | [REL-03](https://github.com/sedecim-com/nostr/issues/277) | P0 | v1.0.0 firmada con la Definition of Done completa y sin waiver | S16 | 3 | — | SEC-01, SEC-02, SEC-08, REL-01, NFR003-03, REL-04 | persona |
+
 ## Cobertura de requisitos
 
 | Requisito | Tareas | Hechas | Pendientes (sprint) |
@@ -51,7 +122,7 @@
 | FR-011 | 8 | 8 | — |
 | FR-012 | 1 | 1 | — |
 | FR-013 | 6 | 6 | — |
-| FR-014 | 5 | 4 | FR014-04 (Diferido) |
+| FR-014 | 5 | 5 | — |
 | FR-015 | 3 | 3 | — |
 | FR-016 | 2 | 2 | — |
 | FR-017 | 6 | 6 | — |
@@ -291,7 +362,7 @@
 | [NFR005-02](https://github.com/sedecim-com/nostr/issues/180) | P0 | Pruebas de carga del relay y el indexer | NFR-005, PRD GC-C04 | QA | 5 | NFR005-01, NFR001-01 | Parcial | Throughput, p95/p99, saturación y límites medidos contra el Buzz de stage y el indexer en docs/load-testing.md; capacity baseline y estrategia de escalado de los relays aprobados |
 | [OPS-12](https://github.com/sedecim-com/nostr/issues/220) | P0 | Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | §21.2 | Infra | 1 | — | Pendiente | main exige 1 aprobación y los checks de CI, CodeQL y dependency-review; private vulnerability reporting activo; una segunda persona puede aprobar PRs y entornos |
 | [OPS-20](https://github.com/sedecim-com/nostr/issues/252) | P0 | Feature gates de producción para managed, enclave y push | PRD GC-D05, GC-A03, GC-G01 | Seguridad | 3 | OPS-06 | Hecho | Con legal o auditoría pendientes, el onboarding managed no aparece en la configuración de producción; enclave y su exportación apagados mientras sean Preview; push apagado donde no hay disparador seguro; el gate de release comprueba la configuración |
-| [SEC-12](https://github.com/sedecim-com/nostr/issues/258) | P0 | Inventario de la superficie de ataque de Buzz desplegado | §20.3, PRD GC-A07 | Seguridad | 3 | NFR001-01, BUZZ-07 | Pendiente | Rutas y capacidades realmente alcanzables del Buzz de stage documentadas para el pentest; opcionales innecesarios deshabilitados |
+| [SEC-12](https://github.com/sedecim-com/nostr/issues/258) | P0 | Inventario de la superficie de ataque de Buzz desplegado | §20.3, PRD GC-A07 | Seguridad | 3 | NFR001-01, BUZZ-07 | Parcial | Rutas y capacidades realmente alcanzables del Buzz de stage documentadas para el pentest; opcionales innecesarios deshabilitados |
 | [VAULT-03](https://github.com/sedecim-com/nostr/issues/246) | P0 | Respaldo de eventos canónicos y restauración con relays vacíos | PRD GC-B03, FR-013, FR-027 | Dev | 5 | VAULT-02 | Hecho | Se respaldan NIP-29, la copia propia de NIP-17, los eventos Marmot con el estado MLS necesario y el ledger/outbox; un dispositivo limpio con la backup key y relays vacíos reconstruye el 100 % del fixture de conversaciones y el ledger, en web y CLI, dentro de CI |
 | [NFR001-04](https://github.com/sedecim-com/nostr/issues/256) | P1 | Alta disponibilidad en stage | NFR-001 | Infra | 5 | NFR001-02, NFR001-03 | Pendiente | Réplicas y PDB; Redis, SeaweedFS y secure relay en HA o gestionados; blob-store con allowlist o cuotas; el SLO de 99,9 % queda instrumentado sobre una topología que puede cumplirlo |
 | [NFR002-03](https://github.com/sedecim-com/nostr/issues/263) | P1 | Simulacros de fallo de dependencias en stage | NFR-002, PRD GC-C06 | QA | 5 | NFR001-04 | Pendiente | Caída de un relay, de una réplica del indexer, failover de Postgres y object storage degradado no corrompen la outbox ni los estados; 0 LOCAL_PERSISTED perdidos en las pruebas de crash |
@@ -339,17 +410,17 @@
 
 | ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |
 |---|---|---|---|---|---:|---|---|---|
-| [FR005-09](https://github.com/sedecim-com/nostr/issues/279) | P1 | Exportar desde el enclave exige una prueba del usuario verificada dentro del enclave | FR-026, IR-01, PRD GC-A03 | Seguridad | 5 | FR005-05 | Pendiente | JWT con JWKS fijado en la imagen o firma de la llave de destino; sin ella el enclave se niega; test. Requisito para sacar el enclave de Preview |
+| [FR005-09](https://github.com/sedecim-com/nostr/issues/279) | P1 | Exportar desde el enclave exige una prueba del usuario verificada dentro del enclave | FR-026, IR-01, PRD GC-A03 | Seguridad | 5 | FR005-05 | Parcial | JWT con JWKS fijado en la imagen o firma de la llave de destino; sin ella el enclave se niega; test. Requisito para sacar el enclave de Preview |
 | [NFR001-05](https://github.com/sedecim-com/nostr/issues/281) | P1 | Entorno de producción del SaaS | NFR-001 | Infra | 8 | NFR001-04, OPS-20 | Pendiente | Overlay de producción con la topología HA probada en stage, los feature gates de OPS-20, sonda externa y el SLO de 99,9 % medido |
 | [SEC-10](https://github.com/sedecim-com/nostr/issues/278) | P1 | Revisión criptográfica delta de MLS estable | §20.3 | Seguridad | 3 | FR025-08 | Pendiente | Informe externo del delta tras FR025-08 sin críticos abiertos; requisito de la etiqueta high-security |
-| [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | ADR 0010, PRD GC-G03 | Decisión | 1 | OPS-06 | Pendiente | Diseño evaluado cuando se retome un cliente móvil; no bloquea el RC |
-| [DEC-14](https://github.com/sedecim-com/nostr/issues/292) | P2 | Modelo comercial del SaaS: organizaciones, planes y facturación | §15.2 | Decisión | 1 | — | Pendiente | ADR con el modelo de tenants, planes y proveedor de cobro |
+| [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | ADR 0010, PRD GC-G03 | Decisión | 1 | OPS-06 | Parcial | Diseño evaluado cuando se retome un cliente móvil; no bloquea el RC |
+| [DEC-14](https://github.com/sedecim-com/nostr/issues/292) | P2 | Modelo comercial del SaaS: organizaciones, planes y facturación | §15.2 | Decisión | 1 | — | Parcial | ADR con el modelo de tenants, planes y proveedor de cobro |
 | [FR004-08](https://github.com/sedecim-com/nostr/issues/290) | P2 | Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | §14, FR-002, FR-004 | Dev | 3 | FR004-01 | Pendiente | Perfiles Tor con signer externo (§14: offline/signer) y custodia declarada según la llave real |
 | [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | FR-005 | Seguridad | 3 | FR005-05 | Pendiente | El ncryptsec se cifra hacia la clave atestada del enclave; test |
 | [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | §7, FR-006 | Dev | 3 | FR006-02 | Pendiente | Se publica y se muestra en canales, DMs y grupos; en perfiles seudónimos no se publica nada salvo elección explícita |
-| [FR006-07](https://github.com/sedecim-com/nostr/issues/287) | P2 | Compartimentación: avisar antes de reutilizar un contacto o un archivo entre personas | §14.1 | Dev | 3 | FR006-01 | Pendiente | Aviso con confirmación explícita en la web y en el CLI, también para archivos (recordUsage) |
-| [FR014-04](https://github.com/sedecim-com/nostr/issues/284) | P2 | La web usa el mirror: no leídos por canal y búsqueda | FR-014, §15.2 | Dev | 3 | FR014-05, FR023-05 | Pendiente | Contadores de no leídos y búsqueda en la web vía NIP-98, respetando la política |
-| [FR015-04](https://github.com/sedecim-com/nostr/issues/285) | P2 | Reacciones, hilos y borrado en canales | §15.1 | Dev | 5 | FR015-02 | Pendiente | Kinds 7, respuestas con e/q y borrado 5/9005 en la web, con E2E contra Buzz |
+| [FR006-07](https://github.com/sedecim-com/nostr/issues/287) | P2 | Compartimentación: avisar antes de reutilizar un contacto o un archivo entre personas | §14.1 | Dev | 3 | FR006-01 | Hecho | Aviso con confirmación explícita en la web y en el CLI, también para archivos (recordUsage) |
+| [FR014-04](https://github.com/sedecim-com/nostr/issues/284) | P2 | La web usa el mirror: no leídos por canal y búsqueda | FR-014, §15.2 | Dev | 3 | FR014-05, FR023-05 | Hecho | Contadores de no leídos y búsqueda en la web vía NIP-98, respetando la política |
+| [FR015-04](https://github.com/sedecim-com/nostr/issues/285) | P2 | Reacciones, hilos y borrado en canales | §15.1 | Dev | 5 | FR015-02 | Hecho | Kinds 7, respuestas con e/q y borrado 5/9005 en la web, con E2E contra Buzz |
 | [FR020-06](https://github.com/sedecim-com/nostr/issues/291) | P2 | Cliente soberano como servicio del perfil tor | FR-020 | Infra | 2 | FR021-02 | Pendiente | docker compose run --rm sovereign … con TOR_SOCKS=tor:9050, documentado |
 | [FR023-11](https://github.com/sedecim-com/nostr/issues/289) | P2 | Device trust en uso: passkey del propio usuario | §16 | Dev | 5 | FR023-07 | Pendiente | El usuario registra la passkey en su dispositivo y cada sesión pide una aserción WebAuthn |
 | [FR025-08](https://github.com/sedecim-com/nostr/issues/156) | P2 | Migrar a marmot-ts v2 / ts-mls estable cuando se publiquen | FR-025 | Dev | 3 | FR025-04 | Parcial | Dependencias estables con conformidad y autoprueba en verde, o excepción documentada. Hace falta para la etiqueta high-security, no para v1.0 |
