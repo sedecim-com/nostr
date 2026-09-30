@@ -44,9 +44,13 @@ Mitigación en este repo:
 En MLS cada dispositivo es **su propia hoja**: una persona (misma pubkey Nostr, misma credencial `basic`)
 con dos dispositivos tiene dos hojas en el árbol. Implementación (`ExtendedGroupSession`, que implementan las
 sesiones de `MarmotTsProvider`; `GroupSession` no cambia):
-- **Key package por dispositivo**: kind `30443` direccionable con `d` = id del dispositivo
-  (`SessionOptions.deviceId`). `findKeyPackages(pubkey)` devuelve el más reciente de cada `d` (el legado
-  `443` solo si no hay ninguno direccionable).
+- **Key package por dispositivo**: kind `30443` direccionable con `d` = un slot aleatorio de 32 bytes por
+  dispositivo, guardado con el estado MLS (no el `SessionOptions.deviceId`, que no debe verse en los relays).
+  El relay guarda uno por `d`: el más reciente por `created_at` y, en el mismo segundo, el de id menor
+  (NIP-01). Por eso el adaptador firma cada key package de un slot en un segundo posterior al del anterior:
+  en el mismo segundo, el relay descartaba el nuevo la mitad de las veces, respondiendo OK.
+  `findKeyPackages(pubkey)` devuelve el más reciente de cada `d` (el legado `443` solo si no hay ninguno
+  direccionable).
 - **Invitar a una persona añade todos sus dispositivos** en un único commit (`invitePersona` /
   `inviteMany`; `sovereign group invite` ya lo hace). Se envía **un** Welcome por persona: el mismo Welcome
   lleva los secretos de todas sus hojas nuevas y cada dispositivo solo se une si tiene uno de los key
