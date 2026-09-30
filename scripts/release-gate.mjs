@@ -5,8 +5,11 @@
  *
  *   node scripts/release-gate.mjs all --tag vX.Y.Z --sha <commit> --sbom release/sbom.cdx.json [--actor login]…
  *   node scripts/release-gate.mjs ci|restore --sha <commit>        (GitHub API via `gh api`, needs actions: read)
+ *   node scripts/release-gate.mjs codeql --sha <commit>            (security-events: read)
+ *   node scripts/release-gate.mjs dependabot                      (vulnerability-alerts: read)
+ *   node scripts/release-gate.mjs environment                     (OPS-08, actions: read)
  *   node scripts/release-gate.mjs sbom <file>
- *   node scripts/release-gate.mjs audits --tag vX.Y.Z [--actor login]…
+ *   node scripts/release-gate.mjs audits|threat-models --tag vX.Y.Z [--actor login]…
  *   node scripts/release-gate.mjs notes --tag vX.Y.Z
  *   node scripts/release-gate.mjs config                          (OPS-20, deploy/production-gates.json)
  *
@@ -92,6 +95,31 @@ export function checkCodeql({ repo, sha, api = ghApi }) {
   return out;
 }
 
+/** What `gh api` said about a failed call: the line with the HTTP status ("Not Found (HTTP 404)"), else the last one. */
+function apiError(e) {
+  const lines = `${e?.stderr ?? ''}\n${e?.message ?? e}`.split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.find((l) => /HTTP \d{3}/.test(l)) ?? lines.at(-1) ?? 'error desconocido';
+}
+
+/**
+ * REL-01: the default branch has no open Dependabot alert of high or critical severity (the job's token needs
+ * `vulnerability-alerts: read`, and Dependabot alerts must be on in Settings → Advanced Security). A pull
+ * request that adds a vulnerable dependency already fails dependency-review.
+ */
+export function checkDependabot({ repo, api = ghApi }) {
+  let alerts;
+  try {
+    alerts = api(`repos/${repo}/dependabot/alerts?state=open&severity=high,critical&per_page=100`) ?? [];
+  } catch (e) {
+    return [`Dependabot: no se pudieron leer las alertas (${apiError(e)}). Actívalas en Settings → Advanced Security → Dependabot alerts; el job necesita vulnerability-alerts: read.`];
+  }
+  const severity = (a) => a.security_advisory?.severity ?? a.security_vulnerability?.severity;
+  const serious = alerts.filter((a) => ['high', 'critical'].includes(severity(a)));
+  if (!serious.length) return [];
+  const list = serious.map((a) => `#${a.number} ${a.dependency?.package?.name ?? '?'} (${severity(a)})`).join(', ');
+  return [`Dependabot: ${serious.length} alertas abiertas de severidad alta o crítica en la rama principal: ${list}. Actualiza la dependencia o descarta la alerta con motivo antes del release.`];
+}
+
 /** The restore drill (restore-drill.yml) succeeded on this exact commit within the last maxAgeHours. */
 export function checkRestore({ repo, sha, api = ghApi, now = Date.now(), maxAgeHours = 72 }) {
   const runs = api(`repos/${repo}/actions/workflows/restore-drill.yml/runs?head_sha=${sha}&status=completed&per_page=100`).workflow_runs ?? [];
@@ -131,6 +159,10 @@ export function parseFields(md) {
 
 const listAudits = (value = '') => value.split(/[,\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
 const PLACEHOLDER = /^(|pendiente|todo|tbd|-|n\/a)$/i;
+/** A GitHub @login, as approval records name their approver. */
+const LOGIN_RE = /^@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+/** Whether the approver is one of whoever triggered the release (they may not approve their own release). */
+const isActor = (approver, actors) => actors.filter(Boolean).some((a) => a.toLowerCase() === approver.slice(1).toLowerCase());
 
 /**
  * Every REQUIRED_AUDITS item is covered for this tag by an audit record (docs/security/audits/<tag>.md:
@@ -156,9 +188,8 @@ export function checkAudits({ tag, root = process.cwd(), actors = [] }) {
     const problems = [];
     if (f.tag !== tag) problems.push(`"- Tag: ${tag}"`);
     if ((f.motivo ?? '').length < 30 || PLACEHOLDER.test(f.motivo ?? '')) problems.push('un motivo concreto ("- Motivo: …", 30 caracteres o más)');
-    if (!/^@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(approver)) problems.push('quién lo aprueba como @usuario de GitHub ("- Aprobado por: @usuario")');
-    else if (actors.filter(Boolean).some((a) => a.toLowerCase() === approver.slice(1).toLowerCase()))
-      problems.push(`un aprobador distinto de quien lanza el release (${approver})`);
+    if (!LOGIN_RE.test(approver)) problems.push('quién lo aprueba como @usuario de GitHub ("- Aprobado por: @usuario")');
+    else if (isActor(approver, actors)) problems.push(`un aprobador distinto de quien lanza el release (${approver})`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(f.fecha ?? '')) problems.push('la fecha de aprobación ("- Fecha: AAAA-MM-DD")');
     if (problems.length) out.push(`Auditorías: el waiver ${where} no es válido: le falta ${problems.join(', ')}.`);
     else listAudits(f['auditorías']).forEach((a) => covered.add(a));
@@ -169,6 +200,54 @@ export function checkAudits({ tag, root = process.cwd(), actors = [] }) {
       `Auditorías: ${missing.join(', ')} sin informe ni waiver para ${tag}. Añade docs/security/audits/${tag}.md o un waiver revisado en docs/security/audits/waivers/${tag}.md (docs/security/audits/README.md).`,
     );
   else if (missing.length) out.push(`Auditorías: ${missing.join(', ')} quedan sin cubrir para ${tag}.`);
+  return out;
+}
+
+/** DEC-10: one document per profile, the general index and the vault's; approved per release (REL-01). */
+export const THREAT_MODELS = 'docs/threat-models';
+
+/** SHA-256 of each threat model (the .md files of docs/threat-models, approvals/ excluded), by file name. */
+export function threatModelHashes(root = process.cwd()) {
+  const dir = join(root, THREAT_MODELS);
+  const files = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.md')).map((d) => d.name).sort();
+  return Object.fromEntries(files.map((f) => [f, createHash('sha256').update(readFileSync(join(dir, f))).digest('hex')]));
+}
+
+/**
+ * DEC-10 / REL-01: the threat models are approved for this tag by someone other than whoever triggers the
+ * release, in docs/threat-models/approvals/<tag>.md (Tag, Aprobado por, Fecha and one "- <documento>: <SHA-256>"
+ * line per threat model). The SHA-256 is the one of the document as it is in this commit, so an edit after the
+ * approval needs a new approval, and no document may still say it is «Propuesto».
+ */
+export function checkThreatModels({ tag, root = process.cwd(), actors = [] }) {
+  const hashes = threatModelHashes(root);
+  const files = Object.keys(hashes);
+  const record = `${THREAT_MODELS}/approvals/${tag}.md`;
+  // One "- <documento>: <SHA-256>" line per document, ready to paste into the record.
+  const lines = (names) => names.map((f) => `\n- ${f}: ${hashes[f]}`).join('');
+  const out = [];
+  const md = readIfExists(join(root, record), 'utf8');
+  const f = md === undefined ? undefined : parseFields(md);
+  if (!f)
+    out.push(`Threat models: falta la aprobación ${record} (DEC-10), con "- Tag: ${tag}", "- Aprobado por: @usuario", "- Fecha: AAAA-MM-DD" y la huella de cada documento:${lines(files)}`);
+  else if (PLACEHOLDER.test(f['aprobado por'] ?? ''))
+    out.push(`Threat models: la aprobación ${record} está pendiente: falta quién los aprueba, la fecha y la huella de cada documento tal como se aprueba (hoy):${lines(files)}`);
+  else {
+    const approver = f['aprobado por'];
+    const problems = [];
+    if (f.tag !== tag) problems.push(`"- Tag: ${tag}"`);
+    if (!LOGIN_RE.test(approver)) problems.push('quién los aprueba como @usuario de GitHub ("- Aprobado por: @usuario")');
+    else if (isActor(approver, actors)) problems.push(`un aprobador distinto de quien lanza el release (${approver})`);
+    if (!DATE_RE.test(f.fecha ?? '')) problems.push('la fecha de aprobación ("- Fecha: AAAA-MM-DD")');
+    const gone = Object.keys(f).filter((k) => k.endsWith('.md') && !files.some((file) => file.toLowerCase() === k));
+    if (gone.length) problems.push(`quitar ${gone.join(', ')}, que ya no está en ${THREAT_MODELS}`);
+    const changed = files.filter((file) => (f[file.toLowerCase()] ?? '').toLowerCase() !== hashes[file]);
+    if (changed.length)
+      problems.push(`una huella que coincida con ${changed.join(', ')}. Si ese es el texto aprobado, son estas; si cambió después, hace falta aprobarlo de nuevo:${lines(changed)}`);
+    if (problems.length) out.push(`Threat models: la aprobación ${record} no es válida: le falta ${problems.join(', ')}`);
+  }
+  const proposed = files.filter((file) => /Estado:?\**:?\s*Propuesto/i.test(readFileSync(join(root, THREAT_MODELS, file), 'utf8').split('\n').slice(0, 12).join('\n')));
+  if (proposed.length) out.push(`Threat models: ${proposed.join(', ')} siguen en «Propuesto»: al aprobarlos cambia su estado y su huella en ${record}.`);
   return out;
 }
 
@@ -471,6 +550,41 @@ export function checkConfig({ root = process.cwd() } = {}) {
   return out;
 }
 
+/** OPS-08: publish-images, publish and verify run in this protected environment. */
+export const RELEASE_ENVIRONMENT = 'release';
+
+/**
+ * OPS-08: the environment the publishing jobs run in is configured as docs/building.md says: required reviewers
+ * with «Prevent self-review», no administrator bypass and deployments only from v* tags. Checked before anything
+ * is published: if the environment did not exist, the first publishing job would create it with no protection.
+ * The job's token needs `actions: read`.
+ */
+export function checkEnvironment({ repo, api = ghApi }) {
+  const fix = 'docs/building.md, «Configuración del repositorio»';
+  const path = `repos/${repo}/environments/${RELEASE_ENVIRONMENT}`;
+  let env;
+  let policies = [];
+  try {
+    env = api(path);
+    if (env.deployment_branch_policy?.custom_branch_policies) policies = api(`${path}/deployment-branch-policies?per_page=100`).branch_policies ?? [];
+  } catch (e) {
+    return [`Entorno release: no existe o no se puede leer (${apiError(e)}). Configúralo antes de publicar (${fix}): si no existe, el primer job que publica lo crearía sin protección.`];
+  }
+  const missing = [];
+  const reviewers = (env.protection_rules ?? []).find((r) => r.type === 'required_reviewers');
+  if (!reviewers?.reviewers?.length) missing.push('revisores obligatorios («Required reviewers»)');
+  else if (reviewers.prevent_self_review !== true) missing.push('«Prevent self-review»');
+  if (env.can_admins_bypass !== false) missing.push('desmarcar «Allow administrators to bypass configured protection rules»');
+  if (!env.deployment_branch_policy?.custom_branch_policies || env.deployment_branch_policy.protected_branches)
+    missing.push('«Selected branches and tags» con la regla de tag v* en «Deployment branches and tags»');
+  else {
+    if (!policies.some((p) => p.type === 'tag' && p.name === 'v*')) missing.push('la regla de tag v* en «Deployment branches and tags»');
+    const branches = policies.filter((p) => p.type !== 'tag');
+    if (branches.length) missing.push(`quitar las reglas de rama (${branches.map((p) => p.name).join(', ')}): solo se publica desde tags v*`);
+  }
+  return missing.length ? [`Entorno release: le falta ${missing.join(', ')} (${fix}).`] : [];
+}
+
 function parseArgs(argv) {
   const opts = { actors: [], positional: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -496,11 +610,14 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   const checks = {
     ci: () => checkCi({ repo: need('GH_REPO', repo), sha: need('--sha', opts.sha) }),
     codeql: () => checkCodeql({ repo: need('GH_REPO', repo), sha: need('--sha', opts.sha) }),
+    dependabot: () => checkDependabot({ repo: need('GH_REPO', repo) }),
     restore: () => checkRestore({ repo: need('GH_REPO', repo), sha: need('--sha', opts.sha), maxAgeHours: Number(env.RESTORE_MAX_AGE_HOURS || 72) }),
     sbom: () => checkSbom(readFileSync(resolve(need('--sbom o <archivo>', opts.sbom ?? opts.positional[0])), 'utf8')),
     audits: () => checkAudits({ tag: need('--tag', opts.tag), actors: opts.actors }),
+    'threat-models': () => checkThreatModels({ tag: need('--tag', opts.tag), actors: opts.actors }),
     notes: () => checkNotesFile({ tag: need('--tag', opts.tag) }),
     config: () => checkConfig(),
+    environment: () => checkEnvironment({ repo: need('GH_REPO', repo) }),
   };
   const selected = cmd === 'all' ? Object.keys(checks) : cmd in checks ? [cmd] : null;
   if (!selected) throw new Error(`comando desconocido: ${cmd ?? ''} (all | ${Object.keys(checks).join(' | ')})`);

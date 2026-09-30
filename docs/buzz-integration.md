@@ -26,10 +26,14 @@ de `ghcr.io/block/buzz:main` (token de GHCR + `HEAD` del manifiesto, que acepta 
 `deploy/k8s/base/kustomization.yaml`, los flags de
 despliegue (`infra/web/flags.json`, que llevan el commit del relay) y el informe en
 `docs/interop/`. Solo ese job tiene `contents: write` y `pull-requests: write`. Requisitos y límites:
-- Hay que activar *Allow GitHub Actions to create and approve pull requests* en los ajustes del repositorio.
-  Sin él, el workflow deja la rama lista y abre un issue con el enlace para crear la PR a mano.
-- Las PR que se crean con `GITHUB_TOKEN` no lanzan `ci` por sí solas. El job lanza `ci` con `workflow_dispatch`
-  sobre la rama (necesita `actions: write`), y sus checks aparecen en la PR.
+- Con la GitHub App de los bots configurada (OPS-12; la variable `BOT_APP_CLIENT_ID` y el secreto
+  `BOT_APP_PRIVATE_KEY`, ver [docs/backlog/GITHUB.md](backlog/GITHUB.md)), la rama y la PR son de la App, y la PR
+  lanza `ci`, CodeQL y dependency-review por sí sola.
+- Sin ella, van con el `GITHUB_TOKEN`: hay que activar *Allow GitHub Actions to create and approve pull
+  requests* en los ajustes del repositorio, y como esas PR no lanzan `ci` por sí solas, el job lo lanza con
+  `workflow_dispatch` sobre la rama (necesita `actions: write`) y sus checks aparecen en la PR. CodeQL y
+  dependency-review no corren.
+- Si no se puede abrir la PR, el workflow deja la rama lista y abre un issue con el enlace para crearla a mano.
 - Si falla el gate o la comprobación de flags, no se abre PR, la ejecución queda en rojo y se abre un issue
   "Buzz upstream: el gate falla con <digest>". Si ese issue ya existe, se comenta en él. La revisión es manual
   (ADR 0003).

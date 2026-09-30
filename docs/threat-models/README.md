@@ -4,6 +4,10 @@
   `docs/threat-model.md` (general) y presets de `packages/profiles/src/presets.ts`.
 - Se revisan en cada release (Apéndice D del scope). Un cambio en un preset o en una mitigación obliga a
   actualizar el documento del perfil afectado en el mismo PR.
+- **Aprobación por release** (REL-01): `approvals/<tag>.md` dice quién los aprueba (alguien distinto de quien
+  publica), cuándo, y la huella SHA-256 de cada documento de esta carpeta. El gate de `release.yml` no publica sin
+  ella, y un cambio posterior en cualquier documento obliga a aprobarlo de nuevo. La de v0.1.0 está preparada en
+  [approvals/v0.1.0.md](approvals/v0.1.0.md).
 
 | Perfil | Para quién | Documento |
 |---|---|---|

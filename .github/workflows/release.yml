@@ -4,7 +4,8 @@ name: release
 # them from jobs that run in the protected `release` environment (required reviewers, self-review
 # prevented, deployments only from `v*` tags: configured in Settings -> Environments, see
 # docs/building.md). Only those jobs can push images, sign (cosign keyless) and attest (SLSA provenance,
-# SBOM). Verification: scripts/verify-release.sh <tag>, docs/keygen-air-gapped.md.
+# SBOM), and `dod` checks that the environment is configured that way before anything runs in it.
+# Verification: scripts/verify-release.sh <tag>, docs/keygen-air-gapped.md.
 # REL-01: the `dod` job blocks publication unless the Definition of Done holds for the tagged commit, and
 # the release stays a draft until `verify` has checked what was published (docs/release-checklist.md).
 # NFR010-03: images are built twice and must match (scripts/build-image.sh, scripts/rebuild-image.sh).
@@ -131,16 +132,18 @@ jobs:
 
   # REL-01 Definition of Done (docs/release-checklist.md), read-only: for this exact commit CI is green
   # (tests and browser E2E, interop gate, leak tests, tor profile…), CodeQL ran and left no open high or
-  # critical alert (OPS-13), the restore drill passed recently,
-  # the SBOM exists, the security audits are done or waived by someone other than the releaser, and the
-  # release notes carry the trust-model section. Nothing is published unless it passes.
+  # critical alert (OPS-13), there is no open high or critical Dependabot alert, the restore drill passed
+  # recently, the SBOM exists, the security audits are done or waived and the threat models approved by
+  # someone other than the releaser (DEC-10), the release notes carry the trust-model section, and the
+  # `release` environment is protected (OPS-08). Nothing is published unless it passes.
   dod:
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read
+      actions: read # CI and restore drill runs, and the `release` environment (OPS-08)
       security-events: read # CodeQL alerts (OPS-13)
+      vulnerability-alerts: read # Dependabot alerts (REL-01)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -314,15 +317,17 @@ jobs:
             echo '```'
           } > notes.md
           files="keygen.html keygen.mjs sbom.cdx.json sbom-buzz.cdx.json buzz-image.txt images.txt SHA256SUMS $(echo ./*.sigstore.json)"
+          # REL-01: a tag with a pre-release suffix (vX.Y.Z-rc.N) is published as a pre-release, never as the latest.
+          case "$TAG" in *-*) prerelease=true ;; *) prerelease=false ;; esac
           if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
             # Re-run of a release that did not finish: only a draft may be replaced.
             if [ "$draft" != true ]; then echo "release $TAG is already published; cut a new tag"; exit 1; fi
             # shellcheck disable=SC2086
             gh release upload "$TAG" --clobber -- $files
-            gh release edit "$TAG" --notes-file notes.md
+            gh release edit "$TAG" --notes-file notes.md --prerelease="$prerelease"
           else
             # shellcheck disable=SC2086
-            gh release create "$TAG" --draft --verify-tag --title "$TAG" --notes-file notes.md -- $files
+            gh release create "$TAG" --draft --verify-tag --prerelease="$prerelease" --title "$TAG" --notes-file notes.md -- $files
           fi
 
   # REL-01: verify what was just published, as a user would (scripts/verify-release.sh: signatures,
