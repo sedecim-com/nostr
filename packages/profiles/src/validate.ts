@@ -15,6 +15,8 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
   if (c.network === 'tor-only') {
     if (platform === 'web') err('TOR_WEB_UNSUPPORTED', 'Tor-only no puede garantizarse desde un navegador estándar: usa el cliente soberano dedicado.', ['network']);
     if (c.custody === 'managed' || c.custody === 'managed-enclave') err('TOR_MANAGED_KEY', 'Sovereign Tor Mode no admite custodia managed: el Key Service no debe existir en este modo.', ['custody', 'network']);
+    // FR004-08: spec §14 keeps the key of this mode offline or in a signer; a key sealed on the connected device is said so.
+    if (c.custody === 'local') warn('TOR_DEVICE_KEY', 'La llave de esta persona está en este dispositivo, cifrada con tu passphrase: quien comprometa el dispositivo y consiga la passphrase puede firmar como tú. Con un signer externo (NIP-46), la llave no está en este dispositivo.', ['custody', 'network']);
     if (c.telemetry !== 'none') err('TOR_TELEMETRY', 'En Tor-only la telemetría debe estar deshabilitada.', ['telemetry', 'network']);
     if (c.crashReports === 'opt-in') err('TOR_CRASH_REPORTS', 'En Tor-only el crash reporting debe estar deshabilitado o ser exportación manual local.', ['crashReports', 'network']);
     // ADR 0010: no push at all in Tor-only, not even opaque — it ties the device to a push service and reveals activity times.

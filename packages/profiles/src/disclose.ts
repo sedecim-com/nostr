@@ -7,9 +7,9 @@ const d = (statement: string, improves: Dimension[], sacrifices: Dimension[], tr
 
 const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
   custody: {
-    local: d('La llave se genera y guarda cifrada en este dispositivo. La plataforma no puede firmar ni recuperar tu llave.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Seguridad del dispositivo y de tu passphrase.']),
+    local: d('La llave se guarda cifrada en este dispositivo, creada aquí o importada (nsec, ncryptsec o un backup). La plataforma no puede firmar ni recuperar tu llave.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Seguridad del dispositivo y de tu passphrase.']),
     offline: d('La llave vive fuera de línea (air-gapped/hardware). Nadie más puede firmar; la recuperación es tu responsabilidad.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Custodia física del respaldo.']),
-    external: d('Un signer externo (NIP-46/NIP-07) firma por ti; este cliente nunca ve la nsec.', ['soberania', 'privacidad-operador'], [], ['El signer externo y los permisos que le concedas.']),
+    external: d('Un signer externo (NIP-46/NIP-07) firma por ti; este cliente nunca ve la nsec. El signer ve lo que firma y los mensajes directos que descifra por ti.', ['soberania', 'privacidad-operador'], [], ['El signer externo y los permisos que le concedas.']),
     'encrypted-backup': d('El operador almacena un backup cifrado con una clave que solo tú controlas: guarda ciphertext, no la clave de descifrado.', ['recuperabilidad'], [], ['Fortaleza de tu contraseña de backup (scrypt).']),
     managed: d('Managed Key activado: la plataforma tiene capacidad técnica de firmar como tú y descifra en su servidor tus mensajes directos (NIP-44). Este modo es CUSTODIAL.', ['recuperabilidad', 'control-institucional'], ['soberania', 'privacidad-operador'], ['Operador, su vault (Secrets Manager/KMS) y su personal.']),
     'managed-enclave': d('Custodia en enclave: el backend general no ve la llave en claro, pero el servicio de firma sí puede firmar como tú. Sigue siendo CUSTODIAL.', ['recuperabilidad', 'control-institucional'], ['soberania'], ['Attestation del enclave y políticas KMS del operador.']),
@@ -74,7 +74,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.10.0';
+export const DISCLOSURE_VERSION = '1.11.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.

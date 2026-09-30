@@ -175,7 +175,11 @@ npm run sovereign -- group history --persona <id>   # mensajes de grupo leídos,
 npm run sovereign -- dm send --persona <id> --to NPUB "hola"  # a los relays de DM (10050) del destinatario, como la web
 npm run sovereign -- dm watch --persona <id>    # DMs y acuses según llegan a tus relays de DM (Ctrl-C para salir)
 npm run sovereign -- persona create --label Fuente --relay ws://<onion>.onion --onion-only   # solo Tor y .onion
+npm run sovereign -- persona import --key-file llave.txt --npub npub1… --label Fuente --relay ws://<onion>.onion --tor   # nsec o ncryptsec: custodia local
+npm run sovereign -- persona connect --bunker-file bunker.txt --label Fuente --relay ws://<onion>.onion --tor   # signer NIP-46 por Tor: custodia external
 ```
+Custodia de cada persona según su llave real, signer NIP-46 (`bunker://` o `nostrconnect://`) por Tor y qué ve cada
+parte: [docs/sovereign-tor.md](docs/sovereign-tor.md#custodia-llave-en-el-dispositivo-o-signer-nip-46-fr004-08).
 
 ## Pruebas
 | Comando | Qué cubre |
