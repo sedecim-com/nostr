@@ -14,6 +14,9 @@ export interface AdminSession {
   close(): void;
 }
 
+/** FR023-11: `admin` false: a key that is not a policy admin, which only sees its own devices. */
+export type ConsoleSession = AdminSession & { admin: boolean };
+
 export const hasNip07 = () => typeof window !== 'undefined' && !!(window as { nostr?: unknown }).nostr;
 
 export async function signInNip07(): Promise<AdminSession> {

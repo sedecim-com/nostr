@@ -83,6 +83,9 @@ export function DevicesView({ api }: { api: PolicyAdminApi }) {
       <Typography variant="body2" sx={{ color: 'text.secondary' }}>
         Revocar un dispositivo invalida sus sesiones; si la persona pertenece a grupos MLS, cada grupo queda pendiente de rotación de clave.
       </Typography>
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+        Desde que su titular registra una passkey, cada sesión suya en el policy-engine pide una aserción de la passkey del dispositivo en el que la abre, también después de revocar el dispositivo que la tenía. La primera puede registrarla el propio titular desde «Mis dispositivos», entrando con su llave; las siguientes solo un administrador, con «Registrar passkey», que crea la passkey en el navegador donde se pulsa.
+      </Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         <TextField id="device-owner" label="Titular (npub o hex)" size="small" value={ownerInput} onChange={(e) => setOwnerInput(e.target.value)} sx={{ flexGrow: 1 }} />
         <Button variant="contained" disabled={busy || !ownerInput.trim()} onClick={() => void search()}>

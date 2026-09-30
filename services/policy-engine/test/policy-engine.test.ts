@@ -1,12 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { copyFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateSecretKey, getPublicKey } from '@sedecim/nostr-core';
 import { createPgPool, migrate, nip98Fetch, resetScope, type Pool } from '@sedecim/service-kit';
-import { createPolicyApi, GROUP_RETENTION_REFUSED, MemoryPolicyRepository, PgPolicyRepository, PolicyEngine, POLICY_TABLES, RETENTION_NOTICE, type PolicyRepository } from '../src/index';
-import { TestAuthenticator } from './webauthn-fixture';
+import {
+  ASSERTION_REJECTED,
+  createPolicyApi,
+  GROUP_RETENTION_REFUSED,
+  MemoryPolicyRepository,
+  PgPolicyRepository,
+  PolicyEngine,
+  POLICY_TABLES,
+  RETENTION_NOTICE,
+  type PolicyRepository,
+  type WebAuthnConfig,
+} from '../src/index';
+import { TestAuthenticator, type AssertionInput } from './webauthn-fixture';
 
 const MIGRATIONS = fileURLToPath(new URL('../migrations', import.meta.url));
 const WEBAUTHN = { rpId: 'localhost', rpName: 'Test', origins: ['http://localhost:8080'] };
@@ -21,12 +33,14 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
     let engine: PolicyEngine;
     let api: ReturnType<typeof createPolicyApi>;
     let base: string;
+    /** Moves the engine's clock (NIP-98 keeps the real one). */
+    let skew = 0;
     const bearerFetch = (path: string, init: RequestInit = {}) => fetch(`${base}${path}`, { ...init, headers: { authorization: 'Bearer relay-token-1234' } });
     const evaluate = (body: unknown) => bearerFetch('/v1/evaluate', { method: 'POST', body: JSON.stringify(body) }).then((r) => r.json());
     const asAdmin = (path: string, method = 'GET', body?: unknown) => nip98Fetch(adminSk, `${base}${path}`, method, body);
 
     beforeAll(async () => {
-      engine = new PolicyEngine(await makeRepo(), Date.now, WEBAUTHN);
+      engine = new PolicyEngine(await makeRepo(), () => Date.now() + skew, WEBAUTHN);
       // One service principal with every scope, so each route can be exercised with it (scopes themselves: below).
       api = createPolicyApi(engine, {
         name: 'policy-test',
@@ -189,8 +203,8 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
     it('attests a device through WebAuthn registration (FR023-07)', async () => {
       const dev = (await asAdmin('/v1/devices', 'POST', { owner: alice })).json;
       const auth = new TestAuthenticator();
-      // Only the owner or an admin.
-      expect((await nip98Fetch(generateSecretKey(), `${base}/v1/devices/${dev.id}/webauthn/options`, 'POST', {})).status).toBe(403);
+      // Only the owner or an admin: to anyone else the device does not exist.
+      expect((await nip98Fetch(generateSecretKey(), `${base}/v1/devices/${dev.id}/webauthn/options`, 'POST', {})).status).toBe(404);
       const opts = (await nip98Fetch(aliceSk, `${base}/v1/devices/${dev.id}/webauthn/options`, 'POST', {})).json;
       expect(opts).toMatchObject({ rp: { id: 'localhost' }, pubKeyCredParams: [{ type: 'public-key', alg: -7 }], attestation: 'direct' });
       expect(Buffer.from(opts.user.id, 'base64url').toString('hex')).toBe(alice);
@@ -322,10 +336,350 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
       expect((await fetch(`${base}/v1/relay/grants`)).status).toBe(401);
       expect((await nip98Fetch(aliceSk, `${base}/v1/relay/grants`)).status).toBe(401);
     });
+
+    describe('passkey in every session (FR023-11)', () => {
+      const ORIGIN = WEBAUTHN.origins[0]!;
+      type Audit = { action: string; actor: string; target: string; details?: Record<string, unknown> };
+      const person = () => {
+        const sk = generateSecretKey();
+        return { sk, pk: getPublicKey(sk) };
+      };
+      const newDevice = async (owner: string) => (await asAdmin('/v1/devices', 'POST', { owner })).json as { id: string };
+      /** webauthn/options → the authenticator creates the credential → webauthn/register, as the owner (sk) or an admin. */
+      const enroll = async (who: Uint8Array, deviceId: string, auth: TestAuthenticator) => {
+        const opts = (await nip98Fetch(who, `${base}/v1/devices/${deviceId}/webauthn/options`, 'POST', {})).json;
+        return nip98Fetch(who, `${base}/v1/devices/${deviceId}/webauthn/register`, 'POST', auth.create({ challenge: opts.challenge, origin: ORIGIN, rpId: 'localhost' }));
+      };
+      const assertOptions = (sk: Uint8Array, deviceId: string) => nip98Fetch(sk, `${base}/v1/devices/${deviceId}/webauthn/assert/options`, 'POST', {});
+      const openSession = (sk: Uint8Array, body: unknown) => nip98Fetch(sk, `${base}/v1/sessions`, 'POST', body);
+      /** assert/options → the authenticator signs the challenge → POST /v1/sessions. */
+      const passkeySession = async (sk: Uint8Array, deviceId: string, auth: TestAuthenticator, o: Partial<AssertionInput> = {}) => {
+        const { challenge } = (await assertOptions(sk, deviceId)).json;
+        return openSession(sk, { deviceId, assertion: auth.get({ challenge, origin: ORIGIN, rpId: 'localhost', ...o }) });
+      };
+      const assertAudit = async (deviceId: string) => ((await asAdmin('/v1/audit?limit=1000')).json.audit as Audit[]).filter((a) => a.action === 'session.assert' && a.target === deviceId);
+      const hashOf = (token: string) => createHash('sha256').update(token).digest('hex');
+
+      it('the owner registers the passkey on their device, and from then on a session needs its assertion (FR023-11)', async () => {
+        const erin = person();
+        const dev = await newDevice(erin.pk);
+        // Without a passkey a session opens as before (compatibility), and there is nothing to assert with.
+        const before = await openSession(erin.sk, { device_id: dev.id });
+        expect([before.status, before.json.asserted]).toEqual([201, false]);
+        expect(await engine.sessionValid(before.json.token)).toBe(true);
+        expect((await assertOptions(erin.sk, dev.id)).status).toBe(409);
+        // The owner reads their own devices, and nobody else's.
+        expect((await nip98Fetch(erin.sk, `${base}/v1/devices?owner=${erin.pk}`)).json.devices.map((d: { id: string }) => d.id)).toEqual([dev.id]);
+        expect((await nip98Fetch(erin.sk, `${base}/v1/devices?owner=${alice}`)).status).toBe(403);
+        expect((await nip98Fetch(erin.sk, `${base}/v1/devices`)).status).toBe(403);
+
+        const auth = new TestAuthenticator();
+        const enrolled = await enroll(erin.sk, dev.id, auth);
+        expect([enrolled.status, enrolled.json.trust, enrolled.json.credentialId]).toEqual([200, 'attested', auth.id]);
+        // The session opened without a passkey is over, and a new one needs the assertion.
+        expect(await engine.sessionValid(before.json.token)).toBe(false);
+        expect(await engine.repo.getSession(hashOf(before.json.token))).toBeUndefined();
+        const bare = await openSession(erin.sk, { deviceId: dev.id });
+        expect(bare.status).toBe(403);
+        expect(bare.json.error).toMatch(/assertion/);
+
+        // Assertion options: only for the owner, with the one credential of the device.
+        expect((await assertOptions(generateSecretKey(), dev.id)).status).toBe(404);
+        expect((await asAdmin(`/v1/devices/${dev.id}/webauthn/assert/options`, 'POST', {})).status).toBe(404);
+        const opts = (await assertOptions(erin.sk, dev.id)).json;
+        expect(opts).toEqual({ challenge: expect.any(String), rpId: 'localhost', allowCredentials: [{ type: 'public-key', id: auth.id }], timeout: 300_000, userVerification: 'preferred' });
+        const assertion = auth.get({ challenge: opts.challenge, origin: ORIGIN, rpId: 'localhost', counter: 1, userHandle: Buffer.from(erin.pk, 'hex') });
+        const ok = await openSession(erin.sk, { deviceId: dev.id, assertion });
+        expect(ok.status).toBe(201);
+        expect(ok.json).toEqual({ token: expect.stringMatching(/^[0-9a-f]{48}$/), deviceId: dev.id, asserted: true });
+        expect(await engine.sessionValid(ok.json.token)).toBe(true);
+        expect((await engine.repo.getSession(hashOf(ok.json.token)))?.credentialId).toBe(auth.id);
+        // Every session asks again: the same assertion, its challenge spent, opens nothing.
+        const replay = await openSession(erin.sk, { deviceId: dev.id, assertion });
+        expect([replay.status, replay.json.error]).toEqual([403, ASSERTION_REJECTED]);
+
+        // Only the failure is audited: when someone opens sessions is usage metadata, not an admin action.
+        const audit = await assertAudit(dev.id);
+        expect(audit.map((a) => [a.actor, a.details?.ok, a.details?.reason])).toEqual([[erin.pk, false, 'no pending challenge']]);
+        // Neither the challenge, nor the credential, nor the signature or the token reach the audit.
+        const text = JSON.stringify((await asAdmin('/v1/audit?limit=1000')).json.audit);
+        for (const secret of [opts.challenge, auth.id, assertion.response.signature, ok.json.token]) expect(text).not.toContain(secret);
+      });
+
+      it('rejects assertions of another origin, RP id, challenge, device or owner, without presence or with a bad signature, and consumes the challenge (FR023-11)', async () => {
+        const erin = person();
+        const dev = await newDevice(erin.pk);
+        const auth = new TestAuthenticator();
+        await enroll(erin.sk, dev.id, auth);
+        const refused = async (r: { status: number; json: { error?: string } }) => expect([r.status, r.json.error]).toEqual([403, ASSERTION_REJECTED]);
+        await refused(await passkeySession(erin.sk, dev.id, auth, { origin: 'https://evil.example' }));
+        await refused(await passkeySession(erin.sk, dev.id, auth, { rpId: 'evil.example' }));
+        await refused(await passkeySession(erin.sk, dev.id, auth, { challenge: 'b3RoZXItY2hhbGxlbmdl' }));
+        await refused(await passkeySession(erin.sk, dev.id, auth, { flags: 0x04 }));
+        await refused(await passkeySession(erin.sk, dev.id, auth, { tamperSig: true }));
+        await refused(await passkeySession(erin.sk, dev.id, auth, { type: 'webauthn.create' }));
+        await refused(await passkeySession(erin.sk, dev.id, auth, { userHandle: Buffer.from(alice, 'hex') }));
+        // Another authenticator claiming this credential: the stored public key does not verify it.
+        await refused(await passkeySession(erin.sk, dev.id, new TestAuthenticator(), { id: auth.id }));
+        expect((await assertAudit(dev.id)).map((a) => a.details?.reason)).toEqual([
+          'assertion signature invalid',
+          'user handle mismatch',
+          'clientData.type must be webauthn.get',
+          'assertion signature invalid',
+          'user presence required',
+          'challenge mismatch',
+          'rpIdHash mismatch',
+          'origin not allowed',
+        ]);
+        // A failed assertion spends the challenge: a good assertion on it opens nothing.
+        const { challenge } = (await assertOptions(erin.sk, dev.id)).json;
+        await refused(await openSession(erin.sk, { deviceId: dev.id, assertion: auth.get({ challenge, origin: 'https://evil.example', rpId: 'localhost' }) }));
+        await refused(await openSession(erin.sk, { deviceId: dev.id, assertion: auth.get({ challenge, origin: ORIGIN, rpId: 'localhost' }) }));
+        expect((await assertAudit(dev.id))[0]?.details?.reason).toBe('no pending challenge');
+
+        // A second device of the same owner (an admin registers its passkey): the challenge of one device does not open
+        // the other, nor does the credential of one sign for the other.
+        const dev2 = await newDevice(erin.pk);
+        const auth2 = new TestAuthenticator();
+        expect((await enroll(adminSk, dev2.id, auth2)).status).toBe(200);
+        const c1 = (await assertOptions(erin.sk, dev.id)).json.challenge;
+        await assertOptions(erin.sk, dev2.id);
+        await refused(await openSession(erin.sk, { deviceId: dev2.id, assertion: auth2.get({ challenge: c1, origin: ORIGIN, rpId: 'localhost' }) }));
+        expect((await assertAudit(dev2.id))[0]?.details?.reason).toBe('challenge mismatch');
+        await refused(await passkeySession(erin.sk, dev2.id, auth));
+        expect((await assertAudit(dev2.id))[0]?.details?.reason).toBe('credential not allowed');
+        const onDev2 = await passkeySession(erin.sk, dev2.id, auth2);
+        expect(onDev2.status).toBe(201);
+        // A device without a passkey opens no session once its owner has one.
+        const dev3 = await newDevice(erin.pk);
+        expect((await openSession(erin.sk, { deviceId: dev3.id })).status).toBe(403);
+        expect((await assertOptions(erin.sk, dev3.id)).status).toBe(409);
+
+        // Another person's key opens nothing on these devices, and leaves no trace on them. What it gets back is what an
+        // id nobody uses gets: it cannot tell whose devices exist.
+        const mallory = person();
+        const before = (await assertAudit(dev.id)).length;
+        for (const deviceId of [dev.id, 'no-such-device']) {
+          expect((await openSession(mallory.sk, { deviceId, assertion: auth.get({ challenge: c1, origin: ORIGIN, rpId: 'localhost' }) })).json).toEqual({ error: 'device not usable for a new session' });
+          expect((await assertOptions(mallory.sk, deviceId)).json).toEqual({ error: 'unknown device' });
+        }
+        expect((await assertAudit(dev.id)).length).toBe(before);
+
+        // Revoking a device invalidates the sessions opened with its passkey and refuses new ones.
+        expect(await engine.sessionValid(onDev2.json.token)).toBe(true);
+        await asAdmin(`/v1/devices/${dev2.id}/revoke`, 'POST', { reason: 'robado' });
+        expect(await engine.sessionValid(onDev2.json.token)).toBe(false);
+        expect((await assertOptions(erin.sk, dev2.id)).status).toBe(409);
+        expect((await passkeySession(erin.sk, dev2.id, auth2)).status).toBe(403);
+        // Its passkey is still required on the other device.
+        expect((await openSession(erin.sk, { deviceId: dev.id })).status).toBe(403);
+      });
+
+      it('revoking the device that holds the passkey neither brings back sessions without one nor lets the owner enroll another (FR023-11)', async () => {
+        const lee = person();
+        const [phone, laptop] = [await newDevice(lee.pk), await newDevice(lee.pk)];
+        await enroll(lee.sk, phone.id, new TestAuthenticator());
+        await asAdmin(`/v1/devices/${phone.id}/revoke`, 'POST', { reason: 'perdido' });
+        // Whoever holds only the Nostr key (say, the thief who took the phone) opens nothing on the laptop, which has no
+        // passkey, and cannot enroll an authenticator of their own on it.
+        const bare = await openSession(lee.sk, { deviceId: laptop.id });
+        expect([bare.status, bare.json.error]).toEqual([403, expect.stringMatching(/registered a passkey/)]);
+        const selfEnroll = await nip98Fetch(lee.sk, `${base}/v1/devices/${laptop.id}/webauthn/options`, 'POST', {});
+        expect([selfEnroll.status, selfEnroll.json.error]).toEqual([403, expect.stringMatching(/an admin registers/)]);
+        // An admin registers the laptop's passkey, and sessions open with it.
+        const laptopKey = new TestAuthenticator();
+        expect((await enroll(adminSk, laptop.id, laptopKey)).status).toBe(200);
+        expect((await passkeySession(lee.sk, laptop.id, laptopKey)).status).toBe(201);
+        // The enrollment routes tell a stranger nothing either: the same 404 as an id nobody uses.
+        const stranger = generateSecretKey();
+        for (const id of [laptop.id, phone.id, 'no-such-device']) {
+          for (const route of ['options', 'register']) expect((await nip98Fetch(stranger, `${base}/v1/devices/${id}/webauthn/${route}`, 'POST', {})).json).toEqual({ error: 'unknown device' });
+        }
+      });
+
+      it('an expired challenge opens nothing (FR023-11)', async () => {
+        const erin = person();
+        const dev = await newDevice(erin.pk);
+        const auth = new TestAuthenticator();
+        await enroll(erin.sk, dev.id, auth);
+        const { challenge } = (await assertOptions(erin.sk, dev.id)).json;
+        skew = 300_001;
+        try {
+          const late = await openSession(erin.sk, { deviceId: dev.id, assertion: auth.get({ challenge, origin: ORIGIN, rpId: 'localhost' }) });
+          expect([late.status, late.json.error]).toEqual([403, ASSERTION_REJECTED]);
+        } finally {
+          skew = 0;
+        }
+        expect((await assertAudit(dev.id))[0]?.details?.reason).toBe('challenge expired');
+      });
+
+      it('the signature counter must go up: a cloned authenticator is refused and audited (FR023-11)', async () => {
+        const gina = person();
+        const dev = await newDevice(gina.pk);
+        const auth = new TestAuthenticator();
+        await enroll(gina.sk, dev.id, auth);
+        expect((await passkeySession(gina.sk, dev.id, auth, { counter: 5 })).status).toBe(201);
+        // A clone holds the same key and credential id, and its counter lags behind (or repeats).
+        const clone = new TestAuthenticator(auth);
+        for (const counter of [5, 4, 0]) expect((await passkeySession(gina.sk, dev.id, clone, { counter })).json.error).toBe(ASSERTION_REJECTED);
+        expect((await passkeySession(gina.sk, dev.id, auth, { counter: 6 })).status).toBe(201);
+        // Newest first: the three attempts of the clone, each with the counter it claimed.
+        const audit = await assertAudit(dev.id);
+        expect(audit.map((a) => [a.details?.ok, a.details?.signCount])).toEqual([
+          [false, 0],
+          [false, 4],
+          [false, 5],
+        ]);
+        for (const a of audit) expect(a.details?.reason).toBe('signature counter did not increase: possible cloned authenticator');
+        // An authenticator without a counter (most synced passkeys) always reports 0: nothing to compare.
+        const hank = person();
+        const dev2 = await newDevice(hank.pk);
+        const noCounter = new TestAuthenticator();
+        await enroll(hank.sk, dev2.id, noCounter);
+        for (let i = 0; i < 2; i++) expect((await passkeySession(hank.sk, dev2.id, noCounter)).status).toBe(201);
+      });
+
+      it('of two uses of one assertion, or two assertions with the same counter, at once, only one gets through (FR023-11)', async () => {
+        const ivy = person();
+        const dev = await newDevice(ivy.pk);
+        const auth = new TestAuthenticator();
+        await enroll(ivy.sk, dev.id, auth);
+        const { challenge } = (await assertOptions(ivy.sk, dev.id)).json;
+        const body = { deviceId: dev.id, assertion: auth.get({ challenge, origin: ORIGIN, rpId: 'localhost', counter: 3 }) };
+        const both = await Promise.all([openSession(ivy.sk, body), openSession(ivy.sk, body)]);
+        expect(both.map((r) => r.status).sort()).toEqual([201, 403]);
+        // The counter check and its write are one step in the repository.
+        for (const counter of [7, 8, 9]) {
+          const results = await Promise.all([engine.repo.advanceSignCount(dev.id, auth.id, counter), engine.repo.advanceSignCount(dev.id, auth.id, counter)]);
+          expect(results.filter(Boolean)).toHaveLength(1);
+        }
+        expect((await engine.repo.getDevice(dev.id))?.signCount).toBe(9);
+        expect(await engine.repo.advanceSignCount(dev.id, 'another-credential', 10)).toBe(false);
+      });
+
+      it('once the owner has a passkey, an admin registers any other one, which ends the sessions of the passkey it replaces (FR023-11)', async () => {
+        const jo = person();
+        const dev = await newDevice(jo.pk);
+        const auth = new TestAuthenticator();
+        await enroll(jo.sk, dev.id, auth);
+        const s1 = (await passkeySession(jo.sk, dev.id, auth, { counter: 1 })).json.token as string;
+        // Whoever holds only the owner's Nostr key cannot enroll an authenticator of their own, on a new device or this one.
+        const dev2 = await newDevice(jo.pk);
+        for (const id of [dev2.id, dev.id]) {
+          const r = await nip98Fetch(jo.sk, `${base}/v1/devices/${id}/webauthn/options`, 'POST', {});
+          expect([r.status, r.json.error]).toEqual([403, expect.stringMatching(/an admin registers/)]);
+          expect((await nip98Fetch(jo.sk, `${base}/v1/devices/${id}/webauthn/register`, 'POST', new TestAuthenticator().create({ challenge: 'x', origin: ORIGIN, rpId: 'localhost' }))).status).toBe(403);
+        }
+        // An admin replaces the passkey of the device: the sessions of the old one end, and the old one opens no other.
+        const replacement = new TestAuthenticator();
+        expect((await enroll(adminSk, dev.id, replacement)).json.credentialId).toBe(replacement.id);
+        expect(await engine.sessionValid(s1)).toBe(false);
+        expect((await passkeySession(jo.sk, dev.id, auth, { counter: 2 })).status).toBe(403);
+        expect((await assertAudit(dev.id))[0]?.details?.reason).toBe('credential not allowed');
+        expect((await passkeySession(jo.sk, dev.id, replacement)).status).toBe(201);
+      });
+
+      it('registering a passkey ends the sessions its owner opened without one, on every device (FR023-11)', async () => {
+        const kim = person();
+        const [d1, d2] = [await newDevice(kim.pk), await newDevice(kim.pk)];
+        const tokens = [(await openSession(kim.sk, { deviceId: d1.id })).json.token as string, (await openSession(kim.sk, { deviceId: d2.id })).json.token as string];
+        for (const t of tokens) expect(await engine.sessionValid(t)).toBe(true);
+        await enroll(kim.sk, d1.id, new TestAuthenticator());
+        for (const t of tokens) {
+          expect(await engine.sessionValid(t)).toBe(false);
+          expect(await engine.repo.getSession(hashOf(t))).toBeUndefined();
+        }
+        // A session opened without one while the passkey was being registered does not count either.
+        await engine.repo.putSession(hashOf('late-session'), { pubkey: kim.pk, deviceId: d2.id, createdAt: Date.now() });
+        expect(await engine.sessionValid('late-session')).toBe(false);
+      });
+    });
   });
 }
 
 suite('policy-engine (memory)', async () => new MemoryPolicyRepository());
+
+describe('SESSION_REQUIRE_ASSERTION and WEBAUTHN_REQUIRE_UV (FR023-11)', () => {
+  const adminSk = generateSecretKey();
+  const ownerSk = generateSecretKey();
+  const owner = getPublicKey(ownerSk);
+  const repo = new MemoryPolicyRepository();
+  const ORIGIN = WEBAUTHN.origins[0]!;
+  const apis: Array<ReturnType<typeof createPolicyApi>> = [];
+  const serve = async (config: Partial<WebAuthnConfig>) => {
+    const engine = new PolicyEngine(repo, Date.now, { ...WEBAUTHN, ...config });
+    const api = createPolicyApi(engine, { name: 'policy-strict', adminPubkeys: [getPublicKey(adminSk)] });
+    apis.push(api);
+    return { engine, base: await api.listen() };
+  };
+  afterAll(async () => {
+    for (const a of apis) await a.close();
+  });
+
+  it('with SESSION_REQUIRE_ASSERTION every session needs a passkey, and sessions opened without one stop counting (FR023-11)', async () => {
+    const lax = await serve({});
+    const device = await lax.engine.registerDevice('admin', owner);
+    const old = (await nip98Fetch(ownerSk, `${lax.base}/v1/sessions`, 'POST', { deviceId: device.id })).json.token as string;
+    expect(await lax.engine.sessionValid(old)).toBe(true);
+
+    const strict = await serve({ sessionRequireAssertion: true });
+    expect(await strict.engine.sessionValid(old)).toBe(false);
+    const refused = await nip98Fetch(ownerSk, `${strict.base}/v1/sessions`, 'POST', { deviceId: device.id });
+    expect([refused.status, refused.json.error]).toEqual([403, expect.stringMatching(/\(SESSION_REQUIRE_ASSERTION\): register a passkey/)]);
+    // The owner registers their passkey and opens the session with it.
+    const auth = new TestAuthenticator();
+    const opts = (await nip98Fetch(ownerSk, `${strict.base}/v1/devices/${device.id}/webauthn/options`, 'POST', {})).json;
+    expect((await nip98Fetch(ownerSk, `${strict.base}/v1/devices/${device.id}/webauthn/register`, 'POST', auth.create({ challenge: opts.challenge, origin: ORIGIN, rpId: 'localhost' }))).status).toBe(200);
+    const { challenge } = (await nip98Fetch(ownerSk, `${strict.base}/v1/devices/${device.id}/webauthn/assert/options`, 'POST', {})).json;
+    const ok = await nip98Fetch(ownerSk, `${strict.base}/v1/sessions`, 'POST', { deviceId: device.id, assertion: auth.get({ challenge, origin: ORIGIN, rpId: 'localhost' }) });
+    expect(ok.status).toBe(201);
+    expect(await strict.engine.sessionValid(ok.json.token)).toBe(true);
+  });
+
+  it('with WEBAUTHN_REQUIRE_UV registrations and assertions need user verification, not only presence (FR023-11)', async () => {
+    const uv = await serve({ requireUserVerification: true });
+    const sk = generateSecretKey();
+    const device = await uv.engine.registerDevice('admin', getPublicKey(sk));
+    const auth = new TestAuthenticator();
+    const call = (path: string, body: unknown = {}) => nip98Fetch(sk, `${uv.base}/v1/devices/${device.id}${path}`, 'POST', body);
+    let opts = (await call('/webauthn/options')).json;
+    expect(opts.authenticatorSelection.userVerification).toBe('required');
+    // UP | AT, no UV.
+    const noUv = await call('/webauthn/register', auth.create({ challenge: opts.challenge, origin: ORIGIN, rpId: 'localhost', flags: 0x41 }));
+    expect([noUv.status, noUv.json.error]).toEqual([400, 'webauthn: user verification required']);
+    opts = (await call('/webauthn/options')).json;
+    expect((await call('/webauthn/register', auth.create({ challenge: opts.challenge, origin: ORIGIN, rpId: 'localhost' }))).status).toBe(200);
+    const assertOpts = (await call('/webauthn/assert/options')).json;
+    expect(assertOpts.userVerification).toBe('required');
+    const presenceOnly = await nip98Fetch(sk, `${uv.base}/v1/sessions`, 'POST', { deviceId: device.id, assertion: auth.get({ challenge: assertOpts.challenge, origin: ORIGIN, rpId: 'localhost', flags: 0x01 }) });
+    expect(presenceOnly.status).toBe(403);
+    const audit = await uv.engine.listAudit({ limit: 5 });
+    expect(audit[0]).toMatchObject({ action: 'session.assert', target: device.id, details: { ok: false, reason: 'user verification required' } });
+  });
+});
+
+describe('a device revoked while its assertion is checked (FR023-11)', () => {
+  it('opens no session, and the audit says so instead of blaming a cloned authenticator', async () => {
+    let engine: PolicyEngine | undefined;
+    // The revocation lands between reading the device and recording the signature counter.
+    class RevokedMeanwhile extends MemoryPolicyRepository {
+      override async advanceSignCount(deviceId: string, credentialId: string, signCount: number) {
+        await engine!.revokeDevice('admin', deviceId, 'robado');
+        return super.advanceSignCount(deviceId, credentialId, signCount);
+      }
+    }
+    engine = new PolicyEngine(new RevokedMeanwhile(), Date.now, WEBAUTHN);
+    const owner = getPublicKey(generateSecretKey());
+    const device = await engine.registerDevice('admin', owner);
+    const auth = new TestAuthenticator();
+    const creation = await engine.webauthnOptions(device.id);
+    await engine.webauthnRegister(owner, device.id, auth.create({ challenge: creation.challenge, origin: WEBAUTHN.origins[0]!, rpId: 'localhost' }));
+    const { challenge } = await engine.webauthnAssertionOptions(owner, device.id);
+    await expect(engine.openSession(owner, device.id, auth.get({ challenge, origin: WEBAUTHN.origins[0]!, rpId: 'localhost', counter: 1 }))).rejects.toThrow(ASSERTION_REJECTED);
+    const [last] = await engine.listAudit({ limit: 1 });
+    expect(last).toMatchObject({ action: 'session.assert', actor: owner, target: device.id, details: { ok: false, reason: 'device revoked or given another passkey meanwhile' } });
+  });
+});
 
 const PG = process.env.TEST_DATABASE_URL;
 if (PG) {
@@ -398,13 +752,44 @@ if (PG) {
            (3000, $1, 'policy.evaluate', 'room', '{"action":"publish","allow":false}')`,
         [alice],
       );
-      expect(await migrate(pool, MIGRATIONS, 'policy-engine')).toEqual(['003_access_log.sql']);
+      expect((await migrate(pool, MIGRATIONS, 'policy-engine'))[0]).toBe('003_access_log.sql');
       const engine = new PolicyEngine(new PgPolicyRepository(pool), Date.now, WEBAUTHN);
       expect((await engine.listAccessLog()).map((a) => [a.at, a.pubkey, a.resourceId, a.action, a.allow])).toEqual([
         [3000, alice, 'room', 'publish', false],
         [1000, alice, 'room', 'read', true],
       ]);
       expect((await engine.listAudit({ limit: 10 })).map((a) => a.action)).toEqual(['policy.evaluate', 'subject.upsert', 'policy.evaluate']);
+    });
+
+    it('an existing engine upgrades: its sessions count until the owner has a passkey, its pending challenges are registration ones (FR023-11)', async () => {
+      pool ??= createPgPool(PG);
+      await resetScope(pool, 'policy-engine', POLICY_TABLES);
+      const before = mkdtempSync(join(tmpdir(), 'policy-migrations-'));
+      for (const f of ['001_policy.sql', '002_audit_action_idx.sql', '003_access_log.sql']) copyFileSync(join(MIGRATIONS, f), join(before, f));
+      await migrate(pool, before, 'policy-engine');
+      // What the previous version left: a device, a session opened on it and a pending registration challenge.
+      const owner = getPublicKey(generateSecretKey());
+      const token = 'ab'.repeat(24);
+      await pool.query("INSERT INTO policy_devices (id, owner_pubkey, trust, registered_at) VALUES ('d1', $1, 'registered', 1000)", [owner]);
+      await pool.query("INSERT INTO policy_sessions (token_hash, pubkey, device_id, created_at) VALUES ($1, $2, 'd1', 2000)", [createHash('sha256').update(token).digest('hex'), owner]);
+      await pool.query("INSERT INTO policy_webauthn_challenges (device_id, challenge, expires_at) VALUES ('d1', 'pending-before-004', $1)", [Date.now() + 60_000]);
+      expect(await migrate(pool, MIGRATIONS, 'policy-engine')).toEqual(['004_session_assertions.sql']);
+
+      const engine = new PolicyEngine(new PgPolicyRepository(pool), Date.now, WEBAUTHN);
+      expect(await engine.sessionValid(token)).toBe(true);
+      // The pending challenge registers the passkey; from then on the old session neither counts nor exists.
+      const auth = new TestAuthenticator();
+      await engine.webauthnRegister(owner, 'd1', auth.create({ challenge: 'pending-before-004', origin: WEBAUTHN.origins[0]!, rpId: 'localhost' }));
+      expect(await engine.sessionValid(token)).toBe(false);
+      expect((await pool.query('SELECT count(*)::int AS n FROM policy_sessions')).rows[0].n).toBe(0);
+      // An assertion challenge and a registration challenge of the same device wait side by side.
+      const { challenge } = await engine.webauthnAssertionOptions(owner, 'd1');
+      await engine.webauthnOptions('d1');
+      const asserted = await engine.openSession(owner, 'd1', auth.get({ challenge, origin: WEBAUTHN.origins[0]!, rpId: 'localhost', counter: 1 }));
+      expect(await engine.sessionValid(asserted)).toBe(true);
+      expect((await pool.query('SELECT credential_id FROM policy_sessions')).rows).toEqual([{ credential_id: auth.id }]);
+      expect((await pool.query('SELECT purpose FROM policy_webauthn_challenges')).rows).toEqual([{ purpose: 'register' }]);
+      expect((await engine.repo.getDevice('d1'))?.signCount).toBe(1);
     });
 
     it('the audit is append-only', async () => {

@@ -80,6 +80,11 @@ La organización revoca el dispositivo en el policy-engine, y desde ahí todo lo
 5. **Sus otros dispositivos.** El worker saca todas las hojas de la persona, así que sus dispositivos legítimos
    también salen. La persona abre «Grupos seguros» en cada uno (publica su key package) y un admin del grupo la
    invita de nuevo.
+6. **Su passkey (FR023-11).** Si la persona registró una passkey, revocar el dispositivo que la tenía no quita el
+   requisito: no abre sesiones de política sin una passkey suya, y con su llave Nostr ya no puede registrar otra (quien
+   se la haya robado, tampoco). Regístrale el dispositivo nuevo en «Dispositivos»; después, desde el navegador de ese
+   dispositivo, entra con tu llave de administrador y pulsa «Registrar passkey». Sus otros dispositivos con passkey
+   siguen abriendo sesiones con la suya.
 
 ### Si una rotación no se hace
 
