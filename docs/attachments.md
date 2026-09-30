@@ -14,7 +14,7 @@ nada, sin preguntar por la reutilización del archivo entre personas (FR006-07),
 | Destino | Límite | Dónde se comprueba |
 |---|---:|---|
 | Adjunto de un mensaje directo (cifrado en el cliente) | 25 MB | web (`DmView`), `prepareBlob` |
-| Media de un grupo seguro (MIP-04, cifrada) | 25 MB | CLI (`group send-file`, antes de leer el archivo y de nuevo al enviarlo) |
+| Media de un grupo seguro (MIP-04, cifrada) | 25 MB | web (`GroupsView`, antes de leer el archivo, y `sendGroupFile`) y CLI (`group send-file`, antes de leer el archivo y de nuevo al enviarlo) |
 | Imagen de un canal (en claro para sus miembros y el operador) | 10 MB | web (`ChannelsView`), `prepareBlob` |
 | Avatar del perfil público | 1 MB | web (`Profile`, antes de leer el archivo, y `uploadAvatar`) |
 

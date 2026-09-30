@@ -72,6 +72,11 @@ sesiones de `MarmotTsProvider`; `GroupSession` no cambia):
   rumor se descarta si su `pubkey` no coincide con la credencial de la hoja emisora.
 - **Expulsar a una persona elimina todas sus hojas**; `removeDevice` (`group remove-device --leaf N`)
   elimina solo una (dispositivo perdido). La revocación institucional (FR-024, abajo) expulsa todas.
+- **Las mismas decisiones en el CLI y en la web** (FR025-14): `addDevices` (el admin hace commit, un miembro propone),
+  `proposeMemberChange` (alta con todos los dispositivos fuera del grupo, o baja) y `fetchGroupMedia` (buscar,
+  descargar por el hash del cifrado y descifrar un adjunto) viven en `src/flows.ts`, y la subida del cifrado en
+  `ciphertextUploader` de `packages/blossom-client`. En lo pendiente, una baja de dispositivos lleva `leaves` y no se
+  confunde con una expulsión.
 
 ### Hallazgo: ts-mls rc.16 impedía el multi-dispositivo
 La política por defecto de ts-mls 2.0.0-rc.16 (`defaultKeyPackageEqualityConfig`) considera "ya en el grupo"
@@ -194,6 +199,10 @@ Flujo completo de un dispositivo perdido o robado, probado de punta a punta en
 - **Propuestas obsoletas**: las propuestas pertenecen a su época. Si la época avanza sin comprometerlas
   (otro commit, `rotate`), se descartan y `commitProposals` responde que no hay pendientes; el miembro debe
   volver a proponer (probado).
+- **Rechazar**: no hay un mensaje de rechazo en MLS. El admin rechaza dejando la propuesta fuera de su commit:
+  `commitProposals({ refs })` aplica solo las elegidas y descarta el resto, y sin ninguna elegida la web hace un
+  `rotate`, un commit sin propuestas que las descarta todas (FR025-14). Un `rotate` de cualquier miembro las descarta
+  igual.
 
 ## Sin red: mensajes y commits pendientes (FR025-12)
 Con Tor caído o sin red, un mensaje o un commit de grupo que ningún relay toma queda pendiente en lugar de fallar.
@@ -263,6 +272,11 @@ Versión `mip04-v2`, la que implementa marmot-ts 0.5.1 (se usan sus primitivas A
   `media_secret` de cada época (cifrado en `mls-mediakeys`, retención 128 épocas) y las referencias recibidas
   (`mls-mediarefs`). Un miembro expulsado no tiene el secreto de las épocas posteriores y no descifra la media
   nueva (`MediaKeyUnavailableError`, probado); los miembros restantes siguen descifrando media antigua.
+- **Nombre del archivo**: de 1 a 255 bytes UTF-8, sin NUL ni saltos de línea. Los parsers de `imeta` de marmot-ts y
+  applesauce leen `filename <valor>` con una expresión regular cuyo `.` se detiene en cualquier fin de línea de
+  JavaScript (LF, CR, U+2028 y U+2029). Con U+2028 o U+2029 en el nombre, el emisor lo aceptaba y los receptores
+  descartaban el adjunto sin avisar: ahora se rechaza al cifrar (`isValidMediaFilename`, encontrado por
+  `tests/fuzz/group-inputs.test.ts`).
 - Cliente soberano (`group send-file` / `group fetch-file`): EXIF saneado antes de cifrar; una imagen que no se
   puede sanear (HEIC, TIFF/RAW, un formato de imagen desconocido) se rechaza antes de subir nada → subida del
   ciphertext a la lista Blossom del usuario (kind `10063`, con espejo) o, sin lista, al blob-store
@@ -390,7 +404,7 @@ sovereign group read       --persona B --group <gid>                # muestra [a
 sovereign group fetch-file --persona B --group <gid> --sha <x> --out foto.jpg
 ```
 
-## Uso (web, FR025-07)
+## Uso (web, FR025-07 y FR025-14)
 La vista **Grupos seguros** de la web (`apps/web-saas/src/views/GroupsView.tsx`, carga diferida junto con
 marmot-ts/ts-mls) usa la misma API pública (`MarmotTsProvider` → `GroupSession`):
 - **Relay**: la clave `secureRelays` de `config.json` apunta al `secure-relay` (ADR 0006). Sin ella se usan
@@ -405,12 +419,52 @@ marmot-ts/ts-mls) usa la misma API pública (`MarmotTsProvider` → `GroupSessio
   sellado, en `mlsmsg-<persona>` (las claves de épocas pasadas se borran, así que no se puede volver a
   descifrar tras recargar). Nada en `localStorage`. Las operaciones MLS se serializan por sesión.
 - **Perfiles**: una persona Tor-only no abre sesión MLS en el navegador (mismo bloqueo que el resto de vistas).
+- **Lo que antes solo hacía el CLI (FR025-14)**, con los flujos compartidos de `src/flows.ts` desde
+  `apps/web-saas/src/lib/groups.ts` y los componentes `GroupDevices.tsx`, `GroupProposals.tsx` y `GroupAttachment.tsx`:
+  - *Multi-dispositivo*: invitar añade todos los dispositivos de la persona en un commit (`inviteMembers`, como
+    `group invite`). La lista «Dispositivos» muestra cada hoja con el nombre que anuncia. Cada navegador es un
+    dispositivo propio: su `deviceId` es `web-<id de la persona en ese navegador>` y su slot de key package es
+    aleatorio. Su nombre («Nombre de este navegador en los grupos») se guarda en la colección `groupdevice-<persona>`
+    del vault, fuera de `mls-*`; los demás lo guardan como lo anunció, en su roster. «Añadir dispositivos»
+    (admin, commit) o «Proponer dispositivos» (miembro, propuesta) busca los key packages de dispositivos que faltan
+    (`missingDeviceKeyPackages`) y deja marcar cuáles entran; el dispositivo nuevo entra con «Aceptar invitaciones
+    pendientes». El admin quita un dispositivo con confirmación (`removeDevice`). El navegador al que le quitan su
+    hoja lo ve (`membership`: sin hoja propia aunque su persona siga) y deja de tener composer.
+  - *Rotación*: «Rotar mis claves» (`rotate`, como `group rotate`), con una confirmación que dice que descarta las
+    propuestas pendientes; sin relay queda pendiente como cualquier commit (FR025-12).
+  - *Propuestas*: todos ven las pendientes (`pendingProposals`); el admin confirma las marcadas o rechaza todas (ver
+    «Rechazar» arriba); un miembro propone altas y bajas (`proposeMemberChange`, como `group propose`), con el aviso
+    de reutilización entre personas (FR006-07) para las altas y la regla de no proponer otra persona propia. Mientras
+    haya propuestas la vista no deja escribir, y el admin no puede invitar, expulsar ni cambiar dispositivos, porque
+    ese commit aplicaría también las altas propuestas (`incidental`).
+  - *Archivos (MIP-04)*: «Adjuntar archivo cifrado» sigue el orden del CLI y de los adjuntos de DM:
+    - aviso de reutilización con el hash del archivo tal como se eligió;
+    - metadatos fuera (`prepareBlob`; con `stripFileMetadata`, una imagen que no se puede limpiar se rechaza);
+    - registro del uso;
+    - cifrado con la época actual y subida del cifrado, en espejo como el CLI, a la lista Blossom de la persona
+      (sin el servidor de medios de Buzz) y al blob-store del despliegue.
+    El historial (`mlsmsg-<persona>`) guarda los adjuntos de cada mensaje, enviado o recibido, y sus tags, que el
+    vault archiva y restaura. «Descargar y verificar» pide el cifrado a la URL compartida y, si falla, a los servidores
+    de la lista del emisor. Comprueba su hash, lo descifra con el secreto de su época y lo guarda como archivo. La
+    descarga va fuera de la cola MLS; buscar el adjunto y descifrarlo, dentro.
+  - Lo pendiente distingue «Baja de dispositivo» y tiene «Reintentar ahora» (`group retry`). Los errores del
+    adaptador se muestran en español (`groupErrorMessage`).
+  - Qué ve cada parte y el riesgo residual: [threat model](threat-model.md#grupos-seguros-en-la-web-dispositivos-rotación-propuestas-y-archivos-fr025-14).
+    Los textos de la vista salen de `SECURE_GROUP_TEXTS` (catálogo revisado).
 - **Verificación**: `tests/browser/web-groups.e2e.ts` (en `npm run test:browser`): Alice y Bob en dos
   contextos, invitación, chat en ambos sentidos, recarga con estado restaurado, expulsión (Bob no lee lo
-  posterior), comprobación de IndexedDB/localStorage y axe.
+  posterior), comprobación de IndexedDB/localStorage y axe. FR025-14, en el mismo E2E: Eva en dos navegadores con la
+  misma llave (propuesta del segundo desde el primero, confirmación de Dana, rotación, foto sin metadatos descargada
+  con el hash comprobado y baja del segundo navegador). Sin navegador, con el adaptador real y relays y Blossom en
+  proceso: `apps/web-saas/test/secure-groups.test.ts`. Por ejemplo, una copia de las claves de un dispositivo
+  anterior a su rotación no lee lo que se envía después, y lo pendiente sobrevive a un reinicio de la sesión.
 - **Límites**: una misma persona abierta en dos pestañas o dispositivos con el mismo vault puede bifurcar el
   estado MLS (no hay bloqueo entre pestañas); la descripción del grupo no se muestra (`GroupHandle` no la
-  expone); la recepción es por sondeo, no por suscripción.
+  expone); la recepción es por sondeo, no por suscripción. Además (FR025-14):
+  - un nombre de dispositivo cambiado solo llega a los grupos en los que ya está el navegador cuando se vuelve a
+    anunciar (al entrar en un grupo, o como admin al añadir a alguien);
+  - la subida de un archivo ocupa la cola MLS mientras dura;
+  - la web no propone Updates ni la baja de un solo dispositivo, igual que el CLI.
 
 ## Límites
 - marmot-ts es alpha: no apto para producción high-risk sin revisión independiente (spec §20.3).

@@ -67,10 +67,19 @@ export function decryptGroupMedia(mediaSecret: Uint8Array, ciphertext: Uint8Arra
   return decryptMediaFile(ciphertext, deriveMediaFileKey(mediaSecret, attachment), attachment as never);
 }
 
-function validateFilename(name: string) {
+/**
+ * A name MIP-04 can carry: 1-255 UTF-8 bytes, no NUL and no line break. The members' clients read `filename <value>`
+ * from the `imeta` tag with a regex (marmot-ts, applesauce) whose `.` stops at every JavaScript line terminator: LF, CR,
+ * U+2028 and U+2029. With one of them inside, they drop the attachment without a word, so it is refused here. Spaces
+ * are fine: only the first one splits the entry.
+ */
+export function isValidMediaFilename(name: string): boolean {
   const bytes = enc.encode(name).length;
-  // Spaces would break the NIP-92 "key value" entry split only before the value; newlines/NUL never allowed.
-  if (bytes === 0 || bytes > 255 || /[\u0000\r\n]/.test(name)) throw new Error('filename must be 1-255 bytes without NUL or newlines');
+  return bytes > 0 && bytes <= 255 && !/[\u0000\r\n\u2028\u2029]/.test(name);
+}
+
+function validateFilename(name: string) {
+  if (!isValidMediaFilename(name)) throw new Error('filename must be 1-255 bytes without NUL or line breaks');
 }
 
 /** NIP-92 `imeta` tag with the MIP-04 fields (`url m x filename n v size …`). */
@@ -103,9 +112,18 @@ function toAttachment(a: NonNullable<ReturnType<typeof parseMediaImetaTag>>): Gr
   return out;
 }
 
-/** Blossom locators are `server/<sha256 of the stored blob>[.ext]` (BUD-01): the ciphertext hash. */
+/**
+ * Blossom locators are `server/<sha256 of the stored blob>[.ext]` (BUD-01): the ciphertext hash. Undefined for anything
+ * else, a string that is not a URL included (the URL comes from the member who sent the file).
+ */
 export function ciphertextHashFromUrl(url: string): string | undefined {
-  const last = new URL(url).pathname.split('/').pop() ?? '';
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return undefined;
+  }
+  const last = path.split('/').pop() ?? '';
   const m = /^([0-9a-f]{64})(?:\.[a-z0-9]+)?$/i.exec(last);
   return m ? m[1]!.toLowerCase() : undefined;
 }
