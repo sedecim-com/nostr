@@ -26,8 +26,10 @@ en memoria con el mismo comportamiento (se pierde al reiniciar; lo avisa en el l
   y qué se le respondió) van a `policy_access_log`, no a la auditoría, y tienen su propia retención (ver «Qué cubre y
   qué no»). Las anteriores a la migración 003 siguen en la auditoría, porque es append-only; la migración las copia
   al registro de accesos para que también se vean allí.
-- **Sesiones**: el token se guarda como hash SHA-256; una fuga de la base no da tokens utilizables.
-- **WebAuthn**: se guarda solo la llave pública de la credencial; la privada nunca sale del autenticador.
+- **Sesiones**: el token se guarda como hash SHA-256; una fuga de la base no da tokens utilizables. Cada sesión guarda
+  su dispositivo y, si se abrió con una passkey, la credencial que firmó (FR023-11).
+- **WebAuthn**: se guarda solo la llave pública de la credencial y su contador de firmas; la privada nunca sale del
+  autenticador.
 
 Pruebas: `services/policy-engine/test/policy-engine.test.ts` ejecuta la misma batería sobre memoria y Postgres,
 más un test de reinicio (engine y pool nuevos sobre la misma base conservan todo el estado) y el de auditoría
@@ -55,9 +57,11 @@ arrancar, y sus llamadas responden 403.
 |---|---|---|
 | `GET /v1/subjects` · `PUT /v1/subjects/:pubkey` · `POST /v1/subjects/:pubkey/revoke` · `POST /v1/subjects/:pubkey/reactivate` | admin | `{subjects}` · `{ok}` · `{rotations}` · `{ok}` (404 si no existe, 409 si no está revocado) |
 | `GET /v1/resources` · `PUT /v1/resources/:id` | admin | `{resources}` · `{ok}` |
-| `GET /v1/devices?owner=<hex>` · `POST /v1/devices` · `POST /v1/devices/:id/revoke` | admin | `{devices}` · `Device` · `{rotations}` |
-| `POST /v1/devices/:id/webauthn/options` · `POST /v1/devices/:id/webauthn/register` | dueño del dispositivo o admin | `PublicKeyCredentialCreationOptions` (base64url) · `Device` |
-| `POST /v1/sessions` | NIP-98 del dueño | `{token}` |
+| `GET /v1/devices?owner=<hex>` | admin, o el propio dueño con su pubkey en `owner` (FR023-11) | `{devices}` |
+| `POST /v1/devices` · `POST /v1/devices/:id/revoke` | admin | `Device` · `{rotations}` |
+| `POST /v1/devices/:id/webauthn/options` · `POST /v1/devices/:id/webauthn/register` | admin, o el dueño del dispositivo hasta que registra su primera passkey (403 después); a cualquier otro, 404 | `PublicKeyCredentialCreationOptions` (base64url) · `Device` |
+| `POST /v1/devices/:id/webauthn/assert/options` | NIP-98 del dueño; a cualquier otro, 404 | `PublicKeyCredentialRequestOptions` (base64url) con la passkey del dispositivo en `allowCredentials` (FR023-11) |
+| `POST /v1/sessions` `{deviceId, assertion?}` | NIP-98 del dueño | `{token, deviceId, asserted}`; 403 sin `assertion` si el dueño registró una passkey (FR023-11) |
 | `POST /v1/evaluate` · `GET /v1/relay/allowlist` | servicio | `Decision` · `{pubkeys}` |
 | `GET /v1/relay/grants` | servicio | `{grants}`: por cada recurso `channel` y `group`, `{resourceId, kind, pubkeys}` de quien puede publicar en él (FR023-10) |
 | `GET /v1/rotations?status=pending\|done` | admin o servicio | `{rotations}` (cada una con `id` y `status`) |
@@ -245,9 +249,10 @@ auditoría sin copiar los valores.
 Niveles de confianza: `unverified`, `registered` (alta por un admin) y `attested`, que solo se obtiene al
 registrar una passkey WebAuthn en el dispositivo:
 
-1. El dueño (NIP-98 con su pubkey) o un admin pide `POST /v1/devices/:id/webauthn/options`: desafío de un solo uso
-   (5 minutos), RP = `WEBAUTHN_RP_ID` (por defecto el host de `WEB_ORIGIN`), ES256, `attestation: 'direct'` y las
-   credenciales ya usadas del mismo dueño en `excludeCredentials`.
+1. Un admin, o el dueño (NIP-98 con su pubkey) para su primera passkey (ver FR023-11), pide
+   `POST /v1/devices/:id/webauthn/options`: desafío de un solo uso (5 minutos), RP = `WEBAUTHN_RP_ID` (por defecto el
+   host de `WEB_ORIGIN`), ES256, `attestation: 'direct'` y las credenciales ya usadas del mismo dueño en
+   `excludeCredentials`.
 2. El navegador llama a `navigator.credentials.create()` y envía el resultado (JSON base64url) a
    `POST /v1/devices/:id/webauthn/register`.
 3. El servidor verifica con `node:crypto`: tipo `webauthn.create`, desafío, origen (`WEBAUTHN_ORIGINS`), hash del
@@ -259,6 +264,83 @@ registrar una passkey WebAuthn en el dispositivo:
 `WEBAUTHN_REQUIRE_ATTESTATION=true` solo se acepta `packed`. La cadena `x5c` no se valida contra raíces de
 fabricantes (sin FIDO MDS). Un dispositivo revocado no puede atestarse y una credencial no puede atestar dos
 dispositivos. Pruebas: `services/policy-engine/test/webauthn.test.ts` (vectores generados en el test).
+
+## Passkey del propio usuario en cada sesión (FR023-11)
+
+La persona registra la passkey en su dispositivo con su propia llave y, desde entonces, cada sesión de política que abre
+pide una aserción WebAuthn de esa passkey.
+
+**Registro.** En la consola (`/admin/`), una llave que no es de administración entra en «Mis dispositivos»: los
+dispositivos que la organización registró a su nombre (`GET /v1/devices?owner=<su pubkey>`). «Registrar passkey» crea la
+passkey en el navegador en el que está, con el flujo de FR023-07, firmado con su llave. El titular solo registra así la
+primera. Cualquier otra la registra un administrador: para un dispositivo nuevo, para sustituir una o después de
+revocar el dispositivo que la tenía. Así, quien solo tiene la llave Nostr de la persona no da de alta un autenticador
+suyo.
+
+**Cada sesión.**
+
+1. `POST /v1/devices/:id/webauthn/assert/options` (NIP-98 del dueño) da un desafío de un solo uso para ese dispositivo
+   (5 minutos; pedir otro sustituye al anterior), el `rpId` y la credencial del dispositivo, sola, en
+   `allowCredentials`.
+2. El navegador llama a `navigator.credentials.get()` y envía el resultado en `POST /v1/sessions` `{deviceId, assertion}`.
+3. El servidor consume el desafío, salga bien o mal, y verifica con `node:crypto`:
+   - tipo `webauthn.get`, desafío (en tiempo constante), origen de `WEBAUTHN_ORIGINS` y que no venga de un iframe de otro
+     origen;
+   - hash del RP id (`WEBAUTHN_RP_ID`), presencia del usuario y, con `WEBAUTHN_REQUIRE_UV=true`, su verificación;
+   - que la credencial es la del dispositivo y que el user handle, si viene, es el del dueño;
+   - la firma ES256 con la llave pública guardada al registrar la passkey;
+   - que el contador de firmas sube. Si no sube, dos autenticadores tienen la misma llave (un posible clon) y se
+     rechaza. Un autenticador sin contador (siempre 0, como muchas passkeys sincronizadas) no se compara.
+4. La sesión queda ligada al dispositivo y a esa credencial: deja de valer si se revoca el dispositivo o se registra
+   otra passkey en él.
+
+Una aserción rechazada responde siempre `403 WebAuthn assertion rejected`, sin decir por qué. A quien no es el dueño se
+le responde lo mismo que con un id que no existe: 404 en las opciones y `device not usable for a new session` al abrir
+la sesión.
+
+**Cuándo se exige.** Desde que el dueño registra una passkey en cualquiera de sus dispositivos, aunque después se revoque
+ese dispositivo:
+- una sesión sin aserción responde 403, también en un dispositivo sin passkey;
+- las sesiones que abrió sin aserción dejan de valer, y registrar la passkey las borra.
+
+Con `SESSION_REQUIRE_ASSERTION=true` se exige a todos: quien no tiene passkey no abre sesiones hasta registrar una. Sin
+passkey y sin esa variable, la sesión se abre sin aserción, como antes.
+
+**Qué se guarda.** Por sesión, el hash del token, el dispositivo, la credencial y la hora; por dispositivo, la llave
+pública y el contador de firmas. La auditoría registra cada aserción rechazada (`session.assert`, con el motivo y, ante
+un posible clon, el contador que traía), nunca el desafío, la credencial, la firma ni el token. Abrir una sesión no
+deja entrada en la auditoría: cuándo se conecta una persona es un metadato de uso, y la auditoría no se poda (por lo
+mismo, FR023-12 sacó de ella las decisiones de acceso).
+
+**Al actualizar** (migración 004), las sesiones anteriores no tienen credencial: las de quien ya había registrado una
+passkey con FR023-07 dejan de valer.
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `WEBAUTHN_REQUIRE_UV` | `false` | `true`: el registro y la aserción exigen la verificación del usuario (PIN o biometría), no solo su presencia |
+| `SESSION_REQUIRE_ASSERTION` | `false` | `true`: toda sesión pide una aserción, también a quien aún no ha registrado una passkey |
+
+En compose van en `.env`; en Kubernetes, en `acceso-nostr-config`.
+
+Pruebas:
+- `services/policy-engine/test/policy-engine.test.ts`, en memoria y Postgres: el alta por el dueño; la aserción en cada
+  sesión; los rechazos (origen, RP id, desafío caducado, gastado o de otro dispositivo, otra credencial u otro dueño,
+  sin presencia o sin verificación, firma inválida); el contador; la revocación, también la del dispositivo que tenía la
+  passkey, y la migración 004.
+- `services/policy-engine/test/webauthn.test.ts` y `tests/fuzz/webauthn.test.ts`: el verificador de aserciones.
+- `apps/admin-console/test/passkey-session.test.ts`: el cliente y los helpers WebAuthn de la consola contra el
+  policy-engine real.
+- `tests/browser/admin-console.e2e.ts`: en Chromium, con su autenticador virtual, la persona registra la passkey desde
+  «Mis dispositivos» y cada sesión le pide una aserción.
+
+**Riesgo residual:**
+- La primera passkey la registra quien tenga la llave Nostr de la persona. Si esa llave ya estaba robada, el ladrón
+  puede adelantarse; para evitarlo, que la registre un administrador en el dispositivo.
+- Ningún otro servicio comprueba todavía las sesiones de política, y no caducan: valen hasta que se revoca el
+  dispositivo o se sustituye su passkey. `evaluate` confía en el dispositivo que le indica el servicio (en el indexer,
+  la cabecera `x-policy-device-id`), sin pedir una sesión abierta con passkey.
+- Si el proxy de borde restringe `/admin/`, la persona no llega a «Mis dispositivos»: su primera passkey la registra
+  entonces un administrador.
 
 ## Retención y legal hold (FR023-08)
 

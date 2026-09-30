@@ -1,11 +1,11 @@
 /**
- * Internal review 2026-09: the hand-written WebAuthn CBOR decoder and registration verifier of the
- * policy-engine (FR023-07). Any input must be accepted or rejected with WebAuthnError (a 400), never
- * another exception (a 500) or a hang.
+ * Internal review 2026-09: the hand-written WebAuthn CBOR decoder, registration verifier (FR023-07) and
+ * assertion verifier of the policy-engine. Any input must be accepted or rejected with WebAuthnError (a 400),
+ * never another exception (a 500) or a hang.
  */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { cborDecode, verifyRegistration, WebAuthnError, type RegistrationCredentialJSON } from '@sedecim/policy-engine';
+import { cborDecode, verifyAssertion, verifyRegistration, WebAuthnError, type AssertionCredentialJSON, type RegistrationCredentialJSON } from '@sedecim/policy-engine';
 import { cborEncode, TestAuthenticator, type C } from '../../services/policy-engine/test/webauthn-fixture';
 import { runs } from './arbitraries';
 
@@ -101,5 +101,69 @@ describe('policy-engine verifyRegistration (fuzz)', () => {
     const authData = (att.get('authData') as Uint8Array).slice();
     authData[authData.length - 1]! ^= 1;
     expect(() => verifyRegistration(withAtt(cborEncode(new Map([...att, ['fmt', 'none'], ['attStmt', new Map()], ['authData', authData]]))), expected)).toThrow(WebAuthnError);
+  });
+});
+
+describe('policy-engine verifyAssertion (fuzz, FR023-11)', () => {
+  const auth = new TestAuthenticator();
+  const challenge = 'Y2hhbGxlbmdlLWFzc2VydGlvbi0wMDE';
+  const origin = 'https://app.example';
+  const rpId = 'app.example';
+  const reg = auth.create({ challenge, origin, rpId }) as RegistrationCredentialJSON;
+  const registered = verifyRegistration(reg, { challenge, origins: [origin], rpId, allowNone: true });
+  const userHandle = new Uint8Array(32).fill(1);
+  const want = { challenge, origins: [origin], rpId, credentialId: registered.credentialId, publicKey: registered.publicKey, userHandle };
+  const good = auth.get({ challenge, origin, rpId, counter: 42, userHandle }) as AssertionCredentialJSON;
+  type Field = 'clientDataJSON' | 'authenticatorData' | 'signature';
+  const bytesOf = (k: Field) => new Uint8Array(Buffer.from(good.response[k], 'base64url'));
+  const b64 = (b: Uint8Array) => Buffer.from(b).toString('base64url');
+  const withField = (k: Field, b: Uint8Array): AssertionCredentialJSON => ({ ...good, response: { ...good.response, [k]: b64(b) } });
+
+  it('the fixture assertion verifies (sanity)', () => {
+    expect(verifyAssertion(good, want)).toEqual({ signCount: 42, userVerified: true });
+  });
+
+  it.each(['authenticatorData', 'clientDataJSON', 'signature'] as const)('any change to %s is a WebAuthnError: the signature covers it', (k) => {
+    const original = bytesOf(k);
+    fc.assert(
+      fc.property(fc.array(fc.tuple(fc.nat(), fc.integer({ min: 1, max: 255 })), { minLength: 1, maxLength: 4 }), (flips) => {
+        const b = original.slice();
+        for (const [i, x] of flips) b[i % b.length]! ^= x;
+        fc.pre(!Buffer.from(b).equals(Buffer.from(original))); // flips on one byte may cancel out
+        expect(() => verifyAssertion(withField(k, b), want)).toThrow(WebAuthnError);
+      }),
+      runs(500),
+    );
+  });
+
+  it('truncated, extended or random fields and any JSON shape only ever yield WebAuthnError', () => {
+    for (const k of ['authenticatorData', 'clientDataJSON', 'signature'] as const) {
+      const original = bytesOf(k);
+      fc.assert(fc.property(fc.nat({ max: original.length - 1 }), (n) => onlyWebAuthnErrors(() => verifyAssertion(withField(k, original.subarray(0, n)), want))), runs(100));
+      fc.assert(fc.property(fc.uint8Array({ minLength: 1, maxLength: 40 }), (tail) => onlyWebAuthnErrors(() => verifyAssertion(withField(k, new Uint8Array([...original, ...tail])), want))), runs(100));
+    }
+    fc.assert(
+      fc.property(fc.uint8Array({ maxLength: 120 }), fc.uint8Array({ maxLength: 120 }), fc.uint8Array({ maxLength: 120 }), (a, c, s) =>
+        onlyWebAuthnErrors(() => verifyAssertion({ ...good, response: { clientDataJSON: b64(c), authenticatorData: b64(a), signature: b64(s) } }, want)),
+      ),
+      runs(500),
+    );
+    fc.assert(fc.property(fc.anything(), (v) => onlyWebAuthnErrors(() => verifyAssertion(v as AssertionCredentialJSON, want))), runs(500));
+    const anyResponse = fc.record({ clientDataJSON: fc.anything(), authenticatorData: fc.anything(), signature: fc.anything(), userHandle: fc.anything() }, { requiredKeys: [] });
+    fc.assert(fc.property(anyResponse, fc.anything(), (response, rawId) => onlyWebAuthnErrors(() => verifyAssertion({ ...good, rawId, response } as unknown as AssertionCredentialJSON, want))), runs(500));
+    // Client data that is valid JSON of any shape (the signature no longer matches, but nothing may throw on the way).
+    fc.assert(fc.property(fc.jsonValue(), (v) => onlyWebAuthnErrors(() => verifyAssertion(withField('clientDataJSON', new Uint8Array(Buffer.from(JSON.stringify(v) ?? 'null'))), want))), runs(300));
+  });
+
+  it('regressions: JSON null client data, a non-string rawId, extensions that are not a map (the first two also in registrations)', () => {
+    expect(() => verifyAssertion(withField('clientDataJSON', new Uint8Array(Buffer.from('null'))), want)).toThrow(WebAuthnError);
+    expect(() => verifyAssertion({ ...good, rawId: 5 } as unknown as AssertionCredentialJSON, want)).toThrow(WebAuthnError);
+    const authData = bytesOf('authenticatorData');
+    authData[32]! |= 0x80;
+    expect(() => verifyAssertion(withField('authenticatorData', new Uint8Array([...authData, ...cborEncode([1])])), want)).toThrow(/extensions/);
+    const expectedReg = { challenge, origins: [origin], rpId, allowNone: true };
+    expect(() => verifyRegistration({ ...reg, rawId: 5 } as unknown as RegistrationCredentialJSON, expectedReg)).toThrow(WebAuthnError);
+    expect(() => verifyRegistration({ ...reg, response: { ...reg.response, clientDataJSON: b64(new Uint8Array(Buffer.from('null'))) } }, expectedReg)).toThrow(WebAuthnError);
+    fc.assert(fc.property(fc.anything(), (v) => onlyWebAuthnErrors(() => verifyRegistration(v as RegistrationCredentialJSON, expectedReg))), runs(300));
   });
 });

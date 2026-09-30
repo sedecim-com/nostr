@@ -230,6 +230,10 @@ services:
       WEBAUTHN_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
       WEBAUTHN_REQUIRE_ATTESTATION: ${WEBAUTHN_REQUIRE_ATTESTATION:-false}
+      # FR023-11: user verification (PIN, biometrics) in passkey registrations and assertions; a passkey assertion in
+      # every session, also of owners who have not registered a passkey yet.
+      WEBAUTHN_REQUIRE_UV: ${WEBAUTHN_REQUIRE_UV:-false}
+      SESSION_REQUIRE_ASSERTION: ${SESSION_REQUIRE_ASSERTION:-false}
       # FR023-12: days the access decisions are kept (resources under legal hold excepted).
       ACCESS_LOG_RETENTION_DAYS: ${POLICY_ACCESS_LOG_RETENTION_DAYS:-90}
       PORT: "8083"
