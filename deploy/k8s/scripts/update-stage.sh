@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Updates a stack already deployed in stage (namespace acceso-nostr) without deleting the namespace or
 # PVCs. Rebuilds our images for the current commit; third-party mirrors only with --mirror.
-# The one-shot Job seaweedfs-init is recreated only if it is missing or Failed (never when Complete).
 # Dry-run by default: nothing changes without --yes.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=lib.sh
@@ -49,36 +48,18 @@ cd "${ROOT}"
 ensure_stage_context
 kubectl get ns "${NAMESPACE}" >/dev/null 2>&1 || die "namespace ${NAMESPACE} no existe; primero: deploy/k8s/scripts/deploy.sh --yes"
 
-job_state() {
-  local c f
-  kubectl -n "${NAMESPACE}" get job seaweedfs-init >/dev/null 2>&1 || { echo absent; return; }
-  c="$(kubectl -n "${NAMESPACE}" get job seaweedfs-init -o 'jsonpath={.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || true)"
-  f="$(kubectl -n "${NAMESPACE}" get job seaweedfs-init -o 'jsonpath={.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)"
-  if [[ "${c}" == True ]]; then echo complete; elif [[ "${f}" == True ]]; then echo failed; else echo running; fi
-}
-
 RENDER="$(mktemp -d)"
 trap 'rm -rf "${RENDER}"' EXIT
 render_manifests "${RENDER}/all.yaml" "${IMAGE_TAG}"
 check_rendered_config "${RENDER}/all.yaml" "${DRY_RUN}"
-# Jobs are immutable: apply everything else, handle the Job by state.
-python3 - "${RENDER}/all.yaml" "${RENDER}/without-jobs.yaml" "${RENDER}/jobs.yaml" <<'PY'
-import sys
-src, rest, jobs = sys.argv[1:]
-docs = open(src, encoding="utf-8").read().split("\n---\n")
-is_job = lambda d: any(line == "kind: Job" for line in d.splitlines())
-open(rest, "w", encoding="utf-8").write("\n---\n".join(d for d in docs if not is_job(d)) + "\n")
-open(jobs, "w", encoding="utf-8").write("\n---\n".join(d for d in docs if is_job(d)) + "\n")
-PY
+# IR-2026-10-12: SeaweedFS creates its buckets from inside its own pod, so there are no one-shot Jobs to apply apart.
 
-JOB="$(job_state)"
 if [[ "${DRY_RUN}" -eq 1 ]]; then
   log "DRY-RUN: plan de actualización (sin apply ni push)"
   log "  tag imágenes propias: ${IMAGE_TAG} (build: $([ "${DO_BUILD}" -eq 1 ] && echo sí || echo no))"
   log "  mirror terceros: $([ "${DO_MIRROR}" -eq 1 ] && echo sí || echo no)"
   log "  secret: $([ "${DO_SECRET}" -eq 1 ] && echo "regenerar desde ${SECRET_ID}" || echo "reutilizar ${SECRET_FILE}")"
-  log "  job/seaweedfs-init: ${JOB} → $(case "${JOB}" in complete) echo skip ;; failed) echo recrear ;; absent) echo aplicar ;; *) echo esperar ;; esac)"
-  kubectl apply --dry-run=server -f "${RENDER}/without-jobs.yaml" > /dev/null && log "  manifiestos válidos contra el API server (dry-run=server)"
+  kubectl apply --dry-run=server -f "${RENDER}/all.yaml" > /dev/null && log "  manifiestos válidos contra el API server (dry-run=server)"
   [[ "${DO_SECRET}" -eq 0 ]] || "${SCRIPTS}/generate-secret.sh" --dry-run
   log "  namespace ${NAMESPACE}: no se borra"
   exit 0
@@ -92,15 +73,9 @@ else
   [[ -f "${SECRET_FILE}" ]] || die "falta ${SECRET_FILE} (--skip-secret)"
 fi
 
-log "aplicando secret y manifiestos (sin Jobs)"
+log "aplicando secret y manifiestos"
 kubectl apply -f "${SECRET_FILE}"
-kubectl apply -f "${RENDER}/without-jobs.yaml"
-case "${JOB}" in
-  complete) log "job/seaweedfs-init Complete: skip" ;;
-  failed) kubectl -n "${NAMESPACE}" delete job seaweedfs-init; kubectl apply -f "${RENDER}/jobs.yaml" ;;
-  absent) kubectl apply -f "${RENDER}/jobs.yaml" ;;
-  *) log "job/seaweedfs-init en curso" ;;
-esac
+kubectl apply -f "${RENDER}/all.yaml"
 
 # Secret changes do not roll pods by themselves (ConfigMaps do: hashed names).
 log "reiniciando workloads para recoger el Secret"

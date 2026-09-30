@@ -60,7 +60,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-      seaweedfs-init: { condition: service_completed_successfully }
+      seaweedfs: { condition: service_healthy }
     restart: unless-stopped
     networks: [nostr]
 
@@ -99,50 +99,44 @@ services:
   seaweedfs:
     image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.47@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882}
     entrypoint: ["/bin/sh", "-c"]
+    # IR-2026-10-12: only the S3 API (8333) is on the network. The master, volume and filer bind to 127.0.0.1, so no
+    # container on the compose network reaches the unauthenticated filer/master (the PoC deleted envelopes through the
+    # filer). Buzz is scoped to its own bucket (no global Admin), so its keys cannot touch the vault's bucket either.
     command:
       - |
         set -eu
         case "$$S3_ACCESS_KEY$$S3_SECRET_KEY$$VAULT_S3_ACCESS_KEY$$VAULT_S3_SECRET_KEY" in *[!A-Za-z0-9]*) echo "S3 keys must be alphanumeric"; exit 1;; esac
-        case "$$VAULT_S3_BUCKET" in *[!a-z0-9-]* | '') echo "VAULT_S3_BUCKET: lowercase letters, digits and -"; exit 1;; esac
+        for b in "$$S3_BUCKET" "$$VAULT_S3_BUCKET"; do case "$$b" in *[!a-z0-9-]* | '') echo "S3_BUCKET / VAULT_S3_BUCKET: lowercase letters, digits and -"; exit 1;; esac; done
         umask 077
-        # Buzz, and the Continuity Vault (VAULT-06) with keys of its own that reach its bucket only.
-        printf '{"identities":[{"name":"buzz","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]},{"name":"continuity-vault","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s"]}]}' \
-          "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" "$$VAULT_S3_ACCESS_KEY" "$$VAULT_S3_SECRET_KEY" "$$VAULT_S3_BUCKET" "$$VAULT_S3_BUCKET" "$$VAULT_S3_BUCKET" > /tmp/s3.json
-        exec weed server -dir=/data -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=/tmp/s3.json
+        # Buzz reaches only its media bucket; the Continuity Vault (VAULT-06) only its own, with keys of its own.
+        printf '{"identities":[{"name":"buzz","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s","Tagging:%s"]},{"name":"continuity-vault","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s"]}]}' \
+          "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" "$$S3_BUCKET" "$$S3_BUCKET" "$$S3_BUCKET" "$$S3_BUCKET" "$$VAULT_S3_ACCESS_KEY" "$$VAULT_S3_SECRET_KEY" "$$VAULT_S3_BUCKET" "$$VAULT_S3_BUCKET" "$$VAULT_S3_BUCKET" > /tmp/s3.json
+        # Buckets are created from inside the container, against the local master, because only S3 is on the network.
+        (
+          for i in $$(seq 1 60); do
+            ok=1
+            for bucket in "$$S3_BUCKET" "$$VAULT_S3_BUCKET"; do
+              echo "s3.bucket.create -name $$bucket" | weed shell -master=127.0.0.1:9333 2>&1 | grep -Eq "created bucket|already exists" || ok=
+            done
+            [ -n "$$ok" ] && { echo "buckets ready" > /tmp/buckets-ready; break; }
+            sleep 2
+          done
+        ) &
+        exec weed server -dir=/data -ip=127.0.0.1 -ip.bind=127.0.0.1 -s3 -s3.port=8333 -s3.ip.bind=0.0.0.0 -s3.port.iceberg=0 -s3.port.lance=0 -s3.config=/tmp/s3.json
     environment:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET:-buzz-media}
       VAULT_S3_ACCESS_KEY: ${VAULT_S3_ACCESS_KEY:?set VAULT_S3_ACCESS_KEY (sh scripts/init-env.sh generates it)}
       VAULT_S3_SECRET_KEY: ${VAULT_S3_SECRET_KEY:?set VAULT_S3_SECRET_KEY (sh scripts/init-env.sh generates it)}
       VAULT_S3_BUCKET: ${VAULT_S3_BUCKET:-continuity-vault}
     volumes: [seaweedfs-data:/data]
+    # Healthy only once both buckets exist, so the dependents below wait for them (there is no init service now).
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && [ -f /tmp/buckets-ready ]"]
       interval: 5s
       retries: 24
     restart: unless-stopped
-    networks: [nostr]
-
-  seaweedfs-init:
-    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.47@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882}
-    depends_on: { seaweedfs: { condition: service_healthy } }
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        set -eu
-        # Buzz media, and the Continuity Vault's envelopes (VAULT-06).
-        for bucket in "$$S3_BUCKET" "$$VAULT_S3_BUCKET"; do
-          ready=
-          for i in $$(seq 1 30); do
-            if echo "s3.bucket.create -name $$bucket" | weed shell -master=seaweedfs:9333 2>&1 | grep -Eq "created bucket|already exists"; then ready=1; echo "bucket $$bucket ready"; break; fi
-            sleep 2
-          done
-          [ -n "$$ready" ] || { echo "could not create bucket $$bucket"; exit 1; }
-        done
-    environment:
-      S3_BUCKET: ${S3_BUCKET:-buzz-media}
-      VAULT_S3_BUCKET: ${VAULT_S3_BUCKET:-continuity-vault}
-    restart: "no"
     networks: [nostr]
 
   indexer:
@@ -272,7 +266,7 @@ services:
     ports: ["${VAULT_PORT:-8088}:8088"]
     depends_on:
       postgres: { condition: service_healthy }
-      seaweedfs-init: { condition: service_completed_successfully }
+      seaweedfs: { condition: service_healthy }
 
   # Content-agnostic Blossom for client-encrypted attachments (Buzz /media only accepts images/video).
   blob-store:
