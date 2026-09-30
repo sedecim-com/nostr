@@ -47,6 +47,7 @@ Objetivos de RPO/RTO por tier: [`docs/rpo-rto.md`](../rpo-rto.md) (aprobados el 
 | Vault managed | volumen `managed-vault` + KEK | `managed-vault.tgz` si corre el perfil `managed`; la KEK se guarda separada (HSM/KMS) |
 | Onion service | volumen `tor-data` (`relay/hs_ed25519_secret_key`) | `tor-data.tgz` si corre el perfil `tor`: define la dirección .onion |
 | Secure relay del onion | secure-relay-onion (volumen `secure-relay-onion-data`, SQLite) | `secure-relay-onion-data.tgz` si corre el perfil `tor` |
+| Personas del CLI soberano (FR020-06) | servicio `sovereign` del perfil `tor` (volumen `sovereign-data`, sellado con la passphrase del fichero `SOVEREIGN_PASSPHRASE_FILE`, que no está en `.env`) | No lo copia `scripts/backup.sh`: son las personas de quien usa el CLI, y restaurar el stack no debe duplicar un dispositivo. Su respaldo es el del CLI, `backup export` de cada persona, cifrado con su contraseña de backup ([docs/sovereign-tor.md](../sovereign-tor.md#el-cli-como-servicio-del-perfil-tor-fr020-06)) |
 | Worker de rotaciones (FR024-05) | volumen `rotation-state`: su estado MLS, cifrado con `ROTATION_STATE_KEY` | `rotation-state.tgz` si corre el perfil `institutional`; la clave va en `.env`. Sin el volumen o sin la clave, el worker vuelve a empezar sin grupos |
 | Redis | volumen `redis-data` | No se respalda: cachés y pub/sub de Buzz |
 

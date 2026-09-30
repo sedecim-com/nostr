@@ -103,8 +103,11 @@ git clone <repo> && cd nostr
 sh scripts/init-env.sh        # genera o completa .env sin sobrescribir valores (tras `npm ci`, llaves del keygen offline)
 docker compose up -d          # relay Buzz, postgres, redis, SeaweedFS (S3), indexer, identity, policy, blob-store, continuity-vault, secure-relay, web
 docker compose --profile tor up -d       # + Tor SOCKS y relay .onion
+docker compose run --rm sovereign persona list   # el CLI soberano en un contenedor que solo sale por tor:9050
 docker compose --profile managed up -d   # + managed signer (CUSTODIAL, opt-in; requiere Acceso: COGNITO_*)
 ```
+El CLI como servicio del perfil `tor`, con la passphrase en un fichero secreto (`SOVEREIGN_PASSPHRASE_FILE`), sus
+backups y qué pasa si tor cae: [docs/sovereign-tor.md](docs/sovereign-tor.md#el-cli-como-servicio-del-perfil-tor-fr020-06).
 Web: http://localhost:8080 · Consola de administración: http://localhost:8080/admin/ · Relay: ws://localhost:3000 · Indexer: http://localhost:8081
 
 `scripts/init-env.sh` rellena solo las claves vacías o `CHANGE_ME` y nunca sobrescribe un valor, así que se puede
