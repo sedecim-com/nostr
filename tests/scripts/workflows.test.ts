@@ -1,6 +1,6 @@
 /**
  * A workflow file that does not parse fails at once with no jobs at all, and the pull request still reads
- * "clean": none of its checks exist to fail (SEC-12: a step name with an unquoted ": " in ci.yml). This parses
+ * "clean": none of its checks exist to fail (a step name with an unquoted ": " in ci.yml did it once). This parses
  * every workflow, so that one typo cannot turn the whole pipeline off without a red test.
  */
 import { describe, expect, it } from 'vitest';
