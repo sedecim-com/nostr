@@ -6,9 +6,21 @@
  *     (--onion-only: Tor and nothing but .onion relays; with Tor, any SOCKS-level failure reads
  *      «No enviado: red de privacidad no disponible» and the message waits, FR021-03)
  *                                        (key backup from keygen or the web; ncryptsec must match the npub)
+ *   sovereign persona import --key-file FILE --npub NPUB --label NAME --relay URL [--tor] [--high-risk] [--onion-only]
+ *                            [--password-file f]
+ *                                        (FR004-08: FILE holds an nsec or an ncryptsec (NIP-49, with its password); the key
+ *                                         must be NPUB's. It is sealed here with the passphrase: custody local)
+ *   sovereign persona connect (--bunker-file FILE | --nostrconnect [--signer-relay URL ...]) --label NAME --relay URL
+ *                             [--tor] [--high-risk] [--onion-only] [--npub NPUB]
+ *                                        (FR004-08: the key stays in a NIP-46 signer: custody external. It lists what the
+ *                                         signer is asked for first; with Tor its traffic goes through Tor, fails closed)
+ *   sovereign persona connect --persona ID (--bunker-file FILE | --nostrconnect [--signer-relay URL ...])
+ *                                        (pairs this device again with the persona's signer, e.g. after backup restore;
+ *                                         the signer must hold the persona's npub)
  *   sovereign persona list
  *   sovereign backup export --persona ID --out FILE [--password-file f] [--no-mls]   (key, relays, panel, MLS state;
- *                                        --no-mls: to set up an additional device, then `group add-device`)
+ *                                        --no-mls: to set up an additional device, then `group add-device`;
+ *                                        FR004-08: no key when it lives in a NIP-46 signer, and never the pairing)
  *   sovereign backup restore FILE [--password-file f]
  *   sovereign whoami --persona ID     (identity, custody, network and link level; also shown before every send;
  *                                        then the maturity of its configuration, PANEL-07)
@@ -92,7 +104,8 @@ import type { OutboxRecord } from '@sedecim/delivery-engine';
 import type { PendingGroupOperation } from '@sedecim/marmot-adapter';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
 import { CONTINUITY_VAULT_TEXTS, configMaturity, disclose, MATURITY, MATURITY_LABELS } from '@sedecim/profiles';
-import { SovereignClient } from './app';
+import { describePermissions, SOVEREIGN_NIP46_PERMISSIONS } from '@sedecim/signer';
+import { SovereignClient, type PersonaInput, type SignerSource } from './app';
 
 function relayAdapter() {
   const path = process.env.SOVEREIGN_FLAGS ?? 'infra/web/flags.json';
@@ -134,6 +147,9 @@ function sendOperation(): string {
   return op;
 }
 
+/** A new persona as the flags describe it (FR004-08: the same for a created, imported or connected one). */
+const personaInput = (): PersonaInput => ({ label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk'), onionOnly: argv.includes('--onion-only') });
+
 /** Password of a backup file: --password-file (first line) or SOVEREIGN_BACKUP_PASSWORD. */
 function backupPassword(): string {
   const file = opt('--password-file');
@@ -164,6 +180,8 @@ async function main() {
     ...(watching ? { autoReconnect: true } : {}),
     // VAULT-04: where each sent event is copied, when the persona's Continuity Vault policy asks for it.
     ...((opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL) ? { vaultUrl: opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL } : {}),
+    // FR004-08: the signer asks for approval in a web page. Shown, never opened: outside Tor, that page sees the IP.
+    onSignerAuthUrl: (url, p) => console.error(`el signer pide tu aprobación en ${url}${p.network === 'tor-only' ? ' (ábrela en Tor Browser: con otro navegador, quien sirve esa página ve tu dirección IP)' : ''}`),
   });
   /**
    * FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. FAILED
@@ -188,9 +206,35 @@ async function main() {
       console.log(JSON.stringify(p, null, 2));
       for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
       await announceDmRelays(p.id);
+    } else if (a === 'persona' && b === 'import' && opt('--key-file')) {
+      // FR004-08: the nsec or ncryptsec comes from a file, never from the command line (other users of the machine see it).
+      const npub = opt('--npub');
+      if (!npub) throw new Error('--npub NPUB required: the key must be that of the identity you expect');
+      const secret = readFileSync(opt('--key-file')!, 'utf8').trim();
+      const p = await client.importKey(secret, { ...personaInput(), npub, ...(secret.startsWith('ncryptsec1') ? { password: backupPassword() } : {}) });
+      console.log(JSON.stringify(p, null, 2));
+      for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
+      await announceDmRelays(p.id);
+    } else if (a === 'persona' && b === 'connect') {
+      // FR004-08: the key stays in a NIP-46 signer. A bunker URL may carry the signer's secret: from a file, too.
+      const bunkerFile = opt('--bunker-file');
+      if (!bunkerFile === !argv.includes('--nostrconnect')) throw new Error('--bunker-file FILE or --nostrconnect required (one of them)');
+      // FR004-04, as the web does: what the signer is asked for, before any connection.
+      for (const d of describePermissions(SOVEREIGN_NIP46_PERMISSIONS)) console.error(`permiso pedido al signer: ${d.label} (${d.permission})`);
+      const source: SignerSource = bunkerFile
+        ? { bunker: readFileSync(bunkerFile, 'utf8') }
+        : { nostrconnect: { relays: opts('--signer-relay'), onOffer: (uri) => console.error(`abre esta URI en tu signer (o conviértela en un QR); se espera su respuesta hasta 5 minutos:\n${uri}`) } };
+      if (persona) console.log(JSON.stringify(await client.reconnectSigner(persona, source), null, 2));
+      else {
+        const npub = opt('--npub');
+        const p = await client.connectSigner({ ...personaInput(), ...source, ...(npub ? { npub } : {}) });
+        console.log(JSON.stringify(p, null, 2));
+        for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
+        await announceDmRelays(p.id);
+      }
     } else if (a === 'persona' && b === 'import') {
       const file = opt('--backup');
-      if (!file) throw new Error('--backup FILE required (JSON from keygen or from the web)');
+      if (!file) throw new Error('--backup FILE (JSON from keygen or from the web) or --key-file FILE (nsec or ncryptsec) required');
       const p = await client.importBackup(readFileSync(file, 'utf8'), backupPassword(), { label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk'), onionOnly: argv.includes('--onion-only') });
       console.log(JSON.stringify(p, null, 2));
       for (const w of client.warningsFor(p)) console.error(`aviso: ${w}`);
@@ -200,7 +244,9 @@ async function main() {
       if (!out) throw new Error('--out FILE required');
       const pkg = await client.exportBackup(need(), backupPassword(), argv.includes('--no-mls') ? { includeMls: false } : {});
       writeFileSync(out, JSON.stringify(pkg, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
-      console.log(`backup cifrado (llave, relays, panel${argv.includes('--no-mls') ? '' : ', grupos MLS'}) escrito en ${out}`);
+      console.log(`backup cifrado (${pkg.ncryptsec ? 'llave, ' : ''}relays, panel${argv.includes('--no-mls') ? '' : ', grupos MLS'}) escrito en ${out}`);
+      // FR004-08: a persona whose key lives in a NIP-46 signer backs up everything but that key and this device's pairing.
+      if (!pkg.ncryptsec) console.error(`aviso: la llave de esta persona está en su signer NIP-46 y no va en el backup, ni el emparejamiento de este dispositivo: tras restaurarlo, sovereign persona connect --persona ${need()} --bunker-file FILE (o --nostrconnect)`);
     } else if (a === 'backup' && b === 'restore') {
       const file = positional()[0];
       if (!file) throw new Error('usage: sovereign backup restore FILE');

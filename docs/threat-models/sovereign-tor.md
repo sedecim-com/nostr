@@ -4,8 +4,9 @@
 > revisión independiente (SEC-01, SEC-02). Los tests de fugas con captura de red real (FR020-03, FR020-05)
 > corren en CI y cubren canales, DMs, grupos MLS, media y el worker de rotaciones, pero son internos.
 
-**Configuración:** llave offline o signer, **Tor-only sin fallback clearnet**, relay `.onion`,
-identidad pseudónima, persistencia en el dispositivo, **Marmot/MLS** para grupos, archivos cifrados,
+**Configuración:** llave en un signer NIP-46 alcanzado por Tor o cifrada en el dispositivo (la especificación
+pide una llave offline o un signer; el CLI declara la custodia real, FR004-08), **Tor-only sin fallback
+clearnet**, relay `.onion`, identidad pseudónima, persistencia en el dispositivo, **Marmot/MLS** para grupos, archivos cifrados,
 sin telemetría, sin push, sin crash reports, sin previews remotas, sin receipts, compartimentación por
 persona.
 
@@ -32,6 +33,8 @@ las conversaciones, identidad de las fuentes.
 | Compromiso futuro de la llave | Grupos Marmot/MLS con forward secrecy y rotación (PCS) | `packages/marmot-adapter/test` |
 | Expulsado que sigue leyendo | Autoprueba de secreto post-expulsión (falla cerrado con ts-mls vulnerable) | `docs/marmot.md` |
 | Metadatos de push o telemetría | Validación de configuración: errores bloqueantes si se activan | `packages/profiles/test` |
+| Custodia declarada mayor que la real | El CLI declara la custodia de la llave real (`local` o `external`), nunca el `offline` del preset; con la llave en el dispositivo avisa (`TOR_DEVICE_KEY`) | `apps/sovereign-client/test/nip46.test.ts`, `packages/profiles/test` |
+| Fuga del tráfico del signer NIP-46 | Solo a los relays del signer, por SOCKS con las credenciales de la persona; sin Tor falla cerrado; onion-only también para el signer; permisos mínimos | `apps/sovereign-client/test/nip46.test.ts`, `packages/signer/test` |
 
 ## Riesgos residuales
 | Riesgo | Nivel | Nota |
@@ -40,6 +43,8 @@ las conversaciones, identidad de las fuentes.
 | Tests de fugas internos | Alto | La captura real (netns + tcpdump, job `leak-tests`) cubre, con un stub SOCKS local en lugar de Tor, crear persona, canales e historial del CLI (FR020-03), y grupos MLS, media en un Blossom `.onion`, DMs NIP-17 y el worker de rotaciones con dos personas (FR020-05). Falta una revisión independiente |
 | marmot-ts es alpha y no está auditado | Alto | SEC-01 |
 | DMs NIP-17 sin forward secrecy | Medio | La validación avisa; usar Marmot |
+| Llave en el dispositivo conectado (custodia `local`) | Medio | Quien comprometa el dispositivo y consiga la passphrase firma como la persona; con un signer NIP-46 la llave no está en el dispositivo (FR004-08) |
+| El signer NIP-46 ve lo que firma y los DMs que descifra | Medio | Propio de NIP-46: el signer es de confianza; se le piden solo los kinds que firma el CLI |
 | Jitter de gift wrap reducido a ±5 min por Buzz | Medio | Solo aplica si la persona usa el relay de Buzz; el secure-relay acepta el jitter estándar |
 | Estilo de escritura y horarios | Medio | No mitigable técnicamente; formación del usuario |
 | Adversario global de Tor | Alto | Fuera del alcance de Tor |
