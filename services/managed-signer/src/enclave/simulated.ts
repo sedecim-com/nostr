@@ -12,6 +12,7 @@ import { bitString, bool, ctx, int, octets, oid, seq, set, time, utf8 } from './
 import { EnclaveSigner } from './enclave';
 import type { Nsm } from './enclave';
 import type { EnclaveKms } from './kms';
+import type { UserProofVerifier } from './proof';
 
 export const SIMULATION_WARNING = 'managed-signer: SIMULATED enclave (NOT SECURE, tests/dev only): the backend process holds every key';
 
@@ -216,14 +217,15 @@ export interface SimulatedEnclave {
 }
 
 /** Wires a simulated NSM + KMS to a real EnclaveSigner. */
-export function createSimulatedEnclave(opts: { pcrs?: Record<number, string>; kmsPcrs?: Record<number, string>; now?: () => number; allowExport?: boolean } = {}): SimulatedEnclave {
+export function createSimulatedEnclave(opts: { pcrs?: Record<number, string>; kmsPcrs?: Record<number, string>; now?: () => number; allowExport?: boolean; proof?: UserProofVerifier; maxRememberedProofs?: number } = {}): SimulatedEnclave {
   const pki = createTestPki();
   const pcrs = opts.pcrs ?? simulatedPcrs();
   const expected = opts.kmsPcrs ?? simulatedPcrs();
   const policy = { trustedRootFingerprints: [pki.fingerprint], expectedPcrs: { 0: expected[0], 1: expected[1], 2: expected[2] } };
   const nsm = new SimulatedNsm({ pki, pcrs, ...(opts.now ? { now: opts.now } : {}) });
   const kms = new SimulatedKms({ ...policy, keyId: 'alias/simulated-enclave' });
-  // Export stays on in the (already insecure) simulation so dev/tests can exercise FR-026.
-  const enclave = new EnclaveSigner({ nsm, kms, kmsKeyId: 'alias/simulated-enclave', allowExport: opts.allowExport ?? true });
+  // Export stays on in the (already insecure) simulation so dev/tests can exercise FR-026, but like the real enclave it
+  // only opens a key for a proof of its owner: without `proof` every export is refused (FR005-09).
+  const enclave = new EnclaveSigner({ nsm, kms, kmsKeyId: 'alias/simulated-enclave', allowExport: opts.allowExport ?? true, ...(opts.proof ? { proof: opts.proof } : {}), ...(opts.maxRememberedProofs !== undefined ? { maxRememberedProofs: opts.maxRememberedProofs } : {}) });
   return { enclave, kms, nsm, pki, pcrs, policy };
 }

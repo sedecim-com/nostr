@@ -9,15 +9,21 @@ import type { AwsCredentials, EnclaveRequest, EnclaveResult, EnclaveTransport } 
  */
 export interface SealedKeyOps {
   readonly provider: string;
-  generate(): Promise<{ pubkey: string; sealed: Uint8Array }>;
-  importNcryptsec(ncryptsec: string, password: string): Promise<{ pubkey: string; sealed: Uint8Array }>;
+  /** `owner` (`${issuer}#${sub}`) is sealed into the key: only a proof of that owner lets it out (FR005-09). */
+  generate(owner: string): Promise<{ pubkey: string; sealed: Uint8Array }>;
+  importNcryptsec(owner: string, ncryptsec: string, password: string): Promise<{ pubkey: string; sealed: Uint8Array }>;
   /** Remote signer bound to one sealed key; `destroy()` is a no-op kept for symmetry with LocalSigner. */
   signer(sealed: Uint8Array, pubkey: string): Signer & { destroy(): void };
-  /** FR-026: password-encrypted export produced inside the enclave. */
-  exportNcryptsec(sealed: Uint8Array, pubkey: string, password: string, logN: number): Promise<string>;
+  /** FR-026: password-encrypted export produced inside the enclave, for the owner's Acceso token (`proof`). */
+  exportNcryptsec(sealed: Uint8Array, pubkey: string, password: string, logN: number, proof: string): Promise<string>;
 }
 
-export class EnclaveError extends Error {}
+/** `status` is the 4xx the enclave answered on purpose (FR005-09: no proof, not the owner's...); unset when it failed. */
+export class EnclaveError extends Error {
+  constructor(message: string, readonly status?: 400 | 401 | 403) {
+    super(message);
+  }
+}
 
 export interface EnclaveClientOptions {
   transport: EnclaveTransport;
@@ -67,22 +73,22 @@ export class EnclaveClient implements SealedKeyOps {
     await this.ensureAttested();
     const credentials = await this.opts.credentials?.();
     const res = await this.opts.transport.request({ ...req, ...(credentials ? { credentials } : {}) } as EnclaveRequest);
-    if (!res.ok) throw new EnclaveError(`enclave: ${res.error}`);
+    if (!res.ok) throw new EnclaveError(`enclave: ${res.error}`, res.status);
     if (!(field in res)) throw new EnclaveError(`enclave: unexpected ${req.op} response`);
     return res;
   }
 
-  private async sealedKey(req: { op: 'generate' } | { op: 'import'; ncryptsec: string; password: string }) {
+  private async sealedKey(req: { op: 'generate'; owner: string } | { op: 'import'; owner: string; ncryptsec: string; password: string }) {
     const res = (await this.call(req, 'sealed')) as { pubkey: string; sealed: string };
     return { pubkey: res.pubkey, sealed: new Uint8Array(Buffer.from(res.sealed, 'utf8')) };
   }
 
-  generate() {
-    return this.sealedKey({ op: 'generate' });
+  generate(owner: string) {
+    return this.sealedKey({ op: 'generate', owner });
   }
 
-  importNcryptsec(ncryptsec: string, password: string) {
-    return this.sealedKey({ op: 'import', ncryptsec, password });
+  importNcryptsec(owner: string, ncryptsec: string, password: string) {
+    return this.sealedKey({ op: 'import', owner, ncryptsec, password });
   }
 
   signer(sealedBytes: Uint8Array, pubkey: string): Signer & { destroy(): void } {
@@ -103,8 +109,8 @@ export class EnclaveClient implements SealedKeyOps {
     };
   }
 
-  async exportNcryptsec(sealed: Uint8Array, pubkey: string, password: string, logN: number) {
-    const res = (await this.call({ op: 'export', sealed: Buffer.from(sealed).toString('utf8'), pubkey, password, logN }, 'ncryptsec')) as { ncryptsec: string };
+  async exportNcryptsec(sealed: Uint8Array, pubkey: string, password: string, logN: number, proof: string) {
+    const res = (await this.call({ op: 'export', sealed: Buffer.from(sealed).toString('utf8'), pubkey, password, logN, proof }, 'ncryptsec')) as { ncryptsec: string };
     return res.ncryptsec;
   }
 }
