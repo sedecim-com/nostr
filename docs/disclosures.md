@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.8.0** · huella `7433521db6f41dbc` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.9.0** · huella `a144762b252f4f4c` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -69,6 +69,11 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | persistence | borrado en canales (message) | Borrar un mensaje de canal publica una petición firmada con tu npub (NIP-29, kind 9005). El relay del canal y el mirror la aplican si la firma el autor del mensaje o un admin del canal: dejan de servirlo, y la web lo oculta. | — | — | — |
 | persistence | borrado en canales (copies) | Borrar no retira las copias que ya circularon: quien recibió el mensaje, otros clientes y otros relays pueden conservarlo, y la petición de borrado es un evento público firmado con tu npub. | — | — | — |
 | persistence | borrado en canales (reaction) | Quitar tu reacción publica un borrado NIP-09 (kind 5) de esa reacción: los clientes que lo aplican dejan de contarla, pero quien ya la vio puede conservarla. | — | — | — |
+| identity | mirror de canales (uses) | Los contadores de no leídos y la búsqueda de canales los calcula el mirror del operador. Cada consulta va firmada con tu npub (NIP-98): el operador ve qué canales consultas, cuándo, desde qué dirección IP y el texto que buscas. | — | — | — |
+| identity | mirror de canales (readState) | Hasta dónde leíste cada canal se guarda cifrado en este navegador, aparte para cada persona, y no se envía al mirror: el mirror devuelve la hora de los mensajes recientes y los no leídos se cuentan aquí. En otro navegador, cada canal empieza como leído. | — | — | — |
+| identity | mirror de canales (scope) | El mirror solo responde por los canales en los que el relay te lista como miembro y, en una organización, por los que su política te deja leer. La búsqueda cubre sus mensajes en claro, nunca los mensajes directos ni los grupos seguros, y puede no llegar a todo el historial. | — | — | — |
+| identity | mirror de canales (pseudonymous) | Esta persona es pseudónima: la web no consulta el mirror del operador, así que no hay contadores de no leídos ni búsqueda de canales. Cada consulta iría firmada con tu npub y le diría al operador qué canales lees y qué buscas. | — | — | — |
+| network | mirror de canales (torOnly) | En Tor-only la web no conecta con el mirror del operador, igual que con los relays: no hay contadores de no leídos ni búsqueda de canales. | — | — | — |
 
 ## Aprobación
 

@@ -102,6 +102,11 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
       expect((await nip98Fetch(memberSk, `${base}/v1/read-cursor`, 'PUT', { h: 'dev', until: now() })).status).toBe(200);
       expect((await get(memberSk, '/v1/unread?h=dev,ops')).json.unread).toEqual({ dev: 0 });
       expect((await get(outsiderSk, '/v1/unread?h=dev,ops')).json.unread).toEqual({});
+      // FR014-04: the message times the web counts its unread messages with, only for the channels one is in.
+      expect((await get(ownerSk, '/v1/unread/recent?h=dev,ops')).json.recent).toEqual({ dev: [msg.created_at], ops: [] });
+      expect((await get(memberSk, '/v1/unread/recent?h=dev,ops')).json.recent).toEqual({ dev: [] });
+      expect((await get(outsiderSk, '/v1/unread/recent?h=dev,ops')).json.recent).toEqual({});
+      expect((await get(undefined, '/v1/unread/recent?h=dev')).status).toBe(401);
 
       // Removed from the channel: the relay publishes a new list, and the access goes with it.
       expect(await contents(removedSk, '/v1/events?kinds=9')).toEqual(['plan del sprint']);
