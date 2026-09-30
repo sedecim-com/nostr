@@ -47,9 +47,10 @@ estrategias de timestamp, que las suscripciones a kind 1059 sin `#p` propio no f
 `timestampJitterSeconds` recomendado configurado explícitamente (nunca en silencio).
 
 ## Resultado del gate (pin vigente; primera ejecución el 2026-09-26 contra `02c6309`, build local debug)
-Evidencia: [`docs/interop/buzz-upstream-ac4521f3e464-report.json`](interop/buzz-upstream-ac4521f3e464-report.json).
-Los informes anteriores (`buzz-upstream-8096413eb360-report.json` y `buzz-02c6309-report.json`) dan el mismo
-resultado; el job `stack` de CI lo repite en cada PR.
+Evidencia: [`docs/interop/buzz-upstream-10343a68e68b-report.json`](interop/buzz-upstream-10343a68e68b-report.json)
+(commit `8519db1`). Los informes anteriores (`buzz-upstream-ac4521f3e464-report.json`,
+`buzz-upstream-8096413eb360-report.json` y `buzz-02c6309-report.json`) dan el mismo resultado; el job `stack` de CI
+lo repite en cada PR.
 
 | Verificación | Resultado |
 |---|---|
@@ -82,6 +83,35 @@ permite; nadie tiene que acordarse de revisarlo:
 
 Pruebas: `packages/messaging/test/flags.test.ts` (172800 cuando la estrategia estándar pasa, 300 mientras no,
 coherencia con el informe y los flags versionados, texto de la PR).
+
+## Revisión del pin 8519db1 (2026-09-30, ADR 0003)
+De `b0d6fb8` a `8519db1`: 22 commits upstream. Se revisaron los del relay (`crates/buzz-relay`, `buzz-db`, `buzz-media`) y
+su despliegue. El CI completo (job `stack` con la membresía NIP-29 de FR023-10, `tor-profile` con el DM por el
+`.onion` de Buzz) pasa con la imagen nueva.
+
+| Área | Qué cambia upstream | Efecto aquí |
+|---|---|---|
+| Kinds | NIP-AR: kinds 45010 (artefacto de canal) y 45011 (retirada, solo el relay); un REQ que pueda devolverlos no admite tags de varias letras | Ninguno: no usamos esos kinds ni tags de varias letras. 10050, 10051, 30443 y 445 siguen siendo desconocidos para Buzz |
+| NIP-42 y tenant por `Host` | NIP-FI (JWT en el upgrade, emparejado con NIP-42, vida de la sesión), apagado si `BUZZ_NIP_FI_MODE` no está | Ninguno con NIP-FI apagado: el AUTH NIP-42, el tenant por `Host` y el tag `relay` no cambian. **`BUZZ_NIP_FI_MODE` debe seguir sin definirse**: en `enforce` los servicios internos, que solo hacen NIP-42, no entrarían |
+| Entrega | Las lecturas `#e` tienen un límite de 20 s y, si una consulta agota su tiempo, el REQ recibe `CLOSED "error: query timed out"` en vez de EOSE, y se cierra también su parte en vivo | Ninguno hoy: no hacemos REQ `#e`, el pool cierra la suscripción con el `CLOSED` y el indexer reabre las suyas. Un cliente que dependa de una suscripción en vivo debe volver a suscribirse tras un `CLOSED` |
+| Media | El verificador de la autorización kind 24242 se endurece solo con NIP-FI en `enforce` | Ninguno: el cliente Blossom firma `t`, `x` y `expiration` como antes |
+| Timestamps | Sin cambios: ±900 s, también para kind 1059 | El adaptador de jitter de 300 s para #4192 sigue siendo necesario |
+| NIP-29 | Sin cambios en 9000/9001/9007 ni en el estado 39000–39003 firmado por el relay | Ninguno para la membresía de FR023-10 ni para el mirror |
+| Arranque y readiness | Falla al arrancar con `BUZZ_OPERATOR_LISTENERS` mal formado o sin Redis en 5 s. `/_readiness` solo dice que el proceso está arriba: Postgres y Redis pasan a `/_status` | No definimos esas variables, y compose espera a Redis. **La sonda de SLO pasa a `/_status`** (`http_buzz_status` en `deploy/monitoring/blackbox/blackbox.yml`, `docs/slo.md`); con `/_readiness` seguiría en verde con Postgres o Redis caídos |
+| Borrado de comunidades | `POST /operator/communities/delete` y un drain automático, apagados sin `RELAY_OPERATOR_*` | Ninguno. Las rutas nuevas (`/operator/communities/delete`, `/operator/listener/pubkeys`, `/query` y `/count` de artefactos) fallan cerradas con nuestra configuración; entran en el inventario de SEC-12 |
+
+**Rollback.** Las migraciones 0050–0053 son aditivas y se aplican al arrancar. Con `BUZZ_AUTO_MIGRATE` activo, la imagen
+anterior no arranca sobre una base que ya las tiene: su migrador rechaza migraciones que no conoce. Para volver a
+`ac4521f3e464` hay que arrancarla con `BUZZ_AUTO_MIGRATE=false` o restaurar el backup previo
+(`docs/runbooks/restore.md`), como pide ADR 0003.
+
+**Adaptadores del SDK: siguen todos justificados.**
+- el jitter de 300 s en los gift wraps (#4192 sigue abierto);
+- blob-store para blobs cifrados;
+- el secure relay para los kinds de Marmot (y el 10050);
+- la identidad de servicio del indexer, sus suscripciones `#h` y la URL pública como `Host` y tag `relay`;
+- `#p` en los REQ de kind 1059;
+- el reintento con autorización de las descargas de Blossom.
 
 ## Hallazgos del sprint S1 (2026-09-26)
 - **MinIO ya no publica imágenes descargables** (Docker Hub y quay.io responden `unauthorized`); el compose upstream de Buzz también depende de ellas. El stack usa **SeaweedFS 4.47** (Apache-2.0, fijado por digest) como S3 compatible.
