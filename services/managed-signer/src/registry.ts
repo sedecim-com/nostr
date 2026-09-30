@@ -1,6 +1,7 @@
 import type { Pool } from '@sedecim/service-kit';
 
 export type KeyState = 'active' | 'export-pending' | 'migrated' | 'deleted';
+export type KeyExit = 'migrated' | 'cancelled';
 
 export interface KeyRecord {
   keyId: string;
@@ -16,8 +17,12 @@ export interface KeyRecord {
   migratedAt?: number;
   retentionDays: number;
   deletedAt?: number;
+  /** FR026-04: how a deleted key left managed custody: migrated to its owner (FR026-03) or cancelled without migrating. */
+  exit?: KeyExit;
   /** Set once the vault material has been destroyed (or its scheduled deletion has elapsed). */
   destroyedAt?: number;
+  /** FR026-04: set when, after destruction, the owner and the recorded consent were cleared (owner becomes ''). */
+  scrubbedAt?: number;
   /** FR005-08: the version of the texts and terms the owner accepted, and when (keys created before: unset). */
   consentVersion?: string;
   consentAt?: number;
@@ -26,7 +31,7 @@ export interface KeyRecord {
 export interface UsageRecord {
   at: number;
   keyId: string;
-  action: 'sign' | 'nip44_encrypt' | 'nip44_decrypt' | 'export' | 'migration-confirmed' | 'deleted' | 'destroyed' | 'created' | 'imported' | 'rate-limited';
+  action: 'sign' | 'nip44_encrypt' | 'nip44_decrypt' | 'export' | 'migration-confirmed' | 'deleted' | 'cancelled' | 'destroyed' | 'created' | 'imported' | 'rate-limited';
   kind?: number;
   eventId?: string;
   principal: string;
@@ -56,6 +61,12 @@ export interface KeyRegistry {
   purgeUsageBefore(at: number): Promise<number>;
   /** Deleted keys whose retention window is over at `now` and whose material is not destroyed yet. */
   pendingDestruction(now: number): Promise<KeyRecord[]>;
+  /** FR026-04: deleted keys of an owner still tied to it (not scrubbed yet), latest deletion first. */
+  listClosedByOwner(owner: string): Promise<KeyRecord[]>;
+  /** FR026-04: destroyed keys whose owner and consent have not been cleared yet. */
+  pendingScrub(): Promise<KeyRecord[]>;
+  /** FR026-04: clears the owner and the recorded consent of a destroyed key (a key not destroyed is left alone). */
+  scrub(keyId: string, at: number): Promise<void>;
 }
 
 const retentionEnd = (k: KeyRecord) => (k.deletedAt ?? 0) + k.retentionDays * 86_400_000;
@@ -102,11 +113,29 @@ export class MemoryKeyRegistry implements KeyRegistry {
   async pendingDestruction(now: number) {
     return [...this.keys.values()].filter((k) => k.state === 'deleted' && k.destroyedAt === undefined && retentionEnd(k) <= now).map((k) => structuredClone(k));
   }
+  async listClosedByOwner(owner: string) {
+    return [...this.keys.values()]
+      .filter((k) => k.owner === owner && k.state === 'deleted' && k.scrubbedAt === undefined)
+      .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0) || a.keyId.localeCompare(b.keyId))
+      .map((k) => structuredClone(k));
+  }
+  async pendingScrub() {
+    return [...this.keys.values()].filter((k) => k.destroyedAt !== undefined && k.scrubbedAt === undefined).map((k) => structuredClone(k));
+  }
+  async scrub(keyId: string, at: number) {
+    const k = this.keys.get(keyId);
+    if (!k || k.destroyedAt === undefined) return;
+    k.owner = '';
+    delete k.consentVersion;
+    delete k.consentAt;
+    k.scrubbedAt = at;
+  }
 }
 
 type KeyRow = {
   key_id: string;
-  owner: string;
+  /** NULL once scrubbed (FR026-04). */
+  owner: string | null;
   pubkey: string;
   provider: string;
   version: number;
@@ -121,6 +150,8 @@ type KeyRow = {
   destroyed_at: Date | null;
   consent_version: string | null;
   consent_at: Date | null;
+  exit_reason: KeyExit | null;
+  scrubbed_at: Date | null;
 };
 
 const ms = (d: Date | null) => d?.getTime();
@@ -130,7 +161,7 @@ function fromRow(r: KeyRow): KeyRecord {
   const opt = <K extends keyof KeyRecord>(k: K, v: KeyRecord[K] | undefined) => (v === undefined ? {} : { [k]: v });
   return {
     keyId: r.key_id,
-    owner: r.owner,
+    owner: r.owner ?? '',
     pubkey: r.pubkey,
     provider: r.provider,
     version: r.version,
@@ -142,7 +173,9 @@ function fromRow(r: KeyRow): KeyRecord {
     ...opt('migrationChallenge', r.migration_challenge ?? undefined),
     ...opt('migratedAt', ms(r.migrated_at)),
     ...opt('deletedAt', ms(r.deleted_at)),
+    ...opt('exit', r.exit_reason ?? undefined),
     ...opt('destroyedAt', ms(r.destroyed_at)),
+    ...opt('scrubbedAt', ms(r.scrubbed_at)),
     ...opt('consentVersion', r.consent_version ?? undefined),
     ...opt('consentAt', ms(r.consent_at)),
   };
@@ -177,11 +210,12 @@ export class PgKeyRegistry implements KeyRegistry {
     return rows.map(fromRow);
   }
   async save(k: KeyRecord) {
-    // Identity columns (owner, pubkey, provider, created_at) and the recorded consent are immutable.
+    // Identity columns (owner, pubkey, provider, created_at) and the recorded consent are immutable: only scrub()
+    // clears the owner and the consent, once the key is destroyed.
     await this.pool.query(
       `UPDATE managed_keys SET version = $2, state = $3, allowed_kinds = $4, migration_challenge = $5, retention_days = $6,
-         last_used_at = $7, migrated_at = $8, deleted_at = $9, destroyed_at = $10 WHERE key_id = $1`,
-      [k.keyId, k.version, k.state, k.allowedKinds ?? null, k.migrationChallenge ?? null, k.retentionDays, ts(k.lastUsed), ts(k.migratedAt), ts(k.deletedAt), ts(k.destroyedAt)],
+         last_used_at = $7, migrated_at = $8, deleted_at = $9, destroyed_at = $10, exit_reason = $11 WHERE key_id = $1`,
+      [k.keyId, k.version, k.state, k.allowedKinds ?? null, k.migrationChallenge ?? null, k.retentionDays, ts(k.lastUsed), ts(k.migratedAt), ts(k.deletedAt), ts(k.destroyedAt), k.exit ?? null],
     );
   }
   async touch(keyId: string, at: number) {
@@ -224,5 +258,22 @@ export class PgKeyRegistry implements KeyRegistry {
       [ts(now)],
     );
     return rows.map(fromRow);
+  }
+  async listClosedByOwner(owner: string) {
+    const { rows } = await this.pool.query<KeyRow>(
+      "SELECT * FROM managed_keys WHERE owner = $1 AND state = 'deleted' AND scrubbed_at IS NULL ORDER BY deleted_at DESC, key_id",
+      [owner],
+    );
+    return rows.map(fromRow);
+  }
+  async pendingScrub() {
+    const { rows } = await this.pool.query<KeyRow>('SELECT * FROM managed_keys WHERE destroyed_at IS NOT NULL AND scrubbed_at IS NULL ORDER BY destroyed_at');
+    return rows.map(fromRow);
+  }
+  async scrub(keyId: string, at: number) {
+    await this.pool.query(
+      'UPDATE managed_keys SET owner = NULL, consent_version = NULL, consent_at = NULL, scrubbed_at = $2 WHERE key_id = $1 AND destroyed_at IS NOT NULL',
+      [keyId, ts(at)],
+    );
   }
 }

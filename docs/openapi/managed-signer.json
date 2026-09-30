@@ -331,6 +331,45 @@
         }
       }
     },
+    "/v1/keys/closed": {
+      "get": {
+        "operationId": "getV1KeysClosed",
+        "summary": "Llaves que salieron de la custodia gestionada y cuándo se destruye cada una (FR026-04).",
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/keys/import": {
       "post": {
         "operationId": "postV1KeysImport",
@@ -666,6 +705,55 @@
       "post": {
         "operationId": "postV1KeysByIdConfirmMigration",
         "summary": "Confirma la migración con una prueba firmada por la llave exportada.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/keys/{id}/cancel": {
+      "post": {
+        "operationId": "postV1KeysByIdCancel",
+        "summary": "Cancela la custodia sin migrar (derecho ARCO), confirmada con la npub de la llave (`destroy_after`, FR026-04).",
         "parameters": [
           {
             "name": "id",

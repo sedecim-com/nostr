@@ -377,3 +377,46 @@ export async function migrateManagedToLocal(book: PersonaBook, persona: PersonaR
   await book.save(migrated);
   return { persona: migrated, ncryptsec };
 }
+
+/**
+ * FR026-04: the file to keep when a key leaves managed custody (migration or cancellation): the ncryptsec the
+ * managed-signer exported under the user's password, with the npub it belongs to, as an `acceso-nostr-key-backup` the
+ * restore flows accept (they require the npub). With the password it also carries the persona's archive key (v2,
+ * VAULT-02), so the Continuity Vault archives stay readable.
+ */
+export async function managedExitBackupJson(persona: PersonaRecord, ncryptsec: string, password?: string): Promise<string> {
+  const npub = npubEncode(persona.pubkey);
+  if (!password || !persona.archiveKeyHex) return JSON.stringify({ format: 'acceso-nostr-key-backup', version: 1, npub, ncryptsec }, null, 2);
+  const ak = hexToBytes(persona.archiveKeyHex);
+  const archiveKey = await nip49.encryptKeyAsync(ak, password, 16, 0x01);
+  wipe(ak);
+  return JSON.stringify({ format: 'acceso-nostr-key-backup', version: 2, npub, ncryptsec, archiveKey }, null, 2);
+}
+
+/**
+ * FR026-04, step 1 of cancelling managed custody without migrating: the backup to download before anything is deleted.
+ * The key is exported under a password the user picks and decrypted here to check it is this persona's, so the file
+ * restores the same npub. The key stays managed and signing until the cancellation itself.
+ */
+export async function managedCancellationBackup(persona: PersonaRecord, client: ManagedSignerClient, password: string): Promise<string> {
+  if (password.length < 12) throw new Error('la contraseña del respaldo debe tener al menos 12 caracteres');
+  const { ncryptsec } = await client.exportForMigration(password);
+  const { secretKey } = await nip49.decryptKeyAsync(ncryptsec, password);
+  const ok = getPublicKey(secretKey) === persona.pubkey;
+  wipe(secretKey);
+  if (!ok) throw new Error('la llave exportada no corresponde a esta persona: no se cancela nada');
+  return managedExitBackupJson(persona, ncryptsec, password);
+}
+
+/**
+ * FR026-04, step 2: cancels managed custody (ARCO cancellation). `typed` must be the last 8 characters of the persona's
+ * npub, as the user typed them; the managed-signer receives the whole npub. The key stops signing everywhere at once,
+ * so the persona leaves this browser too; the backup restores it as a local key.
+ */
+export async function cancelManagedCustody(book: PersonaBook, persona: PersonaRecord, client: ManagedSignerClient, typed: string): Promise<{ destroyAfter: string }> {
+  const npub = npubEncode(persona.pubkey);
+  if (typed.trim() !== npub.slice(-8)) throw new Error('escribe los últimos 8 caracteres de la npub de esta persona para confirmar');
+  const { destroyAfter } = await client.cancelCustody(npub);
+  await book.remove(persona.id);
+  return { destroyAfter };
+}
