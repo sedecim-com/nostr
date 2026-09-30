@@ -199,6 +199,19 @@ async function settleLifetime(): Promise<void> {
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 }
 
+/**
+ * Kind 30443 is addressable: a relay keeps one key package per `d` slot, the newest by created_at and, within the same
+ * second, the one with the lower id (NIP-01). marmot-ts stamps created_at in whole seconds, so a key package signed in
+ * the second of the one it replaces is dropped about half the time, with an OK (the rotation worker restarted within
+ * the second of the key package its previous run had rotated in). Before signing another key package on the slot, let
+ * the clock pass the second of the last one. A clock more than two seconds behind is not waited out: the relay keeps
+ * the old key package and publishKeyPackage says so.
+ */
+async function afterSecond(last: number): Promise<void> {
+  const wait = (last + 1) * 1000 - Date.now();
+  if (wait > 0 && wait <= 2000) await new Promise((r) => setTimeout(r, wait));
+}
+
 const META_NS = 'meta';
 const SLOT_KEY = 'keypackage-slot';
 
@@ -545,7 +558,17 @@ export class MarmotTsSession implements ExtendedGroupSession {
     return (g.groupData?.adminPubkeys ?? []).includes(this.pubkey);
   }
 
+  /** created_at of the last key package this device signed on its slot (stored with it until it is rotated). */
+  private async lastKeyPackageSecond(): Promise<number> {
+    let last = 0;
+    for (const kp of await this.client.keyPackages.list()) {
+      for (const e of kp.published ?? []) if (e.kind === MARMOT_KINDS.KeyPackage && getKeyPackageIdentifier(e as never) === this.slot) last = Math.max(last, e.created_at);
+    }
+    return last;
+  }
+
   async publishKeyPackage(relays: string[]): Promise<NostrEvent> {
+    await afterSecond(await this.lastKeyPackageSecond());
     const kp = await this.client.keyPackages.create({ relays, client: 'sedecim-nostr', identifier: this.slot });
     const evt = (await this.client.keyPackages.get(kp.keyPackageRef))?.published?.at(-1) as NostrEvent | undefined;
     if (!evt) throw new Error('key package event was not recorded');
@@ -1283,7 +1306,9 @@ export class MarmotTsSession implements ExtendedGroupSession {
     }
     // Consumed key packages must not be reused: rotate them (MIP-00).
     for (const kp of await this.client.keyPackages.list()) {
-      if (kp.used) await this.client.keyPackages.rotate(kp.keyPackageRef).catch(() => undefined);
+      if (!kp.used) continue;
+      await afterSecond(await this.lastKeyPackageSecond());
+      await this.client.keyPackages.rotate(kp.keyPackageRef).catch(() => undefined);
     }
     return joined;
   }
