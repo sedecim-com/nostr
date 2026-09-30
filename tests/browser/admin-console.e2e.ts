@@ -45,6 +45,10 @@ const until = async (fn: () => boolean | Promise<boolean>, what: string, ms = 10
 const adminSk = generateSecretKey();
 const adminPk = getPublicKey(adminSk);
 const outsiderSk = generateSecretKey();
+const outsiderPk = getPublicKey(outsiderSk);
+// FR023-11: a person of the organisation, no admin, who registers the passkey on their own device.
+const memberSk = generateSecretKey();
+const memberPk = getPublicKey(memberSk);
 const aliceSk = generateSecretKey();
 const alicePk = getPublicKey(aliceSk);
 const aliceAltSk = generateSecretKey();
@@ -145,9 +149,13 @@ try {
   await page.getByRole('heading', { name: 'Consola de administración' }).waitFor();
   assert(await page.getByRole('button', { name: 'Entrar con extensión NIP-07' }).isDisabled(), 'NIP-07 button disabled without an extension');
   assert(await page.getByText('Solo desarrollo').isVisible(), 'local key sign-in is labeled as development only');
+  // FR023-11: a key that is not an admin opens its own devices only, without any admin screen.
   await signInLocal(page, outsiderSk);
-  await page.locator('#signin-error').waitFor();
-  assert((await page.textContent('#signin-error'))?.includes('no es administradora'), 'a non-admin key cannot open the console');
+  await page.locator('#member-identity').waitFor();
+  await page.getByText('No tienes dispositivos registrados a tu nombre').waitFor();
+  assert((await page.textContent('#member-identity'))?.includes('sin permisos de administración') && (await page.getByRole('tab').count()) === 0 && (await page.locator('#admin-identity').count()) === 0, 'a non-admin key opens only its own devices, not the console');
+  await page.getByRole('button', { name: 'Cerrar sesión' }).click();
+  await page.locator('#dev-nsec').waitFor();
   await signInLocal(page, adminSk);
   await page.locator('#admin-identity').waitFor();
   assert((await page.textContent('#admin-identity'))?.includes('Llave local (solo desarrollo)'), 'admin signed in with the local dev key (labeled in the header)');
@@ -352,12 +360,52 @@ try {
   };
   const bad = policyRequests.filter((r) => signedBy(r) === undefined);
   assert(bad.length === 0, `every request carries a NIP-98 Authorization for its URL and method (${bad.map((r) => r.url).join(', ')})`);
-  assert(policyRequests.filter((r) => signedBy(r) !== adminPk).length === 1, 'only the refused outsider attempt was signed by another key');
+  const outsiderCalls = policyRequests.filter((r) => signedBy(r) !== adminPk);
+  const outsiderUrls = [`${policyUrl}/v1/subjects`, `${policyUrl}/v1/devices?owner=${outsiderPk}`];
+  assert(outsiderCalls.every((r) => signedBy(r) === outsiderPk && r.method === 'GET' && outsiderUrls.includes(r.url)) && outsiderUrls.every((u) => outsiderCalls.some((r) => r.url === u)), 'besides the admin, only the outsider signed: the refused admin check and the read of its own devices');
   assert((await auditLog()).filter((a) => a.actor !== 'seed').every((a) => a.actor === adminPk), 'every change the policy-engine audited was made by the admin key');
 
   await page.getByRole('button', { name: 'Cerrar sesión' }).click();
   await page.locator('#dev-nsec').waitFor();
   assert((await page.inputValue('#dev-nsec')) === '', 'sign-out returns to the sign-in screen without keeping the key');
+
+  // --- FR023-11: the person registers the passkey on their own device (their browser's authenticator, signed with their
+  // own key), and every session they open asks that authenticator for an assertion
+  const memberDevice = await engine.registerDevice(adminPk, memberPk);
+  const memberCtx = await newContext();
+  contexts.push(memberCtx);
+  const member = await memberCtx.newPage();
+  watch(member);
+  const memberCdp = await memberCtx.newCDPSession(member);
+  await memberCdp.send('WebAuthn.enable');
+  const memberAuthenticator = (await memberCdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } })).authenticatorId;
+  await member.goto(base);
+  await signInLocal(member, memberSk);
+  await member.locator('#member-identity').waitFor();
+  await row(member, 'own-device', memberDevice.id).getByRole('button', { name: 'Registrar passkey' }).click();
+  await member.locator('#my-devices-notice').waitFor({ timeout: 15_000 });
+  await row(member, 'own-device', memberDevice.id).getByText('Atestiguado (passkey)').waitFor();
+  const memberCreds = (await memberCdp.send('WebAuthn.getCredentials', { authenticatorId: memberAuthenticator })).credentials;
+  const memberAttested = await engine.getDevice(memberDevice.id);
+  assert(
+    memberAttested?.trust === 'attested' && memberCreds.length === 1 && memberAttested.credentialId === Buffer.from(memberCreds[0]!.credentialId, 'base64').toString('base64url') && (await auditLog()).some((a) => a.action === 'device.attest' && a.actor === memberPk && a.target === memberDevice.id),
+    'FR023-11: the person registers the passkey on their own device, with their own key',
+  );
+  assert((await nip98Fetch(memberSk, `${policyUrl}/v1/sessions`, 'POST', { deviceId: memberDevice.id })).status === 403, 'FR023-11: from then on a session without the assertion of that passkey is refused');
+  const memberTokens: string[] = [];
+  for (const n of [1, 2]) {
+    const [opened] = await Promise.all([
+      member.waitForResponse((r) => r.url() === `${policyUrl}/v1/sessions` && r.request().method() === 'POST'),
+      row(member, 'own-device', memberDevice.id).getByRole('button', { name: 'Abrir sesión con passkey' }).click(),
+    ]);
+    const body = (await opened.json()) as { token: string; deviceId: string; asserted: boolean };
+    assert(opened.status() === 201 && body.asserted && body.deviceId === memberDevice.id, `FR023-11: session ${n} opened with an assertion of the passkey (navigator.credentials.get)`);
+    memberTokens.push(body.token);
+  }
+  await member.locator('#my-session').waitFor();
+  assert(memberTokens[0] !== memberTokens[1] && (await Promise.all(memberTokens.map((t) => engine.sessionValid(t)))).every(Boolean), 'FR023-11: each session asked for its own assertion and is bound to the device');
+  await engine.revokeDevice(adminPk, memberDevice.id, 'perdido');
+  assert((await Promise.all(memberTokens.map((t) => engine.sessionValid(t)))).every((v) => !v), 'FR023-11: revoking the device ends the sessions opened with its passkey');
 
   // --- NIP-07 extension sign-in (window.nostr injected; signing happens in Node)
   const extCtx = await newContext();
@@ -443,11 +491,17 @@ try {
     ['Auditoría', '#audit-rows tr[data-action]'],
     ['Accesos', '#access-rows tr[data-resource]'],
     ['Vínculos de identidad', '#identity-pubkey'],
+    ['Mis dispositivos', '#my-devices table'],
   ] as const) {
     await a11y.getByRole('tab', { name }).click();
     await a11y.locator(ready).first().waitFor();
     await audit(name);
   }
+  // FR023-11: what a key without admin rights opens (the person's device, attested and revoked above).
+  await a11y.getByRole('button', { name: 'Cerrar sesión' }).click();
+  await signInLocal(a11y, memberSk);
+  await row(a11y, 'own-device', memberDevice.id).waitFor();
+  await audit('Mis dispositivos, sin permisos de administración');
 
   assert(errors.length === 0, `no page errors or CSP violations (${errors.join(' | ')})`);
 } finally {

@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Chip, Divider, Link, Stack, TextField, Typography } from '@mui/material';
-import { PolicyAdminApi } from '../api';
+import { ApiError, PolicyAdminApi } from '../api';
 import type { AdminConfig } from '../config';
-import { hasNip07, signInLocalDev, signInNip07, signInNip46, type AdminSession } from '../signers';
+import { hasNip07, signInLocalDev, signInNip07, signInNip46, type AdminSession, type ConsoleSession } from '../signers';
 import { errorText } from '../ui';
 
 /**
- * The admin signs in with a Nostr signer; nothing is stored. The session is only accepted once the
- * policy-engine answers an admin-only NIP-98 request with that key.
+ * The admin signs in with a Nostr signer; nothing is stored. The session is accepted once the policy-engine answers an
+ * admin-only NIP-98 request with that key. FR023-11: a key it refuses as admin (403) opens its own devices only.
  */
-export function SignIn({ cfg, onSignedIn }: { cfg: AdminConfig; onSignedIn(s: AdminSession): void }) {
+export function SignIn({ cfg, onSignedIn }: { cfg: AdminConfig; onSignedIn(s: ConsoleSession): void }) {
   const [bunker, setBunker] = useState('');
   const [nsec, setNsec] = useState('');
   const [busy, setBusy] = useState(false);
@@ -34,9 +34,15 @@ export function SignIn({ cfg, onSignedIn }: { cfg: AdminConfig; onSignedIn(s: Ad
     let s: AdminSession | undefined;
     try {
       s = await open();
-      await new PolicyAdminApi(cfg.policyEngineUrl, s.signer).listSubjects();
+      let admin = true;
+      try {
+        await new PolicyAdminApi(cfg.policyEngineUrl, s.signer).listSubjects();
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 403)) throw e;
+        admin = false;
+      }
       setNsec('');
-      onSignedIn(s);
+      onSignedIn({ ...s, admin });
     } catch (e) {
       s?.close();
       setError(errorText(e));
@@ -55,7 +61,7 @@ export function SignIn({ cfg, onSignedIn }: { cfg: AdminConfig; onSignedIn(s: Ad
               Consola de administración
             </Typography>
             <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              Entra con tu identidad Nostr de administrador. Cada petición al policy-engine va firmada con NIP-98; la consola no guarda tu llave.
+              Entra con tu identidad Nostr. Con una llave de administrador gestionas la organización; con otra llave, tus propios dispositivos y su passkey. Cada petición al policy-engine va firmada con NIP-98; la consola no guarda tu llave.
             </Typography>
             {error && (
               <Alert severity="error" id="signin-error">

@@ -1,4 +1,4 @@
-import type { CreationOptionsJSON, PolicyAdminApi, RegistrationCredentialJSON } from './api';
+import type { AssertionCredentialJSON, CreationOptionsJSON, PolicyAdminApi, PolicySession, RegistrationCredentialJSON, RequestOptionsJSON } from './api';
 
 export function b64urlToBytes(s: string): Uint8Array<ArrayBuffer> {
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4);
@@ -41,6 +41,29 @@ export function credentialToJSON(c: PublicKeyCredential): RegistrationCredential
   };
 }
 
+/** FR023-11: JSON request options from the server → the binary form navigator.credentials.get expects. */
+export function requestOptionsFromJSON(o: RequestOptionsJSON): PublicKeyCredentialRequestOptions {
+  const { allowCredentials, ...rest } = o;
+  return {
+    ...rest,
+    challenge: b64urlToBytes(o.challenge),
+    ...(allowCredentials ? { allowCredentials: allowCredentials.map((c) => ({ type: c.type, id: b64urlToBytes(c.id), ...(c.transports ? { transports: c.transports as AuthenticatorTransport[] } : {}) })) } : {}),
+  };
+}
+
+/** FR023-11: a navigator.credentials.get result → JSON with base64url binary fields, as the policy-engine verifies it. */
+export function assertionToJSON(c: PublicKeyCredential): AssertionCredentialJSON {
+  const r = c.response as AuthenticatorAssertionResponse;
+  return {
+    id: c.id,
+    rawId: bytesToB64url(c.rawId),
+    type: 'public-key',
+    authenticatorAttachment: c.authenticatorAttachment,
+    response: { clientDataJSON: bytesToB64url(r.clientDataJSON), authenticatorData: bytesToB64url(r.authenticatorData), signature: bytesToB64url(r.signature), userHandle: r.userHandle ? bytesToB64url(r.userHandle) : null },
+    clientExtensionResults: c.getClientExtensionResults() as Record<string, unknown>,
+  };
+}
+
 export const webauthnAvailable = () => typeof window !== 'undefined' && 'PublicKeyCredential' in window && !!navigator.credentials;
 
 /** Options from the policy-engine → authenticator ceremony → attestation back to the policy-engine. */
@@ -50,4 +73,16 @@ export async function registerPasskey(api: PolicyAdminApi, deviceId: string) {
   const cred = (await navigator.credentials.create({ publicKey: options })) as PublicKeyCredential | null;
   if (!cred) throw new Error('el autenticador no devolvió ninguna credencial');
   return api.webauthnRegister(deviceId, credentialToJSON(cred));
+}
+
+/**
+ * FR023-11: assertion options for the device (its passkey only) → the authenticator signs the challenge →
+ * POST /v1/sessions with the assertion, which returns the session bound to that device.
+ */
+export async function openSessionWithPasskey(api: PolicyAdminApi, deviceId: string): Promise<PolicySession> {
+  if (!webauthnAvailable()) throw new Error('este navegador no admite passkeys (WebAuthn)');
+  const options = requestOptionsFromJSON(await api.assertionOptions(deviceId));
+  const cred = (await navigator.credentials.get({ publicKey: options })) as PublicKeyCredential | null;
+  if (!cred) throw new Error('el autenticador no devolvió ninguna aserción');
+  return api.openSession(deviceId, assertionToJSON(cred));
 }
