@@ -567,7 +567,7 @@ Decisiones, operación, seguridad, panel y gates, con la referencia que citan (P
 | [REL-04](https://github.com/sedecim-com/nostr/issues/276) Revisión final de afirmaciones y etiquetas de madurez | §2.3, PRD §12 | Pendiente (S16) | — | — |
 | [REL-03](https://github.com/sedecim-com/nostr/issues/277) v1.0.0 firmada con la Definition of Done completa y sin waiver | Apéndice D, PRD G5 | Pendiente (S16) | — | — |
 | [SEC-10](https://github.com/sedecim-com/nostr/issues/278) Revisión criptográfica delta de MLS estable | §20.3 | Pendiente (Diferido) | — | — |
-| [FR015-04](https://github.com/sedecim-com/nostr/issues/285) Reacciones, hilos y borrado en canales | §15.1 | Pendiente (Diferido) | — | — |
+| [FR015-04](https://github.com/sedecim-com/nostr/issues/285) Reacciones, hilos y borrado en canales | §15.1 | Pendiente (Diferido) | — | [channel-collab.test.ts](../apps/web-saas/test/channel-collab.test.ts), [nip46-permissions.test.ts](../apps/web-saas/test/nip46-permissions.test.ts), [channels.test.ts](../packages/messaging/test/channels.test.ts), [profiles.test.ts](../packages/profiles/test/profiles.test.ts), [group-moderation.test.ts](../packages/test-relay/test/group-moderation.test.ts), [buzz.interop.test.ts](../tests/interop/buzz.interop.test.ts) |
 | [PANEL-06](https://github.com/sedecim-com/nostr/issues/286) Expiración de mensajes por perfil (NIP-40) y borrado con aviso | §12.2 | Pendiente (Diferido) | — | — |
 | [FR006-07](https://github.com/sedecim-com/nostr/issues/287) Compartimentación: avisar antes de reutilizar un contacto o un archivo entre personas | §14.1 | Pendiente (Diferido) | — | — |
 | [FR023-11](https://github.com/sedecim-com/nostr/issues/289) Device trust en uso: passkey del propio usuario | §16 | Pendiente (Diferido) | — | — |
