@@ -164,6 +164,13 @@ export class EventCache {
     return cache;
   }
 
+  /** Deletes a cache from its storage without opening it: also one that no longer decrypts. */
+  static async destroy(store: CacheStore, opts: Pick<EventCacheOptions, 'name'> = {}): Promise<void> {
+    const name = opts.name ?? 'evcache';
+    await store.collection(name).clear();
+    await store.collection(`${name}-meta`).clear();
+  }
+
   private async load(): Promise<void> {
     const meta = await this.metaStore.get(META_ID);
     if (meta && meta.v !== META_VERSION) throw new Error(`event cache format ${meta.v} is not supported: clear the cache`);

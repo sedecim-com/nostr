@@ -7,8 +7,8 @@ import { RelayPool, type WebSocketFactory, type WebSocketLike } from '@sedecim/r
 import { createNostrConnect, formatBunkerUrl, LocalSigner, Nip46Signer, parseBunkerUrl, SOVEREIGN_NIP46_PERMISSIONS } from '@sedecim/signer';
 import { isOnionHost, NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, OperationMismatchError, outboxContacts, publishDmRelayList, type DirectMessage, type DmInboxOptions, type DmOperation, type InboxOutbox, type InboxPool, type OperationOutbox, type RelayAdapter } from '@sedecim/messaging';
-import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
+import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DM_KIND, DmInbox, dmInboxFilter, dmRouter, FILE_MESSAGE_KIND, GIFT_WRAP_KIND, joinRequest, openDirectMessage, OperationMismatchError, outboxContacts, publishDmRelayList, type DirectMessage, type DmInboxOptions, type DmOperation, type InboxOutbox, type InboxPool, type OperationOutbox, type RelayAdapter } from '@sedecim/messaging';
+import { EventCache, FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type CacheCursor, type CacheStats, type EventCacheOptions, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
 import { continuityPolicy, disclose, preset, receiptPolicy, validateConfig, type ContinuityOption, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
 import {
@@ -159,6 +159,12 @@ export interface SovereignOptions {
    * right before it goes ahead. The CLI prints it next to what it sends.
    */
   onConfirmedReuse?: (warnings: ReuseWarning[]) => void;
+  /**
+   * FR013-05: each persona's encrypted event cache, inside its store (docs/event-cache.md). What `history sync`,
+   * `channel read` and `dm inbox` bring stays there to be read without network (`--offline`), and the next sync resumes
+   * from it. On by default with its default limits; `false` keeps nothing and `history sync` rebuilds every time.
+   */
+  eventCache?: EventCacheOptions | false;
 }
 
 /** FR009-03: what `watchDms` reports. */
@@ -205,6 +211,8 @@ export interface HistorySyncResult {
   /** strategy that completed per relay (e.g. nip77-negentropy or req-window) */
   strategies: Record<string, string>;
   history: RebuiltHistory;
+  /** FR013-05: the persona's event cache after this sync (absent when the client has it off) */
+  cache?: CacheStats;
 }
 
 /** FR004-08: a NIP-46 signer with the pool and the guard its requests go through. */
@@ -244,6 +252,8 @@ export class SovereignClient {
   private readonly sessions = new Map<string, Session>();
   /** Each store is opened (scrypt) once per client: FR006-07 reads the ledger of every persona before a new use. */
   private readonly stores = new Map<string, Promise<EncryptedStore>>();
+  /** FR013-05: each persona's event cache, opened (read and decrypted) once per client. */
+  private readonly caches = new Map<string, Promise<EventCache>>();
 
   constructor(private readonly opts: SovereignOptions) {}
 
@@ -263,6 +273,49 @@ export class SovereignClient {
       this.manager = new IdentityManager(account, (id) => this.openStore(join(this.opts.dataDir, 'personas', id)));
     }
     return this.manager;
+  }
+
+  /** The persona's own encrypted store (its compartment directory); an unknown persona fails before anything is created. */
+  private async personaStore(personaId: string): Promise<EncryptedStore> {
+    await (await this.identities()).get(personaId);
+    return this.openStore(join(this.opts.dataDir, 'personas', personaId));
+  }
+
+  /** FR013-05: the persona's event cache, in its store; undefined when the client has it off. Opening it touches no network. */
+  private eventCache(personaId: string): Promise<EventCache | undefined> {
+    const opts = this.opts.eventCache;
+    if (opts === false) return Promise.resolve(undefined);
+    let cache = this.caches.get(personaId);
+    if (!cache) {
+      cache = this.personaStore(personaId).then((store) => EventCache.open(store, opts ?? {}));
+      cache.catch(() => this.caches.delete(personaId));
+      this.caches.set(personaId, cache);
+    }
+    return cache;
+  }
+
+  private async requireCache(personaId: string): Promise<EventCache> {
+    const cache = await this.eventCache(personaId);
+    if (!cache) throw new Error('la caché local de eventos está desactivada (SOVEREIGN_CACHE=off): sin conexión no hay nada guardado que leer');
+    return cache;
+  }
+
+  /** FR013-05: what the persona's event cache holds, and its cursors (per relay and filter, when its last complete sync began). */
+  async cacheStatus(personaId: string): Promise<{ stats: CacheStats; cursors: CacheCursor[] }> {
+    const cache = await this.requireCache(personaId);
+    return { stats: cache.stats(), cursors: cache.cursors() };
+  }
+
+  /**
+   * FR013-05: deletes the persona's event cache from this device (events, cursors, deletion records), whether or not the
+   * client has the cache on and whether or not it still decrypts. The rest of the persona stays.
+   */
+  async clearCache(personaId: string): Promise<void> {
+    const store = await this.personaStore(personaId);
+    const open = this.caches.get(personaId);
+    this.caches.delete(personaId);
+    await open?.then((c) => c.clear(), () => undefined);
+    await EventCache.destroy(store);
   }
 
   /**
@@ -577,26 +630,44 @@ export class SovereignClient {
    * FR-013: rebuild channels and DMs from the persona's relays (NIP-77 where supported, REQ windows
    * otherwise) and reconcile the outbox restored from the backup against what the relays store.
    * `since` (seconds) limits the sync to what changed after the last sync; omit it for a full rebuild.
+   * FR013-05: with the event cache (the default), omitting `since` resumes each relay from its cursor, NIP-77 starts
+   * from what that relay already served, and what arrives stays in the cache; `full` asks every relay for everything
+   * again. The channels and DMs returned are what the cache holds for them plus what arrived now.
    */
-  async syncHistory(personaId: string, opts: { since?: number; channels?: string[] } = {}): Promise<HistorySyncResult> {
+  async syncHistory(personaId: string, opts: { since?: number; channels?: string[]; full?: boolean } = {}): Promise<HistorySyncResult> {
     const s = await this.session(personaId);
     // FR011-04: reconcile after the retry of what was pending (started when the persona opened), not during it.
     await s.resumed;
-    const now = Math.floor(Date.now() / 1000);
-    const since = opts.since ?? 0;
-    // Full rebuild: one paginated window; incremental: weekly windows back to `since`. The NIP-11
-    // lookup of NIP-77 support goes through the guard (Tor/allowlist), never the global fetch.
-    const window = new FilterWindowSync(s.pool, { since, windowSeconds: opts.since === undefined ? now + 1 : 7 * 24 * 3600, pageLimit: 500 });
-    const history = await rebuildHistory({ relays: s.persona.relays, pubkey: s.persona.pubkey, since: opts.since, channels: opts.channels, strategies: [new NegentropySync(s.pool, { fetch: s.guard.fetchApi() }), window], signer: s.signer });
+    const cache = await this.eventCache(personaId);
+    // The NIP-11 lookup of NIP-77 support goes through the guard (Tor/allowlist), never the global fetch. With the cache,
+    // every page and batch must end with the relay's EOSE, or that relay's cursor does not move.
+    const negentropy = new NegentropySync(s.pool, { fetch: s.guard.fetchApi(), ...(cache ? { local: (relay, f) => cache.localSet(f, relay), known: (id) => cache.get(id), requireEose: true } : {}) });
+    // Full rebuild: one paginated window; incremental (a `since`, or a relay resuming from its cursor): weekly windows.
+    const strategiesFrom = (since?: number) => [
+      negentropy,
+      new FilterWindowSync(s.pool, { since: since ?? 0, windowSeconds: since === undefined ? Math.floor(Date.now() / 1000) + 1 : 7 * 24 * 3600, pageLimit: 500, requireEose: !!cache }),
+    ];
+    const history = await rebuildHistory({
+      relays: s.persona.relays,
+      pubkey: s.persona.pubkey,
+      since: opts.since,
+      channels: opts.channels,
+      strategies: strategiesFrom,
+      signer: s.signer,
+      ...(cache ? { cache: { store: cache, mode: opts.full ? ('full' as const) : ('resume' as const) } } : {}),
+    });
     const reconciler = new DeliveryEngine({ store: s.store.collection<OutboxRecord>('outbox'), publisher: s.pool, lookup: seenLookup(history.seenOn) });
     await reconciler.reconcile();
     const strategies = Object.fromEntries(Object.entries(history.reports.dms.perRelay).map(([relay, r]) => [relay, r.strategy]));
-    return { channels: history.channels, dms: history.dms, outbox: await s.engine.list(), strategies, history };
+    return { channels: history.channels, dms: history.dms, outbox: await s.engine.list(), strategies, history, ...(cache ? { cache: cache.stats() } : {}) };
   }
 
-  /** NFR008-02: the persona's history (own activity, channels, gift wraps) as JSONL of signed events. */
+  /**
+   * NFR008-02: the persona's history (own activity, channels, gift wraps) as JSONL of signed events. FR013-05: it asks
+   * every relay for everything (a `full` sync), so the export does not depend on what the cache's limits kept.
+   */
   async exportHistory(personaId: string, opts: { since?: number } = {}): Promise<string> {
-    const { history } = await this.syncHistory(personaId, opts);
+    const { history } = await this.syncHistory(personaId, { ...opts, full: true });
     return exportEventsJsonl([...history.own, ...Object.values(history.channels).flat(), ...history.wraps]);
   }
 
@@ -651,9 +722,27 @@ export class SovereignClient {
     this.opts.onConfirmedReuse?.(warnings);
   }
 
-  async readChannel(personaId: string, groupId: string, limit = 50): Promise<NostrEvent[]> {
+  /**
+   * The newest events of a channel. FR013-05: `offline` answers from the persona's event cache without opening the
+   * persona (no connection, no wait, and nothing pending is retried); online, what the relays answer is kept there.
+   */
+  async readChannel(personaId: string, groupId: string, limit = 50, opts: { offline?: boolean } = {}): Promise<NostrEvent[]> {
+    const filter = { ...channelFilter(groupId), limit };
+    if (opts.offline) return (await this.requireCache(personaId)).query(filter);
     const s = await this.session(personaId);
-    return s.pool.query(s.persona.relays, [{ ...channelFilter(groupId), limit }], readTimeoutMs(s.persona));
+    const events = await s.pool.query(s.persona.relays, [filter], readTimeoutMs(s.persona));
+    await this.keep(personaId, events);
+    return events;
+  }
+
+  /** FR013-05: keeps what an online read brought in the event cache. A cache that fails never fails the read. */
+  private async keep(personaId: string, events: NostrEvent[]): Promise<void> {
+    if (events.length === 0) return;
+    try {
+      await (await this.eventCache(personaId))?.put(events);
+    } catch {
+      /* the cache is a copy: `cache clear` starts it again */
+    }
   }
 
   /**
@@ -691,8 +780,15 @@ export class SovereignClient {
    */
   private dmInbox(s: Session, handlers: DmWatchHandlers = {}): DmInbox<OutboxRecord> {
     const allow = (urls: string[]) => s.guard.allowHosts(urls.map((u) => new URL(u).hostname));
+    // FR013-05: the gift wraps addressed to the persona that a read brings stay in its event cache, still encrypted.
+    const forMe = (e: NostrEvent) => e.kind === GIFT_WRAP_KIND && e.tags.some((t) => t[0] === 'p' && t[1] === s.persona.pubkey);
     const pool: InboxPool = {
-      query: (urls, filters, timeoutMs) => (allow(urls), s.pool.query(urls, filters, timeoutMs)),
+      query: async (urls, filters, timeoutMs) => {
+        allow(urls);
+        const events = await s.pool.query(urls, filters, timeoutMs);
+        await this.keep(s.persona.id, events.filter(forMe));
+        return events;
+      },
       subscribe: (urls, filters, o) => (allow(urls), s.pool.subscribe(urls, filters, o)),
     };
     return new DmInbox(s.signer, {
@@ -709,10 +805,39 @@ export class SovereignClient {
     });
   }
 
-  /** Reads the persona's DM relays once; `onReceipt` reports the receipts that advanced its DMs. */
-  async inbox(personaId: string, handlers: DmWatchHandlers = {}): Promise<DirectMessage[]> {
+  /**
+   * Reads the persona's DM relays once; `onReceipt` reports the receipts that advanced its DMs. FR013-05: `offline`
+   * opens the gift wraps in its event cache instead (see `cachedDms`).
+   */
+  async inbox(personaId: string, handlers: DmWatchHandlers = {}, opts: { offline?: boolean } = {}): Promise<DirectMessage[]> {
+    if (opts.offline) return this.cachedDms(personaId);
     const s = await this.session(personaId);
     return this.dmInbox(s, handlers).sync(readTimeoutMs(s.persona));
+  }
+
+  /**
+   * FR013-05: the DMs among the gift wraps of the persona's event cache, opened on this device with its key, without
+   * opening the persona: no connection, no wait, no receipt sent or applied. A persona whose key lives in a NIP-46 signer
+   * cannot open them offline: only the signer, over the network, can.
+   */
+  private async cachedDms(personaId: string): Promise<DirectMessage[]> {
+    const mgr = await this.identities();
+    const persona = await mgr.get(personaId);
+    if (persona.custody === 'external') throw new Error('sin conexión no se pueden abrir los DMs de esta persona: su llave está en un signer NIP-46, al que solo se llega por la red');
+    const cache = await this.requireCache(personaId);
+    const signer = await mgr.unlock(personaId, this.opts.passphrase);
+    const dms = new Map<string, DirectMessage>();
+    for (const wrap of cache.query(dmInboxFilter(persona.pubkey))) {
+      let m: DirectMessage;
+      try {
+        m = await openDirectMessage(signer, wrap);
+      } catch {
+        continue; // not for this persona, or damaged: history sync skips them too
+      }
+      // As the online inbox: messages and files, not receipts.
+      if ((m.rumor.kind === DM_KIND || m.rumor.kind === FILE_MESSAGE_KIND) && !dms.has(m.rumor.id)) dms.set(m.rumor.id, m);
+    }
+    return [...dms.values()].sort((a, b) => a.rumor.created_at - b.rumor.created_at || (a.rumor.id < b.rumor.id ? -1 : 1));
   }
 
   /** FR009-03: keeps reading the persona's DM relays as messages and receipts arrive. Returns the stop function. */
