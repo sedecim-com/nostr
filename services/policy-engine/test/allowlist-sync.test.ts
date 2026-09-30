@@ -182,6 +182,30 @@ describe('admission by h: publish grants per channel and group (FR023-10)', () =
     expect(await post(outsider, [channel])).toEqual([2, 'restricted: pubkey not in the institutional allowlist']);
   });
 
+  it('never runs two syncs at once, even when one outlasts the interval', async () => {
+    let running = 0;
+    let max = 0;
+    let calls = 0;
+    const slow = new AllowlistSync({
+      fetch: async () => [],
+      fetchGrants: async () => [],
+      onGrants: async () => {
+        calls++;
+        max = Math.max(max, ++running);
+        await new Promise((r) => setTimeout(r, 60));
+        running--;
+      },
+      sinks: [],
+      intervalMs: 10,
+    });
+    slow.start();
+    await new Promise((r) => setTimeout(r, 250));
+    slow.stop();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(max).toBe(1);
+  });
+
   it('follows the policy at the next sync; a failed grants fetch keeps the last ones', async () => {
     await engine.upsertResource(admin, { id: channel, kind: 'channel', sensitivity: 'internal', members: [ana, beto], rules: [{ actions: ['read', 'publish'], anyRole: ['staff'] }] });
     await sync.syncOnce();

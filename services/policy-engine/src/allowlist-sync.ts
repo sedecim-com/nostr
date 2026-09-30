@@ -317,8 +317,13 @@ export class AllowlistSync {
   }
 
   start() {
-    void this.syncOnce();
-    this.timer = setInterval(() => void this.syncOnce(), this.opts.intervalMs ?? 30_000);
+    // FR023-10: a sync that outlasts the interval (NIP-29 membership changes on Buzz) is never overlapped by the next.
+    let running: Promise<unknown> | undefined;
+    const tick = () => {
+      running ??= this.syncOnce().finally(() => (running = undefined));
+    };
+    tick();
+    this.timer = setInterval(tick, this.opts.intervalMs ?? 30_000);
     this.timer.unref?.();
   }
 
