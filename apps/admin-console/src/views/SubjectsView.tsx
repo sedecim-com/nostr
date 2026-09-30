@@ -76,7 +76,7 @@ export function SubjectsView({ api }: { api: PolicyAdminApi }) {
           Nueva persona
         </Button>
       </Stack>
-      <Typography variant="body2" color="text.secondary">
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
         Sujetos del modo institucional: npubs con roles y atributos que la organización decide asignar.
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}

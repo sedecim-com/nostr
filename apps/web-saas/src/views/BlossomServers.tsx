@@ -59,7 +59,7 @@ export function BlossomServers() {
           <Typography variant="h6" component="h2" id="blossom-servers-h">
             Servidores de archivos (Blossom)
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
             Tu lista pública de servidores (kind 10063): los adjuntos se suben al primero que los acepte y otros clientes buscan ahí tus archivos si el enlace falla. Cada servidor ve tu IP, el tamaño y la hora de cada archivo; los adjuntos de mensajes directos se cifran antes de subirlos.
           </Typography>
           <TextField id="blossom-servers" label="Servidores (uno por línea, el primero es el principal)" multiline minRows={2} value={text} onChange={(e) => setText(e.target.value)} disabled={!loaded} placeholder="https://blossom.example" />

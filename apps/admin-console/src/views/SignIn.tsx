@@ -54,7 +54,7 @@ export function SignIn({ cfg, onSignedIn }: { cfg: AdminConfig; onSignedIn(s: Ad
             <Typography variant="h5" component="h1">
               Consola de administración
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               Entra con tu identidad Nostr de administrador. Cada petición al policy-engine va firmada con NIP-98; la consola no guarda tu llave.
             </Typography>
             {error && (
@@ -78,7 +78,7 @@ export function SignIn({ cfg, onSignedIn }: { cfg: AdminConfig; onSignedIn(s: Ad
               Entrar con extensión NIP-07
             </Button>
             {!nip07 && (
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                 No se detectó ninguna extensión NIP-07.
               </Typography>
             )}

@@ -17,7 +17,7 @@ export const MANAGED_DISCLOSURE = disclose({ ...preset('convenience'), custody: 
 export function ManagedOptIn({ accepted, onChange, terms }: { accepted: boolean; onChange(v: boolean): void; terms?: { url: string; version: string } }) {
   return (
     <Stack spacing={1}>
-      <Stack direction="row" spacing={1} alignItems="center" id="managed-maturity">
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }} id="managed-maturity">
         <Typography variant="body2">Custodia gestionada:</Typography>
         <MaturityChip id="managed-custody" />
       </Stack>
@@ -36,7 +36,7 @@ export function ManagedOptIn({ accepted, onChange, terms }: { accepted: boolean;
         </Alert>
       )}
       <FormControlLabel control={<Checkbox id="managed-consent" checked={accepted} onChange={(e) => onChange(e.target.checked)} />} label={MANAGED_CONSENT_TEXTS.accept} />
-      <Typography variant="caption" color="text.secondary" id="managed-consent-version">
+      <Typography variant="caption" sx={{ color: 'text.secondary' }} id="managed-consent-version">
         Tu aceptación queda registrada con su versión: {managedConsentVersion(terms?.version)}.
       </Typography>
     </Stack>
@@ -306,7 +306,7 @@ export function ManagedActivity() {
               Cerrar las demás sesiones
             </Button>
           </Box>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             Cerrar una sesión corta la firma en ese navegador hasta que vuelva a entrar con tu login de Acceso. Si perdiste un dispositivo, cambia también tu contraseña de Acceso.
           </Typography>
           {ws.cfg.organizationDevices && (
@@ -320,7 +320,7 @@ export function ManagedActivity() {
                 </Typography>
               ) : (
                 <>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                     Tu organización registra cada dispositivo. Vincula este navegador al suyo para que, si lo pierdes y lo revoca, deje de poder firmar.
                   </Typography>
                   <Stack

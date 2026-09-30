@@ -57,7 +57,7 @@ export function ResourcesView({ api }: { api: PolicyAdminApi }) {
           Nuevo recurso
         </Button>
       </Stack>
-      <Typography variant="body2" color="text.secondary">
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
         Denegar por defecto: una acción solo se permite si alguna regla la concede. Desde «confidencial», además, hace falta clearance suficiente y un dispositivo registrado.
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}

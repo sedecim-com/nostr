@@ -323,7 +323,7 @@ export function GroupsView() {
         </Alert>
       )}
       {!gs && !openError && (
-        <Stack direction="row" spacing={1} alignItems="center" role="status">
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }} role="status">
           <CircularProgress size={20} aria-label="Preparando MLS" />
           <Typography variant="body2">Preparando MLS y verificando la implementación…</Typography>
         </Stack>
@@ -342,7 +342,7 @@ export function GroupsView() {
                 <Typography variant="body2" id="groups-kp-status" role="status">
                   {kp === 'published' ? 'Key package publicado: otros pueden invitarte.' : kp === 'missing' ? 'Sin key package publicado: nadie puede invitarte todavía.' : 'Comprobando tu key package…'}
                 </Typography>
-                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
                   <Button id="groups-keypackage" variant="outlined" disabled={busy} onClick={() => void publishKeyPackage()}>
                     {kp === 'published' ? 'Renovar key package' : 'Publicar key package'}
                   </Button>
@@ -391,7 +391,7 @@ export function GroupsView() {
             <Card id="group-detail" aria-labelledby="group-detail-h">
               <CardContent>
                 <Stack spacing={2}>
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
                     <Typography variant="h6" component="h2" id="group-detail-h">
                       {current.name || 'Grupo sin nombre'}
                     </Typography>
@@ -503,7 +503,7 @@ export function GroupsView() {
                     ))}
                   </List>
                   {!removed && !current.restored && (
-                    <Stack component="form" id="group-send" direction="row" spacing={1} alignItems="flex-start" onSubmit={send}>
+                    <Stack component="form" id="group-send" direction="row" spacing={1} sx={{ alignItems: 'flex-start' }} onSubmit={send}>
                       <TextField id="group-text" label="Mensaje al grupo" value={text} onChange={(e) => setText(e.target.value)} fullWidth required />
                       <Button type="submit" variant="contained" disabled={busy || !text.trim()}>
                         Enviar

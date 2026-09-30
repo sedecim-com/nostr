@@ -209,7 +209,7 @@ export function PersonasView() {
             )}
           </CardActions>
           <CardContent sx={{ pt: 0 }}>
-            <Typography variant="body2" color="text.secondary" id="backup-facts">
+            <Typography variant="body2" sx={{ color: 'text.secondary' }} id="backup-facts">
               {session.persona.custody === 'local'
                 ? 'El backup lleva tu llave y la llave de archivo del Continuity Vault, cifradas con la contraseña del backup.'
                 : 'Tu llave vive en tu signer, así que este backup solo lleva la llave de archivo del Continuity Vault, cifrada con la contraseña del backup.'}
@@ -217,7 +217,7 @@ export function PersonasView() {
           </CardContent>
           {cloudAllowed && (
             <CardContent sx={{ pt: 0 }}>
-              <Typography variant="body2" color="text.secondary" id="cloud-backup-facts">
+              <Typography variant="body2" sx={{ color: 'text.secondary' }} id="cloud-backup-facts">
                 La copia en la nube se cifra en este navegador con la contraseña del backup (NIP-49). El servidor guarda el texto cifrado y tu npub, pero no recibe la contraseña: si la olvidas, el operador no puede recuperar la copia.
               </Typography>
             </CardContent>
@@ -245,7 +245,7 @@ export function PersonasView() {
             <Typography variant="h6" component="h2">
               Nueva persona
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               Cada persona es una identidad Nostr separada, con sus relays, su outbox y su configuración de privacidad.
             </Typography>
             <TextField id="persona-label" label="Nombre visible solo para ti" value={label} onChange={(e) => setLabel(e.target.value)} required />

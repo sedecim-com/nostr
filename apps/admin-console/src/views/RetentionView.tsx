@@ -68,7 +68,7 @@ export function RetentionView({ api }: { api: PolicyAdminApi }) {
                 <TableRow key={p.resourceId} data-retention={p.resourceId} data-group="true">
                   <TableCell>{p.resourceId}</TableCell>
                   <TableCell colSpan={3}>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                       No aplica (grupo MLS): {GROUP_NOTE}
                     </Typography>
                   </TableCell>

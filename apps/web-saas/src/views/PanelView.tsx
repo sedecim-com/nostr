@@ -52,10 +52,10 @@ export function PanelView() {
                 </MenuItem>
               ))}
             </TextField>
-            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap id="panel-maturity">
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap id="panel-maturity">
               <Typography variant="body2">Madurez de esta configuración:</Typography>
               <MaturityChip level={maturityNow.level} why={maturityNow.parts[0]!.why} />
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                 {maturityNow.parts
                   .filter((p) => p.level === maturityNow.level)
                   .map((p) => `${p.name}: ${p.why}`)

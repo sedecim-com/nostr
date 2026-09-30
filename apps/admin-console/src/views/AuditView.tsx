@@ -49,7 +49,7 @@ export function AuditView({ api }: { api: PolicyAdminApi }) {
       <Typography variant="h5" component="h2">
         Auditoría
       </Typography>
-      <Typography variant="body2" color="text.secondary">
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
         Registro del policy-engine, del más reciente al más antiguo. Nunca incluye contenido de mensajes.
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}

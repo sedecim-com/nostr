@@ -14,7 +14,7 @@ export function QrCode({ text, label, size = 220 }: { text: string; label: strin
     return { d: path, n: m.length + 8 };
   }, [text]);
   return (
-    <Box component="svg" role="img" aria-label={label} viewBox={`0 0 ${n} ${n}`} width={size} height={size} sx={{ bgcolor: '#fff', borderRadius: 1 }} shapeRendering="crispEdges">
+    <Box component="svg" role="img" aria-label={label} viewBox={`0 0 ${n} ${n}`} sx={{ width: size, height: size, bgcolor: '#fff', borderRadius: 1 }} shapeRendering="crispEdges">
       <rect width={n} height={n} fill="#fff" />
       <path d={d} fill="#000" />
     </Box>

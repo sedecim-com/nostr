@@ -113,7 +113,7 @@ export function NotificationsControl() {
           {MODE_TEXT[availability.policy.mode]} El aviso dice solo «Tienes actividad nueva»: no incluye contenido, remitente ni número de mensajes. El servicio push del navegador ve cuándo llega un aviso y el gateway de notificaciones sabe qué npub vigila para este navegador.
         </Typography>
         {watch && watch.watchable.length < session.persona.relays.length && (
-          <Typography id="notifications-partial" variant="body2" color="text.secondary">
+          <Typography id="notifications-partial" variant="body2" sx={{ color: 'text.secondary' }}>
             {partialText(watch)}
           </Typography>
         )}
@@ -125,7 +125,7 @@ export function NotificationsControl() {
     <Card id="notifications-control">
       <CardContent>
         <Stack spacing={1}>
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <Typography variant="h6" component="h2">
               Notificaciones
             </Typography>

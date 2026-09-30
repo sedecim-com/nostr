@@ -92,7 +92,7 @@ export function LinkPersonas() {
           {visibility === 'public' && (
             <Stack spacing={1}>
               <FormControlLabel control={<Checkbox id="link-publish-nostr" checked={publishNostr && !nostrRefusal} disabled={!!nostrRefusal} onChange={(e) => setPublishNostr(e.target.checked)} />} label="Además, publicar el vínculo en Nostr como evento firmado por ambas personas (opcional)" />
-              {nostrRefusal && <Typography variant="body2" color="text.secondary">{nostrRefusal}</Typography>}
+              {nostrRefusal && <Typography variant="body2" sx={{ color: 'text.secondary' }}>{nostrRefusal}</Typography>}
             </Stack>
           )}
           <Button variant="outlined" onClick={() => setConfirming(true)} disabled={!target}>

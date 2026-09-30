@@ -27,7 +27,7 @@ export function RotationsView({ api }: { api: PolicyAdminApi }) {
       <Typography variant="h5" component="h2">
         Rotaciones pendientes
       </Typography>
-      <Typography variant="body2" color="text.secondary">
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
         Cada fila es un grupo MLS del que salió un miembro o dispositivo. Un administrador del grupo debe publicar un commit que lo elimine; márcala como hecha solo después.
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}

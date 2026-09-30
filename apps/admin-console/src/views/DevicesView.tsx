@@ -80,7 +80,7 @@ export function DevicesView({ api }: { api: PolicyAdminApi }) {
       <Typography variant="h5" component="h2">
         Dispositivos
       </Typography>
-      <Typography variant="body2" color="text.secondary">
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
         Revocar un dispositivo invalida sus sesiones; si la persona pertenece a grupos MLS, cada grupo queda pendiente de rotación de clave.
       </Typography>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -114,7 +114,7 @@ export function DevicesView({ api }: { api: PolicyAdminApi }) {
               Registrar dispositivo
             </Button>
             {!webauthnAvailable() && (
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                 Este navegador no admite passkeys.
               </Typography>
             )}
