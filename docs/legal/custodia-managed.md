@@ -29,18 +29,26 @@ contenido en claro en memoria mientras lo procesa.
 
 ## 4. Tus derechos (ARCO)
 Puedes acceder, rectificar, cancelar u oponerte al tratamiento escribiendo a [contacto de privacidad de
-Sedecim]. Cancelar implica borrar la llave. Pasados 30 días no se puede recuperar, así que exporta un
-respaldo antes.
+Sedecim]. La cancelación también la puedes hacer tú desde la aplicación (sección 6). Cancelar implica borrar la
+llave: deja de firmar en ese momento y, pasados 30 días, se destruye y no se puede recuperar, así que exporta un
+respaldo antes. Al destruirse la llave se borran también el identificador de tu cuenta de Acceso y la versión de
+los textos que aceptaste; el log de uso se conserva hasta cumplir sus 12 meses.
 
 ## 5. Transferencias
 AWS actúa como encargado del tratamiento (infraestructura) en EE. UU. No se transfieren datos a
 terceros con fines distintos.
 
 ## 6. Salida del modo managed
+Para seguir usando tu identidad con tu propia llave (migración a custodia local):
 1. Exporta tu llave desde la aplicación.
 2. La aplicación comprueba que la tienes: firma un reto con la llave exportada.
 3. Confirma el borrado.
 4. El material cifrado se destruye a los 30 días.
+
+Para dejar la custodia sin migrar (cancelación):
+1. Descarga el respaldo cifrado de tu llave con una contraseña que elijas. La aplicación comprueba que es tu llave.
+2. Confirma escribiendo el final de tu npub. La llave deja de firmar en todos tus dispositivos.
+3. Mientras dura la ventana de 30 días, la aplicación te muestra la fecha en que se destruirá. Después se destruye.
 
 ## Consentimiento
 La aplicación muestra, antes de crear la llave, los textos revisados de `docs/disclosures.md` (custodia managed y

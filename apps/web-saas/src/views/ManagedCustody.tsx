@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Link, List, ListItem, ListItemText, Radio, RadioGroup, Stack, Step, StepLabel, Stepper, TextField, Typography } from '@mui/material';
 import { disclose, MANAGED_CONSENT_TEXTS, managedConsentVersion, preset } from '@sedecim/profiles';
-import { ManagedSignerClient, type ManagedDeviceSession, type ManagedKeyInfo, type ManagedKeyUsage } from '@sedecim/signer';
-import { managedConnection, migrateManagedToLocal, shortNpub } from '../lib/session';
+import { npubEncode } from '@sedecim/nostr-core';
+import { ManagedSignerClient, type ClosedManagedKey, type ManagedDeviceSession, type ManagedKeyInfo, type ManagedKeyUsage } from '@sedecim/signer';
+import { cancelManagedCustody, managedCancellationBackup, managedConnection, managedExitBackupJson, migrateManagedToLocal, shortNpub } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
 import { MaturityChip } from './MaturityChip';
 
@@ -45,6 +46,15 @@ export function ManagedOptIn({ accepted, onChange, terms }: { accepted: boolean;
 
 const STEPS = ['Exportar', 'Verificar posesión', 'Borrar la copia gestionada'];
 
+/** Offers a JSON file to save (the browser's own download). */
+function download(json: string, name: string) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 /** FR026-03: managed → local, step by step, with verification before anything is deleted. */
 export function MigrationWizard() {
   const ws = useWorkspace();
@@ -81,14 +91,12 @@ export function MigrationWizard() {
       ws.notify('La llave ya está en este navegador y la posesión quedó verificada', 'success');
     });
 
-  const saveBackup = () => {
-    if (!ncryptsec) return ws.notify('El backup de la migración ya no está en memoria: usa "Descargar backup cifrado (NIP-49)" de la persona.', 'info');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify({ format: 'acceso-nostr-key-backup', version: 1, ncryptsec }, null, 2)], { type: 'application/json' }));
-    a.download = 'acceso-nostr-backup-migrada.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+  const saveBackup = () =>
+    run(async () => {
+      if (!ncryptsec) return ws.notify('El backup de la migración ya no está en memoria: usa "Descargar backup cifrado (NIP-49)" de la persona.', 'info');
+      // FR026-04: with its npub, so the restore flows accept the file.
+      download(await managedExitBackupJson(s.persona, ncryptsec), 'acceso-nostr-backup-migrada.json');
+    });
 
   const deleteManaged = () =>
     run(async () => {
@@ -129,7 +137,7 @@ export function MigrationWizard() {
             <>
               <Alert severity="success">Tu llave ya vive en este navegador. Guarda el backup antes de borrar la copia gestionada.</Alert>
               <Box>
-                <Button onClick={saveBackup}>Descargar backup cifrado</Button>
+                <Button onClick={() => void saveBackup()}>Descargar backup cifrado</Button>
               </Box>
               <Alert severity="warning">Borrar la copia gestionada es definitivo: el material cifrado se destruye tras la ventana de retención (30 días).</Alert>
               <Box>
@@ -144,6 +152,145 @@ export function MigrationWizard() {
         </Stack>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * FR026-04: leaving managed custody without migrating (ARCO cancellation, docs/legal/custodia-managed.md §4). First the
+ * backup, checked against this persona's npub; then the confirmation with the end of the npub. The key stops signing
+ * everywhere at once and its material is destroyed after the retention window.
+ */
+export function CancelCustody() {
+  const ws = useWorkspace();
+  const s = ws.session!;
+  const npub = npubEncode(s.persona.pubkey);
+  const [password, setPassword] = useState('');
+  const [downloaded, setDownloaded] = useState(false);
+  const [kept, setKept] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [client] = useState(() => new ManagedSignerClient({ ...managedConnection(ws.managedEnv), keyId: s.persona.managedKeyId! }));
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveBackup = () =>
+    run(async () => {
+      const json = await managedCancellationBackup(s.persona, client, password);
+      setPassword('');
+      download(json, 'acceso-nostr-backup-cancelacion.json');
+      setDownloaded(true);
+    });
+  const cancel = () =>
+    run(async () => {
+      const { destroyAfter } = await cancelManagedCustody(ws.book, s.persona, client, typed);
+      ws.notify(`Custodia gestionada cancelada: la llave ya no firma y su material cifrado se destruye el ${new Date(destroyAfter).toLocaleDateString()}.`, 'success');
+      await ws.reloadPersonas();
+      const rest = await ws.book.list();
+      if (rest[0]) await ws.selectPersona(rest[0].id);
+      else window.location.reload();
+    });
+
+  return (
+    <Card id="cancel-custody">
+      <CardContent>
+        <Stack spacing={2}>
+          <Typography variant="h6" component="h2">
+            Cancelar la custodia gestionada sin migrar
+          </Typography>
+          <Typography variant="body2">
+            Borra tu llave de la plataforma sin pasarla a este navegador. Deja de firmar en todos tus dispositivos en cuanto confirmes, y su material cifrado se destruye pasada la ventana de retención (30 días). Después no se puede recuperar desde la plataforma.
+          </Typography>
+          <Typography variant="subtitle1" component="h3">
+            1. Descarga tu respaldo
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            La plataforma te entrega tu llave cifrada con esta contraseña y este navegador comprueba que es la de {shortNpub(s.persona.pubkey)}. Con el archivo y la contraseña puedes volver a usar esta identidad como llave local.
+          </Typography>
+          <TextField id="cancel-pass" label="Contraseña del respaldo (mínimo 12 caracteres)" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Box>
+            <Button id="cancel-backup" variant="outlined" onClick={() => void saveBackup()} disabled={busy || password.length < 12}>
+              {downloaded ? 'Descargar otra vez' : 'Descargar el respaldo cifrado'}
+            </Button>
+          </Box>
+          <FormControlLabel control={<Checkbox id="cancel-kept" checked={kept} disabled={!downloaded} onChange={(e) => setKept(e.target.checked)} />} label="Guardé el archivo y recuerdo su contraseña" />
+          <Typography variant="subtitle1" component="h3">
+            2. Confirma con el final de tu npub
+          </Typography>
+          <TextField
+            id="cancel-confirm"
+            label={`Escribe los últimos 8 caracteres: …${npub.slice(-8)}`}
+            value={typed}
+            disabled={!downloaded || !kept}
+            onChange={(e) => setTyped(e.target.value)}
+            slotProps={{ htmlInput: { autoComplete: 'off', spellCheck: false } }}
+          />
+          <Box>
+            <Button id="cancel-custody-confirm" color="error" variant="contained" onClick={() => void cancel()} disabled={busy || !downloaded || !kept || typed.trim() !== npub.slice(-8)}>
+              Cancelar la custodia y borrar la llave
+            </Button>
+          </Box>
+          {error && <Alert severity="error">{error}</Alert>}
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * FR026-04: the keys this Acceso login took out of managed custody, and when the material of each one is destroyed. A
+ * destroyed key is no longer tied to the account, so it stops appearing.
+ */
+export function ClosedManagedKeys() {
+  const ws = useWorkspace();
+  const [keys, setKeys] = useState<ClosedManagedKey[] | undefined>();
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      setKeys(await ManagedSignerClient.closedKeys(managedConnection(ws.managedEnv)));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Stack spacing={1} id="closed-managed-keys">
+      <Typography variant="subtitle1" component="h3">
+        Llaves gestionadas en eliminación
+      </Typography>
+      <Box>
+        <Button id="closed-managed-keys-load" variant="outlined" onClick={() => void load()} disabled={busy}>
+          Ver el estado de eliminación
+        </Button>
+      </Box>
+      {keys && keys.length === 0 && <Alert severity="info">No hay llaves gestionadas pendientes de destrucción en tu cuenta.</Alert>}
+      {keys && keys.length > 0 && (
+        <List dense>
+          {keys.map((k) => (
+            <ListItem key={k.keyId}>
+              <ListItemText
+                primary={`${shortNpub(k.pubkey)} · ${k.exit === 'cancelled' ? 'custodia cancelada' : 'migrada a tu custodia'} el ${new Date(k.deletedAt).toLocaleDateString()}`}
+                secondary={`Ya no firma. Su material cifrado se destruye el ${new Date(k.destroyAfter).toLocaleDateString()}; después no queda nada que la ligue a tu cuenta.`}
+              />
+            </ListItem>
+          ))}
+        </List>
+      )}
+      {error && <Alert severity="error">{error}</Alert>}
+    </Stack>
   );
 }
 
@@ -203,6 +350,7 @@ const USAGE_LABELS: Record<string, string> = {
   export: 'Exportación',
   'migration-confirmed': 'Migración confirmada',
   deleted: 'Llave borrada',
+  cancelled: 'Custodia cancelada sin migrar',
   destroyed: 'Material destruido',
   'rate-limited': 'Firma rechazada por el límite de ritmo',
 };

@@ -3,6 +3,7 @@ import {
   generateSecretKey,
   getPublicKey,
   getTagValue,
+  nip19,
   nip49,
   selfTestKey,
   verifyEvent,
@@ -14,7 +15,7 @@ import {
 import { LocalSigner } from '@sedecim/signer';
 import type { Vault } from './vault';
 import type { SealedKeyOps } from './enclave/client';
-import { MemoryKeyRegistry, PubkeyAlreadyManagedError, type KeyRecord, type KeyRegistry, type UsageRecord } from './registry';
+import { MemoryKeyRegistry, PubkeyAlreadyManagedError, type KeyExit, type KeyRecord, type KeyRegistry, type UsageRecord } from './registry';
 import { MemoryDeviceStore, type DeviceRevocation, type DeviceStore } from './devices';
 import { DEFAULT_RATE_LIMITS, DEFAULT_SCRYPT_LIMITS, ScryptGate, SigningRateLimiter, type RateLimitConfig, type ScryptLimitConfig } from './ratelimit';
 import { SignerMetrics, type SignerOp } from './metrics';
@@ -41,6 +42,18 @@ export class RateLimitedError extends ManagedSignerError {
     super(429, `rate limit exceeded (${scope}): retry after ${retryAfterSeconds}s`);
   }
 }
+
+/** FR026-04: a key on its way out of managed custody, as its owner sees it until the material is destroyed. */
+export interface ClosedKeyView {
+  keyId: string;
+  pubkey: string;
+  exit: KeyExit;
+  deletedAt: number;
+  /** When the retention window ends and the material is destroyed (DEC-09). */
+  destroyAfter: number;
+}
+
+const retentionEnd = (k: KeyRecord) => (k.deletedAt ?? 0) + k.retentionDays * 86_400_000;
 
 /** Who performs an operation: the audited principal and, for device sessions, the device (FR024-03). */
 export interface Actor {
@@ -414,12 +427,52 @@ export class ManagedSigner {
   async delete(keyId: string, owner: string, principal: string): Promise<{ destroyAfter: number }> {
     const k = await this.key(keyId, owner);
     if (k.state !== 'migrated') throw new ManagedSignerError(409, 'delete requires a verified migration first');
-    if (this.vault.schedulesDeletion) await this.vault.delete(keyId);
+    return this.close(k, 'migrated', principal);
+  }
+
+  /**
+   * FR026-04: cancels managed custody without migrating (ARCO cancellation, docs/legal/custodia-managed.md §4). The
+   * caller confirms with the npub of the key, so a stray call cannot cancel the wrong one; the client offers the
+   * encrypted backup first. Like delete(): unusable at once, material destroyed after the retention window. A
+   * migrated key is deleted with delete().
+   */
+  async cancel(keyId: string, owner: string, principal: string, confirm: unknown): Promise<{ destroyAfter: number }> {
+    const k = await this.key(keyId, owner);
+    if (k.state === 'migrated') throw new ManagedSignerError(409, 'key already migrated: delete the managed copy instead');
+    if (confirm !== nip19.npubEncode(k.pubkey)) throw new ManagedSignerError(400, 'confirm must be the npub of the key to cancel');
+    return this.close(k, 'cancelled', principal);
+  }
+
+  /**
+   * FR026-04: the operator closes an owner's managed custody (an ARCO cancellation received through the privacy
+   * contact, or a closed Acceso account): every live key of the owner leaves as if its owner had cancelled it (a
+   * migrated one, as a deletion of the managed copy).
+   */
+  async closeOwner(owner: string, principal: string): Promise<Array<{ keyId: string; destroyAfter: number }>> {
+    const closed: Array<{ keyId: string; destroyAfter: number }> = [];
+    for (const k of await this.registry.listByOwner(owner)) {
+      closed.push({ keyId: k.keyId, ...(await this.close(k, k.state === 'migrated' ? 'migrated' : 'cancelled', principal)) });
+    }
+    return closed;
+  }
+
+  /** FR026-04: the owner's keys on their way out and when each one is destroyed; a destroyed key is no longer tied to it. */
+  async closed(owner: string): Promise<ClosedKeyView[]> {
+    return (await this.registry.listClosedByOwner(owner))
+      .filter((k) => k.destroyedAt === undefined)
+      .map((k) => ({ keyId: k.keyId, pubkey: k.pubkey, exit: k.exit ?? 'migrated', deletedAt: k.deletedAt ?? 0, destroyAfter: retentionEnd(k) }));
+  }
+
+  /** Takes a key out of managed custody: unusable from now on, material destroyed after the retention window. */
+  private async close(k: KeyRecord, exit: KeyExit, principal: string): Promise<{ destroyAfter: number }> {
+    if (this.vault.schedulesDeletion) await this.vault.delete(k.keyId);
     k.state = 'deleted';
+    k.exit = exit;
     k.deletedAt = this.now();
+    delete k.migrationChallenge;
     await this.registry.save(k);
-    await this.record({ keyId, action: 'deleted', principal });
-    return { destroyAfter: k.deletedAt + k.retentionDays * 86_400_000 };
+    await this.record({ keyId: k.keyId, action: exit === 'cancelled' ? 'cancelled' : 'deleted', principal });
+    return { destroyAfter: retentionEnd(k) };
   }
 
   async usageOf(keyId: string, owner: string): Promise<UsageRecord[]> {
@@ -429,9 +482,10 @@ export class ManagedSigner {
 
   /**
    * Retention job (DEC-09): purges usage rows older than the usage retention (12 months) and destroys the
-   * material of deleted keys whose retention window is over. Idempotent; run it periodically.
+   * material of deleted keys whose retention window is over. A destroyed key no longer exists, so it also clears
+   * what tied it to its owner: the owner and the recorded consent (FR026-04). Idempotent; run it periodically.
    */
-  async runRetention(): Promise<{ usagePurged: number; keysDestroyed: number; sessionsPurged: number }> {
+  async runRetention(): Promise<{ usagePurged: number; keysDestroyed: number; keysScrubbed: number; sessionsPurged: number }> {
     const now = this.now();
     const sessionsPurged = await this.devices.purgeExpiredSessions(now);
     const cutoff = new Date(now);
@@ -445,6 +499,11 @@ export class ManagedSigner {
       await this.record({ keyId: k.keyId, action: 'destroyed', principal: 'retention-job' });
       keysDestroyed++;
     }
-    return { usagePurged, keysDestroyed, sessionsPurged };
+    let keysScrubbed = 0;
+    for (const k of await this.registry.pendingScrub()) {
+      await this.registry.scrub(k.keyId, now);
+      keysScrubbed++;
+    }
+    return { usagePurged, keysDestroyed, keysScrubbed, sessionsPurged };
   }
 }
