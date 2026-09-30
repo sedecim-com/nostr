@@ -22,6 +22,8 @@ function kustomizeImage(kustomization: string, name: string) {
   return m ? `${m[1]}@${m[2]}` : undefined;
 }
 const composeDefault = (variable: string) => new RegExp(`\\$\\{${variable}:-([^}]+)\\}`).exec(compose)?.[1];
+/** Compose names its images `name:tag@digest` (the tag is for Dependabot); Kubernetes and the mirror use the digest. */
+const untagged = (image: string | undefined) => image?.replace(/:[^/:@]+@/, '@');
 
 describe('deploy/k8s pins (same images as docker-compose.yml)', () => {
   it('Buzz is pinned by the digest of infra/buzz/PIN', () => {
@@ -31,8 +33,8 @@ describe('deploy/k8s pins (same images as docker-compose.yml)', () => {
   });
 
   it('SeaweedFS and the secure relay use the compose digests', () => {
-    expect(kustomizeImage(base, 'seaweedfs')).toBe(composeDefault('SEAWEEDFS_IMAGE'));
-    expect(kustomizeImage(base, 'secure-relay')).toBe(composeDefault('SECURE_RELAY_IMAGE'));
+    expect(kustomizeImage(base, 'seaweedfs')).toBe(untagged(composeDefault('SEAWEEDFS_IMAGE')));
+    expect(kustomizeImage(base, 'secure-relay')).toBe(untagged(composeDefault('SECURE_RELAY_IMAGE')));
   });
 
   it('the ECR mirror copies exactly the pinned digests', () => {

@@ -10,7 +10,7 @@ tests:
     input_series:
       - series: 'probe_success{job="slo-probes",service="indexer",instance="http://indexer:8081/health"}'
         values: '1x120 0x40'
-      - series: 'probe_success{job="slo-probes",service="relay",instance="http://relay:8080/_readiness"}'
+      - series: 'probe_success{job="slo-probes",service="relay",instance="http://relay:8080/_status"}'
         values: '1x160'
       - series: 'up{job="blackbox-exporter"}'
         values: '1x160'

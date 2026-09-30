@@ -9,6 +9,17 @@ modules:
       valid_status_codes: [200]
       follow_redirects: false
       preferred_ip_protocol: ip4
+  # Buzz /_status on its health port. Since 8519db1, /_readiness only says the process is up; whether Postgres and
+  # Redis answer is on /_status, from the relay's own sample (fresh, not cached from a stale run).
+  http_buzz_status:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      fail_if_body_not_matches_regexp: ['"postgres":true', '"redis":true', '"sample":"fresh"']
+      follow_redirects: false
+      preferred_ip_protocol: ip4
   # Nostr relay information document (NIP-11), same check as scripts/wait-stack.sh.
   http_nip11:
     prober: http

@@ -11,11 +11,14 @@
 
 **Disponibilidad = fracción de sondas exitosas.** El blackbox exporter consulta cada 30 s el mismo
 endpoint de salud que usan los healthchecks de compose y las probes de Kubernetes. Una sonda es exitosa si
-responde 200 en menos de 5 s (y, para relays, si el documento NIP-11 tiene `name`).
+responde 200 en menos de 5 s (y, para relays, si el documento NIP-11 tiene `name`). Buzz es la excepción:
+compose y Kubernetes miran `/_readiness`, que desde el pin 8519db1 solo dice que el proceso está arriba, y la
+sonda mira `/_status`. Esta exige que Postgres y Redis respondan según la última muestra del relay y que esa
+muestra sea reciente (`"sample":"fresh"`).
 
 | Servicio (`service`) | Endpoint sondeado | Qué significa "disponible" |
 |---|---|---|
-| `relay` | `http://relay:8080/_readiness` | Buzz listo: base de datos, Redis y almacenamiento accesibles |
+| `relay` | `http://relay:8080/_status` | Buzz arriba, con Postgres y Redis accesibles en una muestra reciente |
 | `secure-relay` | `http://secure-relay:8080/` (NIP-11) | Relay de grupos Marmot aceptando conexiones |
 | `indexer` | `http://indexer:8081/health` | Mirror respondiendo con su base de datos |
 | `identity-service` | `http://identity-service:8082/health` | API de identidad |
@@ -157,8 +160,9 @@ Manager (`k8s/<env>/acceso-nostr`), nunca en el repositorio.
 
 1. Abrir el dashboard **Acceso Nostr · SLO de disponibilidad** (Grafana, `kubectl -n acceso-nostr
    port-forward svc/grafana 3000`) y ver qué servicio y desde cuándo.
-2. `kubectl -n acceso-nostr get pods` y `kubectl -n acceso-nostr logs deploy/<servicio>`; para Buzz, además
-   `buzz_readiness_state` y `sli:buzz_http_errors:ratio_rate5m`.
+2. `kubectl -n acceso-nostr get pods` y `kubectl -n acceso-nostr logs deploy/<servicio>`. Para Buzz, además, el
+   bloque `dependencies` de `/_status` en el puerto de salud (qué dependencia falla y desde cuándo) y
+   `sli:buzz_http_errors:ratio_rate5m`. `buzz_readiness_state` ya solo refleja el ciclo de vida del proceso.
 3. Si hay pérdida de datos, seguir [`runbooks/restore.md`](runbooks/restore.md) con los objetivos de
    [`rpo-rto.md`](rpo-rto.md).
 4. **Presupuesto agotado:** congelar despliegues no urgentes del servicio hasta recuperar margen y revisar

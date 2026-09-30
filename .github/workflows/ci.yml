@@ -164,8 +164,12 @@ jobs:
           SECURE_RELAY_CONFIG=./infra/secure-relay/config.institutional.toml docker compose --profile institutional config -q
           DOMAIN=example.org sh scripts/render-tls-config.sh
           DOMAIN=example.org ACME_EMAIL=ops@example.org docker compose -f docker-compose.yml -f compose.tls.yml config -q
+      # With the Caddy image of compose.tls.yml, so a bump of that image is validated too.
       - name: Validate Caddyfile
-        run: docker run --rm -e DOMAIN=example.org -e ACME_EMAIL=ops@example.org -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+        run: |
+          caddy_image=$(sed -n 's/^ *image: *\(caddy[:@][^ ]*\).*/\1/p' compose.tls.yml)
+          test -n "$caddy_image"
+          docker run --rm -e DOMAIN=example.org -e ACME_EMAIL=ops@example.org -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" "$caddy_image" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
   # NFR001-01 / NFR001-02: Kubernetes manifests, Terraform module and SLO rules are valid (no cluster, no AWS).
   deploy-config:
