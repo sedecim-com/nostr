@@ -47,7 +47,7 @@ describe('sovereign client: size of group media (FR018-06)', () => {
 
       const err = await client.groupSendFile(alice.id, group.groupId, { data: new Uint8Array(MAX_ATTACHMENT_BYTES.group + 1), filename: 'grande.bin', mimeType: 'application/octet-stream' }).catch((e: Error) => e);
       expect(err).toBeInstanceOf(AttachmentTooLargeError);
-      expect((err as Error).message).toBe('El archivo pesa 25,0 MB y los archivos de los grupos seguros pueden pesar como mucho 25,0 MB.');
+      expect((err as Error).message).toBe('El archivo pesa 25,1 MB y los archivos de los grupos seguros pueden pesar como mucho 25,0 MB.');
       expect(relay.received.length).toBe(received);
       expect(blobs.blobs.size).toBe(uploaded);
 

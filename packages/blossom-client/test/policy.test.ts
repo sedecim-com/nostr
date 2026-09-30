@@ -9,10 +9,11 @@ import { AttachmentTooLargeError, BlossomClient, checkAttachmentSize, fetchHttpC
 /** FR018-06: what one attachment may weigh is checked in the client, before it is read and when it is downloaded. */
 
 const MiB = 1024 * 1024;
+const MB = 1_000_000;
 
 describe('attachment size policy (FR018-06)', () => {
   it('FR018-06: every flow has a limit, and the ones the servers cap are lower than the servers\' caps', () => {
-    expect(MAX_ATTACHMENT_BYTES).toEqual({ dm: 25 * MiB, group: 25 * MiB, channelImage: 10 * MiB, avatar: 1_000_000 });
+    expect(MAX_ATTACHMENT_BYTES).toEqual({ dm: 25 * MB, group: 25 * MB, channelImage: 10 * MB, avatar: MB });
     // blob-store takes 50 MiB by default (BLOB_MAX_BYTES): an upload the client accepts fits, with what encryption adds.
     expect(Math.max(...Object.values(MAX_ATTACHMENT_BYTES))).toBeLessThan(50 * MiB);
     expect(MAX_DOWNLOAD_BYTES).toBeGreaterThan(MAX_ATTACHMENT_BYTES.dm);
@@ -33,8 +34,10 @@ describe('attachment size policy (FR018-06)', () => {
       expect(err).toBeInstanceOf(AttachmentTooLargeError);
       expect(err).toMatchObject({ flow, size: limit + 1, limit });
     }
-    expect(() => checkAttachmentSize('dm', 31.2 * MiB)).toThrow('El archivo pesa 31,2 MB y los adjuntos de mensajes directos pueden pesar como mucho 25,0 MB.');
-    expect(() => checkAttachmentSize('channelImage', 11 * MiB)).toThrow(/las imágenes de los canales pueden pesar como mucho 10,0 MB/);
+    expect(() => checkAttachmentSize('dm', 31.2 * MB)).toThrow('El archivo pesa 31,2 MB y los adjuntos de mensajes directos pueden pesar como mucho 25,0 MB.');
+    // One byte over reads as over, not as equal.
+    expect(() => checkAttachmentSize('avatar', MB + 1)).toThrow('El archivo pesa 1,1 MB y los avatares de los perfiles pueden pesar como mucho 1,0 MB.');
+    expect(() => checkAttachmentSize('channelImage', 11 * MB)).toThrow(/las imágenes de los canales pueden pesar como mucho 10,0 MB/);
   });
 
   it('FR018-06: prepareBlob refuses an oversize file before sanitizing, hashing or encrypting it (25 MB by default, 10 MB for a channel image)', () => {
@@ -46,7 +49,7 @@ describe('attachment size policy (FR018-06)', () => {
     expect(() => prepareBlob(at(MAX_ATTACHMENT_BYTES.channelImage + 1), { sanitize: false, flow: 'channelImage' })).toThrow(/las imágenes de los canales/);
     // The same size goes where the limit is higher.
     expect(prepareBlob(at(MAX_ATTACHMENT_BYTES.channelImage + 1), { sanitize: false, flow: 'dm' }).data.length).toBe(MAX_ATTACHMENT_BYTES.channelImage + 1);
-    expect(() => prepareBlob(at(MAX_ATTACHMENT_BYTES.avatar + 1), { flow: 'avatar' })).toThrow(/el avatar del perfil/);
+    expect(() => prepareBlob(at(MAX_ATTACHMENT_BYTES.avatar + 1), { flow: 'avatar' })).toThrow(/los avatares de los perfiles/);
   });
 
   describe('downloads', () => {

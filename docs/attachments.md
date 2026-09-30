@@ -16,9 +16,9 @@ nada, sin preguntar por la reutilización del archivo entre personas (FR006-07),
 | Adjunto de un mensaje directo (cifrado en el cliente) | 25 MB | web (`DmView`), `prepareBlob` |
 | Media de un grupo seguro (MIP-04, cifrada) | 25 MB | CLI (`group send-file`, antes de leer el archivo y de nuevo al enviarlo) |
 | Imagen de un canal (en claro para sus miembros y el operador) | 10 MB | web (`ChannelsView`), `prepareBlob` |
-| Avatar del perfil público | 1 MB | web (FR006-04) |
+| Avatar del perfil público | 1 MB | web (`Profile`, antes de leer el archivo, y `uploadAvatar`) |
 
-1 MB son 1 048 576 bytes (el avatar, 1 000 000). Los límites están en `packages/blossom-client/src/policy.ts`
+1 MB son 1 000 000 bytes (los que ve el usuario). Los límites están en `packages/blossom-client/src/policy.ts`
 (`MAX_ATTACHMENT_BYTES`) y `prepareBlob` los aplica a cualquier archivo que prepara (por defecto, el de mensajes
 directos) aunque quien lo llame no haya comprobado antes.
 
