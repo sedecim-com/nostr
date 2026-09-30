@@ -5,3 +5,7 @@ node_modules
 **/dist
 apps/web-saas/public/app.js*
 .env
+# FR020-06: no local stores or secrets from anywhere in the tree (a CLI run from a package directory leaves its
+# .data there): the images copy packages/, services/ and apps/.
+**/.data
+**/.env
