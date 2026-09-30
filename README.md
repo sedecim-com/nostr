@@ -46,7 +46,7 @@ Cada fila tiene el nivel de evidencia más bajo que alcanzan todas sus tareas de
 | institutional | Perfil | Merged | 14 de 14 | — |
 | sovereign (self-hosted) | Perfil | En curso | 9 de 10 | NFR003-03 (S11), NFR003-04 (Diferido) |
 | sovereign-tor | Perfil | Merged | 7 de 7 | FR020-02 (Diferido), FR020-06 (Diferido) |
-| Identidad, personas y custodia en el dispositivo | Capacidad | En curso | 27 de 30 | FR003-06 (S9), FR003-07 (S9), FR004-08 (Diferido), FR007-06 (S10) |
+| Identidad, personas y custodia en el dispositivo | Capacidad | En curso | 27 de 30 | FR003-06 (S9), FR003-07 (S9), FR007-06 (S10) |
 | Custodia gestionada y Nitro Enclave | Capacidad | En curso | 13 de 16 | FR005-05 (S14), FR026-04 (S11), FR005-13 (S11), FR005-09 (Diferido), FR005-10 (Diferido) |
 | Entrega fiable (outbox, quorum, acuses) | Capacidad | En curso | 19 de 20 | NFR002-03 (S11) |
 | DMs NIP-17 y canales NIP-29 | Capacidad | Merged | 8 de 8 | — |
@@ -103,8 +103,11 @@ git clone <repo> && cd nostr
 sh scripts/init-env.sh        # genera o completa .env sin sobrescribir valores (tras `npm ci`, llaves del keygen offline)
 docker compose up -d          # relay Buzz, postgres, redis, SeaweedFS (S3), indexer, identity, policy, blob-store, continuity-vault, secure-relay, web
 docker compose --profile tor up -d       # + Tor SOCKS y relay .onion
+docker compose run --rm sovereign persona list   # el CLI soberano en un contenedor que solo sale por tor:9050
 docker compose --profile managed up -d   # + managed signer (CUSTODIAL, opt-in; requiere Acceso: COGNITO_*)
 ```
+El CLI como servicio del perfil `tor`, con la passphrase en un fichero secreto (`SOVEREIGN_PASSPHRASE_FILE`), sus
+backups y qué pasa si tor cae: [docs/sovereign-tor.md](docs/sovereign-tor.md#el-cli-como-servicio-del-perfil-tor-fr020-06).
 Web: http://localhost:8080 · Consola de administración: http://localhost:8080/admin/ · Relay: ws://localhost:3000 · Indexer: http://localhost:8081
 
 `scripts/init-env.sh` rellena solo las claves vacías o `CHANGE_ME` y nunca sobrescribe un valor, así que se puede
@@ -175,7 +178,11 @@ npm run sovereign -- group history --persona <id>   # mensajes de grupo leídos,
 npm run sovereign -- dm send --persona <id> --to NPUB "hola"  # a los relays de DM (10050) del destinatario, como la web
 npm run sovereign -- dm watch --persona <id>    # DMs y acuses según llegan a tus relays de DM (Ctrl-C para salir)
 npm run sovereign -- persona create --label Fuente --relay ws://<onion>.onion --onion-only   # solo Tor y .onion
+npm run sovereign -- persona import --key-file llave.txt --npub npub1… --label Fuente --relay ws://<onion>.onion --tor   # nsec o ncryptsec: custodia local
+npm run sovereign -- persona connect --bunker-file bunker.txt --label Fuente --relay ws://<onion>.onion --tor   # signer NIP-46 por Tor: custodia external
 ```
+Custodia de cada persona según su llave real, signer NIP-46 (`bunker://` o `nostrconnect://`) por Tor y qué ve cada
+parte: [docs/sovereign-tor.md](docs/sovereign-tor.md#custodia-llave-en-el-dispositivo-o-signer-nip-46-fr004-08).
 
 ## Pruebas
 | Comando | Qué cubre |

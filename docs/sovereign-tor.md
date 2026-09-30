@@ -60,6 +60,58 @@ Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-c
   (también con `sovereign whoami`).
 - Telemetría `none`: cero llamadas externas.
 
+## Custodia: llave en el dispositivo o signer NIP-46 (FR004-08)
+
+La especificación (§14) pide para este modo una llave offline o un signer. El CLI declara la custodia de la llave
+real, nunca el `offline` del preset, que describiría una llave air-gapped:
+
+| Cómo se crea la persona | Custodia declarada | Dónde está la llave |
+|---|---|---|
+| `persona create`, `persona import --backup`, `persona import --key-file` | `local` | En este dispositivo, cifrada (NIP-49) dentro del almacén de la persona, que abre `SOVEREIGN_PASSPHRASE` |
+| `persona connect` (`bunker://` o `nostrconnect://`) | `external` | En el signer NIP-46; este dispositivo solo guarda una llave de cliente que el signer autorizó |
+
+`whoami`, el aviso antes de cada envío y `disclose` muestran esa custodia. En Tor-only, una llave `local` añade el
+aviso `TOR_DEVICE_KEY`: quien comprometa el dispositivo y consiga la passphrase puede firmar como tú.
+
+```bash
+# Una llave que ya tienes: nsec o ncryptsec (NIP-49) en un archivo, nunca en la línea de comandos
+npm run sovereign -- persona import --key-file llave.txt --npub npub1… --label Fuente --relay ws://<onion>.onion --tor
+#   (ncryptsec: su contraseña con --password-file FILE o SOVEREIGN_BACKUP_PASSWORD)
+# Un signer NIP-46: la URL bunker:// en un archivo, porque puede llevar el secreto del signer
+npm run sovereign -- persona connect --bunker-file bunker.txt --label Fuente --relay ws://<onion>.onion --tor --npub npub1…
+# ... o una oferta nostrconnect:// que el CLI imprime para pegarla o escanearla en el signer
+npm run sovereign -- persona connect --nostrconnect --signer-relay ws://<onion>.onion --label Fuente --relay ws://<onion>.onion --tor
+# Emparejar de nuevo este dispositivo: tras `backup restore` o si el signer lo revocó
+npm run sovereign -- persona connect --persona <id> --bunker-file bunker.txt
+```
+
+- **La llave importada debe ser la de `--npub`**, o no se crea nada. Una ncryptsec que pide un coste de scrypt
+  mayor que 2^20 se rechaza antes de ejecutar scrypt.
+- **Permisos mínimos.** Antes de conectar, el CLI lista lo que pide al signer: NIP-44 y firmar solo los kinds que
+  firma (`SOVEREIGN_NIP46_PERMISSIONS`: 9, 13, 9021, 10050, 22242, 24242, 27235 y 30443). Un test recorre los caminos
+  de firma del CLI (canales, DMs, grupos Marmot con key package, invitaciones y mensajes, media, NIP-42 y NIP-98)
+  contra un bunker que solo permite esos kinds, y comprueba la lista en los dos sentidos. Con `--npub`, un signer que
+  tenga otra llave se rechaza; al emparejar de nuevo, siempre.
+- **El tráfico del signer, por Tor.** Las peticiones NIP-46 (kind 24133) solo van a los relays del signer, por SOCKS
+  con las credenciales de la persona, como el resto de su tráfico. Durante `persona connect` la persona aún no
+  existe: ese intercambio usa credenciales propias que ninguna persona usa. Con `--onion-only`, los relays del signer
+  también tienen que ser `.onion`, y se comprueba antes de conectar. En esos relays, NIP-42 autentica la llave de
+  cliente, nunca la de la persona.
+- **Falla cerrado.** Sin Tor no se conecta con el signer ni se firma nada: `persona connect` no crea la persona y un
+  envío falla con «No enviado: red de privacidad no disponible». Un mensaje de canal queda guardado y, con Tor de
+  vuelta, se firma y se publica en el siguiente comando que abra la persona (también `sovereign resume`). Un DM se
+  reintenta con `--op`, que el CLI imprime antes de enviar.
+- **Qué ve cada parte.** El signer ve lo que firma y los DMs que descifra por la persona (NIP-44). El relay del signer
+  ve eventos cifrados entre la llave de cliente y el signer, y cuándo; por Tor, no la IP. Si el signer pide aprobación
+  en una página (auth_url), el CLI la muestra sin abrirla: en una persona Tor, ábrela en Tor Browser.
+- **El emparejamiento no viaja en el backup.** La llave de cliente y la dirección del signer (nunca el secreto del
+  bunker) se guardan cifradas en el almacén de la persona. Una persona restaurada no firma hasta emparejarla otra vez,
+  y solo con un signer que tenga su npub.
+
+Tests: `apps/sovereign-client/test/nip46.test.ts` (Tor con un SOCKS que exige credenciales, bunker y
+`nostrconnect://`, Tor caído, onion-only, importación, restauración y el CLI real), `packages/signer/test/signer.test.ts`
+y `packages/profiles/test/profiles.test.ts`.
+
 ## Tests de fugas con captura de red real (FR020-03, FR020-05, FR022-02)
 
 ```bash
@@ -153,6 +205,100 @@ Un circuito lento no debe hacerlo fallar (OPS-21):
   (`secure.inbox.log.N`, `buzz.inbox.log.N`) y lo que tardó.
 - En Tor, el CLI da 30 s a cada lectura.
 - Si el challenge NIP-42 llega después de pedir los gift wraps, el relay-pool se autentica y vuelve a pedirlos.
+
+## El CLI como servicio del perfil `tor` (FR020-06)
+
+El CLI soberano sin instalarlo en el host: `docker compose run --rm sovereign …` lo ejecuta en un contenedor de un solo
+uso del perfil `tor` (ejecutar el servicio activa su perfil), que solo llega al puerto SOCKS del servicio `tor`:
+`TOR_SOCKS=tor:9050`.
+
+```bash
+sh scripts/init-env.sh                                     # si todavía no hay .env
+docker compose --profile tor up -d                         # relays, tor y sus onion services
+docker compose --profile tor logs tor | grep Bootstrapped  # espera a «Bootstrapped 100%»
+ONION=$(docker compose --profile tor exec -T tor cat /var/lib/tor/secure-relay/hostname)
+# La passphrase de los almacenes, en un fichero: 644 dentro de un directorio 700, porque el usuario del contenedor no
+# es el tuyo y tiene que poder leerlo, y otro usuario del host no puede entrar en el directorio.
+install -d -m 700 ~/.config/sedecim
+(umask 022; IFS= read -rsp 'Passphrase: ' p; echo; printf '%s\n' "$p" > ~/.config/sedecim/sovereign-passphrase)
+export SOVEREIGN_PASSPHRASE_FILE=~/.config/sedecim/sovereign-passphrase   # la ruta del fichero, no la passphrase
+docker compose run --rm sovereign persona create --label Fuente --relay "ws://$ONION" --tor
+docker compose run --rm sovereign channel send --persona <id> --group <h> "texto"
+docker compose run --rm sovereign channel read --persona <id> --group <h>
+```
+
+`SOVEREIGN_PASSPHRASE_FILE` también la lee el CLI en el host (`npm run sovereign`): si está definida, es la única fuente
+de la passphrase y el CLI no mira `SOVEREIGN_PASSPHRASE`.
+
+Qué es el servicio `sovereign` de `docker-compose.yml`:
+
+- **Una orden y termina.** Sin comando muestra la madurez de cada perfil, sin abrir ningún almacén: es lo que hace una
+  vez `docker compose --profile tor up`. Nada lo reinicia, y un proceso init le pasa las señales (Ctrl-C).
+- **La red.** Su única red, `tor-socks`, es interna y solo la comparte con `tor`, que en ella solo escucha el SOCKS. Lo
+  que envía una persona Tor sale por ese SOCKS con las credenciales de la persona (circuitos separados,
+  `IsolateSOCKSAuth`). No tiene DNS ni hosts propios ni publica puertos. Desde dentro del contenedor, el job
+  `tor-profile` comprueba que `tor` resuelve y su puerto 9050 responde, y que no llega a lo demás que prueba: ni a
+  otros servicios del compose (`relay`, `secure-relay`, `secure-relay-onion` y `postgres` no resuelven), ni a un
+  nombre externo por DNS, ni a una IP pública. Una persona sin `--tor` no tiene por dónde salir desde este contenedor.
+- **Sin privilegios.** Usuario `app`, no root. Sin capacidades, con `no-new-privileges` y la raíz de solo lectura:
+  sus datos van a su volumen y los temporales a `/tmp` (tmpfs).
+- **Los secretos, como ficheros.** Llegan de solo lectura:
+  - la passphrase, en `/run/secrets/sovereign_passphrase`: el fichero que nombra `SOVEREIGN_PASSPHRASE_FILE` en el host;
+  - la contraseña de los backups, en `/run/secrets/sovereign_backup_password` (`SOVEREIGN_BACKUP_PASSWORD_FILE`).
+
+  Ninguna es una variable del contenedor ni de la imagen, que solo lleva la ruta del primero. Sin
+  `SOVEREIGN_PASSPHRASE_FILE`, el secreto es `/dev/null` y el CLI responde `empty passphrase file`. El fichero está en
+  claro en el disco del host: fuera del repositorio y de los backups del stack.
+- **La imagen:** el target `sovereign` del `Dockerfile`, con la base fijada por digest. Lleva el cierre de dependencias
+  de producción del CLI que lista npm, tsx incluido, y los paquetes del workspace sin sus tests. No lleva servicios, ni
+  la web, ni lo que solo necesitan el desarrollo u otros workspaces, ni ningún `.env` o `.data` (`.dockerignore`).
+- **El estado** vive en el volumen `sovereign-data`. `docker compose down -v` lo borra, con las llaves que haya dentro.
+- Las variables del CLI que no son secretas (`SOVEREIGN_BLOB_STORE`, `SOVEREIGN_VAULT_URL`,
+  `SOVEREIGN_DISCOVERY_RELAYS`) se pasan con `-e`.
+
+**Backups.** `scripts/backup.sh` no copia `sovereign-data` (docs/runbooks/restore.md). Son las personas de quien usa el
+CLI, selladas con una passphrase que no está en `.env`, y restaurar el stack no debe duplicar un dispositivo. El
+respaldo de cada persona es el del CLI, cifrado con la contraseña de backup (su fichero se crea como el de la
+passphrase). Se escribe en el volumen y sale con `cat`, así el fichero del host es tuyo. Para restaurarlo, el fichero
+se monta de solo lectura y tiene que ser legible por el usuario del contenedor (644):
+
+```bash
+export SOVEREIGN_BACKUP_PASSWORD_FILE=~/.config/sedecim/sovereign-backup-password
+docker compose run --rm sovereign backup export --persona <id> --out /data/backup.json --password-file /run/secrets/sovereign_backup_password
+docker compose run --rm -T --entrypoint cat sovereign /data/backup.json > backup-<id>.json
+docker compose run --rm --entrypoint rm sovereign /data/backup.json
+docker compose run --rm -v "$PWD/backup-<id>.json:/restore/backup.json:ro" sovereign backup restore /restore/backup.json --password-file /run/secrets/sovereign_backup_password
+```
+
+Una llave (`persona import --key-file`, con `--password-file` si es un ncryptsec) o la URL de un bunker NIP-46
+(`persona connect --bunker-file`) entran igual que ese backup: un fichero montado de solo lectura con `-v`, legible por
+el usuario del contenedor. El CLI no las acepta como argumento ni como variable.
+
+**Si tor cae, falla cerrado.** Una persona Tor no envía nada: el mensaje queda en el outbox con «No enviado: red de
+privacidad no disponible» y sale en el siguiente comando de esa persona con tor disponible (o con `sovereign resume`).
+No hay ruta alternativa: la red `tor-socks` es interna. Para verlo:
+
+```bash
+docker compose --profile tor stop tor
+docker compose run --rm --no-deps sovereign channel send --persona <id> --group <h> "texto"
+# QUEUED — No enviado: red de privacidad no disponible (op …)
+```
+
+Qué lo comprueba:
+
+- `tests/scripts/sovereign-service.test.ts`, sin Docker:
+  - el servicio en `docker-compose.yml` y en el `Dockerfile`;
+  - el CLI con el entorno y los ficheros secretos del servicio, también sin tor;
+  - la selección de ficheros de la imagen, sobre un árbol de prueba;
+  - que las comprobaciones de `scripts/sovereign-sandbox.mjs` fallan con cada configuración que abre el aislamiento.
+- El job `tor-profile` de CI (`scripts/tor-profile-check.sh`), con Docker:
+  - construye la imagen y comprueba el contenedor con `docker inspect` y desde dentro (`scripts/sovereign-sandbox.mjs`);
+  - publica y relee un mensaje en el `.onion` del secure relay por `tor:9050`;
+  - saca un backup cifrado del contenedor y lo restaura desde el fichero;
+  - con `tor` parado, comprueba que el mensaje espera.
+
+Que un nombre externo no resuelva desde una red interna depende del DNS de Docker: el job lo comprueba con el Docker
+del runner de CI, no con el de cada host.
 
 ## Web: WebRTC y previews remotas (SEC-05)
 

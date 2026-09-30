@@ -307,7 +307,7 @@
     "/v1/devices": {
       "get": {
         "operationId": "getV1Devices",
-        "summary": "Dispositivos, todos o los de un dueño (`owner`).",
+        "summary": "Dispositivos, todos o los de un dueño (`owner`): admin, o el propio dueño los suyos (FR023-11).",
         "security": [
           {
             "nip98": []
@@ -423,7 +423,7 @@
     "/v1/devices/{id}/webauthn/options": {
       "post": {
         "operationId": "postV1DevicesByIdWebauthnOptions",
-        "summary": "Opciones para registrar una passkey en el dispositivo (FR023-07).",
+        "summary": "Opciones para registrar una passkey en el dispositivo (FR023-07): un admin, o el dueño para su primera passkey (FR023-11).",
         "parameters": [
           {
             "name": "id",
@@ -469,7 +469,53 @@
     "/v1/devices/{id}/webauthn/register": {
       "post": {
         "operationId": "postV1DevicesByIdWebauthnRegister",
-        "summary": "Verifica la passkey y deja el dispositivo `attested`.",
+        "summary": "Verifica la passkey y deja el dispositivo `attested`; cierra sus sesiones y las que el dueño abrió sin passkey (FR023-11).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "nip98": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices/{id}/webauthn/assert/options": {
+      "post": {
+        "operationId": "postV1DevicesByIdWebauthnAssertOptions",
+        "summary": "Opciones para una aserción de la passkey del dispositivo, con un desafío de un solo uso; solo su dueño (FR023-11).",
         "parameters": [
           {
             "name": "id",
@@ -515,7 +561,7 @@
     "/v1/sessions": {
       "post": {
         "operationId": "postV1Sessions",
-        "summary": "Abre una sesión de política para el dueño que firma (NIP-98).",
+        "summary": "Abre una sesión de política en un dispositivo de quien firma (NIP-98), con la aserción de su passkey (`assertion`) desde que registró una (FR023-11).",
         "security": [
           {
             "nip98": []
