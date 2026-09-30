@@ -10,6 +10,8 @@ export class TestBlossomServer {
   readonly blobs = new Map<string, { data: Uint8Array; type: string; uploader: string }>();
   private server?: Server;
   url = '';
+  /** URL the descriptors name instead of `url` (e.g. an onion reached through a SOCKS stub, FR020-05). */
+  publicUrl?: string;
   /** Corrupt served bytes (to test hash verification). */
   corruptDownloads = false;
   /** Require a BUD-01 `get` authorization for downloads (Buzz /media behaviour). */
@@ -56,7 +58,7 @@ export class TestBlossomServer {
       if (!getTagValues(auth, 'x').includes(hash)) return { status: 403, body: 'hash not authorized', headers: { 'x-reason': 'hash not authorized' } };
       const type = (req.headers['content-type'] as string | undefined) ?? 'application/octet-stream';
       this.blobs.set(hash, { data: body, type, uploader: auth.pubkey });
-      const descriptor = { url: `${this.url}/${hash}`, sha256: hash, size: body.length, type, uploaded: Math.floor(Date.now() / 1000) };
+      const descriptor = { url: `${this.publicUrl ?? this.url}/${hash}`, sha256: hash, size: body.length, type, uploaded: Math.floor(Date.now() / 1000) };
       return { status: 200, body: JSON.stringify(descriptor), headers: { 'content-type': 'application/json' } };
     }
     const m = /^\/([0-9a-f]{64})(\.[a-z0-9]+)?$/.exec(url.pathname);
