@@ -5,7 +5,7 @@
  * decoded or rejected with an Error, without crashes or hangs, and verification must never pass on a
  * tampered document.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { generateKeyPairSync } from 'node:crypto';
 import {
@@ -19,12 +19,14 @@ import {
   decryptEnvelopedData,
   encodeCbor,
   encryptEnvelopedData,
+  openSealedSecret,
+  SealedSecretError,
   simulatedPcrs,
   verifyAttestation,
   type CborValue,
 } from '@sedecim/managed-signer';
 import { decodeOid, derChildren, int, octets, oid, parseDer, seq, set, utf8 } from '../../services/managed-signer/src/enclave/der';
-import { NitroAttestationError, verifyNitroAttestation } from '@sedecim/signer';
+import { NitroAttestationError, sealToEnclave, toBase64Url, verifyNitroAttestation } from '@sedecim/signer';
 import { runs, throwsCleanly } from './arbitraries';
 
 const { value: cborValue } = fc.letrec((tie) => ({
@@ -221,6 +223,42 @@ describe('Nitro attestation verification (fuzz)', () => {
         expect(v.portable).toBe(v.node);
       }),
       runs(1000),
+    );
+  });
+});
+
+describe('secrets sealed to the enclave (fuzz)', () => {
+  const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const spki = new Uint8Array(rsa.publicKey.export({ type: 'spki', format: 'der' }));
+  const tag = 'ab'.repeat(32);
+  const open = (s: unknown) => openSealedSecret(rsa.privateKey, s, 'import', tag, '', Date.now());
+  const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let envelope: string;
+  beforeAll(async () => {
+    envelope = await sealToEnclave(spki, { purpose: 'import', ownerTag: tag, at: Date.now(), ncryptsec: 'ncryptsec1qqqq', password: 'contraseña' });
+  });
+
+  it('FR005-10: the fixture opens; random strings and random well-formed parts are refused with SealedSecretError', () => {
+    expect(open(envelope)).toMatchObject({ ncryptsec: 'ncryptsec1qqqq', password: 'contraseña' });
+    const parts = fc
+      .tuple(fc.uint8Array({ minLength: 1, maxLength: 300 }), fc.uint8Array({ minLength: 12, maxLength: 12 }), fc.uint8Array({ minLength: 17, maxLength: 200 }))
+      .map(([ek, iv, ct]) => `ae1.${toBase64Url(ek)}.${toBase64Url(iv)}.${toBase64Url(ct)}`);
+    fc.assert(
+      fc.property(fc.oneof(fc.string({ maxLength: 600 }), parts), (s) => {
+        expect(() => open(s)).toThrow(SealedSecretError);
+      }),
+      runs(500),
+    );
+  });
+
+  it('FR005-10: a sealed secret with any one character changed never opens', () => {
+    fc.assert(
+      fc.property(fc.nat(), fc.integer({ min: 0, max: 63 }), (i, c) => {
+        const at = i % envelope.length;
+        if (envelope[at] === ALPHABET[c]) return;
+        expect(() => open(envelope.slice(0, at) + ALPHABET[c] + envelope.slice(at + 1))).toThrow(SealedSecretError);
+      }),
+      runs(300),
     );
   });
 });

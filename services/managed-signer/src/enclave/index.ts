@@ -6,5 +6,6 @@ export * from './enclave';
 export * from './kms';
 export * from './proof';
 export * from './protocol';
+export * from './sealed-secrets';
 export * from './simulated';
 export * from './wiring';
