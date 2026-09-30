@@ -1,8 +1,8 @@
 # Threat model · sovereign-tor (v0.1)
 
 > ⚠️ Según el scope (§2.3), ningún release se recomienda a perfiles de alto riesgo hasta superar una
-> revisión independiente (SEC-01, SEC-02). Los tests de fugas con captura de red real (FR020-03) ya corren en
-> CI, pero son internos y aún no cubren DMs, grupos ni media (FR020-05).
+> revisión independiente (SEC-01, SEC-02). Los tests de fugas con captura de red real (FR020-03, FR020-05)
+> corren en CI y cubren canales, DMs, grupos MLS, media y el worker de rotaciones, pero son internos.
 
 **Configuración:** llave offline o signer, **Tor-only sin fallback clearnet**, relay `.onion`,
 identidad pseudónima, persistencia en el dispositivo, **Marmot/MLS** para grupos, archivos cifrados,
@@ -37,7 +37,7 @@ las conversaciones, identidad de las fuentes.
 | Riesgo | Nivel | Nota |
 |---|---|---|
 | No hay cliente dedicado con Tor embebido | Alto | Hoy es un CLI; la web está bloqueada en este perfil (FR020-02) |
-| Tests de fugas internos e incompletos | Alto | La captura real (netns + tcpdump, job `leak-tests`) cubre crear persona, canales e historial del CLI, con un stub SOCKS local; faltan DMs, grupos, media y el worker (FR020-05) y una revisión independiente |
+| Tests de fugas internos | Alto | La captura real (netns + tcpdump, job `leak-tests`) cubre, con un stub SOCKS local en lugar de Tor, crear persona, canales e historial del CLI (FR020-03), y grupos MLS, media en un Blossom `.onion`, DMs NIP-17 y el worker de rotaciones con dos personas (FR020-05). Falta una revisión independiente |
 | marmot-ts es alpha y no está auditado | Alto | SEC-01 |
 | DMs NIP-17 sin forward secrecy | Medio | La validación avisa; usar Marmot |
 | Jitter de gift wrap reducido a ±5 min por Buzz | Medio | Solo aplica si la persona usa el relay de Buzz; el secure-relay acepta el jitter estándar |

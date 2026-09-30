@@ -5,7 +5,7 @@ los recursos y sus políticas, los dispositivos, las rotaciones de clave MLS, el
 organizacional, la retención y la auditoría. Del **identity-service** solo usa la consulta de vínculos
 visibles, porque ese servicio no tiene rutas de administración: nunca lista cuentas.
 
-Código: `apps/admin-console` (React 19 + MUI 7 + Vite). Cliente tipado del API: `apps/admin-console/src/api.ts`.
+Código: `apps/admin-console` (React 19 + MUI 9 + Vite). Cliente tipado del API: `apps/admin-console/src/api.ts`.
 
 ## Autenticación
 
