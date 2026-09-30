@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { generateSecretKey, getPublicKey, nip98, type EventTemplate, type NostrEvent, type Signer } from '@sedecim/nostr-core';
-import { buildServerList, prepareBlob, uploadToServers, type HttpClient } from '@sedecim/blossom-client';
+import { buildServerList, ciphertextUploader, prepareBlob, uploadToServers, type HttpClient } from '@sedecim/blossom-client';
 import { createPublicLink } from '@sedecim/identity/public-link';
 import { MarmotTsProvider, MemoryGroupNetwork, VolatileGroupStorage, type ExtendedGroupSession } from '@sedecim/marmot-adapter';
 import { buildProfile, chatMessage, createDirectMessage, createFileMessage, createGroup, createReceipt, deleteEvent, joinRequest, publishDmRelayList, replyMessage } from '@sedecim/messaging';
@@ -15,6 +15,7 @@ import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { LocalSigner, WEB_NIP46_PERMISSIONS } from '@sedecim/signer';
 import { TestRelay } from '@sedecim/test-relay';
 import { reactionToggle } from '../src/lib/channels';
+import { addGroupDevices, decideProposals, fetchGroupFile, inviteMembers, missingDevices, pendingProposals, prepareGroupFile, proposeChange, removeGroupDevice, sendGroupFile } from '../src/lib/groups';
 
 /** Stands in for a remote (NIP-46) signer and records every kind it is asked to sign. */
 class RecordingSigner implements Signer {
@@ -95,6 +96,36 @@ describe('NIP-46 permissions of the web (FR004-04, FR004-06)', () => {
     await bob.sync(g.groupId);
     await alice.removeMember(g.groupId, carol.pubkey);
     await bob.sync(g.groupId);
+    // What «Grupos seguros» also does: every device of a persona in one invitation, a member's proposal and the admin's
+    // decision, a rotation, a device removal, a proposal rejected, and a MIP-04 file uploaded to Blossom and opened.
+    const dave = await open(new RecordingSigner(), 'web-dave');
+    await dave.publishKeyPackage(relays);
+    await inviteMembers(alice, g.groupId, [dave.pubkey], relays);
+    await dave.acceptInvites();
+    const bob2 = await open(other, 'web-bob-2');
+    await bob2.publishKeyPackage(relays);
+    await addGroupDevices(bob, g.groupId, await missingDevices(bob, g.groupId, bob.pubkey, relays));
+    await alice.sync(g.groupId);
+    await decideProposals(alice, g.groupId, (await pendingProposals(alice, g.groupId)).map((p) => p.ref));
+    await bob2.acceptInvites();
+    await bob.sync(g.groupId);
+    await bob.rotate(g.groupId);
+    await alice.sync(g.groupId);
+    await removeGroupDevice(alice, g.groupId, (await alice.devices(g.groupId)).find((d) => d.deviceId === 'web-bob-2')!.leafIndex);
+    await bob.sync(g.groupId);
+    await proposeChange(bob, g.groupId, { remove: dave.pubkey }, relays);
+    await alice.sync(g.groupId);
+    await decideProposals(alice, g.groupId, []);
+    await bob.sync(g.groupId);
+    const blobs = new Map<string, Uint8Array>();
+    const blossom: HttpClient = async (_url, init) => {
+      const sha256 = init.headers!['x-sha-256']!;
+      blobs.set(sha256, init.body!);
+      return { status: 200, headers: {}, body: new TextEncoder().encode(JSON.stringify({ sha256, url: `https://blossom.example/${sha256}`, size: init.body!.length, type: 'application/octet-stream', uploaded: 0 })) };
+    };
+    const file = await sendGroupFile(alice, g.groupId, { data: prepareGroupFile(new TextEncoder().encode('acta'), 'text/plain', true), filename: 'acta.txt', type: 'text/plain' }, ciphertextUploader(['https://blossom.example'], me, { http: blossom }));
+    await bob.sync(g.groupId);
+    expect(new TextDecoder().decode((await fetchGroupFile(bob, g.groupId, file.attachment.sha256, async (hash) => blobs.get(hash)!)).data)).toBe('acta');
     await bob.leave(g.groupId);
     await alice.publishKeyPackage(relays);
 
