@@ -33,9 +33,9 @@ Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
 
 | Sprint | Fechas | Fase | Objetivo | Hechas | Abiertas | SP abiertos | P0 abiertas |
 |---|---|---|---|---:|---:|---:|---:|
-| S9 | 2026-09-28 → 2026-10-09 | G0 | Código de la auditoría y v0.1.0 firmada | 23 de 31 | 8 | 15 | 5 |
+| S9 | 2026-09-28 → 2026-10-09 | G0 | Código de la auditoría y v0.1.0 firmada | 23 de 30 | 7 | 14 | 4 |
 | S10 | 2026-10-12 → 2026-10-23 | G1 | Resto del código, vault aprobado y v0.2.0 | 20 de 27 | 7 | 25 | 4 |
-| S11 | 2026-10-26 → 2026-11-06 | G2 | Stage real en AWS | 5 de 14 | 9 | 36 | 6 |
+| S11 | 2026-10-26 → 2026-11-06 | G2 | Stage real en AWS | 5 de 15 | 10 | 37 | 7 |
 | S12 | 2026-11-09 → 2026-11-20 | G3 | Freeze de auditoría y v1.0.0-rc.1 | 0 de 1 | 1 | 3 | 1 |
 | S13 | 2026-11-23 → 2026-12-04 | G4 | Auditoría en campo y aprobación legal | 0 de 3 | 3 | 4 | 0 |
 | S14 | 2026-12-07 → 2026-12-18 | G4 | Informes externos y Nitro en Preview | 0 de 2 | 2 | 16 | 1 |
@@ -51,13 +51,13 @@ Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) Firma de releases y provenance (SLSA/cosign) | S9 | Parcial | OPS-08 |
 | [REL-01](https://github.com/sedecim-com/nostr/issues/196) Checklist de Definition of Done automatizado en el pipeline de release | S9 | Parcial | NFR010-02, NFR003-02, FR020-03, DEC-10, OPS-08 |
 | [REL-02](https://github.com/sedecim-com/nostr/issues/197) Release notes con los cambios de trust model por release | S9 | Parcial | REL-01 |
-| [OPS-12](https://github.com/sedecim-com/nostr/issues/220) Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | S9 | Pendiente | — |
 | [NFR001-01](https://github.com/sedecim-com/nostr/issues/170) Infraestructura como código del SaaS (Helm/Terraform) | S10 | Parcial | OPS-02 |
 | [NFR001-02](https://github.com/sedecim-com/nostr/issues/171) Monitorización de SLO (99,9 % mensual) y alertas | S10 | Parcial | NFR001-01 |
 | [NFR001-03](https://github.com/sedecim-com/nostr/issues/172) Postgres de alta disponibilidad y backups gestionados | S10 | Parcial | NFR001-01 |
 | [VAULT-07](https://github.com/sedecim-com/nostr/issues/239) Threat model y disclosure del Continuity Vault | S10 | Parcial | VAULT-01 |
 | [NFR004-02](https://github.com/sedecim-com/nostr/issues/178) Dashboard de latencia y degradación sin ocultarla | S11 | Parcial | NFR004-01, NFR001-02 |
 | [NFR005-02](https://github.com/sedecim-com/nostr/issues/180) Pruebas de carga del relay y el indexer | S11 | Parcial | NFR005-01, NFR001-01 |
+| [OPS-12](https://github.com/sedecim-com/nostr/issues/220) Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | S11 | Pendiente | — |
 | [NFR003-03](https://github.com/sedecim-com/nostr/issues/251) Simulacro completo de RPO/RTO en stage | S11 | Pendiente | NFR001-03 |
 | [FR026-04](https://github.com/sedecim-com/nostr/issues/253) Salida de la custodia, borrado verificable y derechos ARCO | S11 | Pendiente | FR026-01, FR005-13 |
 | [FR005-13](https://github.com/sedecim-com/nostr/issues/255) KMS y Secrets Manager validados en la cuenta y región reales | S11 | Pendiente | NFR001-01 |
