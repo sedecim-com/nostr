@@ -97,7 +97,7 @@ services:
   # S3-compatible object store for Buzz media. MinIO no longer publishes pullable images, so the
   # stack uses SeaweedFS (Apache-2.0), pinned by digest. Credentials come from .env (alphanumeric).
   seaweedfs:
-    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882} # 4.47
+    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.47@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -124,7 +124,7 @@ services:
     networks: [nostr]
 
   seaweedfs-init:
-    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882}
+    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.47@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882}
     depends_on: { seaweedfs: { condition: service_healthy } }
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -241,7 +241,7 @@ services:
   # Secondary relay for Marmot/MLS groups (kinds 30443/445/10051 are rejected by the pinned Buzz build)
   # and for Sovereign Tor personas via its onion service. NIP-42 required; gift wraps only to recipients.
   secure-relay:
-    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5}
+    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay:0.9.0@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5}
     volumes:
       # Institutional mode: ./infra/secure-relay/config.institutional.toml (event admission by relay-allowlist).
       - ${SECURE_RELAY_CONFIG:-./infra/secure-relay/config.toml}:/usr/src/app/config.toml:ro
@@ -445,7 +445,7 @@ services:
   # hostname Tor publishes. Its own data, as Buzz gives the onion host its own community; no host port.
   secure-relay-onion:
     profiles: [tor]
-    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5}
+    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay:0.9.0@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5}
     entrypoint: ["/bin/sh", "/usr/local/bin/onion-entrypoint.sh"]
     volumes:
       - ${SECURE_RELAY_CONFIG:-./infra/secure-relay/config.toml}:/etc/secure-relay/config.toml:ro

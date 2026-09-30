@@ -47,7 +47,11 @@ gh attestation verify oci://ghcr.io/sedecim-com/nostr-indexer@sha256:<digest> --
 
 - **Acciones** de GitHub fijadas por el SHA de su commit, con la versión en un comentario (Dependabot las sube).
 - **Imágenes** de terceros por digest, con la versión en el tag o en un comentario:
-  - `docker-compose.yml`, `compose.tls.yml` y los servicios de CI;
+  - `docker-compose.yml` y `compose.tls.yml`, como `nombre:tag@sha256:…`. Con solo el digest, Dependabot propone
+    el digest de `latest`: caddy 2.11 bajo la etiqueta 2.10.2 (#344) o una build sin versión de nostr-rs-relay
+    (#345). La excepción es Buzz, que sigue a `infra/buzz/PIN`. El Caddyfile se valida en CI con la imagen de
+    `compose.tls.yml`;
+  - los servicios de CI;
   - `deploy/k8s` y `deploy/monitoring`, en los `images:` de kustomize;
   - `deploy/k8s/scripts/mirror-ecr-deps.sh`, que copia a ECR esos mismos digests.
 - **Herramientas descargadas** en CI (gitleaks, promtool, syft) contrastadas con el sha256 que publica su
