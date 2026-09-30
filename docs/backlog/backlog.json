@@ -336,7 +336,51 @@
      "NFR-009"
     ]
    }
-  ]
+  ],
+  "blockerKinds": {
+   "persona": "falta que una persona apruebe, configure o ejecute algo (aprobar un ADR o un threat model, configurar GitHub, publicar una release)",
+   "aws": "faltan la cuenta, la región o el stage reales de AWS",
+   "externo": "depende de un tercero: auditor externo, asesoría legal, una publicación upstream o un dispositivo de hardware"
+  },
+  "externalBlockers": {
+   "OPS-08": "persona",
+   "NFR010-02": "persona",
+   "FR003-07": "persona",
+   "REL-01": "persona",
+   "REL-02": "persona",
+   "DEC-10": "persona",
+   "VAULT-07": "persona",
+   "DEC-15": "persona",
+   "OPS-14": "persona",
+   "OPS-12": "persona",
+   "SEC-13": "persona",
+   "NFR009-02": "persona",
+   "SEC-11": "persona",
+   "REL-03": "persona",
+   "NFR001-01": "aws",
+   "NFR001-02": "aws",
+   "NFR001-03": "aws",
+   "NFR001-04": "aws",
+   "NFR001-05": "aws",
+   "NFR002-03": "aws",
+   "NFR003-03": "aws",
+   "NFR003-04": "aws",
+   "NFR004-02": "aws",
+   "NFR005-02": "aws",
+   "FR005-13": "aws",
+   "FR026-04": "aws",
+   "SEC-12": "aws",
+   "FR005-05": "aws",
+   "DEC-12": "externo",
+   "FR028-02": "externo",
+   "DEC-11": "externo",
+   "SEC-01": "externo",
+   "SEC-02": "externo",
+   "SEC-08": "externo",
+   "SEC-10": "externo",
+   "FR025-08": "externo",
+   "FR004-07": "externo"
+  }
  },
  "tasks": [
   {
