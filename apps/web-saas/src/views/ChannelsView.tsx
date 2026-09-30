@@ -179,7 +179,7 @@ export function ChannelsView() {
               <Stack component="form" spacing={1} id="channel-send" onSubmit={send}>
                 {blocked && <Alert severity="error">{blocked}</Alert>}
                 <TextField id="channel-text" label="Mensaje" multiline minRows={2} value={text} onChange={(e) => setText(e.target.value)} required={!file} />
-                <Stack direction="row" spacing={1} alignItems="center">
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                   <Button component="label" variant="outlined" disabled={config.files !== 'relay-plain'}>
                     Adjuntar imagen
                     <input hidden type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0])} />

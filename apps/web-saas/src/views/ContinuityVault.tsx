@@ -210,7 +210,7 @@ export function ContinuityVault({ url }: { url: string }) {
           <Typography variant="subtitle2" component="h3">
             Restaurar la llave de archivo
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
             Si abriste esta persona otra vez (por ejemplo, con su signer en un navegador nuevo), elige el backup que descargaste de ella para abrir sus archivos del vault.
           </Typography>
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>

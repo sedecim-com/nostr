@@ -97,12 +97,12 @@ export function DmView() {
         <CardContent>
           <Stack spacing={2}>
             <FormControlLabel control={<Checkbox id="nip17-flag" checked={nip17} disabled={gateRejected} onChange={(e) => setNip17(e.target.checked)} />} label="Habilitar DMs NIP-17 (feature flag)" />
-            <Typography id="nip17-gate" variant="body2" color="text.secondary">
+            <Typography id="nip17-gate" variant="body2" sx={{ color: 'text.secondary' }}>
               {!flags ? 'Sin flags de despliegue (flags.json): NIP-17 queda a criterio de esta sesión.' : flags.nip17.enabled ? `Habilitado por el gate de interoperabilidad contra ${flags.relay} (jitter de gift wrap: ${flags.nip17.timestampJitterSeconds} s).` : `Deshabilitado: el gate de interoperabilidad contra ${flags.relay} no lo aprobó.`}
             </Typography>
             <TextField id="dm-to" label="Destinatario (npub o hex)" value={to} onChange={(e) => setTo(e.target.value)} required />
             <TextField id="dm-text" label="Mensaje" multiline minRows={2} value={text} onChange={(e) => setText(e.target.value)} required={!file} />
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Button component="label" variant="outlined">
                 Adjuntar archivo cifrado
                 <input hidden type="file" onChange={(e) => setFile(e.target.files?.[0])} />
@@ -118,7 +118,7 @@ export function DmView() {
       </Card>
       <Card>
         <CardContent>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6" component="h2">
               Recibidos
             </Typography>
@@ -127,7 +127,7 @@ export function DmView() {
             </Button>
           </Stack>
           {inbox && (
-            <Typography id="dm-inbox-mode" variant="body2" color="text.secondary">
+            <Typography id="dm-inbox-mode" variant="body2" sx={{ color: 'text.secondary' }}>
               {background
                 ? 'Los mensajes y los acuses llegan en segundo plano a tus relays de DM (kind 10050), aunque estés en otra sección.'
                 : 'Con NIP-07 los mensajes se leen al pulsar «Actualizar»: tu extensión puede pedir permiso para cada descifrado.'}

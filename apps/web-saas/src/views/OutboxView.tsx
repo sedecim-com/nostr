@@ -94,7 +94,7 @@ export function OutboxView() {
   return (
     <Stack spacing={2}>
       <RelayHealthPanel />
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h6" component="h2" id="outbox-h">
           Estado de entrega
         </Typography>

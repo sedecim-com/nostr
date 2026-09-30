@@ -18,7 +18,7 @@ export function Nip46Permissions() {
           </ListItem>
         ))}
       </List>
-      <Typography variant="body2" color="text.secondary">
+      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
         Nada más: si el signer lo permite, puedes aprobar solo estos métodos y kinds.
       </Typography>
     </Box>

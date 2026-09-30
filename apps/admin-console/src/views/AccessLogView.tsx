@@ -55,7 +55,7 @@ export function AccessLogView({ api }: { api: PolicyAdminApi }) {
       <Typography variant="h5" component="h2">
         Accesos
       </Typography>
-      <Typography variant="body2" color="text.secondary" id="access-scope">
+      <Typography variant="body2" sx={{ color: 'text.secondary' }} id="access-scope">
         Decisiones de acceso del policy-engine: quién pidió leer o publicar en qué recurso y qué se le respondió, de la más
         reciente a la más antigua. Nunca incluye contenido de mensajes. Se guardan {days ?? '…'} días; las de un recurso con
         retención legal, mientras dure. Los cambios que hacen los administradores están en «Auditoría».

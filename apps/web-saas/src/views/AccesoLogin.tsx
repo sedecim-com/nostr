@@ -35,7 +35,7 @@ export function AccesoLogin({ onSignedIn, managed = false }: { onSignedIn: (u: A
             <Typography variant="h5" component="h1">
               {BRAND}
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               {/* FR005-08: with managed custody on offer, the platform can hold the key: never claim it stays here. */}
               {managed
                 ? 'Entra con tu cuenta de Acceso: solo autoriza el uso del servicio. Con una llave local, tu llave Nostr se queda en este navegador; con un signer externo, en tu signer; con la custodia gestionada (opcional), la guarda la plataforma, que puede firmar como tú.'
