@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRESETS, preset, disclose, disclosureCatalog, summarize, validateConfig, isValid, assertNoAbsoluteClaims, receiptPolicy, continuityPolicy, DISCLOSURE_VERSION, MANAGED_CONSENT_TEXTS, managedConsentVersion, type PresetName, type SovereigntyConfig } from '../src/index';
+import { PRESETS, preset, disclose, disclosureCatalog, summarize, validateConfig, isValid, assertNoAbsoluteClaims, receiptPolicy, continuityPolicy, DISCLOSURE_VERSION, MANAGED_CONSENT_TEXTS, managedConsentVersion, PUBLIC_PROFILE_TEXTS, type PresetName, type SovereigntyConfig } from '../src/index';
 
 describe('sovereignty profiles', () => {
   it('reference presets are valid on their intended platforms', () => {
@@ -69,6 +69,21 @@ describe('sovereignty profiles', () => {
     expect(warnings({ ...preset('sovereign'), custody: 'local' })).toContain('LOSS_RISK'); // a key on this device, no backup
   });
 
+  it('Tor-only accepts a NIP-46 signer and says when the key is on the device instead; custody texts fit imported keys and signers (FR004-08)', () => {
+    const tor = (custody: SovereigntyConfig['custody']) => validateConfig({ ...preset('sovereign-tor'), custody }, 'cli');
+    // Spec §14: an offline key or a signer. A signer is valid and warns nothing about the key; a key on the device is said so.
+    expect(tor('external').filter((i) => i.severity === 'error')).toEqual([]);
+    expect(tor('external').map((i) => i.code)).not.toContain('TOR_DEVICE_KEY');
+    const onDevice = tor('local').find((i) => i.code === 'TOR_DEVICE_KEY');
+    expect(onDevice).toMatchObject({ severity: 'warning', controls: ['custody', 'network'] });
+    expect(onDevice!.message).toMatch(/está en este dispositivo.*Con un signer externo \(NIP-46\), la llave no está en este dispositivo/);
+    expect(validateConfig({ ...preset('sovereign'), custody: 'local' }, 'cli').map((i) => i.code)).not.toContain('TOR_DEVICE_KEY');
+    const custody = (c: SovereigntyConfig['custody']) => disclose({ ...preset('sovereign-tor'), custody: c }).find((d) => d.control === 'custody')!.statement;
+    // A local key may have been imported: the text no longer says it was generated here.
+    expect(custody('local')).toMatch(/^La llave se guarda cifrada en este dispositivo, creada aquí o importada/);
+    expect(custody('external')).toMatch(/este cliente nunca ve la nsec\. El signer ve lo que firma y los mensajes directos que descifra por ti\./);
+  });
+
   it('the managed custody consent is reviewed copy with a version (FR005-08)', () => {
     const custody = disclose({ ...preset('convenience'), custody: 'managed' }).find((d) => d.control === 'custody')!;
     expect(custody.statement).toMatch(/descifra en su servidor tus mensajes directos \(NIP-44\)/);
@@ -76,6 +91,14 @@ describe('sovereignty profiles', () => {
     for (const text of Object.values(MANAGED_CONSENT_TEXTS)) expect(reviewed).toContain(text);
     expect(managedConsentVersion('2026-10')).toBe(`textos ${DISCLOSURE_VERSION}; términos 2026-10`);
     expect(managedConsentVersion()).toBe(`textos ${DISCLOSURE_VERSION}; términos no publicados`);
+  });
+
+  it('what publishing a public profile reveals is reviewed copy, pseudonymous personas included (FR006-04)', () => {
+    const reviewed = disclosureCatalog().filter((d) => d.control === 'identity' && d.option.startsWith('public-profile'));
+    expect(reviewed.map((d) => d.statement)).toEqual(Object.values(PUBLIC_PROFILE_TEXTS));
+    expect(PUBLIC_PROFILE_TEXTS.pseudonymous).toMatch(/no se publica ningún perfil salvo que lo elijas/);
+    expect(PUBLIC_PROFILE_TEXTS.pseudonymous).toMatch(/relacionarla con otras identidades tuyas/);
+    expect(PUBLIC_PROFILE_TEXTS.withdraw).toMatch(/las copias que otros ya guardaron no desaparecen/);
   });
 
   it('refuses absolute anonymity claims', () => {
@@ -139,7 +162,7 @@ describe('disclosure copy versioning (FR028-02)', () => {
   it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
     const { createHash } = await import('node:crypto');
     const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
-    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3', '1.8.0': 'ea21f9293106b69d', '1.9.0': 'a144762b252f4f4c' };
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3', '1.8.0': 'ea21f9293106b69d', '1.9.0': 'a144762b252f4f4c', '1.10.0': 'c77e72631f7b5747', '1.11.0': '7d98f0e859013455' };
     const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
     expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();

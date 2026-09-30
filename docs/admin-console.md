@@ -15,9 +15,12 @@ Código: `apps/admin-console` (React 19 + MUI 9 + Vite). Cliente tipado del API:
   aparece si `config.json` tiene `"devLocalKey": true`. En `infra/web/admin-config.json` y en stage está
   desactivada (un test de despliegue lo comprueba).
 - Cada petición lleva `Authorization: Nostr <evento kind 27235>` (NIP-98) firmado para la URL exacta
-  (con la query), el método y el hash del cuerpo. El policy-engine solo acepta las claves de
-  `POLICY_ADMIN_PUBKEYS`. La sesión solo se abre si una petición de administración con esa llave
-  tiene éxito.
+  (con la query), el método y el hash del cuerpo. En las rutas de administración el policy-engine solo
+  acepta las claves de `POLICY_ADMIN_PUBKEYS`. La consola completa solo se abre si una petición de
+  administración con esa llave tiene éxito.
+- **Otra llave**, que el policy-engine rechaza como administradora (403), solo abre «Mis dispositivos»
+  (FR023-11): los dispositivos que la organización registró a su nombre, la passkey de su dispositivo y las
+  sesiones que abre con ella. La cabecera lo indica: «sin permisos de administración».
 - La consola no guarda nada: la llave o la conexión viven en la memoria de la pestaña; al recargar
   o al cerrar sesión hay que volver a entrar.
 
@@ -34,9 +37,10 @@ Código: `apps/admin-console` (React 19 + MUI 9 + Vite). Cliente tipado del API:
 | Auditoría | Lo que hacen los administradores. Tabla paginada en el servidor (`limit`, `before` = `id` de la última fila) y filtros por actor y acción sobre la página cargada | `GET /v1/audit?limit=&before=` |
 | Accesos | Decisiones de acceso del policy-engine (persona, dispositivo, recurso, acción, permitido o denegado). Paginada como la auditoría; el filtro por recurso lo aplica el servidor. Indica cuántos días se guardan (FR023-12) | `GET /v1/access-log?limit=&before=&resource=` |
 | Vínculos de identidad | Vínculos públicos, o selectivos con el administrador en la audiencia | identity-service `GET /v1/links/visible/:pubkey` |
+| Mis dispositivos | Los dispositivos a nombre de la llave que entra; es la única pantalla de una llave sin permisos de administración. **Registrar passkey** la crea en el navegador en el que está, solo si aún no registró ninguna (las demás, un administrador desde «Dispositivos»). **Abrir sesión con passkey**: cada sesión pide al autenticador una aserción sobre un desafío nuevo (FR023-11). La consola no guarda el token de la sesión | `GET /v1/devices?owner=<su pubkey>`, `POST /v1/devices/:id/webauthn/options` → `navigator.credentials.create` → `POST /v1/devices/:id/webauthn/register`, `POST /v1/devices/:id/webauthn/assert/options` → `navigator.credentials.get` → `POST /v1/sessions` |
 
-Las opciones de WebAuthn y la credencial viajan en JSON con los campos binarios en base64url. La
-verificación de la atestación es del policy-engine.
+Las opciones de WebAuthn, la credencial y la aserción viajan en JSON con los campos binarios en base64url.
+La verificación de la atestación y de la aserción es del policy-engine (`docs/institutional.md`).
 
 ## Configuración y despliegue
 
@@ -55,7 +59,8 @@ verificación de la atestación es del policy-engine.
   `infra/web/admin-config.json`; stage la reemplaza con sus URLs) montado en el Deployment `web`, y
   `CORS_ORIGINS=$(WEB_ORIGIN)` en `policy-engine`.
 - `/admin/` es público como el resto de la web; la protección real es NIP-98 más la lista de
-  administradores. Si la red lo permite, restringe también `/admin/` en el proxy de borde.
+  administradores. Si la red lo permite, restringe también `/admin/` en el proxy de borde. Entonces las
+  personas no llegan a «Mis dispositivos», y su primera passkey la registra un administrador.
 
 ## Desarrollo y pruebas
 
@@ -70,5 +75,7 @@ El E2E levanta el policy-engine real en el mismo proceso (su API y su motor, con
 verificación WebAuthn incluida; FR023-13), el identity-service real y un relay de prueba para el bunker NIP-46. Lo
 que guarda cada acción se comprueba leyendo el propio motor, nunca a través de la consola. Recorre el alta, la edición, la revocación y la reactivación, las rotaciones, la
 paginación de la auditoría, el aviso de retención y el alta de una passkey con el autenticador virtual
-de Chromium (CDP `WebAuthn.addVirtualAuthenticator`). También pasa axe sin violaciones graves o
-críticas y comprueba que no haya ids duplicados, violaciones de CSP ni errores de página.
+de Chromium (CDP `WebAuthn.addVirtualAuthenticator`). Con una llave sin permisos de administración recorre
+«Mis dispositivos»: la persona registra la passkey de su dispositivo y abre dos sesiones, cada una con su
+aserción, que dejan de valer al revocar el dispositivo (FR023-11). También pasa axe sin violaciones graves
+o críticas y comprueba que no haya ids duplicados, violaciones de CSP ni errores de página.

@@ -7,9 +7,9 @@ const d = (statement: string, improves: Dimension[], sacrifices: Dimension[], tr
 
 const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
   custody: {
-    local: d('La llave se genera y guarda cifrada en este dispositivo. La plataforma no puede firmar ni recuperar tu llave.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Seguridad del dispositivo y de tu passphrase.']),
+    local: d('La llave se guarda cifrada en este dispositivo, creada aquí o importada (nsec, ncryptsec o un backup). La plataforma no puede firmar ni recuperar tu llave.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Seguridad del dispositivo y de tu passphrase.']),
     offline: d('La llave vive fuera de línea (air-gapped/hardware). Nadie más puede firmar; la recuperación es tu responsabilidad.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Custodia física del respaldo.']),
-    external: d('Un signer externo (NIP-46/NIP-07) firma por ti; este cliente nunca ve la nsec.', ['soberania', 'privacidad-operador'], [], ['El signer externo y los permisos que le concedas.']),
+    external: d('Un signer externo (NIP-46/NIP-07) firma por ti; este cliente nunca ve la nsec. El signer ve lo que firma y los mensajes directos que descifra por ti.', ['soberania', 'privacidad-operador'], [], ['El signer externo y los permisos que le concedas.']),
     'encrypted-backup': d('El operador almacena un backup cifrado con una clave que solo tú controlas: guarda ciphertext, no la clave de descifrado.', ['recuperabilidad'], [], ['Fortaleza de tu contraseña de backup (scrypt).']),
     managed: d('Managed Key activado: la plataforma tiene capacidad técnica de firmar como tú y descifra en su servidor tus mensajes directos (NIP-44). Este modo es CUSTODIAL.', ['recuperabilidad', 'control-institucional'], ['soberania', 'privacidad-operador'], ['Operador, su vault (Secrets Manager/KMS) y su personal.']),
     'managed-enclave': d('Custodia en enclave: el backend general no ve la llave en claro, pero el servicio de firma sí puede firmar como tú. Sigue siendo CUSTODIAL.', ['recuperabilidad', 'control-institucional'], ['soberania'], ['Attestation del enclave y políticas KMS del operador.']),
@@ -74,7 +74,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.9.0';
+export const DISCLOSURE_VERSION = '1.11.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.
@@ -100,6 +100,21 @@ export const CONTINUITY_VAULT_TEXTS = {
   deletion: 'Borrar quita del servidor los archivos y sus metadatos en el momento; las copias de seguridad del operador pueden conservar los archivos, cifrados, y sus metadatos hasta que caduquen.',
   retention: 'Cada archivo se guarda hasta que lo borras o hasta que vence su plazo, contado desde la última vez que se guardó: el operador del vault puede fijar un plazo máximo y tú puedes elegir uno más corto. Al vencer, el servidor borra el archivo y sus metadatos.',
   export: 'Puedes exportar el vault en un archivo JSON abierto: tus eventos firmados, que cualquier cliente Nostr puede verificar y publicar, los mensajes de tus grupos seguros y tu estado de entrega. El archivo no va cifrado: los mensajes de grupo quedan en claro, así que guárdalo con cuidado.',
+} as const;
+
+/**
+ * FR006-04: what publishing a public profile (kind 0) of a persona means, and what showing the profiles of others
+ * costs, shown by the web where profiles are edited and shown. Part of the reviewed copy (disclosureCatalog,
+ * docs/disclosures.md).
+ */
+export const PUBLIC_PROFILE_TEXTS = {
+  what: 'Tu perfil público (kind 0) es un evento firmado con tu clave: el nombre, la descripción y la dirección del avatar que elijas. Se publica en los relays de esta persona y cualquiera que los lea puede verlo, copiarlo y guardarlo.',
+  pseudonymous: 'Esta persona tiene un perfil seudónimo: no se publica ningún perfil salvo que lo elijas aquí. Un nombre, una foto o el servidor donde está el avatar pueden relacionarla con otras identidades tuyas o con tu identidad real.',
+  acknowledge: 'Entiendo que el perfil es público y que puede relacionar esta persona con otras identidades mías',
+  withdraw: 'Retirar el perfil publica uno vacío que lo sustituye en los relays que respetan los eventos reemplazables; las copias que otros ya guardaron no desaparecen.',
+  avatar: 'El avatar se sube sin cifrar, tras quitarle los metadatos (EXIF), a tu servidor de archivos o al del despliegue: su operador ve la imagen y tu dirección IP.',
+  others: 'Los avatares de otras personas están en servidores que ellas eligen: cargarlos le dice a ese servidor tu dirección IP y cuándo miras. Con las previews remotas bloqueadas solo se cargan si pulsas «Mostrar avatares».',
+  groups: 'Buscar los perfiles de los miembros les dice a tus relays a quién buscas: podrían deducir quién está en este grupo. Por eso solo se buscan si lo pides; si no, se muestran los que ya conocías por los canales o los mensajes directos.',
 } as const;
 
 /**
@@ -130,6 +145,7 @@ export function disclosureCatalog(): Disclosure[] {
   out.push(disclose({ ...base, quorum: 2 }).find((x) => x.control === 'quorum')!);
   for (const [key, statement] of Object.entries(MANAGED_CONSENT_TEXTS)) out.push({ control: 'custody', option: `managed (consentimiento: ${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   for (const [key, statement] of Object.entries(CONTINUITY_VAULT_TEXTS)) out.push({ control: 'cloudBackup', option: `continuity-vault (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+  for (const [key, statement] of Object.entries(PUBLIC_PROFILE_TEXTS)) out.push({ control: 'identity', option: `public-profile (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   for (const [key, statement] of Object.entries(CHANNEL_DELETION_TEXTS)) out.push({ control: 'persistence', option: `borrado en canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   // FR014-04: listed under the control that decides whether the web asks the mirror (see mirrorPolicy).
   for (const [key, statement] of Object.entries(CHANNEL_MIRROR_TEXTS)) out.push({ control: key === 'torOnly' ? 'network' : 'identity', option: `mirror de canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });

@@ -136,6 +136,15 @@ try {
   const alice = await newUser('Alice');
   const bob = await newUser('Bob');
 
+  // --- FR006-04: Bob publishes his public profile (a linked identity: no extra step), from the Personas view
+  await bob.page.waitForFunction(() => {
+    const el = document.querySelector('#profile-name') as HTMLInputElement | null;
+    return !!el && !el.disabled;
+  });
+  await bob.page.fill('#profile-name', 'Bob de Redacción');
+  await bob.page.locator('#profile-publish').click();
+  await bob.page.locator('#profile-status').getByText('Publicado: Bob de Redacción.').waitFor({ timeout: 20_000 });
+
   // --- Bob makes himself invitable: key package (kind 30443) on the secure relay only
   await openGroups(bob.page);
   assert((await bob.page.textContent('#groups-relays'))?.includes(secureUrl), 'groups use the secure relay configured by the deployment (ADR 0006)');
@@ -165,6 +174,12 @@ try {
   await waitState(alice.page, /Época 1 · 2 miembros/);
   assert(true, 'Bob added by key package: epoch 1, two members');
   assert((await alice.page.locator('#group-kp-warnings').count()) === 0, 'the key package warning clears once everyone could be invited');
+  // FR006-04: members are not looked up on their own (that would tell Alice's relays who is in the group); asked for,
+  // Bob's public name shows next to his npub.
+  assert(!(await alice.page.textContent('#group-members'))?.includes('Bob de Redacción'), 'the members of a group are not looked up without asking (FR006-04)');
+  await alice.page.locator('#group-lookup-names').click();
+  await alice.page.locator('#group-members').getByText(`Bob de Redacción · ${npubEncode(bob.pubkey).slice(0, 12)}`, { exact: false }).waitFor({ timeout: 20_000 });
+  assert(true, 'asked for, the members list shows the public name next to the npub (FR006-04)');
 
   // --- Bob accepts the gift-wrapped Welcome
   await bob.page.locator('#groups-accept').click();

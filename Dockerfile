@@ -34,6 +34,48 @@ COPY services ./services
 COPY apps ./apps
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
+# FR020-06: what the sovereign CLI runs and nothing else. npm lists the production closure of apps/sovereign-client
+# (tsx, which runs it, included) and `node - APP OUT LIST` copies those packages to /out with the same layout: the
+# workspace packages without their tests, their node_modules links and the root manifest. No services, no web apps,
+# nothing only another workspace needs, and no optional peer that only development installs (typescript for
+# nostr-tools). npm ls exits non-zero on any problem it reports but still prints the listing; the copy fails if that
+# lacks tsx or the CLI.
+FROM prod-deps AS sovereign-files
+RUN npm ls --omit=dev --all --parseable --workspace=@sedecim/sovereign-client --include-workspace-root > /tmp/closure || true
+RUN node - /app /out /tmp/closure <<'EOF'
+const fs = require('node:fs');
+const [app, out, list] = process.argv.slice(2);
+const lock = JSON.parse(fs.readFileSync(`${app}/package-lock.json`, 'utf8')).packages ?? {};
+const devOnly = (p) => ['dev', 'devOptional'].some((flag) => lock[p.slice(app.length + 1)]?.[flag] === true);
+const keep = new Set(fs.readFileSync(list, 'utf8').split('\n').filter((p) => p.startsWith(`${app}/`) && !devOnly(p)).map((p) => fs.realpathSync(p)));
+for (const need of [`${app}/node_modules/tsx`, `${app}/apps/sovereign-client`]) if (!keep.has(need)) throw new Error(`npm ls did not list ${need}`);
+const copy = (from, filter) => fs.cpSync(from, out + from.slice(app.length), { recursive: true, verbatimSymlinks: true, filter });
+const workspace = (p) => { const [dir, name, more] = p.slice(app.length + 1).split('/'); return ['packages', 'apps', 'services'].includes(dir) && !!name && more === undefined; };
+for (const p of keep) copy(p, workspace(p) ? (src) => src !== `${p}/test` : undefined);
+for (const name of fs.readdirSync(`${app}/node_modules/@sedecim`)) {
+  const link = `${app}/node_modules/@sedecim/${name}`;
+  if (keep.has(fs.realpathSync(link))) copy(link);
+}
+fs.copyFileSync(`${app}/package.json`, `${out}/package.json`);
+EOF
+
+# FR020-06: the sovereign CLI as a one-off container of the compose `tor` profile (docs/sovereign-tor.md):
+#   docker compose run --rm sovereign <command>
+# The unprivileged user of the services, no EXPOSE. Its stores go to /data/sovereign (a volume in compose), sealed with
+# the passphrase of the secret file SOVEREIGN_PASSPHRASE_FILE names: no secret is an ARG or ENV of this image. Without
+# a command it prints the maturity of each profile, which opens no store. Before `service`, the default (last) stage.
+FROM ${NODE_IMAGE} AS sovereign
+ENV NODE_ENV=production SOVEREIGN_DATA_DIR=/data/sovereign SOVEREIGN_PASSPHRASE_FILE=/run/secrets/sovereign_passphrase
+WORKDIR /app
+COPY --from=sovereign-files /out /app
+# The interop gate's deployment flags, which `dm send` follows (no NIP-17 while the gate is red), as the web image does.
+COPY infra/web/flags.json infra/web/flags.json
+RUN addgroup -S app && adduser -S app -G app && mkdir -p /data/sovereign && chown -R app:app /data \
+  && sed -i -E 's/^(app:[^:]*):[0-9]*:/\1::/' /etc/shadow
+USER app
+ENTRYPOINT ["node", "--import", "tsx", "apps/sovereign-client/src/cli.ts"]
+CMD ["maturity"]
+
 FROM ${NODE_IMAGE} AS service
 ARG SERVICE
 ENV NODE_ENV=production SERVICE=${SERVICE}

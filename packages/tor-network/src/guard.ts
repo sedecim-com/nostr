@@ -52,6 +52,17 @@ export function isOnionHost(host: string): boolean {
   return /^([a-z2-7]{56}|[a-z2-7]{16})\.onion$/i.test(host) || host.toLowerCase().endsWith('.onion');
 }
 
+/** NetworkGuard.fetch with `maxBytes`: the response body is over the limit (`size` is the declared length, when there is one). */
+export class ResponseTooLargeError extends Error {
+  constructor(
+    readonly size: number | undefined,
+    readonly limit: number,
+  ) {
+    super(`response body exceeds ${limit} bytes${size === undefined ? '' : ` (${size} declared)`}`);
+    this.name = 'ResponseTooLargeError';
+  }
+}
+
 /**
  * Enforces the network policy for every outbound connection. In `tor-only` mode it fails closed:
  * no route through Tor means no transmission, never a silent clearnet fallback (spec §14, FR-020).
@@ -166,14 +177,30 @@ export class NetworkGuard {
   }
 
   /** Minimal fetch-like HTTP client routed according to the policy (used for Blossom, NIP-11, APIs). */
-  async fetch(rawUrl: string, init: { method?: string; headers?: Record<string, string>; body?: Uint8Array | string; signal?: AbortSignal } = {}): Promise<{ status: number; headers: Record<string, string>; body: Uint8Array }> {
+  async fetch(rawUrl: string, init: { method?: string; headers?: Record<string, string>; body?: Uint8Array | string; signal?: AbortSignal; maxBytes?: number } = {}): Promise<{ status: number; headers: Record<string, string>; body: Uint8Array }> {
     const url = await this.assertRoute(rawUrl);
     const agent = this.agent();
     const req = url.protocol === 'https:' ? httpsRequest : httpRequest;
     return new Promise((resolve, reject) => {
       const r = req(url, { method: init.method ?? 'GET', headers: init.headers, ...(agent ? { agent } : {}), ...(init.signal ? { signal: init.signal } : {}) }, (res) => {
         const chunks: Buffer[] = [];
-        res.on('data', (c: Buffer) => chunks.push(c));
+        // FR018-06: with `maxBytes`, a body over it is cut off (by the declared length, or once it has passed) and not buffered.
+        const limit = init.maxBytes;
+        const declared = Number(res.headers['content-length']);
+        if (limit !== undefined && Number.isFinite(declared) && declared > limit) {
+          res.destroy();
+          return reject(new ResponseTooLargeError(declared, limit));
+        }
+        let received = 0;
+        res.on('data', (c: Buffer) => {
+          received += c.length;
+          if (limit !== undefined && received > limit) {
+            res.destroy();
+            reject(new ResponseTooLargeError(undefined, limit));
+            return;
+          }
+          chunks.push(c);
+        });
         res.on('end', () =>
           resolve({
             status: res.statusCode ?? 0,

@@ -3,7 +3,7 @@
  * ephemeral client keypair and sends NIP-44 encrypted JSON-RPC requests (kind 24133) through relays.
  */
 import { bytesToHex, equalBytes, generateSecretKey, getPublicKey, randomBytes, utf8ToBytes, verifyEvent, type EventTemplate, type NostrEvent, type Signer, type CustodyMode } from '@sedecim/nostr-core';
-import { RelayPool } from '@sedecim/relay-pool';
+import { NetworkBlockedError, normalizeRelayUrl, RelayPool, type PoolSubscription } from '@sedecim/relay-pool';
 import { LocalSigner } from './local';
 
 export const NOSTR_CONNECT_KIND = 24133;
@@ -36,6 +36,7 @@ export function formatBunkerUrl(p: BunkerPointer): string {
 
 /** Human labels for the kinds a remote signer may be asked to sign (FR004-04). */
 export const KIND_LABELS: Record<number, string> = {
+  0: 'Perfil público (nombre y avatar)',
   5: 'Borrar tus propios eventos, como una reacción (NIP-09)',
   7: 'Reacciones',
   9: 'Mensajes de canal (NIP-29)',
@@ -53,16 +54,28 @@ export const KIND_LABELS: Record<number, string> = {
 };
 
 /**
- * Kinds the Acceso Nostr web signs with the persona key (FR004-06): seals of DMs and group invitations (13),
- * channels (9, 9007, 9021) with their reactions (7), the removal of one's reaction (5) and deletions (9005), the DM
- * relay list (10050), Blossom (10063, 24242), NIP-42 (22242), NIP-98 (27235), public links between personas (30078)
- * and Marmot key packages (30443). apps/web-saas/test/nip46-permissions.test.ts runs every signing path of the web and
- * checks this list both ways.
+ * Kinds the Acceso Nostr web signs with the persona key (FR004-06): the public profile (0, only when the user
+ * publishes it), seals of DMs and group invitations (13), channels (9, 9007, 9021) with their reactions (7), the
+ * removal of one's reaction (5) and deletions (9005), the DM relay list (10050), Blossom (10063, 24242), NIP-42
+ * (22242), NIP-98 (27235), public links between personas (30078) and Marmot key packages (30443).
+ * apps/web-saas/test/nip46-permissions.test.ts runs every signing path of the web and checks this list both ways.
  */
-export const WEB_SIGNED_KINDS: readonly number[] = [5, 7, 9, 13, 9005, 9007, 9021, 10050, 10063, 22242, 24242, 27235, 30078, 30443];
+export const WEB_SIGNED_KINDS: readonly number[] = [0, 5, 7, 9, 13, 9005, 9007, 9021, 10050, 10063, 22242, 24242, 27235, 30078, 30443];
 
 /** Minimal permissions for the web client: only the kinds it signs, plus NIP-44 for DMs (spec §8.3). */
 export const WEB_NIP46_PERMISSIONS = ['get_public_key', 'nip44_encrypt', 'nip44_decrypt', ...WEB_SIGNED_KINDS.map((k) => `sign_event:${k}`)];
+
+/**
+ * Kinds the sovereign client (apps/sovereign-client) signs with the persona key (FR004-08): channel messages and join
+ * requests (9, 9021), seals of DMs and group invitations (13), the DM relay list (10050), NIP-42 (22242), Blossom
+ * (24242), NIP-98 towards the policy-engine (27235) and Marmot key packages (30443). apps/sovereign-client/test/nip46.test.ts
+ * runs the CLI's signing paths (channels, DMs, groups, media, NIP-42, NIP-98) through a bunker that allows only these
+ * kinds, and checks this list both ways.
+ */
+export const SOVEREIGN_SIGNED_KINDS: readonly number[] = [9, 13, 9021, 10050, 22242, 24242, 27235, 30443];
+
+/** Minimal permissions for the sovereign client: only the kinds it signs, plus NIP-44 for DMs and groups (spec §8.3). */
+export const SOVEREIGN_NIP46_PERMISSIONS = ['get_public_key', 'nip44_encrypt', 'nip44_decrypt', ...SOVEREIGN_SIGNED_KINDS.map((k) => `sign_event:${k}`)];
 
 const METHOD_LABELS: Record<string, string> = {
   get_public_key: 'Conocer tu clave pública',
@@ -128,6 +141,11 @@ export interface Nip46SignerOptions {
   onAuthUrl?: (url: string) => void;
   /** How long to keep waiting after an auth_url challenge (default 5 min). */
   authTimeoutMs?: number;
+  /**
+   * The user's pubkey, when it is already known (a stored persona): answered without asking the signer, and an event
+   * the signer signs with any other key is refused.
+   */
+  pubkey?: string;
 }
 
 interface Pending {
@@ -140,27 +158,50 @@ export class Nip46Signer implements Signer {
   readonly custody: CustodyMode = 'external';
   private readonly client: LocalSigner;
   private readonly pending = new Map<string, Pending>();
-  private sub?: { close(): void };
+  private sub?: PoolSubscription;
+  /** The subscription for the signer's answers, shared by concurrent requests (one per signer, not one per request). */
+  private listening?: Promise<void>;
   private userPubkey?: string;
   readonly permissions: string[];
 
   constructor(readonly bunker: BunkerPointer, private readonly opts: Nip46SignerOptions) {
     this.client = new LocalSigner(opts.clientSecretKey ?? generateSecretKey());
     this.permissions = opts.permissions ?? ['sign_event', 'nip44_encrypt', 'nip44_decrypt'];
+    this.userPubkey = opts.pubkey;
   }
 
   async clientPubkey(): Promise<string> {
     return this.client.getPublicKey();
   }
 
-  private async listen() {
-    if (this.sub) return;
+  private listen(): Promise<void> {
+    this.listening ??= this.subscribe();
+    return this.listening;
+  }
+
+  private async subscribe(): Promise<void> {
     const me = await this.client.getPublicKey();
+    const relays = new Set(this.bunker.relays.map(normalizeRelayUrl)).size;
+    const closed = new Set<string>();
     await new Promise<void>((resolve) => {
-      this.sub = this.opts.pool.subscribe(this.bunker.relays, [{ kinds: [NOSTR_CONNECT_KIND], '#p': [me], since: Math.floor(Date.now() / 1000) - 10 }], {
+      // A relay that never answers does not hold the request forever: it is sent anyway after timeoutMs.
+      const timer = setTimeout(resolve, this.opts.timeoutMs ?? 30_000);
+      (timer as { unref?: () => void }).unref?.();
+      const sub = this.opts.pool.subscribe(this.bunker.relays, [{ kinds: [NOSTR_CONNECT_KIND], '#p': [me], since: Math.floor(Date.now() / 1000) - 10 }], {
         onevent: (evt) => void this.onResponse(evt),
-        oneose: () => resolve(),
+        oneose: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        // FR004-08: closed on every relay (e.g. refused while Tor was down), so the next request subscribes again.
+        onclosed: (relay) => {
+          closed.add(relay);
+          if (closed.size < relays || this.sub !== sub) return;
+          this.sub = undefined;
+          this.listening = undefined;
+        },
       });
+      this.sub = sub;
     });
   }
 
@@ -209,6 +250,9 @@ export class Nip46Signer implements Signer {
         clearTimeout(p.timer);
         this.pending.delete(id);
       }
+      // FR004-08: refused by the network policy (e.g. Tor-only without Tor) is a block, with the policy's own reason.
+      const blocked = acks.find((a) => a.blocked);
+      if (blocked) throw new NetworkBlockedError(blocked.message.replace(/^error: /, ''), blocked.relay);
       throw new Error(`could not reach remote signer relays: ${acks.map((a) => a.message).join('; ')}`);
     }
     return result;
@@ -221,9 +265,14 @@ export class Nip46Signer implements Signer {
   static async fromNostrConnect(offer: NostrConnectOffer, opts: Omit<Nip46SignerOptions, 'clientSecretKey'> & { signal?: AbortSignal; onReady?: () => void }): Promise<Nip46Signer> {
     const client = new LocalSigner(offer.clientSecretKey);
     const me = await client.getPublicKey();
+    const relays = new Set(offer.relays.map(normalizeRelayUrl)).size;
     const remote = await new Promise<string>((resolve, reject) => {
       let sub: { close(): void } | undefined;
+      let settled = false;
+      const closed = new Map<string, string>();
       const done = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         sub?.close();
         fn();
@@ -232,7 +281,18 @@ export class Nip46Signer implements Signer {
       opts.signal?.addEventListener('abort', () => done(() => reject(new Error('nostrconnect cancelled'))));
       // Responses are ephemeral (kind 24133, never stored): show the offer only once this subscription is live.
       sub = opts.pool.subscribe(offer.relays, [{ kinds: [NOSTR_CONNECT_KIND], '#p': [me], since: Math.floor(Date.now() / 1000) - 10 }], {
-        oneose: () => opts.onReady?.(),
+        oneose: () => {
+          if (!settled) opts.onReady?.();
+        },
+        // FR004-08: with no relay left to hear the answer on (e.g. Tor-only without Tor), fail now: an offer nobody can
+        // answer is never shown. A relay the network policy refused makes it a block, with the policy's reason.
+        onclosed: (relay, reason) => {
+          closed.set(relay, reason);
+          if (closed.size < relays) return;
+          const blocked = opts.pool.health().find((h) => h.status === 'blocked' && closed.has(h.url));
+          const why = blocked ? closed.get(blocked.url)!.replace(/^error: /, '') : [...closed.values()].join('; ');
+          done(() => reject(blocked ? new NetworkBlockedError(why, blocked.url) : new Error(`nostrconnect: no relay to hear the signer on (${why})`)));
+        },
         onevent: (evt) =>
           void client
             .nip44Decrypt(evt.pubkey, evt.content)
@@ -275,6 +335,8 @@ export class Nip46Signer implements Signer {
 
   close(): void {
     this.sub?.close();
+    this.sub = undefined;
+    this.listening = undefined;
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
       p.reject(new Error('signer closed'));

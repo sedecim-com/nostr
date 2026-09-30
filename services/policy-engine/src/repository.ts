@@ -12,7 +12,12 @@ export interface SessionRow {
   pubkey: string;
   deviceId: string;
   createdAt: number;
+  /** FR023-11: the passkey whose assertion opened the session; absent when it was opened without one. */
+  credentialId?: string;
 }
+
+/** FR023-11: a device has at most one pending challenge of each kind: registering a passkey, and asserting with it. */
+export type ChallengePurpose = 'register' | 'assert';
 
 export type NewAuditEntry = Omit<PolicyAuditEntry, 'id'>;
 
@@ -33,6 +38,15 @@ export interface PolicyRepository {
   putSession(tokenHash: string, s: SessionRow): Promise<void>;
   getSession(tokenHash: string): Promise<SessionRow | undefined>;
   deleteSessionsOfDevice(deviceId: string): Promise<void>;
+  /** FR023-11: deletes the owner's sessions opened without a passkey assertion. */
+  deleteUnassertedSessions(pubkey: string): Promise<void>;
+  /**
+   * FR023-11: records the signature counter of an assertion by the device's credential. Accepted when the stored and the
+   * new counter are both 0 (an authenticator without one) or the new one is greater, checked and written at once: of
+   * two assertions with the same counter only one gets through. False when the counter did not go up (a possible
+   * clone), or the device is revoked or holds another credential by now.
+   */
+  advanceSignCount(deviceId: string, credentialId: string, signCount: number): Promise<boolean>;
   addRotation(r: Rotation): Promise<void>;
   /** Oldest first. */
   listRotations(status?: Rotation['status']): Promise<Rotation[]>;
@@ -56,9 +70,10 @@ export interface PolicyRepository {
   deleteDirectoryEntry(pubkey: string): Promise<boolean>;
   listRetention(): Promise<RetentionPolicy[]>;
   putRetention(p: RetentionPolicy): Promise<void>;
-  putChallenge(deviceId: string, challenge: string, expiresAt: number): Promise<void>;
-  /** Returns and deletes the device's pending challenge (single use). */
-  takeChallenge(deviceId: string): Promise<{ challenge: string; expiresAt: number } | undefined>;
+  /** Replaces the device's pending challenge of that purpose. */
+  putChallenge(deviceId: string, challenge: string, expiresAt: number, purpose: ChallengePurpose): Promise<void>;
+  /** Returns and deletes the device's pending challenge of that purpose (single use, atomically). */
+  takeChallenge(deviceId: string, purpose: ChallengePurpose): Promise<{ challenge: string; expiresAt: number } | undefined>;
 }
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -112,6 +127,19 @@ export class MemoryPolicyRepository implements PolicyRepository {
   }
   async deleteSessionsOfDevice(deviceId: string) {
     for (const [t, s] of this.sessions) if (s.deviceId === deviceId) this.sessions.delete(t);
+  }
+  async deleteUnassertedSessions(pubkey: string) {
+    for (const [t, s] of this.sessions) if (s.pubkey === pubkey && s.credentialId === undefined) this.sessions.delete(t);
+  }
+  // Check and write with no await in between: atomic in this process.
+  async advanceSignCount(deviceId: string, credentialId: string, signCount: number) {
+    const d = this.devices.get(deviceId);
+    if (!d || d.revokedAt !== undefined || d.credentialId !== credentialId) return false;
+    const stored = d.signCount ?? 0;
+    if (stored === 0 && signCount === 0) return true;
+    if (signCount <= stored) return false;
+    d.signCount = signCount;
+    return true;
   }
   async addRotation(r: Rotation) {
     this.rotations.push(clone(r));
@@ -176,12 +204,12 @@ export class MemoryPolicyRepository implements PolicyRepository {
   async putRetention(p: RetentionPolicy) {
     this.retention.set(p.resourceId, clone(p));
   }
-  async putChallenge(deviceId: string, challenge: string, expiresAt: number) {
-    this.challenges.set(deviceId, { challenge, expiresAt });
+  async putChallenge(deviceId: string, challenge: string, expiresAt: number, purpose: ChallengePurpose) {
+    this.challenges.set(`${purpose}:${deviceId}`, { challenge, expiresAt });
   }
-  async takeChallenge(deviceId: string) {
-    const c = this.challenges.get(deviceId);
-    this.challenges.delete(deviceId);
+  async takeChallenge(deviceId: string, purpose: ChallengePurpose) {
+    const c = this.challenges.get(`${purpose}:${deviceId}`);
+    this.challenges.delete(`${purpose}:${deviceId}`);
     return c;
   }
 }
@@ -288,14 +316,27 @@ export class PgPolicyRepository implements PolicyRepository {
     }
   }
   async putSession(tokenHash: string, s: SessionRow) {
-    await this.pool.query('INSERT INTO policy_sessions (token_hash, pubkey, device_id, created_at) VALUES ($1,$2,$3,$4)', [tokenHash, s.pubkey, s.deviceId, s.createdAt]);
+    await this.pool.query('INSERT INTO policy_sessions (token_hash, pubkey, device_id, created_at, credential_id) VALUES ($1,$2,$3,$4,$5)', [tokenHash, s.pubkey, s.deviceId, s.createdAt, s.credentialId ?? null]);
   }
   async getSession(tokenHash: string) {
     const { rows } = await this.pool.query('SELECT * FROM policy_sessions WHERE token_hash = $1', [tokenHash]);
-    return rows[0] ? { pubkey: rows[0].pubkey as string, deviceId: rows[0].device_id as string, createdAt: Number(rows[0].created_at) } : undefined;
+    const r = rows[0];
+    return r ? { pubkey: r.pubkey as string, deviceId: r.device_id as string, createdAt: Number(r.created_at), ...(r.credential_id ? { credentialId: r.credential_id as string } : {}) } : undefined;
   }
   async deleteSessionsOfDevice(deviceId: string) {
     await this.pool.query('DELETE FROM policy_sessions WHERE device_id = $1', [deviceId]);
+  }
+  async deleteUnassertedSessions(pubkey: string) {
+    await this.pool.query('DELETE FROM policy_sessions WHERE pubkey = $1 AND credential_id IS NULL', [pubkey]);
+  }
+  // One statement: under READ COMMITTED a second UPDATE with the same counter waits for the first and then no longer
+  // matches `sign_count < $3`, so only one of two concurrent assertions gets through.
+  async advanceSignCount(deviceId: string, credentialId: string, signCount: number) {
+    const { rowCount } =
+      signCount === 0
+        ? await this.pool.query('SELECT 1 FROM policy_devices WHERE id = $1 AND credential_id = $2 AND revoked_at IS NULL AND coalesce(sign_count, 0) = 0', [deviceId, credentialId])
+        : await this.pool.query('UPDATE policy_devices SET sign_count = $3 WHERE id = $1 AND credential_id = $2 AND revoked_at IS NULL AND coalesce(sign_count, 0) < $3', [deviceId, credentialId, signCount]);
+    return (rowCount ?? 0) > 0;
   }
   async addRotation(r: Rotation) {
     await this.pool.query('INSERT INTO policy_rotations (id, at, resource_id, reason, removed_pubkey, status, done_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', [r.id, r.at, r.resourceId, r.reason, r.removedPubkey, r.status, r.doneAt ?? null]);
@@ -360,11 +401,14 @@ export class PgPolicyRepository implements PolicyRepository {
   async putRetention(p: RetentionPolicy) {
     await this.pool.query('INSERT INTO policy_retention (resource_id, days, legal_hold) VALUES ($1,$2,$3) ON CONFLICT (resource_id) DO UPDATE SET days = EXCLUDED.days, legal_hold = EXCLUDED.legal_hold', [p.resourceId, p.days, p.legalHold]);
   }
-  async putChallenge(deviceId: string, challenge: string, expiresAt: number) {
-    await this.pool.query('INSERT INTO policy_webauthn_challenges (device_id, challenge, expires_at) VALUES ($1,$2,$3) ON CONFLICT (device_id) DO UPDATE SET challenge = EXCLUDED.challenge, expires_at = EXCLUDED.expires_at', [deviceId, challenge, expiresAt]);
+  async putChallenge(deviceId: string, challenge: string, expiresAt: number, purpose: ChallengePurpose) {
+    await this.pool.query(
+      'INSERT INTO policy_webauthn_challenges (device_id, purpose, challenge, expires_at) VALUES ($1,$2,$3,$4) ON CONFLICT (device_id, purpose) DO UPDATE SET challenge = EXCLUDED.challenge, expires_at = EXCLUDED.expires_at',
+      [deviceId, purpose, challenge, expiresAt],
+    );
   }
-  async takeChallenge(deviceId: string) {
-    const { rows } = await this.pool.query('DELETE FROM policy_webauthn_challenges WHERE device_id = $1 RETURNING challenge, expires_at', [deviceId]);
+  async takeChallenge(deviceId: string, purpose: ChallengePurpose) {
+    const { rows } = await this.pool.query('DELETE FROM policy_webauthn_challenges WHERE device_id = $1 AND purpose = $2 RETURNING challenge, expires_at', [deviceId, purpose]);
     return rows[0] ? { challenge: rows[0].challenge as string, expiresAt: Number(rows[0].expires_at) } : undefined;
   }
 }
