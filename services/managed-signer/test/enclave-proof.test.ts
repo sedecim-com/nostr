@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { createHmac, generateKeyPairSync } from 'node:crypto';
+import { createHmac, generateKeyPairSync, type JsonWebKey } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -115,8 +115,13 @@ describe('PinnedJwksProofVerifier (FR005-09): the user pool keys pinned in the i
   it('FR005-09: refuses a policy that pins nothing usable', () => {
     expect(() => new PinnedJwksProofVerifier({ ...policy, jwks: { keys: [] } })).toThrow(/no RSA signing key/);
     expect(() => new PinnedJwksProofVerifier({ ...policy, jwks: { keys: [{ kty: 'EC', crv: 'P-256', x: 'x', y: 'y', kid: 'e1' }] } })).toThrow(/no RSA signing key/);
-    const small = generateKeyPairSync('rsa', { modulusLength: 1024 }).publicKey;
-    expect(() => new PinnedJwksProofVerifier({ ...policy, jwks: { keys: [{ ...small.export({ format: 'jwk' }), kid: 's1' }] } })).toThrow(/shorter than 2048 bits/);
+    // Only the public half of a 1024-bit key is needed (nothing is signed with it): a fixed JWK, not a key generated here.
+    const small: JsonWebKey = {
+      kty: 'RSA',
+      n: 'uvm_xx0x3dWhnLFLOXoHBxklnfUt1KJeqoE8TAgmRqJeZnH0C6SAxaMahBzmcjO6VQLkYyzJR-Q7VUztD8QuQ-JiytpJ1C7-J05dtb-7X6g8LhL6fLJpcwZvbu-A9Tow6VliNCgkqehGYCvQDgDEZGjon50v1HFATX0n1wQkqpk',
+      e: 'AQAB',
+    };
+    expect(() => new PinnedJwksProofVerifier({ ...policy, jwks: { keys: [{ ...small, kid: 's1' }] } })).toThrow(/shorter than 2048 bits/);
     expect(() => new PinnedJwksProofVerifier({ ...policy, jwks: { keys: [pool.jwks.keys[0]!, pool.jwks.keys[0]!] } })).toThrow(/listed twice/);
     expect(() => new PinnedJwksProofVerifier({ ...policy, issuer: 'http://insecure.example/pool' })).toThrow(/https/);
     expect(() => new PinnedJwksProofVerifier({ ...policy, clientId: '' })).toThrow(/clientId/);
