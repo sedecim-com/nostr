@@ -1,5 +1,6 @@
 import type { Dimension, Disclosure, SovereigntyConfig } from './types';
 import { PRESETS } from './presets';
+import { CHANNEL_MIRROR_TEXTS } from './mirror';
 
 type Entry = Omit<Disclosure, 'control' | 'option'>;
 const d = (statement: string, improves: Dimension[], sacrifices: Dimension[], trustAssumptions: string[] = []): Entry => ({ statement, improves, sacrifices, trustAssumptions });
@@ -73,7 +74,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.7.0';
+export const DISCLOSURE_VERSION = '1.8.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.
@@ -119,6 +120,8 @@ export function disclosureCatalog(): Disclosure[] {
   out.push(disclose({ ...base, quorum: 2 }).find((x) => x.control === 'quorum')!);
   for (const [key, statement] of Object.entries(MANAGED_CONSENT_TEXTS)) out.push({ control: 'custody', option: `managed (consentimiento: ${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   for (const [key, statement] of Object.entries(CONTINUITY_VAULT_TEXTS)) out.push({ control: 'cloudBackup', option: `continuity-vault (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+  // FR014-04: listed under the control that decides whether the web asks the mirror (see mirrorPolicy).
+  for (const [key, statement] of Object.entries(CHANNEL_MIRROR_TEXTS)) out.push({ control: key === 'torOnly' ? 'network' : 'identity', option: `mirror de canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   return out;
 }
 
