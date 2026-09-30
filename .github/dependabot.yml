@@ -8,6 +8,11 @@ updates:
       # Types follow the oldest supported runtime (engines: node >=22, CI on Node 22), not the latest Node.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # A TypeScript major is a planned change, not a Dependabot PR (#350): TypeDoc 0.28 accepts TypeScript up
+      # to 6.0, so with 7.0 npm ci fails (ERESOLVE) in every job, and scripts/lint-claims.ts uses the JS compiler
+      # API (ts.createSourceFile), to be checked against 7.0, the native port. Lift it once TypeDoc supports 7.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
