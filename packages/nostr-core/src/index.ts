@@ -9,3 +9,4 @@ export * as nip98 from './nip98';
 export * from './filter';
 export * from './kinds';
 export * from './signer-types';
+export * from './p384';

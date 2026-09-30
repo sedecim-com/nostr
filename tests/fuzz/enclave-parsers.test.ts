@@ -24,6 +24,7 @@ import {
   type CborValue,
 } from '@sedecim/managed-signer';
 import { decodeOid, derChildren, int, octets, oid, parseDer, seq, set, utf8 } from '../../services/managed-signer/src/enclave/der';
+import { NitroAttestationError, verifyNitroAttestation } from '@sedecim/signer';
 import { runs, throwsCleanly } from './arbitraries';
 
 const { value: cborValue } = fc.letrec((tie) => ({
@@ -182,6 +183,42 @@ describe('Nitro attestation verification (fuzz)', () => {
     fc.assert(
       fc.property(fc.oneof(fc.uint8Array({ maxLength: 300 }), cborValue.map((v) => encodeCbor(v))), (b) => {
         expect(() => verifyAttestation(b, policy)).toThrow(AttestationError);
+      }),
+      runs(1000),
+    );
+  });
+
+  /** What each verifier says: 'ok' or its error code; anything but its own error class fails the property. */
+  const verdicts = (b: Uint8Array) => {
+    const run = (fn: () => unknown, cls: typeof AttestationError | typeof NitroAttestationError) => {
+      try {
+        fn();
+        return 'ok';
+      } catch (e) {
+        if (!(e instanceof cls)) throw e;
+        return e.code;
+      }
+    };
+    return { node: run(() => verifyAttestation(b, policy), AttestationError), portable: run(() => verifyNitroAttestation(b, policy), NitroAttestationError) };
+  };
+
+  it('FR005-10: the portable verifier (no node:*) accepts the fixture and gives the node:crypto one\'s verdict on every tampered copy', () => {
+    expect(verdicts(doc)).toEqual({ node: 'ok', portable: 'ok' });
+    fc.assert(
+      fc.property(flips, (f) => {
+        const v = verdicts(flip(doc, f));
+        expect(v.portable === 'ok').toBe(v.node === 'ok');
+      }),
+      runs(300),
+    );
+  });
+
+  it('FR005-10: random bytes and random CBOR get the same error code from both verifiers', () => {
+    fc.assert(
+      fc.property(fc.oneof(fc.uint8Array({ maxLength: 300 }), cborValue.map((v) => encodeCbor(v))), (b) => {
+        const v = verdicts(b);
+        expect(v.node).not.toBe('ok');
+        expect(v.portable).toBe(v.node);
       }),
       runs(1000),
     );
