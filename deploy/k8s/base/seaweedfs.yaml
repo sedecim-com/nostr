@@ -1,5 +1,7 @@
 # S3-compatible store for Buzz media (same SeaweedFS pin and Buzz bootstrap as docker-compose.yml; the compose also
 # creates the Continuity Vault's bucket and keys, VAULT-06: here components/continuity-vault adds them).
+# IR-2026-10-12: only the S3 API (8333) is served; the master, volume and filer bind to 127.0.0.1 inside the pod, and
+# a NetworkPolicy (below) admits ingress only on 8333, so no pod reaches the unauthenticated filer/master.
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,12 +15,24 @@ spec:
     - name: s3
       port: 8333
       targetPort: 8333
-    - name: master
-      port: 9333
-      targetPort: 9333
-    - name: master-grpc
-      port: 19333
-      targetPort: 19333
+---
+# IR-2026-10-12: default-deny ingress to SeaweedFS except the S3 API. The internals already bind to localhost; this is
+# defence in depth, and it documents that only 8333 is meant to be reachable.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: seaweedfs
+  labels:
+    app: seaweedfs
+spec:
+  podSelector:
+    matchLabels:
+      app: seaweedfs
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8333
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -49,20 +63,26 @@ spec:
         - name: seaweedfs
           image: seaweedfs
           command: ["/bin/sh", "-c"]
+          # IR-2026-10-12: Buzz is scoped to its own bucket (no global Admin); the master, volume and filer bind to
+          # 127.0.0.1 and Iceberg/Lance are off, so only the S3 API is on the pod network; the bucket is created from
+          # inside the pod against the local master (nothing reaches it over the network any more).
           args:
             - |
               set -eu
               case "$S3_ACCESS_KEY$S3_SECRET_KEY" in *[!A-Za-z0-9]*) echo "S3 keys must be alphanumeric"; exit 1;; esac
+              case "$S3_BUCKET" in *[!a-z0-9-]* | '') echo "S3_BUCKET: lowercase letters, digits and -"; exit 1;; esac
               umask 077
-              printf '{"identities":[{"name":"buzz","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}' "$S3_ACCESS_KEY" "$S3_SECRET_KEY" > /tmp/s3.json
-              exec weed server -dir=/data -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=/tmp/s3.json
+              printf '{"identities":[{"name":"buzz","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s","Tagging:%s"]}]}' "$S3_ACCESS_KEY" "$S3_SECRET_KEY" "$S3_BUCKET" "$S3_BUCKET" "$S3_BUCKET" "$S3_BUCKET" > /tmp/s3.json
+              (
+                for i in $(seq 1 60); do
+                  if echo "s3.bucket.create -name $S3_BUCKET" | weed shell -master=127.0.0.1:9333 2>&1 | grep -Eq "created bucket|already exists"; then echo ready > /tmp/buckets-ready; break; fi
+                  sleep 2
+                done
+              ) &
+              exec weed server -dir=/data -ip=127.0.0.1 -ip.bind=127.0.0.1 -s3 -s3.port=8333 -s3.ip.bind=0.0.0.0 -s3.port.iceberg=0 -s3.port.lance=0 -s3.config=/tmp/s3.json
           ports:
             - name: s3
               containerPort: 8333
-            - name: master
-              containerPort: 9333
-            - name: master-grpc
-              containerPort: 19333
           env:
             - name: S3_ACCESS_KEY
               valueFrom:
@@ -74,21 +94,26 @@ spec:
                 secretKeyRef:
                   name: acceso-nostr-secrets
                   key: S3_SECRET_KEY
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: acceso-nostr-config
+                  key: S3_BUCKET
           volumeMounts:
             - name: data
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+          # IR-2026-10-12: the master binds to 127.0.0.1, so the probes run inside the pod (kubelet cannot reach it on
+          # the pod IP any more). Ready only once the bucket exists.
           readinessProbe:
-            httpGet:
-              path: /cluster/status
-              port: 9333
+            exec:
+              command: ["/bin/sh", "-c", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && [ -f /tmp/buckets-ready ]"]
             periodSeconds: 5
             failureThreshold: 24
           livenessProbe:
-            httpGet:
-              path: /cluster/status
-              port: 9333
+            exec:
+              command: ["/bin/sh", "-c", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status"]
             initialDelaySeconds: 30
             periodSeconds: 20
           resources:
@@ -114,62 +139,3 @@ spec:
         resources:
           requests:
             storage: 20Gi
----
-# One-shot bucket creation (compose: seaweedfs-init). Idempotent: "already exists" counts as success.
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: seaweedfs-init
-  labels:
-    app: seaweedfs-init
-spec:
-  backoffLimit: 6
-  template:
-    metadata:
-      labels:
-        app: seaweedfs-init
-    spec:
-      restartPolicy: OnFailure
-      automountServiceAccountToken: false
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: init
-          image: seaweedfs
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -eu
-              for i in $(seq 1 60); do
-                if echo "s3.bucket.create -name $S3_BUCKET" | weed shell -master=seaweedfs:9333 2>&1 | grep -Eq "created bucket|already exists"; then echo "bucket $S3_BUCKET ready"; exit 0; fi
-                sleep 2
-              done
-              echo "could not create bucket $S3_BUCKET"; exit 1
-          envFrom:
-            - configMapRef:
-                name: acceso-nostr-config
-          env:
-            - name: HOME
-              value: /tmp
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-          resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
-            limits:
-              cpu: 200m
-              memory: 128Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: [ALL]
-      volumes:
-        - name: tmp
-          emptyDir: {}

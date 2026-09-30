@@ -136,7 +136,8 @@ kops export kubecfg --name sedecim-stage.k8s.local --state <s3-state>
 - `deploy.sh` etiqueta las imágenes propias con el commit (`--tag` para otro) y se niega a construir con el
   árbol sucio.
 - `update-stage.sh` no borra el namespace ni los PVCs; espeja imágenes de terceros solo con `--mirror`;
-  reaplica el Job `seaweedfs-init` solo si falta o falló; reinicia los workloads para recoger el Secret.
+  reinicia los workloads para recoger el Secret. SeaweedFS crea sus buckets dentro de su propio pod (IR-2026-10-12), así
+  que ya no hay Jobs de inicialización que aplicar aparte.
 - `teardown-stage.sh` borra el namespace **con sus PVCs** (datos): hacer backup antes.
 
 Verificación manual tras el deploy: `https://nostr-stage.ai.acce.so/_edge_health`, NIP-11 en
