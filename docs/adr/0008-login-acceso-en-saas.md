@@ -27,5 +27,7 @@ exige que la centralización sea opcional y que la identidad Nostr no dependa de
 - En SaaS, el operador sabe qué usuario de Acceso usa el servicio. Solo sabe qué npub es suya si el usuario la vincula.
 - Las cookies de Amplify son legibles por JS, como en Acceso: un XSS podría robar la sesión de Acceso. Mitigaciones:
   - CSP estricta con nonce por petición, sin `unsafe-inline`.
-  - La sesión de Acceso no da acceso a las llaves Nostr.
+  - La sesión de Acceso no da acceso a las llaves Nostr locales. Con la custodia gestionada, la sesión permite firmar
+    mientras dure, pero exportar, migrar, borrar o cancelar la llave, y cerrar las demás sesiones, piden otra vez la
+    contraseña: el managed-signer solo acepta un login de los últimos minutos (`auth_time`, IR-2026-10-03).
 - El login en el SaaS no controla el acceso al relay. Si se quiere restringir el relay a usuarios de Acceso, se hace con el allowlist NIP-42 del modo institucional (FR023-04).

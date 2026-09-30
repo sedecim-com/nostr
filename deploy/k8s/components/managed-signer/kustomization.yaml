@@ -12,6 +12,8 @@ configMapGenerator:
       - MANAGED_SIGNER_VAULT=aws
       - MANAGED_SIGNER_RETENTION_DAYS=30
       - MANAGED_SIGNER_USAGE_RETENTION_MONTHS=12
+      # IR-2026-10-03: export, migration, deletion, cancellation and closing the other sessions take a recent sign-in.
+      - MANAGED_SIGNER_REAUTH_MAX_AGE_S=300
   - name: edge-conf
     behavior: merge
     files:
