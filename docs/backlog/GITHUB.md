@@ -82,7 +82,10 @@ la sincronización la regenera; no hay nada que mantener aparte de los bloqueos 
 | Bloqueo | Lo que impide cerrarla aunque el código esté listo (ver abajo), `en PR` si la tarea tiene una PR abierta (`evidencia:in-pr`), o `lista` |
 
 `lista` es una tarea sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código: una
-dependencia parcial con bloqueo externo cuenta como código ya fusionado, así que se puede construir encima.
+dependencia parcial con bloqueo externo cuenta como código ya fusionado, así que se puede construir encima. Una
+decisión (tipo Decisión) no cuenta: mientras solo esté propuesta, lo que depende de ella espera a que se tome.
+Si lo que falta de una dependencia es un hecho y no código (p. ej. la primera release firmada), la tarea que lo
+necesita lleva su propio bloqueo en `meta.externalBlockers`.
 
 El bloqueo externo no sale de los issues. Está en `meta.externalBlockers` (id de tarea → tipo), con los tipos y su
 significado en `meta.blockerKinds`: `persona` (alguien aprueba, configura o ejecuta algo), `aws` (cuenta, región o
