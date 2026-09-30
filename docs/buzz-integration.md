@@ -89,8 +89,10 @@ Pruebas: `packages/messaging/test/flags.test.ts` (172800 cuando la estrategia es
 coherencia con el informe y los flags versionados, texto de la PR).
 
 ## Reacciones, hilos y borrado en canales (FR015-04)
-Lo que envía la web y por qué, según el código del relay en el commit fijado (`crates/buzz-relay/src/handlers/ingest.rs`
-y `side_effects.rs`, `crates/buzz-core/src/nip10.rs`, `crates/buzz-db/src/store/event.rs`):
+Lo que envía la web y por qué, según el código del relay en `b0d6fb8` (el último commit de Buzz que se puede leer aquí; el
+pin es posterior: `infra/buzz/PIN`) en `crates/buzz-relay/src/handlers/ingest.rs` y `side_effects.rs`,
+`crates/buzz-core/src/nip10.rs` y `crates/buzz-db/src/store/event.rs`. Lo que vale para la imagen fijada lo dice el gate
+de abajo, que corre contra ella:
 
 | Acción | Evento de la web | Qué comprueba Buzz |
 |---|---|---|
