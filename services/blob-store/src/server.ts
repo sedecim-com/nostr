@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, getTagValue, getTagValues, verifyEvent, type NostrEvent } from '@sedecim/nostr-core';
-import { createLogger, type Logger } from '@sedecim/telemetry-policy';
-import { HttpRateLimiter, logRateLimited, retryAfterSeconds, type HttpRateLimitOptions, type RateClass, type RateScope } from '@sedecim/service-kit';
+import { createLogger, type Logger, type Tracer } from '@sedecim/telemetry-policy';
+import { createServiceTracer, HttpRateLimiter, isOnionHost, logRateLimited, retryAfterSeconds, type HttpRateLimitOptions, type RateClass, type RateScope, type ServiceTracingOptions } from '@sedecim/service-kit';
 
 export interface BlobStoreOptions {
   dir: string;
@@ -19,6 +19,14 @@ export interface BlobStoreOptions {
   rateLimit?: HttpRateLimitOptions | HttpRateLimiter | false;
   /** Uploads in flight per client IP (default 4); each one can hold up to `maxBytes` in memory. */
   maxConcurrentUploadsPerIp?: number;
+  /** NFR007-02: a span per request, as in service-kit (tracingFromEnv). Off unless given, and at telemetry level 'none'. */
+  tracing?: ServiceTracingOptions | Tracer;
+}
+
+/** The route of a request as a template (NFR007-02): a blob is `/:sha256`, never its hash. */
+function routeOf(pathname: string): string | undefined {
+  if (pathname === '/health' || pathname === '/upload') return pathname;
+  return /^\/[0-9a-f]{64}(\.[a-z0-9]{1,8})?$/.test(pathname) ? '/:sha256' : undefined;
 }
 
 type Reply = { status: number; body?: Uint8Array | string; headers?: Record<string, string> };
@@ -46,11 +54,13 @@ export class BlobStore {
   url = '';
   private readonly log: Logger;
   readonly rateLimiter?: HttpRateLimiter;
+  readonly tracer: Tracer;
   private readonly uploadsByIp = new Map<string, number>();
 
   constructor(private readonly opts: BlobStoreOptions) {
     this.log = opts.logger ?? createLogger({ base: { service: 'blob-store' }, minimizeIp: true });
     if (opts.rateLimit) this.rateLimiter = opts.rateLimit instanceof HttpRateLimiter ? opts.rateLimit : new HttpRateLimiter(opts.rateLimit);
+    this.tracer = createServiceTracer('blob-store', opts.tracing, this.log);
   }
 
   private path(hash: string, ext: 'bin' | 'json') {
@@ -191,15 +201,27 @@ export class BlobStore {
   async listen(port = 0, host = '127.0.0.1'): Promise<string> {
     await mkdir(this.opts.dir, { recursive: true, mode: 0o700 });
     this.server = createServer((req, res) => {
-      this.handle(req).then(
-        (r) => {
-          res.writeHead(r.status, r.headers);
-          res.end(r.body);
-        },
-        (err: Error & { status?: number }) => {
-          res.writeHead(err.status ?? 500, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error: err.status ? err.message : 'internal error' }));
-        },
+      // NFR007-02: each request is the root of a trace (method, route template, status, duration); never for a .onion host.
+      const route = routeOf((req.url ?? '/').split('?')[0]!);
+      const opts = { kind: 'server' as const, attributes: { 'http.request.method': req.method, ...(route ? { 'http.route': route } : {}) }, untraced: isOnionHost(req.headers.host) };
+      void this.tracer.withSpan(
+        route ? `${req.method} ${route}` : (req.method ?? 'http.server'),
+        (span) =>
+          this.handle(req).then(
+            (r) => {
+              span.setAttribute('http.response.status_code', r.status);
+              res.writeHead(r.status, r.headers);
+              res.end(r.body);
+            },
+            (err: Error & { status?: number }) => {
+              const status = err.status ?? 500;
+              span.setAttribute('http.response.status_code', status);
+              if (status >= 500) span.recordError(err);
+              res.writeHead(status, { 'content-type': 'application/json' });
+              res.end(JSON.stringify({ error: err.status ? err.message : 'internal error' }));
+            },
+          ),
+        opts,
       );
     });
     await new Promise<void>((r) => this.server!.listen(port, host, () => r()));
@@ -209,5 +231,6 @@ export class BlobStore {
 
   async close() {
     await new Promise<void>((r) => (this.server ? this.server.close(() => r()) : r()));
+    await this.tracer.shutdown();
   }
 }

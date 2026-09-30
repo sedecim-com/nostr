@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, type ReplayStore } from '@sedecim/service-kit';
+import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, tracingFromEnv, type ReplayStore } from '@sedecim/service-kit';
 import { createPolicyApi, DEFAULT_ACCESS_LOG_RETENTION_DAYS, MemoryPolicyRepository, parseServiceScopes, PgPolicyRepository, PolicyEngine, type PolicyRepository } from './index';
 
 const env = process.env;
@@ -59,6 +59,8 @@ const api = createPolicyApi(engine, {
   accessLogRetentionDays: accessDays,
   corsOrigins,
   rateLimit: rateLimitFromEnv(env),
+  // NFR007-02: TELEMETRY_LEVEL / TRACE_SAMPLE_RATE / TRACE_EXPORT_URL; off by default.
+  tracing: tracingFromEnv(env),
   ...(replayStore ? { replayStore } : {}),
 });
 if (env.METRICS_PORT && api.rateLimiter) await serveMetrics(() => api.rateLimiter!.render(), { port: Number(env.METRICS_PORT), host: env.METRICS_HOST ?? '0.0.0.0' });

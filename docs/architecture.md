@@ -35,7 +35,7 @@ firmados; las bases de datos son índices derivados.
 | `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad; los flujos que comparten el CLI y la web (dispositivos, propuestas y adjuntos MIP-04, FR025-14) |
 | `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash; lista de servidores del usuario (BUD-03, kind 10063) con subida al principal y descarga con alternativas; subida en espejo del cifrado de los archivos de grupo (`ciphertextUploader`) |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
-| `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none |
+| `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none y trazador de los servicios: muestreo en la raíz, atributos acotados, log y OTLP opcional ([`slo.md`](slo.md#trazas-nfr007-02)) |
 | `metrics` | Exportador Prometheus (latencia de ACK por relay y región, outbox) que respeta el nivel de telemetría del perfil ([`slo.md`](slo.md#latencia)) |
 | `profiles` | Configuración del panel, presets (Apéndice B), validación, disclosures y matriz de notificaciones push (ADR 0010) |
 | `policy-client` | Evaluador RBAC/ABAC + device trust |
@@ -43,7 +43,7 @@ firmados; las bases de datos son índices derivados.
 | `rotation-worker` | Worker de revocación (FR-024): rotación MLS pendiente del policy-engine y propagación de revocaciones al managed-signer. Corre como servicio `services/rotation-worker` (FR024-05, compose perfil `institutional` y k8s) o desde el CLI (`sovereign group rotation-worker`) |
 | `sync` | Reconstrucción de historial: NIP-77 (Negentropy) con detección NIP-11/sonda y fallback automático a REQ por ventanas; `rebuildHistory` (canales, DMs, evidencia para el outbox); export/import JSONL |
 | `continuity` | Continuity Vault (ADR 0011): llave de archivo por persona distinta de la nsec, sobres XChaCha20-Poly1305 con relleno y AAD ligado al id, validador compartido que rechaza texto plano, cliente del vault, y archivo y restauración del historial de la persona (eventos, mensajes de grupo, ledger y estado MLS; VAULT-03), y su exportación portable (`sedecim-vault-export`, VAULT-05) |
-| `service-kit` | HTTP mínimo con NIP-98/bearer, anti-replay NIP-98, límites de tasa, verificación de tokens de Acceso (Cognito) y migraciones SQL |
+| `service-kit` | HTTP mínimo con NIP-98/bearer, anti-replay NIP-98, límites de tasa, verificación de tokens de Acceso (Cognito), migraciones SQL y un span por petición y por consulta (apagado por defecto) |
 | `test-relay` | Relay/Blossom/SOCKS en memoria para E2E con inyección de fallos |
 
 ## Decisiones (ADR resumidas; ver §25.1)
@@ -236,6 +236,12 @@ balanceador reparte las peticiones). Lo mismo vale para el edge (por pod) y para
 
 En managed-signer, además, un dueño solo puede tener una importación o exportación en curso; los límites de
 firma por llave y por kind (`MANAGED_SIGNER_RATE_*`, FR005-06) siguen igual y son independientes.
+
+**Trazas (NFR007-02).** El servidor de service-kit (y el de blob-store) abre un span por petición y
+`createPgPool`, uno hijo por consulta, con el muestreo decidido en la raíz (`TRACE_SAMPLE_RATE`, 0 por defecto) y
+solo atributos acotados: método, ruta como plantilla, estado, clase del error y operación de base de datos. Van al
+log del servicio y, con `TRACE_EXPORT_URL`, al colector OTLP del operador. Con `TELEMETRY_LEVEL=none` no existen, y
+una petición a un `.onion` nunca se traza. Detalle en [`slo.md`](slo.md#trazas-nfr007-02).
 
 **Edge.** En Kubernetes, `deploy/k8s/base/files/edge-nginx.conf` resuelve la IP real (`set_real_ip_from`
 rangos privados + `real_ip_recursive`), aplica `limit_req`/`limit_conn` por host y reenvía esa IP como único

@@ -33,6 +33,7 @@ las conversaciones, identidad de las fuentes.
 | Compromiso futuro de la llave | Grupos Marmot/MLS con forward secrecy y rotación (PCS) | `packages/marmot-adapter/test` |
 | Expulsado que sigue leyendo | Autoprueba de secreto post-expulsión (falla cerrado con ts-mls vulnerable) | `docs/marmot.md` |
 | Metadatos de push o telemetría | Validación de configuración: errores bloqueantes si se activan | `packages/profiles/test` |
+| Trazas de los servicios que usa la persona (vault, blob-store, policy-engine) | Apagadas por defecto; con `TELEMETRY_LEVEL=none` el servicio no tiene trazador y ninguna variable lo enciende; una petición a un `.onion` nunca se traza; un span nunca lleva IP, pubkey, ids de la ruta ni contenido ([threat model](../threat-model.md#trazas-de-los-servicios-nfr007-02)) | `packages/telemetry-policy/test/tracing.test.ts`, `packages/service-kit/test/tracing.test.ts`, `services/blob-store/test/tracing.test.ts` (NFR007-02) |
 | Custodia declarada mayor que la real | El CLI declara la custodia de la llave real (`local` o `external`), nunca el `offline` del preset; con la llave en el dispositivo avisa (`TOR_DEVICE_KEY`) | `apps/sovereign-client/test/nip46.test.ts`, `packages/profiles/test` |
 | Fuga del tráfico del signer NIP-46 | Solo a los relays del signer, por SOCKS con las credenciales de la persona; sin Tor falla cerrado; onion-only también para el signer; permisos mínimos | `apps/sovereign-client/test/nip46.test.ts`, `packages/signer/test` |
 
@@ -47,6 +48,7 @@ las conversaciones, identidad de las fuentes.
 | El signer NIP-46 ve lo que firma y los DMs que descifra | Medio | Propio de NIP-46: el signer es de confianza; se le piden solo los kinds que firma el CLI |
 | Jitter de gift wrap reducido a ±5 min por Buzz | Medio | Solo aplica si la persona usa el relay de Buzz; el secure-relay acepta el jitter estándar |
 | Estilo de escritura y horarios | Medio | No mitigable técnicamente; formación del usuario |
+| Servicio con trazas activas alcanzado por su nombre clearnet a través de Tor | Bajo | Se muestrea como cualquier otra petición: su operador ve la hora, la ruta como plantilla y la duración, no la persona. Con `--onion-only` solo se alcanzan `.onion`, que nunca se trazan (NFR007-02) |
 | Adversario global de Tor | Alto | Fuera del alcance de Tor |
 
 ## Supuestos

@@ -176,6 +176,8 @@ services:
       # NFR004-01: Prometheus exporter (internal port, not published). ACK probe off unless set (ms).
       METRICS_PORT: "9464"
       TELEMETRY_LEVEL: ${INDEXER_TELEMETRY_LEVEL:-standard}
+      # NFR007-02: fraction of requests traced (0..1, 0 = off), one log line per span; never at TELEMETRY_LEVEL=none.
+      TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0}
       RELAY_REGIONS: ${RELAY_REGIONS:-}
       RELAY_DEFAULT_REGION: ${RELAY_DEFAULT_REGION:-local}
       ACK_PROBE_INTERVAL_MS: ${ACK_PROBE_INTERVAL_MS:-0}
@@ -346,6 +348,8 @@ services:
       PORT: "8084"
       # Prometheus metrics (internal port, not published): operations, 429s, device revocations.
       METRICS_PORT: "9464"
+      # NFR007-02: fraction of requests traced (0..1, 0 = off), one log line per span.
+      TRACE_SAMPLE_RATE: ${TRACE_SAMPLE_RATE:-0}
     read_only: false
     volumes: [managed-vault:/data]
     # The web calls it directly with the user's Acceso token.
