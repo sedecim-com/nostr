@@ -145,6 +145,20 @@ export function createIdentityApi(repo: IdentityRepository, opts: ServiceOptions
     'nip98',
   );
 
+  // FR007-06: only the account that owns both personas can remove their link; anyone else gets the same 404 as
+  // for a link that does not exist, so the id reveals nothing.
+  svc.delete(
+    '/v1/links/:linkId',
+    async (req) => {
+      const current = await me(req);
+      const link = await repo.removeLink(current.accountId, req.params.linkId!);
+      if (!link) throw new HttpError(404, 'link not found');
+      await repo.audit(current.accountId, req.pubkey!, 'link.removed', { link: link.linkId, from: link.fromPersona, to: link.toPersona, visibility: link.visibility });
+      return { ok: true };
+    },
+    'nip98',
+  );
+
   const resolveLinks = async (pubkey: string, viewer?: string) => {
     const p = await repo.personaByPubkey(pubkey);
     if (!p) return [];

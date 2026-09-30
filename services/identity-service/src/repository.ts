@@ -60,6 +60,8 @@ export interface IdentityRepository {
   removePersona(accountId: string, pubkey: string): Promise<boolean>;
   addLink(l: LinkRow): Promise<void>;
   linksOf(personaIds: string[]): Promise<LinkRow[]>;
+  /** Deletes a link only if both of its personas belong to the account; returns the removed link. */
+  removeLink(accountId: string, linkId: string): Promise<LinkRow | undefined>;
   upsertKeyMetadata(k: KeyMetadataRow): Promise<void>;
   keyMetadataOf(personaId: string): Promise<KeyMetadataRow[]>;
   audit(accountId: string, actor: string, action: string, details: Record<string, unknown>): Promise<void>;
@@ -125,6 +127,12 @@ export class MemoryIdentityRepository implements IdentityRepository {
   async linksOf(ids: string[]) {
     return [...this.links.values()].filter((l) => ids.includes(l.fromPersona) || ids.includes(l.toPersona));
   }
+  async removeLink(accountId: string, linkId: string) {
+    const l = this.links.get(linkId);
+    if (!l || this.personas.get(l.fromPersona)?.accountId !== accountId || this.personas.get(l.toPersona)?.accountId !== accountId) return undefined;
+    this.links.delete(linkId);
+    return l;
+  }
   async upsertKeyMetadata(k: KeyMetadataRow) {
     this.keys.set(k.keyId, k);
   }
@@ -189,6 +197,7 @@ export class PgIdentityRepository implements IdentityRepository {
     linkageVisibility: r.linkage_visibility as Visibility,
     ...(r.label ? { label: r.label as string } : {}),
   });
+  private mapLink = (r: Record<string, unknown>): LinkRow => ({ linkId: r.link_id as string, fromPersona: r.from_persona as string, toPersona: r.to_persona as string, visibility: r.visibility as Visibility, audience: r.audience as string[] });
 
   async createAccount(accountId: string, first: PersonaRow) {
     const c = await this.pool.connect();
@@ -224,7 +233,16 @@ export class PgIdentityRepository implements IdentityRepository {
   }
   async linksOf(ids: string[]) {
     const { rows } = await this.pool.query('SELECT * FROM identity_links WHERE from_persona = ANY($1) OR to_persona = ANY($1)', [ids]);
-    return rows.map((r) => ({ linkId: r.link_id, fromPersona: r.from_persona, toPersona: r.to_persona, visibility: r.visibility, audience: r.audience }));
+    return rows.map(this.mapLink);
+  }
+  async removeLink(accountId: string, linkId: string) {
+    const { rows } = await this.pool.query(
+      `DELETE FROM identity_links l USING identity_personas f, identity_personas t
+       WHERE l.link_id = $2 AND f.persona_id = l.from_persona AND t.persona_id = l.to_persona AND f.account_id = $1 AND t.account_id = $1
+       RETURNING l.*`,
+      [accountId, linkId],
+    );
+    return rows[0] ? this.mapLink(rows[0]) : undefined;
   }
   async upsertKeyMetadata(k: KeyMetadataRow) {
     await this.pool.query(

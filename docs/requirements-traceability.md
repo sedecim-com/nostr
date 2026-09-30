@@ -12,7 +12,7 @@ Un requisito está **Hecho** si lo están todas sus tareas del programa, sin con
 | FR-004 | External signer NIP-46 | Hecho | 6 de 6 | FR004-08 (Diferido) |
 | FR-005 | Managed key | Parcial | 9 de 11 | FR005-05 (S14), FR005-13 (S11), FR005-10 (Diferido) |
 | FR-006 | Múltiples personas | Hecho | 3 de 3 | FR006-04 (Diferido) |
-| FR-007 | Identity linking | Hecho | 5 de 5 | — |
+| FR-007 | Identity linking | Parcial | 5 de 6 | FR007-06 (S10) |
 | FR-008 | Persistir antes de transmitir | Hecho | 3 de 3 | — |
 | FR-009 | Relay ack ≠ recepción | Hecho | 3 de 3 | — |
 | FR-010 | Multi-relay + quorum | Hecho | 5 de 5 | — |
@@ -128,15 +128,16 @@ Un requisito está **Hecho** si lo están todas sus tareas del programa, sin con
 
 ## FR-007 · Identity linking
 
-**Hecho**: 5 de 5 tareas hechas. Tests que citan FR-007: [identity.test.ts](../packages/identity/test/identity.test.ts), [identity-service.test.ts](../services/identity-service/test/identity-service.test.ts), [admin-console.e2e.ts](../tests/browser/admin-console.e2e.ts).
+**Parcial**: 5 de 6 tareas hechas. Tests que citan FR-007: [identity.test.ts](../packages/identity/test/identity.test.ts), [identity-service.test.ts](../services/identity-service/test/identity-service.test.ts), [admin-console.e2e.ts](../tests/browser/admin-console.e2e.ts).
 
 | Tarea | Estado | Evidencia | Tests que la citan |
 |---|---|---|---|
 | [FR007-01](https://github.com/sedecim-com/nostr/issues/96) Vínculos entre personas con confirmación explícita y auditoría | Hecho | packages/identity | — |
 | [FR007-02](https://github.com/sedecim-com/nostr/issues/97) API del identity-service con visibilidad private/selective/public | Hecho | services/identity-service | — |
 | [FR007-03](https://github.com/sedecim-com/nostr/issues/98) UI de vínculos con advertencia de desanonimización | Hecho | apps/web-saas LinkPersonas (diálogo de consecuencias antes de enviar; prueba de control de la segunda llave); tests/browser/web-saas.e2e.ts | [web-saas.e2e.ts](../tests/browser/web-saas.e2e.ts) |
-| [FR007-04](https://github.com/sedecim-com/nostr/issues/99) Publicar opcionalmente un vínculo público como evento Nostr firmado | Hecho | packages/identity/src/public-link.ts (kind 30078 firmado por A con el consentimiento firmado de B; verificable por terceros), docs/public-link.md; web: casilla opcional con advertencia, bloqueada en sovereign/Tor | [public-link.test.ts](../packages/identity/test/public-link.test.ts) |
+| [FR007-04](https://github.com/sedecim-com/nostr/issues/99) Publicar opcionalmente un vínculo público como evento Nostr firmado | Hecho | packages/identity/src/public-link.ts (kind 30078 firmado por A con el consentimiento firmado de B; verificable por terceros), docs/public-link.md; web: casilla opcional con advertencia, bloqueada en sovereign/Tor | [public-link.test.ts](../packages/identity/test/public-link.test.ts), [web-saas.e2e.ts](../tests/browser/web-saas.e2e.ts) |
 | [FR007-05](https://github.com/sedecim-com/nostr/issues/245) «Enviando como…» muestra el nivel de vínculo | Hecho · Merged | Commit 8a72012 (PR #319): CLI: `IdentityManager.sendingAs` devuelve «Enviando como <etiqueta> (npub…) · <custodia> · <red> · <nivel de vínculo>». Se imprime antes de cada envío (canal, DM y grupo MLS) y con `sovereign whoami`. · Web: el banner `#sending-as` añade el nivel de vínculo (sin vínculo, privado, selectivo o público). · Los vínculos hechos en el navegador quedan en las dos personas. · Las personas con cuenta en el servicio de identidad los leen de `/v1/accounts/me` al abrirse. Una persona sin cuenta nunca pregunta al servicio. · Tests: `packages/identity/test/identity.test.ts`; · `apps/sovereign-client/test/tor-hardening.test.ts` (banner del proceso real del CLI); · `tests/browser/web-saas.e2e.ts`: custodia, red y «sin vínculo»; tras vincular, «vínculo selectivo» en las dos personas. | [tor-hardening.test.ts](../apps/sovereign-client/test/tor-hardening.test.ts), [identity.test.ts](../packages/identity/test/identity.test.ts), [web-saas.e2e.ts](../tests/browser/web-saas.e2e.ts) |
+| [FR007-06](https://github.com/sedecim-com/nostr/issues/388) Retirar un vínculo entre personas en el servicio y en la web | Pendiente (S10) | — | [identity-service.test.ts](../services/identity-service/test/identity-service.test.ts), [web-saas.e2e.ts](../tests/browser/web-saas.e2e.ts) |
 
 ## FR-008 · Persistir antes de transmitir
 

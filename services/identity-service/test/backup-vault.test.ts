@@ -161,7 +161,11 @@ suite('backup vault (memory)', async () => new MemoryIdentityRepository());
 const PG = process.env.TEST_DATABASE_URL;
 if (PG) {
   suite('backup vault (postgres)', async () => {
-    const pool = createPgPool(PG);
+    // Its own schema: identity-service.test.ts resets the same tables in the default one, in parallel.
+    const admin = createPgPool(PG);
+    await admin.query('CREATE SCHEMA IF NOT EXISTS identity_backup_vault');
+    await admin.end();
+    const pool = createPgPool(`${PG}${PG.includes('?') ? '&' : '?'}options=${encodeURIComponent('-c search_path=identity_backup_vault')}`);
     await resetScope(pool, 'identity-service', ['backup_vault', 'identity_audit', 'external_logins', 'key_metadata', 'identity_links', 'identity_personas', 'accounts']);
     await migrate(pool, fileURLToPath(new URL('../migrations', import.meta.url)), 'identity-service');
     return new PgIdentityRepository(pool);

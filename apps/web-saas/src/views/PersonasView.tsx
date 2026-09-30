@@ -5,7 +5,7 @@ import { fetchCloudBackup, linkAccesoLogin, saveCloudBackup } from '../lib/ident
 import { backupJson, createPersona, custodyFacts, custodyLabel, ensureArchiveKey, exportBackup, managedConnection, realCustody, shortNpub, type NewPersona } from '../lib/session';
 import { deviceKeyAllowed, setProtection } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
-import { LinkPersonas } from './LinkPersonas';
+import { LinkPersonas, PersonaLinks } from './LinkPersonas';
 import { BlossomServers } from './BlossomServers';
 import { ContinuityVault } from './ContinuityVault';
 import { RemoteSigner } from './RemoteSigner';
@@ -233,6 +233,7 @@ export function PersonasView() {
         </Card>
       )}
 
+      {session && <PersonaLinks />}
       {session && <LinkPersonas />}
       {session && <BlossomServers key={session.persona.id} />}
       {session && cfg.continuityVault && <ContinuityVault key={session.persona.id} url={cfg.continuityVault} />}

@@ -129,6 +129,7 @@ const SERVICES: Record<string, ServiceDoc> = {
       'POST /v1/accounts/me/personas': { summary: 'Añade una persona a la cuenta.' },
       'DELETE /v1/accounts/me/personas/:pubkey': { summary: 'Quita una persona de la cuenta.' },
       'POST /v1/links': { summary: 'Publica un vínculo entre dos personas con su visibilidad.' },
+      'DELETE /v1/links/:linkId': { summary: 'Retira un vínculo entre dos personas de la cuenta de quien firma; 404 si no existe o no es suyo (FR007-06).' },
       'GET /v1/links/public/:pubkey': { summary: 'Vínculos públicos de una persona.' },
       'GET /v1/links/visible/:pubkey': { summary: 'Vínculos de una persona que quien firma puede ver.' },
       'PUT /v1/personas/:pubkey/key-metadata': { summary: 'Metadatos de custodia de la llave de una persona, sin material secreto.' },

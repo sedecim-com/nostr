@@ -34,9 +34,10 @@ export interface PersonaRecord {
   archiveKeyHex?: string;
   /**
    * FR007-05: the links of this persona that this browser knows (made here, or read from the identity service
-   * when the persona has an account there), for the «Enviando como…» banner.
+   * when the persona has an account there), for the «Enviando como…» banner. `nostrAuthor`: the persona that also
+   * published the link on Nostr (FR007-04), which signs its deletion request when the link is removed (FR007-06).
    */
-  links?: Array<{ with: string; visibility: 'private' | 'selective' | 'public' }>;
+  links?: Array<{ with: string; visibility: 'private' | 'selective' | 'public'; nostrAuthor?: string }>;
   /** The persona has an account in the identity service: it linked personas, backed up or attached Acceso here. */
   identityAccount?: boolean;
   relays: string[];

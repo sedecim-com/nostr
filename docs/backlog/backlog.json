@@ -4571,6 +4571,25 @@
    "status": "Pendiente",
    "evidence": "",
    "issue": 331
+  },
+  {
+   "id": "FR007-06",
+   "epic": "FR · Identidad, llaves y custodia",
+   "req": "FR-007",
+   "title": "Retirar un vínculo entre personas en el servicio y en la web",
+   "done": "Corrección (feature freeze hasta rc.1): la web ya promete el borrado («aunque borres el vínculo después») y no se podía hacer (revisión interna del 27/09).\n\n- identity-service: `DELETE /v1/links/:linkId` con NIP-98. Solo la cuenta dueña de las dos personas puede borrarlo; responde 404 si el vínculo no existe o no es suyo, y audita `link.removed`. `removeLink` en los repositorios en memoria y Postgres. El OpenAPI del servicio incluye la ruta.\n- Web: en la lista de vínculos de la persona, «Retirar vínculo» con confirmación. Si el vínculo es público y se publicó como evento Nostr firmado (FR007-04), avisa de que las copias en relays ajenos no se pueden retirar y publica una solicitud de borrado NIP-09. El banner «Enviando como…» (FR007-05) actualiza el nivel de vínculo.\n- Pruebas: API (borrar el propio, 404 con el ajeno o inexistente, auditoría) y E2E de la web del flujo de retirar.\n- El texto de la web coincide con lo que hace.",
+   "type": "Dev",
+   "priority": "P2",
+   "sp": 3,
+   "deps": [
+    "FR007-02",
+    "FR007-04",
+    "FR007-05"
+   ],
+   "sprint": "S10",
+   "status": "Pendiente",
+   "evidence": "",
+   "issue": 388
   }
  ]
 }

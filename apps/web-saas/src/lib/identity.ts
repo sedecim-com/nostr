@@ -60,12 +60,21 @@ export function linkLevel(links: Array<{ visibility: LinkVisibility }> | undefin
 
 export const LINK_LEVEL_LABEL: Record<'none' | LinkVisibility, string> = { none: 'sin vínculo', private: 'vínculo privado', selective: 'vínculo selectivo', public: 'vínculo público' };
 
+/** A link as the browser keeps it on each persona. `nostrAuthor`: the persona that published it on Nostr (FR007-04). */
+export interface PersonaLink {
+  with: string;
+  visibility: LinkVisibility;
+  nostrAuthor?: string;
+}
+
+type AccountMe = { personas: Array<{ personaId: string; pubkey: string }>; links: Array<{ linkId: string; fromPersona: string; toPersona: string; visibility: LinkVisibility }> };
+
 /**
  * FR007-05: the persona's links as the identity service has them. Only for a persona that already has an account
  * there, so the request reveals nothing new: the service already knows the persona.
  */
 export async function fetchLinks(signer: Signer, identityService: string): Promise<Array<{ with: string; visibility: LinkVisibility }>> {
-  const me = await nip98Request<{ personas: Array<{ personaId: string; pubkey: string }>; links: Array<{ fromPersona: string; toPersona: string; visibility: LinkVisibility }> }>(signer, `${identityService.replace(/\/$/, '')}/v1/accounts/me`);
+  const me = await nip98Request<AccountMe>(signer, `${identityService.replace(/\/$/, '')}/v1/accounts/me`);
   if (me.status !== 200) throw new Error(`identity-service: ${me.status}`);
   const pubkey = await signer.getPublicKey();
   const byId = new Map(me.json.personas.map((p) => [p.personaId, p.pubkey]));
@@ -73,11 +82,46 @@ export async function fetchLinks(signer: Signer, identityService: string): Promi
   return me.json.links.filter((l) => mine && (l.fromPersona === mine || l.toPersona === mine)).map((l) => ({ with: byId.get(l.fromPersona === mine ? l.toPersona : l.fromPersona) ?? '', visibility: l.visibility }));
 }
 
+/**
+ * FR007-06: the service does not know which links were also published on Nostr; the browser keeps that across the
+ * reads of `fetchLinks`, so removing the link can still ask for the event's deletion.
+ */
+export function keepNostrAuthor(fetched: PersonaLink[], local: PersonaLink[] | undefined): PersonaLink[] {
+  return fetched.map((l) => {
+    const author = l.visibility === 'public' ? local?.find((x) => x.with === l.with && x.nostrAuthor)?.nostrAuthor : undefined;
+    return author ? { ...l, nostrAuthor: author } : l;
+  });
+}
+
+/**
+ * FR007-06: removes from the identity service every link between this persona and `peer`. A link the service no
+ * longer has (removed from another device) counts as removed.
+ */
+export async function unlinkPersonas(signer: Signer, identityService: string, peer: string): Promise<void> {
+  const base = identityService.replace(/\/$/, '');
+  const me = await nip98Request<AccountMe>(signer, `${base}/v1/accounts/me`);
+  if (me.status === 404) return;
+  if (me.status !== 200) throw new Error(`identity-service: ${me.status}`);
+  const personaId = (pubkey: string) => me.json.personas.find((p) => p.pubkey === pubkey)?.personaId;
+  const pair = new Set([personaId(await signer.getPublicKey()), personaId(peer)]);
+  for (const l of me.json.links.filter((x) => pair.has(x.fromPersona) && pair.has(x.toPersona))) {
+    const res = await nip98Request<{ error?: string }>(signer, `${base}/v1/links/${l.linkId}`, 'DELETE');
+    if (res.status !== 200 && res.status !== 404) throw new Error(`identity-service: ${res.status} ${res.json?.error ?? ''}`);
+  }
+}
+
 /** What each visibility reveals, shown before confirming (FR007-03). */
 export const LINK_CONSEQUENCES: Record<LinkVisibility, string> = {
   private: 'Solo el servicio de identidad sabrá que ambas personas son tuyas. Nadie más puede consultarlo, pero el operador sí conoce la relación.',
   selective: 'Las personas que elijas podrán comprobar que ambas identidades son tuyas. Cualquiera de ellas podría compartirlo: la desanonimización no se puede deshacer.',
-  public: 'Cualquiera podrá comprobar que ambas identidades son la misma persona. Esto desanonimiza la persona pseudónima de forma permanente, aunque borres el vínculo después.',
+  public: 'Cualquiera podrá comprobar que ambas identidades son la misma persona. Esto desanonimiza la persona pseudónima de forma permanente, aunque retires el vínculo después.',
+};
+
+/** FR007-06: what removing a link does not undo, shown before confirming. */
+export const UNLINK_CONSEQUENCES: Record<LinkVisibility, string> = {
+  private: 'El servicio de identidad dejará de guardar el vínculo. Su registro de auditoría conserva que existió.',
+  selective: 'El servicio dejará de mostrar el vínculo a las personas que elegiste, pero quien ya lo vio pudo guardarlo o compartirlo.',
+  public: 'El servicio dejará de mostrar el vínculo, pero cualquiera pudo verlo y guardarlo: la desanonimización no se deshace.',
 };
 
 /**

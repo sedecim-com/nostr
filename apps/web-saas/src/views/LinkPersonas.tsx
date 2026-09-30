@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Alert, Button, Card, CardContent, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, MenuItem, Radio, RadioGroup, Stack, TextField, Typography } from '@mui/material';
-import { assertPublicLinkAllowed, createPublicLink } from '@sedecim/identity/public-link';
+import { Alert, Button, Card, CardContent, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, List, ListItem, ListItemText, MenuItem, Radio, RadioGroup, Stack, TextField, Typography } from '@mui/material';
+import { assertPublicLinkAllowed, createPublicLink, publicLinkDeletion } from '@sedecim/identity/public-link';
 import { normalizePubkey } from '@sedecim/nostr-core';
-import { LINK_CONSEQUENCES, linkPersonas, type LinkVisibility } from '../lib/identity';
+import { LINK_CONSEQUENCES, LINK_LEVEL_LABEL, linkPersonas, UNLINK_CONSEQUENCES, unlinkPersonas, type LinkVisibility, type PersonaLink } from '../lib/identity';
 import { openPersona, shortNpub } from '../lib/session';
 import type { PersonaRecord } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
@@ -46,15 +46,20 @@ export function LinkPersonas() {
         const aud = visibility === 'selective' ? audience.split(/[\s,]+/).filter(Boolean).map(normalizePubkey) : [];
         await linkPersonas({ signer: s.signer, custody: CUSTODY[s.persona.custody] }, { signer: toSession.signer, custody: CUSTODY[other.custody] }, ws.cfg.identityService!, visibility, aud);
         // FR007-05: both personas now carry the link in their «Enviando como…» banner.
-        const withLink = (p: PersonaRecord, peer: string): PersonaRecord => ({ ...p, identityAccount: true, links: [...(p.links ?? []).filter((l) => l.with !== peer), { with: peer, visibility }] });
-        await ws.book.save(withLink(other, s.pubkey));
-        const active = withLink(s.persona, other.pubkey);
-        await ws.book.save(active);
-        await ws.updatePersona(active);
+        const save = async (nostrAuthor?: string) => {
+          const withLink = (p: PersonaRecord, peer: string): PersonaRecord => ({ ...p, identityAccount: true, links: [...(p.links ?? []).filter((l) => l.with !== peer), { with: peer, visibility, ...(nostrAuthor ? { nostrAuthor } : {}) }] });
+          await ws.book.save(withLink(other, s.pubkey));
+          const active = withLink(s.persona, other.pubkey);
+          await ws.book.save(active);
+          await ws.updatePersona(active);
+        };
+        await save();
         if (wantsNostr) {
           // Both personas sign (docs/public-link.md); anyone can verify it without trusting the identity service.
           const evt = await createPublicLink(s.signer, toSession.signer, { confirm: true, acknowledgePermanent: ackPermanent, profiles: [s.persona.config, other.config] });
           await s.engine.submit({ event: evt }, { relays: s.persona.relays, quorum: 1 });
+          // FR007-06: who published it, so removing the link can ask for the event's deletion with that persona.
+          await save(s.pubkey);
         }
       } finally {
         toSession.close();
@@ -122,6 +127,135 @@ export function LinkPersonas() {
             Entiendo las consecuencias, vincular
           </Button>
         </DialogActions>
+      </Dialog>
+    </Card>
+  );
+}
+
+/**
+ * FR007-06: the persona's links, each one removable after a confirmation that says what removing does not undo. A link
+ * also published on Nostr gets a NIP-09 deletion request signed by the persona that published it.
+ */
+export function PersonaLinks() {
+  const ws = useWorkspace();
+  const s = ws.session!;
+  const [removing, setRemoving] = useState<PersonaLink>();
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const links = s.persona.links ?? [];
+  if (!ws.cfg.identityService || links.length === 0) return null;
+  const name = (pubkey: string) => {
+    const p = ws.personas.find((x) => x.pubkey === pubkey);
+    return p ? `${p.label} · ${shortNpub(pubkey)}` : shortNpub(pubkey);
+  };
+
+  /** Signs the deletion request with the persona that published the link; false if this browser does not have it. */
+  const requestDeletion = async (link: PersonaLink): Promise<boolean> => {
+    const author = link.nostrAuthor!;
+    // The event's `d` tag names the persona that did not publish it (docs/public-link.md).
+    const tmpl = publicLinkDeletion(author === s.pubkey ? link.with : s.pubkey, author);
+    if (author === s.pubkey) {
+      await s.engine.submit({ template: tmpl }, { relays: s.persona.relays, quorum: 1 });
+      return true;
+    }
+    const known = ws.personas.find((p) => p.pubkey === author);
+    const rec = known && (await ws.book.get(known.id));
+    if (!rec) return false;
+    // The author's own outbox: the request never mixes with this persona's, and is retried when the author opens.
+    const authorSession = await openPersona(ws.book, rec, ws.managedEnv, { discoveryRelays: ws.cfg.discoveryRelays });
+    try {
+      await authorSession.engine.submit({ template: tmpl }, { relays: rec.relays, quorum: 1, wait: true });
+    } finally {
+      authorSession.close();
+    }
+    return true;
+  };
+
+  const remove = async (link: PersonaLink) => {
+    setBusy(true);
+    setError('');
+    try {
+      await unlinkPersonas(s.signer, ws.cfg.identityService!, link.with);
+      // FR007-05: both personas stop showing it in their «Enviando como…» banner.
+      const without = (p: PersonaRecord, peer: string): PersonaRecord => ({ ...p, links: (p.links ?? []).filter((l) => l.with !== peer) });
+      const other = ws.personas.find((p) => p.pubkey === link.with);
+      const otherRec = other && (await ws.book.get(other.id));
+      if (otherRec) await ws.book.save(without(otherRec, s.pubkey));
+      const active = without(s.persona, link.with);
+      await ws.book.save(active);
+      await ws.updatePersona(active);
+      setRemoving(undefined);
+      if (!link.nostrAuthor) return ws.notify('Vínculo retirado', 'success');
+      try {
+        if (await requestDeletion(link)) ws.notify('Vínculo retirado; la solicitud de borrado del evento se está publicando en los relays', 'success');
+        else ws.notify('Vínculo retirado, pero no se pudo pedir el borrado del evento: la persona que lo publicó no está en este navegador', 'warning');
+      } catch (e) {
+        ws.notify(`Vínculo retirado, pero no se pudo pedir el borrado del evento: ${(e as Error).message}`, 'warning');
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent>
+        <Stack spacing={1}>
+          <Typography variant="h6" component="h2" id="persona-links-h">
+            Vínculos de esta persona
+          </Typography>
+          <List dense id="persona-links" aria-labelledby="persona-links-h">
+            {links.map((l) => (
+              <ListItem
+                key={l.with}
+                sx={{ pr: 18 }}
+                secondaryAction={
+                  <Button
+                    size="small"
+                    color="warning"
+                    disabled={busy}
+                    aria-label={`Retirar vínculo con ${name(l.with)}`}
+                    onClick={() => {
+                      setError('');
+                      setRemoving(l);
+                    }}
+                  >
+                    Retirar vínculo
+                  </Button>
+                }
+              >
+                <ListItemText primary={name(l.with)} secondary={`${LINK_LEVEL_LABEL[l.visibility]}${l.nostrAuthor ? ' · publicado en Nostr' : ''}`} />
+              </ListItem>
+            ))}
+          </List>
+          {error && !removing && <Alert severity="error">{error}</Alert>}
+        </Stack>
+      </CardContent>
+      <Dialog open={!!removing} onClose={() => setRemoving(undefined)} aria-labelledby="unlink-dialog-title">
+        {removing && (
+          <>
+            <DialogTitle id="unlink-dialog-title">Retirar el vínculo con {name(removing.with)}</DialogTitle>
+            <DialogContent>
+              <DialogContentText>{UNLINK_CONSEQUENCES[removing.visibility]}</DialogContentText>
+              {removing.nostrAuthor && (
+                <Alert severity="warning" sx={{ mt: 2 }} id="unlink-nostr-warning">
+                  Este vínculo también se publicó en Nostr como evento firmado por ambas personas. Se publicará una solicitud de borrado (NIP-09), que también nombra a ambas personas, pero los relays y quienes guardaron el evento pueden ignorarla: las copias en relays ajenos no se pueden retirar y seguirán demostrando que ambas claves son tuyas.
+                </Alert>
+              )}
+              {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setRemoving(undefined)} autoFocus>
+                Cancelar
+              </Button>
+              <Button color="warning" onClick={() => void remove(removing)} disabled={busy}>
+                Retirar vínculo
+              </Button>
+            </DialogActions>
+          </>
+        )}
       </Dialog>
     </Card>
   );

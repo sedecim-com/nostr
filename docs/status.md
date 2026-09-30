@@ -6,8 +6,8 @@
 
 | Estado | Cuántos | Cuáles |
 |---|---:|---|
-| Hecho | 27 | FR-001, FR-002, FR-004, FR-006, FR-007, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-016, FR-017, FR-018, FR-019, FR-020, FR-021, FR-022, FR-023, FR-024, FR-025, FR-027, NFR-006, NFR-007, NFR-008 |
-| Parcial | 11 | FR-003, FR-005, FR-026, FR-028, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-009, NFR-010 |
+| Hecho | 26 | FR-001, FR-002, FR-004, FR-006, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-016, FR-017, FR-018, FR-019, FR-020, FR-021, FR-022, FR-023, FR-024, FR-025, FR-027, NFR-006, NFR-007, NFR-008 |
+| Parcial | 12 | FR-003, FR-005, FR-007, FR-026, FR-028, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-009, NFR-010 |
 
 ## Tareas
 
@@ -15,7 +15,7 @@
 |---|---:|---:|
 | Hecho | 182 | 481 |
 | Parcial | 22 | 76 |
-| Pendiente | 38 | 148 |
+| Pendiente | 39 | 151 |
 | Descartado | 6 | 21 |
 
 Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
@@ -34,7 +34,7 @@ Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
 | Sprint | Fechas | Fase | Objetivo | Hechas | Abiertas | SP abiertos | P0 abiertas |
 |---|---|---|---|---:|---:|---:|---:|
 | S9 | 2026-09-28 → 2026-10-09 | G0 | Código de la auditoría y v0.1.0 firmada | 23 de 30 | 7 | 14 | 4 |
-| S10 | 2026-10-12 → 2026-10-23 | G1 | Resto del código, vault aprobado y v0.2.0 | 20 de 27 | 7 | 25 | 4 |
+| S10 | 2026-10-12 → 2026-10-23 | G1 | Resto del código, vault aprobado y v0.2.0 | 20 de 28 | 8 | 28 | 4 |
 | S11 | 2026-10-26 → 2026-11-06 | G2 | Stage real en AWS | 5 de 15 | 10 | 37 | 7 |
 | S12 | 2026-11-09 → 2026-11-20 | G3 | Freeze de auditoría y v1.0.0-rc.1 | 0 de 1 | 1 | 3 | 1 |
 | S13 | 2026-11-23 → 2026-12-04 | G4 | Auditoría en campo y aprobación legal | 0 de 3 | 3 | 4 | 0 |
