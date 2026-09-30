@@ -182,6 +182,8 @@ const api = createIndexerApi(repo, {
   name: 'indexer',
   publicBaseUrl: env.PUBLIC_BASE_URL,
   requireAuth: env.INDEXER_REQUIRE_AUTH === 'true',
+  // FR014-04: the web asks for unread counts and search from the browser (its origin, e.g. WEB_ORIGIN).
+  corsOrigins: (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   logger,
   ...(rateLimiter ? { rateLimit: rateLimiter } : {}),
   ...(replayStore ? { replayStore } : {}),

@@ -79,6 +79,8 @@ describe('indexer institutional mode (policy-engine enforcement)', () => {
     expect((await nip98Fetch(reader, `${base}/v1/read-cursor`, 'PUT', { h: 'other', until: now })).status).toBe(403);
     expect((await nip98Fetch(reader, `${base}/v1/read-cursor`, 'PUT', { h: 'general', until: now - 10 })).status).toBe(200);
     expect((await nip98Fetch(reader, `${base}/v1/unread?h=general,other`)).json.unread).toEqual({ general: 1 });
+    // FR014-04: the message times the web counts with omit the same channels ('secret' needs the device header).
+    expect((await nip98Fetch(reader, `${base}/v1/unread/recent?h=general,other,secret,flaky,lobby`)).json.recent).toEqual({ general: [now] });
   });
 
   it('the policy is not enough: a channel the reader is not a member of stays closed (FR014-05)', async () => {

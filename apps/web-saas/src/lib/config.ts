@@ -37,6 +37,12 @@ export interface DeploymentConfig {
    * tells those relays which npub you are about to write to.
    */
   discoveryRelays?: string[];
+  /**
+   * FR014-04: services/indexer base URL (its PUBLIC_BASE_URL, which NIP-98 signatures name). Unread counts and search
+   * of channels for the personas whose profile allows it (mirrorPolicy); the read cursors stay in this browser. Unset:
+   * the channels view shows neither.
+   */
+  mirror?: string;
   /** Blossom server of the Buzz relay: plain, sanitized channel images (FR018-04). */
   buzzMedia?: string;
   /** Client-encrypted blobs (DM attachments). */
