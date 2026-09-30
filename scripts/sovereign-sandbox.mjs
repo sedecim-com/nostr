@@ -6,7 +6,7 @@
 //        `docker network inspect` of its network; SECRET_FILE is the passphrase file it was given
 //   node /sandbox-check.mjs inside
 //        inside a container of the service (this file mounted read-only, `--entrypoint node`)
-import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { lookup } from 'node:dns/promises';
 import { connect } from 'node:net';
 
@@ -14,8 +14,11 @@ const PASSPHRASE = '/run/secrets/sovereign_passphrase';
 const SECRETS = [PASSPHRASE, '/run/secrets/sovereign_backup_password'];
 /** Variables that would hold a secret of the CLI in the clear. */
 const SECRET_VARS = ['SOVEREIGN_PASSPHRASE', 'SOVEREIGN_BACKUP_PASSWORD', 'SOVEREIGN_POLICY_BEARER', 'SOVEREIGN_REVOCATION_TOKEN'];
-/** Installed for other workspaces (web, admin console, managed signer, indexer): never needed by the CLI. */
-const OTHER_WORKSPACES = ['aws-amplify', '@aws-sdk/client-kms', 'react', '@mui/material', '@sedecim/indexer', '@sedecim/managed-signer', '@sedecim/web-saas'];
+/**
+ * Never needed by the CLI: packages of other workspaces (web, admin console, managed signer, indexer), and typescript,
+ * which nostr-tools only asks for as an optional peer and only development installs.
+ */
+const NOT_NEEDED = ['aws-amplify', '@aws-sdk/client-kms', 'react', '@mui/material', '@sedecim/indexer', '@sedecim/managed-signer', '@sedecim/web-saas', 'typescript'];
 
 const check = (ok, what, found) => ({ ok: Boolean(ok), what: ok || found === undefined ? what : `${what} (found: ${found})` });
 const envMap = (list = []) => Object.fromEntries(list.map((e) => [e.slice(0, e.indexOf('=')), e.slice(e.indexOf('=') + 1)]));
@@ -69,15 +72,19 @@ export function realProbe() {
     gid: process.getgid?.() ?? -1,
     status: (field) => new RegExp(`^${field}:\\s*(\\S+)`, 'm').exec(status)?.[1],
     env: process.env,
-    /** true, or the error code of a write access (EROFS on a read-only mount). Never writes the file. */
-    writable: (path) => {
-      try {
-        accessSync(path, constants.W_OK);
-        return true;
-      } catch (e) {
-        return e.code;
-      }
-    },
+    /**
+     * The mounts of this process (/proc/self/mountinfo): mount point, per-mount options and filesystem type. A
+     * read-only root shows here as `ro`; access(2) says EACCES first to a user that does not own the directory.
+     */
+    mounts: () =>
+      readFileSync('/proc/self/mountinfo', 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => {
+          const [left = '', right = ''] = line.split(' - ');
+          const fields = left.split(' ');
+          return { point: (fields[4] ?? '').replace(/\\040/g, ' '), options: (fields[5] ?? '').split(','), fstype: right.split(' ')[0] ?? '' };
+        }),
     /** Creates and removes a file in `dir`: true, or the error code. */
     canCreate: (dir) => {
       const file = `${dir}/.sandbox-check-${process.pid}`;
@@ -124,10 +131,12 @@ export function realProbe() {
 export async function insideChecks(p = realProbe()) {
   const zero = (field) => /^0+$/.test(p.status(field) ?? '');
   const caps = ['CapEff', 'CapPrm', 'CapBnd', 'CapAmb'];
-  const rootfs = ['/', '/app', '/usr/local/bin'].map((d) => [d, p.writable(d)]);
+  const mounts = p.mounts();
+  /** The mount that decides for a path: the last one mounted at exactly that point. */
+  const at = (point) => mounts.filter((m) => m.point === point).at(-1);
+  const mode = (point) => at(point)?.options.find((o) => o === 'ro' || o === 'rw') ?? 'missing';
   const created = ['/data/sovereign', '/tmp'].map((d) => [d, p.canCreate(d)]);
   const secret = (p.read(PASSPHRASE) ?? '').replace(/\r?\n$/, '');
-  const secretFiles = SECRETS.map((s) => [s, p.exists(s) ? p.writable(s) : 'missing']);
   const inEnv = [...SECRET_VARS.filter((k) => k in p.env), ...Object.keys(p.env).filter((k) => secret && p.env[k]?.includes(secret))];
   const others = [];
   for (const host of ['relay', 'secure-relay', 'secure-relay-onion', 'postgres']) if (await p.resolves(host)) others.push(host);
@@ -137,14 +146,32 @@ export async function insideChecks(p = realProbe()) {
   for (const [host, port] of [['1.1.1.1', 443], ['9.9.9.9', 53], ['2606:4700:4700::1111', 443]]) if (await p.connects(host, port)) routes.push(`${host}:${port}`);
   const packages = p.list('/app/packages');
   const tests = ['/app/apps/sovereign-client/test', ...packages.map((d) => `/app/packages/${d}/test`)].filter((t) => p.exists(t));
-  let dev = [];
-  try {
-    dev = Object.keys(JSON.parse(p.read('/app/package.json') ?? '{}').devDependencies ?? {});
-  } catch {
-    dev = [];
-  }
-  const devPresent = dev.filter((d) => p.exists(`/app/node_modules/${d}`));
-  const foreign = OTHER_WORKSPACES.filter((d) => p.exists(`/app/node_modules/${d}`));
+  const json = (file) => {
+    try {
+      return JSON.parse(p.read(file) ?? '{}');
+    } catch {
+      return {};
+    }
+  };
+  // What only development needs: devDependencies of the repository that no package in the image declares (esbuild and
+  // nostr-tools are devDependencies too, and dependencies of tsx and of the packages).
+  const manifests = [...p.list('/app/apps').map((d) => `/app/apps/${d}`), ...packages.map((d) => `/app/packages/${d}`)];
+  const walk = (dir, depth) => {
+    for (const entry of p.list(dir)) {
+      if (entry.startsWith('.')) continue;
+      if (entry.startsWith('@')) walk(`${dir}/${entry}`, depth);
+      else {
+        manifests.push(`${dir}/${entry}`);
+        if (depth < 3) walk(`${dir}/${entry}/node_modules`, depth + 1);
+      }
+    }
+  };
+  walk('/app/node_modules', 0);
+  for (const d of packages) walk(`/app/packages/${d}/node_modules`, 1);
+  const declared = new Set(manifests.flatMap((m) => ['dependencies', 'optionalDependencies', 'peerDependencies'].flatMap((f) => Object.keys(json(`${m}/package.json`)[f] ?? {}))));
+  const devOnly = Object.keys(json('/app/package.json').devDependencies ?? {}).filter((d) => !declared.has(d));
+  const devPresent = devOnly.filter((d) => p.exists(`/app/node_modules/${d}`));
+  const foreign = NOT_NEEDED.filter((d) => p.exists(`/app/node_modules/${d}`));
   const dirs = ['/app', ...p.list('/app/apps').map((d) => `/app/apps/${d}`), ...packages.map((d) => `/app/packages/${d}`)];
   const local = dirs.flatMap((d) => ['.env', '.data'].map((f) => `${d}/${f}`)).filter((f) => p.exists(f));
   return [
@@ -152,17 +179,17 @@ export async function insideChecks(p = realProbe()) {
     check(caps.every(zero), 'no capabilities: CapEff, CapPrm, CapBnd and CapAmb are 0', caps.map((f) => `${f}=${p.status(f)}`).join(' ')),
     check(p.status('NoNewPrivs') === '1', 'no new privileges (NoNewPrivs 1)', p.status('NoNewPrivs')),
     check(p.status('Seccomp') === '2', 'seccomp filter on (Seccomp 2)', p.status('Seccomp')),
-    check(rootfs.every(([, w]) => w === 'EROFS'), 'read-only root filesystem: /, /app and /usr/local/bin are EROFS', rootfs.map(([d, w]) => `${d}=${w}`).join(' ')),
-    check(created.every(([, c]) => c === true), 'writes where it must: its volume /data/sovereign and /tmp', created.map(([d, c]) => `${d}=${c}`).join(' ')),
-    check(p.env.SOVEREIGN_PASSPHRASE_FILE === PASSPHRASE && Boolean(secret) && secretFiles.every(([, w]) => w !== true && w !== 'missing'), `the passphrase arrives as the read-only file ${PASSPHRASE}, and so does the backup password`, `SOVEREIGN_PASSPHRASE_FILE=${p.env.SOVEREIGN_PASSPHRASE_FILE} passphrase ${secret ? 'set' : 'empty'} ${secretFiles.map(([s, w]) => `${s}=${w}`).join(' ')}`),
+    check(mode('/') === 'ro', 'read-only root filesystem (/ mounted ro)', `/ ${mode('/')}`),
+    check(mode('/data') === 'rw' && at('/tmp')?.fstype === 'tmpfs' && mode('/tmp') === 'rw' && created.every(([, c]) => c === true), 'writes where it must: its volume at /data and /tmp (tmpfs)', `/data ${mode('/data')}, /tmp ${at('/tmp')?.fstype ?? 'missing'} ${mode('/tmp')}, ${created.map(([d, c]) => `${d}=${c}`).join(' ')}`),
+    check(p.env.SOVEREIGN_PASSPHRASE_FILE === PASSPHRASE && Boolean(secret) && SECRETS.every((s) => mode(s) === 'ro'), `the passphrase arrives as the read-only file ${PASSPHRASE}, and so does the backup password`, `SOVEREIGN_PASSPHRASE_FILE=${p.env.SOVEREIGN_PASSPHRASE_FILE} passphrase ${secret ? 'set' : 'empty'} ${SECRETS.map((s) => `${s} ${mode(s)}`).join(', ')}`),
     check(!inEnv.length, 'no environment variable holds a secret', inEnv.join(', ')),
     check(p.env.TOR_SOCKS === 'tor:9050' && (await p.resolves('tor')) && (await p.connects('tor', 9050)), 'TOR_SOCKS=tor:9050: tor resolves and its SOCKS port answers', `TOR_SOCKS=${p.env.TOR_SOCKS}`),
     check(!others.length, 'no other compose service on its network: relay, secure-relay, secure-relay-onion and postgres do not resolve', others.join(', ')),
     check(!external.length, 'no DNS outside Tor: example.com and check.torproject.org do not resolve', external.join(', ')),
     check(!routes.length, 'no route out: 1.1.1.1:443, 9.9.9.9:53 and [2606:4700:4700::1111]:443 do not connect', routes.join(', ')),
     check(!p.exists('/app/services') && p.list('/app/apps').join() === 'sovereign-client' && !tests.length, 'the image holds the CLI: no services, apps/ is sovereign-client, no tests', `services=${p.exists('/app/services')} apps=${p.list('/app/apps').join(',')} ${tests.join(' ')}`),
-    check(dev.length > 0 && !devPresent.length, `none of the ${dev.length} devDependencies of the repository is installed`, devPresent.join(', ') || 'no devDependencies listed in /app/package.json'),
-    check(!foreign.length, 'no package of other workspaces (web, admin console, managed signer, indexer)', foreign.join(', ')),
+    check(devOnly.length > 0 && !devPresent.length, `none of the ${devOnly.length} packages only development needs is installed`, devPresent.join(', ') || 'no devDependencies left to look for in /app/package.json'),
+    check(!foreign.length, 'no package of other workspaces (web, admin console, managed signer, indexer), nor typescript', foreign.join(', ')),
     check(!local.length, 'no .env or .data in the image', local.join(', ')),
   ];
 }

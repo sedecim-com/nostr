@@ -315,18 +315,32 @@ describe('the sovereign CLI as a service of the compose tor profile (FR020-06)',
     });
 
     it('from inside: the container the service must be passes, and each way out of the sandbox fails its check', async () => {
-      type Over = { fields?: Record<string, unknown>; status?: Record<string, string>; env?: Record<string, string>; present?: string[]; resolves?: string[]; connects?: string[] };
+      type Mount = { point: string; options: string[]; fstype: string };
+      type Over = { fields?: Record<string, unknown>; status?: Record<string, string>; env?: Record<string, string>; present?: string[]; mounts?: Mount[]; resolves?: string[]; connects?: string[] };
       const probe = (over: Over = {}) => {
-        const files: Record<string, string> = { '/run/secrets/sovereign_passphrase': `${secret}\n`, '/app/package.json': JSON.stringify({ devDependencies: { vitest: '5', typescript: '5' } }) };
-        const present = new Set(['/run/secrets/sovereign_passphrase', '/run/secrets/sovereign_backup_password', ...(over.present ?? [])]);
+        // esbuild and nostr-tools are devDependencies of the repository too, and dependencies of tsx and of a package.
+        const files: Record<string, string> = {
+          '/run/secrets/sovereign_passphrase': `${secret}\n`,
+          '/app/package.json': JSON.stringify({ devDependencies: { vitest: '5', typescript: '5', esbuild: '0.28', 'nostr-tools': '2' } }),
+          '/app/node_modules/tsx/package.json': JSON.stringify({ dependencies: { esbuild: '0.28' } }),
+          '/app/packages/nostr-core/package.json': JSON.stringify({ dependencies: { 'nostr-tools': '2' } }),
+        };
+        const present = new Set(['/run/secrets/sovereign_passphrase', '/run/secrets/sovereign_backup_password', '/app/node_modules/tsx', '/app/node_modules/esbuild', '/app/node_modules/nostr-tools', ...(over.present ?? [])]);
         const status: Record<string, string> = { CapEff: '0000000000000000', CapPrm: '0000000000000000', CapBnd: '0000000000000000', CapAmb: '0000000000000000', NoNewPrivs: '1', Seccomp: '2', ...over.status };
-        const dirs: Record<string, string[]> = { '/app/apps': ['sovereign-client'], '/app/packages': ['nostr-core', 'tor-network'] };
+        const dirs: Record<string, string[]> = { '/app/apps': ['sovereign-client'], '/app/packages': ['nostr-core', 'tor-network'], '/app/node_modules': ['.package-lock.json', '@noble', 'esbuild', 'nostr-tools', 'tsx'], '/app/node_modules/@noble': ['hashes'] };
+        const mounts: Mount[] = over.mounts ?? [
+          { point: '/', options: ['ro', 'relatime'], fstype: 'overlay' },
+          { point: '/data', options: ['rw', 'relatime'], fstype: 'ext4' },
+          { point: '/tmp', options: ['rw', 'nosuid', 'nodev', 'noexec'], fstype: 'tmpfs' },
+          { point: '/run/secrets/sovereign_passphrase', options: ['ro', 'relatime'], fstype: 'ext4' },
+          { point: '/run/secrets/sovereign_backup_password', options: ['ro', 'nosuid'], fstype: 'devtmpfs' },
+        ];
         return {
           uid: 100,
           gid: 101,
           status: (f: string) => status[f],
           env: { TOR_SOCKS: 'tor:9050', SOVEREIGN_PASSPHRASE_FILE: '/run/secrets/sovereign_passphrase', ...over.env },
-          writable: (p: string) => (p.startsWith('/run/secrets/') || ['/', '/app', '/usr/local/bin'].includes(p) ? 'EROFS' : true),
+          mounts: () => mounts,
           canCreate: () => true,
           read: (p: string) => files[p],
           exists: (p: string) => present.has(p),
@@ -336,15 +350,19 @@ describe('the sovereign CLI as a service of the compose tor profile (FR020-06)',
           ...over.fields,
         };
       };
+      const standard = probe().mounts();
+      const remount = (point: string, change: Partial<Mount>) => standard.map((m) => (m.point === point ? { ...m, ...change } : m));
       expect(failed(await insideChecks(probe()))).toEqual([]);
       const cases: [string, Over][] = [
         ['runs as a user and group other than root', { fields: { uid: 0 } }],
         ['no capabilities: CapEff, CapPrm, CapBnd and CapAmb are 0', { status: { CapEff: '00000000a80425fb' } }],
         ['no new privileges (NoNewPrivs 1)', { status: { NoNewPrivs: '0' } }],
         ['seccomp filter on (Seccomp 2)', { status: { Seccomp: '0' } }],
-        ['read-only root filesystem: /, /app and /usr/local/bin are EROFS', { fields: { writable: (p: string) => (p === '/app' ? 'EACCES' : 'EROFS') } }],
-        ['writes where it must: its volume /data/sovereign and /tmp', { fields: { canCreate: (d: string) => (d === '/tmp' ? true : 'EACCES') } }],
-        ['the passphrase arrives as the read-only file /run/secrets/sovereign_passphrase, and so does the backup password', { fields: { writable: () => true } }],
+        ['read-only root filesystem (/ mounted ro)', { mounts: remount('/', { options: ['rw', 'relatime'] }) }],
+        ['writes where it must: its volume at /data and /tmp (tmpfs)', { fields: { canCreate: (d: string) => (d === '/tmp' ? true : 'EACCES') } }],
+        ['writes where it must: its volume at /data and /tmp (tmpfs)', { mounts: remount('/tmp', { fstype: 'overlay' }) }],
+        ['the passphrase arrives as the read-only file /run/secrets/sovereign_passphrase, and so does the backup password', { mounts: remount('/run/secrets/sovereign_passphrase', { options: ['rw'] }) }],
+        ['the passphrase arrives as the read-only file /run/secrets/sovereign_passphrase, and so does the backup password', { mounts: standard.filter((m) => m.point !== '/run/secrets/sovereign_backup_password') }],
         ['no environment variable holds a secret', { env: { SOVEREIGN_PASSPHRASE: 'x' } }],
         ['no environment variable holds a secret', { env: { OTHER: secret } }],
         ['TOR_SOCKS=tor:9050: tor resolves and its SOCKS port answers', { fields: { connects: async () => false } }],
@@ -353,8 +371,9 @@ describe('the sovereign CLI as a service of the compose tor profile (FR020-06)',
         ['no route out: 1.1.1.1:443, 9.9.9.9:53 and [2606:4700:4700::1111]:443 do not connect', { connects: ['9.9.9.9:53'] }],
         ['the image holds the CLI: no services, apps/ is sovereign-client, no tests', { present: ['/app/services'] }],
         ['the image holds the CLI: no services, apps/ is sovereign-client, no tests', { present: ['/app/packages/tor-network/test'] }],
-        ['none of the 2 devDependencies of the repository is installed', { present: ['/app/node_modules/typescript'] }],
-        ['no package of other workspaces (web, admin console, managed signer, indexer)', { present: ['/app/node_modules/aws-amplify'] }],
+        ['none of the 2 packages only development needs is installed', { present: ['/app/node_modules/vitest'] }],
+        ['no package of other workspaces (web, admin console, managed signer, indexer), nor typescript', { present: ['/app/node_modules/typescript'] }],
+        ['no package of other workspaces (web, admin console, managed signer, indexer), nor typescript', { present: ['/app/node_modules/aws-amplify'] }],
         ['no .env or .data in the image', { present: ['/app/packages/nostr-core/.data'] }],
       ];
       for (const [check, over] of cases) expect(failed(await insideChecks(probe(over))), check).toContain(check);
