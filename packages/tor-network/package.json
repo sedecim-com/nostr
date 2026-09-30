@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@sedecim/relay-pool": "0.1.0",
-    "ws": "8.21.3",
+    "ws": "8.22.0",
     "socks-proxy-agent": "10.1.0"
   }
 }

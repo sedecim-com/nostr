@@ -20,6 +20,6 @@
     "@sedecim/signer": "0.1.0",
     "@sedecim/telemetry-policy": "0.1.0",
     "pg": "8.23.0",
-    "ws": "8.21.3"
+    "ws": "8.22.0"
   }
 }
