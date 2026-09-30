@@ -361,7 +361,7 @@ Un requisito está **Hecho** si lo están todas sus tareas del programa, sin con
 | [FR026-01](https://github.com/sedecim-com/nostr/issues/100) Migración managed → local con prueba de posesión y política de retención | Hecho | services/managed-signer/test | — |
 | [FR026-02](https://github.com/sedecim-com/nostr/issues/101) Migración local → managed (importación explícita) | Hecho | services/managed-signer/src/api.ts | — |
 | [FR026-03](https://github.com/sedecim-com/nostr/issues/102) UI de migración de custodia en la web con verificación | Hecho | apps/web-saas MigrationWizard (exportar, verificar npub, firmar reto, pasar a local; borrado explícito con fecha de destrucción); tests/browser/web-saas.e2e.ts | [managed-signer.test.ts](../services/managed-signer/test/managed-signer.test.ts), [web-saas.e2e.ts](../tests/browser/web-saas.e2e.ts) |
-| [FR026-04](https://github.com/sedecim-com/nostr/issues/253) Salida de la custodia, borrado verificable y derechos ARCO | Pendiente (S11) | — | [managed-signer.test.ts](../services/managed-signer/test/managed-signer.test.ts), [registry.test.ts](../services/managed-signer/test/registry.test.ts) |
+| [FR026-04](https://github.com/sedecim-com/nostr/issues/253) Salida de la custodia, borrado verificable y derechos ARCO | Pendiente (S11) | — | [managed-exit.test.ts](../apps/web-saas/test/managed-exit.test.ts), [managed-signer.test.ts](../services/managed-signer/test/managed-signer.test.ts), [registry.test.ts](../services/managed-signer/test/registry.test.ts) |
 | [FR005-09](https://github.com/sedecim-com/nostr/issues/279) Exportar desde el enclave exige una prueba del usuario verificada dentro del enclave | Pendiente (Diferido) | — | — |
 
 ## FR-027 · Backup restore
