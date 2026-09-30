@@ -297,6 +297,32 @@ try {
     serverList = evt ? evt.tags.filter((t) => t[0] === 'server').map((t) => t[1]!) : [];
   }
   assert(serverList.join(',') === `${media.url},${userBlobs.url}`, 'the web publishes the user Blossom server list (kind 10063, BUD-03)');
+
+  // --- FR006-04: Trabajo (a linked identity: no extra step) publishes its public profile, the avatar uploaded without
+  // its metadata to its first Blossom server; other clients read the kind 0 and the channel shows the name next to the npub.
+  await page.waitForFunction(() => {
+    const el = document.querySelector('#profile-name') as HTMLInputElement | null;
+    return !!el && !el.disabled;
+  });
+  assert((await page.locator('#profile-pseudonymous').count()) === 0, 'a linked identity gets no pseudonymous warning (FR006-04)');
+  await fill(page, 'profile-name', 'Ana del trabajo');
+  await page.locator('#profile-avatar-file').setInputFiles({ name: 'avatar.png', mimeType: 'image/png', buffer: Buffer.from(tinyPng('foto en casa')) });
+  await page.waitForFunction(() => (document.querySelector('#profile-picture') as HTMLInputElement).value.startsWith('http'), undefined, { timeout: 10_000 });
+  const avatarUrl = await page.inputValue('#profile-picture');
+  assert(avatarUrl.startsWith(media.url) && ![...media.blobs.values()].some((b) => Buffer.from(b.data).includes(Buffer.from('foto en casa'))), 'the avatar goes to the persona’s first Blossom server without its metadata (FR006-04)');
+  await page.locator('#profile-publish').click();
+  let profileEvent: { content: string } | undefined;
+  for (let i = 0; i < 40 && !profileEvent; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    profileEvent = (await probe.query([relay.url], [{ kinds: [0], authors: [webPub] }], 2000))[0];
+  }
+  const published = JSON.parse(profileEvent?.content ?? '{}') as { name?: string; picture?: string };
+  assert(published.name === 'Ana del trabajo' && published.picture === avatarUrl, 'the public profile (kind 0), signed with the persona key, reaches its relay and another client reads it (FR006-04)');
+  await tab(page, 'Canales');
+  await page.locator('#channel-list').getByText('General').click();
+  await page.locator('#channel-log').getByText(`Ana del trabajo · ${npubEncode(webPub).slice(0, 12)}`, { exact: false }).first().waitFor({ timeout: 10_000 });
+  assert(true, 'the channel shows the author’s public name next to the npub (FR006-04)');
+
   await tab(page, 'Mensajes directos');
   await fill(page, 'dm-to', npubEncode(getPublicKey(bobKey)));
   await page.locator('#dm-send input[type=file]').setInputFiles({ name: 'otro.txt', mimeType: 'text/plain', buffer: Buffer.from('segundo adjunto') });

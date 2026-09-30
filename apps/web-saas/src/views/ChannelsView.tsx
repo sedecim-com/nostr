@@ -5,7 +5,8 @@ import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/bl
 import { cappedQuorumNotice, fileKey, SendOperation } from '../lib/outbox';
 import type { NostrEvent } from '@sedecim/nostr-core';
 import { channelFilter, chatMessage, createGroup, joinRequest, NIP29, parseGroupMetadata, type GroupMetadata } from '@sedecim/messaging';
-import { shortNpub } from '../lib/session';
+import { authorLabel, lookupChannelAuthors } from '../lib/profiles';
+import { AuthorAvatar, AvatarsToggle, useProfiles } from './Profile';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 
 interface Imeta {
@@ -35,6 +36,9 @@ export function ChannelsView() {
   const [file, setFile] = useState<File | undefined>();
   const [busy, setBusy] = useState(false);
   const blocked = sendBlockedReason(config);
+  // FR006-04: the authors' public profiles, and their avatars when the panel allows remote previews or the user asks.
+  useProfiles(s);
+  const [avatars, setAvatars] = useState(config.remotePreviews);
   const sub = useRef<{ close(): void } | undefined>(undefined);
   const operation = useRef(new SendOperation());
 
@@ -55,6 +59,12 @@ export function ChannelsView() {
     return () => sub.current?.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s]);
+
+  // FR006-04: the authors of what the channel shows, looked up on the same relays that served their messages.
+  useEffect(() => {
+    const t = setTimeout(() => void lookupChannelAuthors(s, messages.map((m) => m.pubkey)), 300);
+    return () => clearTimeout(t);
+  }, [s, messages]);
 
   const open = (id: string) => {
     sub.current?.close();
@@ -167,10 +177,12 @@ export function ChannelsView() {
             <Typography variant="h6" component="h2">
               {openId ? `#${channels.find((c) => c.id === openId)?.name ?? openId}` : 'Elige un canal'}
             </Typography>
+            <AvatarsToggle pubkeys={messages.map((m) => m.pubkey)} shown={avatars} onShow={() => setAvatars(true)} />
             <List id="channel-log" aria-live="polite" dense>
               {messages.map((m) => (
                 <ListItem key={m.id} alignItems="flex-start">
-                  <ListItemText primary={m.content} secondary={`${shortNpub(m.pubkey)} · ${new Date(m.created_at * 1000).toLocaleString()}`} />
+                  <AuthorAvatar pubkey={m.pubkey} show={avatars} />
+                  <ListItemText primary={m.content} secondary={`${authorLabel(s, m.pubkey)} · ${new Date(m.created_at * 1000).toLocaleString()}`} />
                   {imetaOf(m) && <ChannelImage meta={imetaOf(m)!} />}
                 </ListItem>
               ))}

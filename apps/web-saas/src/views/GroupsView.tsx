@@ -4,6 +4,9 @@ import type { GroupHandle, GroupSession, PendingGroupOperation } from '@sedecim/
 import { normalizePubkey, npubEncode } from '@sedecim/nostr-core';
 import { discardPendingGroupOperation, exclusive, forgetRemovedGroup, GroupHistory, groupRelays, openGroupSession, rejoinRestoredGroup, retryPendingGroupOperations, type StoredGroupMessage } from '../lib/groups';
 import { shortNpub } from '../lib/session';
+import { authorLabel, lookupGroupMembers } from '../lib/profiles';
+import { AuthorAvatar, AvatarsToggle, useProfiles } from './Profile';
+import { PUBLIC_PROFILE_TEXTS } from '@sedecim/profiles';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 import { MaturityChip } from './MaturityChip';
 
@@ -44,6 +47,10 @@ export function GroupsView() {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | undefined>();
+  // FR006-04: members' profiles only from this persona's cache, or looked up when the user asks (it tells the relays
+  // who is in the group); their avatars as the panel allows.
+  useProfiles(s);
+  const [avatars, setAvatars] = useState(!!ws.config?.remotePreviews);
   const history = useRef(new GroupHistory(ws.book.store, s.persona.id));
 
   const current = groups.find((g) => g.groupId === openId);
@@ -430,6 +437,15 @@ export function GroupsView() {
                   <Typography variant="subtitle1" component="h3" id="group-members-h">
                     Miembros
                   </Typography>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
+                    <Button id="group-lookup-names" size="small" disabled={busy} onClick={() => void act(() => lookupGroupMembers(s, current.members))}>
+                      Buscar sus perfiles públicos
+                    </Button>
+                    <AvatarsToggle pubkeys={current.members} shown={avatars} onShow={() => setAvatars(true)} />
+                  </Stack>
+                  <Typography variant="caption" id="group-lookup-facts" sx={{ color: 'text.secondary' }}>
+                    {PUBLIC_PROFILE_TEXTS.groups}
+                  </Typography>
                   <List id="group-members" dense aria-labelledby="group-members-h">
                     {current.members.map((m) => (
                       <ListItem
@@ -442,8 +458,9 @@ export function GroupsView() {
                           ) : undefined
                         }
                       >
+                        <AuthorAvatar pubkey={m} show={avatars} />
                         <ListItemText
-                          primary={m === s.pubkey ? `${shortNpub(m)} (tú)` : m === ws.cfg.rotationWorker ? `${shortNpub(m)} · worker de rotaciones de la organización` : shortNpub(m)}
+                          primary={m === s.pubkey ? `${authorLabel(s, m)} (tú)` : m === ws.cfg.rotationWorker ? `${authorLabel(s, m)} · worker de rotaciones de la organización` : authorLabel(s, m)}
                           secondary={`${current.admins.includes(m) ? 'admin' : 'miembro'}${m === ws.cfg.rotationWorker ? ' · puede descifrar el grupo mientras esté en él; saca a los dispositivos que la organización revoca' : ''}`}
                         />
                       </ListItem>
@@ -495,9 +512,10 @@ export function GroupsView() {
                   <List id="group-log" aria-labelledby="group-log-h" aria-live="polite">
                     {messages.map((m) => (
                       <ListItem key={m.id} alignItems="flex-start">
+                        <AuthorAvatar pubkey={m.sender} show={avatars} />
                         <ListItemText
                           primary={m.content}
-                          secondary={`${m.sender === s.pubkey ? 'tú' : shortNpub(m.sender)} · ${new Date(m.createdAt * 1000).toLocaleString()}${pendingMessages.has(m.id) ? ' · pendiente de enviar' : ''}`}
+                          secondary={`${m.sender === s.pubkey ? 'tú' : authorLabel(s, m.sender)} · ${new Date(m.createdAt * 1000).toLocaleString()}${pendingMessages.has(m.id) ? ' · pendiente de enviar' : ''}`}
                         />
                       </ListItem>
                     ))}
