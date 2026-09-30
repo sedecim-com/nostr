@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **249 tareas** · 182 hechas · 27 parciales · 34 pendientes · 6 descartadas
-- **227 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **249 tareas** · 184 hechas · 27 parciales · 32 pendientes · 6 descartadas
+- **219 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -42,7 +42,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 - **aws**: faltan la cuenta, la región o el stage reales de AWS
 - **externo**: depende de un tercero: auditor externo, asesoría legal, una publicación upstream o un dispositivo de hardware
 
-**Listas para trabajar ahora (18):** FR004-08, FR006-04, FR006-07, FR014-04, FR015-04, FR020-06, FR023-11, FR025-14, PANEL-06, FR013-05, FR015-05, FR018-06, FR020-02, NFR007-02, NFR007-03, OPS-16, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
+**Listas para trabajar ahora (16):** FR004-08, FR006-04, FR006-07, FR020-06, FR023-11, FR025-14, PANEL-06, FR013-05, FR015-05, FR018-06, FR020-02, NFR007-02, NFR007-03, OPS-16, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
 
 | Ola | ID | Prio | Tarea | Sprint | SP | Desbloquea | Espera a | Bloqueo |
 |---:|---|---|---|---|---:|---:|---|---|
@@ -63,8 +63,6 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | 0 | [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | Diferido | 3 | — | — | lista |
 | 0 | [FR006-07](https://github.com/sedecim-com/nostr/issues/287) | P2 | Compartimentación: avisar antes de reutilizar un contacto o un archivo entre personas | Diferido | 3 | — | — | lista |
 | 0 | [FR007-06](https://github.com/sedecim-com/nostr/issues/388) | P2 | Retirar un vínculo entre personas en el servicio y en la web | S10 | 3 | — | — | en PR |
-| 0 | [FR014-04](https://github.com/sedecim-com/nostr/issues/284) | P2 | La web usa el mirror: no leídos por canal y búsqueda | Diferido | 3 | — | — | lista |
-| 0 | [FR015-04](https://github.com/sedecim-com/nostr/issues/285) | P2 | Reacciones, hilos y borrado en canales | Diferido | 5 | — | — | lista |
 | 0 | [FR020-06](https://github.com/sedecim-com/nostr/issues/291) | P2 | Cliente soberano como servicio del perfil tor | Diferido | 2 | — | — | lista |
 | 0 | [FR023-11](https://github.com/sedecim-com/nostr/issues/289) | P2 | Device trust en uso: passkey del propio usuario | Diferido | 5 | — | — | lista |
 | 0 | [FR025-14](https://github.com/sedecim-com/nostr/issues/288) | P2 | Grupos completos en la web: multi-dispositivo, rotación, propuestas y media cifrada | Diferido | 5 | — | — | lista |
@@ -125,7 +123,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | FR-011 | 8 | 8 | — |
 | FR-012 | 1 | 1 | — |
 | FR-013 | 6 | 6 | — |
-| FR-014 | 5 | 4 | FR014-04 (Diferido) |
+| FR-014 | 5 | 5 | — |
 | FR-015 | 3 | 3 | — |
 | FR-016 | 2 | 2 | — |
 | FR-017 | 6 | 6 | — |
@@ -422,8 +420,8 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | FR-005 | Seguridad | 3 | FR005-05 | Pendiente | El ncryptsec se cifra hacia la clave atestada del enclave; test |
 | [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | §7, FR-006 | Dev | 3 | FR006-02 | Pendiente | Se publica y se muestra en canales, DMs y grupos; en perfiles seudónimos no se publica nada salvo elección explícita |
 | [FR006-07](https://github.com/sedecim-com/nostr/issues/287) | P2 | Compartimentación: avisar antes de reutilizar un contacto o un archivo entre personas | §14.1 | Dev | 3 | FR006-01 | Pendiente | Aviso con confirmación explícita en la web y en el CLI, también para archivos (recordUsage) |
-| [FR014-04](https://github.com/sedecim-com/nostr/issues/284) | P2 | La web usa el mirror: no leídos por canal y búsqueda | FR-014, §15.2 | Dev | 3 | FR014-05, FR023-05 | Pendiente | Contadores de no leídos y búsqueda en la web vía NIP-98, respetando la política |
-| [FR015-04](https://github.com/sedecim-com/nostr/issues/285) | P2 | Reacciones, hilos y borrado en canales | §15.1 | Dev | 5 | FR015-02 | Pendiente | Kinds 7, respuestas con e/q y borrado 5/9005 en la web, con E2E contra Buzz |
+| [FR014-04](https://github.com/sedecim-com/nostr/issues/284) | P2 | La web usa el mirror: no leídos por canal y búsqueda | FR-014, §15.2 | Dev | 3 | FR014-05, FR023-05 | Hecho | Contadores de no leídos y búsqueda en la web vía NIP-98, respetando la política |
+| [FR015-04](https://github.com/sedecim-com/nostr/issues/285) | P2 | Reacciones, hilos y borrado en canales | §15.1 | Dev | 5 | FR015-02 | Hecho | Kinds 7, respuestas con e/q y borrado 5/9005 en la web, con E2E contra Buzz |
 | [FR020-06](https://github.com/sedecim-com/nostr/issues/291) | P2 | Cliente soberano como servicio del perfil tor | FR-020 | Infra | 2 | FR021-02 | Pendiente | docker compose run --rm sovereign … con TOR_SOCKS=tor:9050, documentado |
 | [FR023-11](https://github.com/sedecim-com/nostr/issues/289) | P2 | Device trust en uso: passkey del propio usuario | §16 | Dev | 5 | FR023-07 | Pendiente | El usuario registra la passkey en su dispositivo y cada sesión pide una aserción WebAuthn |
 | [FR025-08](https://github.com/sedecim-com/nostr/issues/156) | P2 | Migrar a marmot-ts v2 / ts-mls estable cuando se publiquen | FR-025 | Dev | 3 | FR025-04 | Parcial | Dependencias estables con conformidad y autoprueba en verde, o excepción documentada. Hace falta para la etiqueta high-security, no para v1.0 |
