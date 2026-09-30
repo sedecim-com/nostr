@@ -146,7 +146,8 @@ padre solo retransmite una cadena que no puede abrir.
    sellados: descifra en su propio proceso, y sellar no protegería nada.
 5. **El cliente y la web.** `ManagedSignerClient.exportForMigration(password, { enclave })` nunca manda la contraseña
    en claro, y `ManagedSignerClient.importEncrypted(conn, ncryptsec, password, { consentVersion, enclave })` sella la
-   importación; sin `enclave`, los dos se comportan como antes. El dueño del AAD (`<iss>#<sub>`) sale de las claims del
+   importación. Sin `enclave`, `exportForMigration` se comporta como antes e `importEncrypted` manda el `ncryptsec` y la
+   contraseña en claro, como la API los ha aceptado siempre. El dueño del AAD (`<iss>#<sub>`) sale de las claims del
    token de Acceso, sin verificarlo aquí: lo comprueba el enclave. Si la verificación de la attestation falla, el cliente
    no envía nada. La web lo hace en la migración a custodia local y en el respaldo antes de cancelar cuando su
    `config.json` trae `managedEnclave` (ver «Configuración»); sin él, exporta como antes.

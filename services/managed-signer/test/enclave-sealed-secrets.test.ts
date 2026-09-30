@@ -10,7 +10,7 @@ import { generateSecretKey, getPublicKey, nip49 } from '@sedecim/nostr-core';
 import { envelopeAad, MAX_ENVELOPE_CHARS, ownerTag as sharedOwnerTag, sealToEnclave, toBase64Url, verifyNitroAttestation } from '@sedecim/signer';
 import { bech32 } from '@scure/base';
 import { createAccesoPool } from './acceso-pool';
-import { createSimulatedEnclave, EnclaveClient, EnclaveError, EnclaveSigner, flagFromEnv, inProcessTransport, openSealedSecret, ownerTag, PinnedJwksProofVerifier, SEALED_DOES_NOT_OPEN, type SimulatedEnclave } from '../src/index';
+import { AttestationError, createSimulatedEnclave, EnclaveClient, EnclaveError, EnclaveSigner, flagFromEnv, inProcessTransport, openSealedSecret, ownerTag, PinnedJwksProofVerifier, SEALED_DOES_NOT_OPEN, simulatedPcrs, type SimulatedEnclave } from '../src/index';
 
 const pool = createAccesoPool();
 const verifier = () => new PinnedJwksProofVerifier({ issuer: pool.issuer, clientId: pool.clientId, jwks: pool.jwks });
@@ -267,6 +267,15 @@ describe('secrets sealed to the enclave', () => {
     // Without the flag, secrets in clear keep working as before.
     const legacy = setup();
     expect((await legacy.client.importNcryptsec(owner, nip49.encryptKey(generateSecretKey(), IMPORT_PASSWORD, 4), IMPORT_PASSWORD)).pubkey).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('FR005-10: the parent relays only documents that pass its own policy (a document for the client\'s nonce from an enclave it would not use fails there)', async () => {
+    const sim = createSimulatedEnclave({ pcrs: simulatedPcrs('image-the-parent-does-not-expect') });
+    const parent = new EnclaveClient({ transport: inProcessTransport(sim.enclave), attestation: { ...sim.policy, expectedPcrs: { 0: simulatedPcrs()[0] } } });
+    await expect(parent.attest(randomBytes(32))).rejects.toBeInstanceOf(AttestationError);
+    await expect(parent.attest(randomBytes(8))).rejects.toThrow(/16-64 bytes/);
+    const ok = setup();
+    expect((await ok.client.attest(randomBytes(32))).length).toBeGreaterThan(1000);
   });
 
   it('FR005-10: the switches are 1 or off, and a typo is a configuration error, not a silent off', () => {

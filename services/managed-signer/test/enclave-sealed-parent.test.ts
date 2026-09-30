@@ -53,7 +53,13 @@ const vault = new MemoryVault();
 const put = vault.put.bind(vault);
 vault.put = async (k, v) => (seen.push(Buffer.from(v)), put(k, v));
 const core = new ManagedSigner(vault, { sealedKeys: new EnclaveClient({ transport, attestation: sim.policy, provider: 'simulated-enclave' }), retentionDays: 0 });
-const api = createManagedSignerApi(core, { name: 'managed-signer-parent-test', cognito: acceso.verifier(), logger: createLogger({ level: 'debug', write: (r) => seen.push(Buffer.from(JSON.stringify(r))) }) });
+/** The service's log lines, also kept apart. */
+const logLines: string[] = [];
+const api = createManagedSignerApi(core, {
+  name: 'managed-signer-parent-test',
+  cognito: acceso.verifier(),
+  logger: createLogger({ level: 'debug', write: (r) => (logLines.push(JSON.stringify(r)), seen.push(Buffer.from(JSON.stringify(r)))) }),
+});
 
 /** The client's fetch, recording both directions; one connection per request (an export's scrypt blocks the server). */
 const recording: typeof fetch = async (input, init) => {
@@ -106,6 +112,9 @@ describe('what the parent sees of a sealed import and export', () => {
     for (const field of ['"sealed_secrets":"ae1.', '"sealed_password":"ae1.', '"op":"import"', '"op":"export"', '"sealedSecrets":"ae1.', '"sealedPassword":"ae1.']) expect(all).toContain(field);
     // The exported ncryptsec is the answer the parent relays: without the password it is ciphertext.
     expect(all).toContain(exported.ncryptsec);
+    // The service logs the requests, never the envelopes it relays.
+    expect(logLines.length).toBeGreaterThan(0);
+    expect(logLines.filter((l) => l.includes('ae1.'))).toEqual([]);
     expect(leaks({ importPassword: text(IMPORT_PASSWORD), exportPassword: text(EXPORT_PASSWORD), importedNcryptsec: text(ncryptsec), importedNcryptsecPayload: payloadOf(ncryptsec), nsec: text(nip19.nsecEncode(sk)), secretKey: sk })).toEqual([]);
   });
 

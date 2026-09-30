@@ -186,6 +186,16 @@ describe('managed-signer on the vault tier (no enclave)', () => {
     expect(clear.json.pubkey).toBe(getPublicKey(sk));
   });
 
+  it('FR005-10: without enclave, the client imports as the API always took it: ncryptsec and password in the request', async () => {
+    const posted: string[] = [];
+    const f: typeof fetch = (input, init) => (typeof init?.body === 'string' && posted.push(init.body), fetch(input, { ...init, headers: { ...(init?.headers as Record<string, string>), connection: 'close' } }));
+    const sk = generateSecretKey();
+    const ncryptsec = nip49.encryptKey(sk, IMPORT_PASSWORD, 4);
+    const key = await ManagedSignerClient.importEncrypted({ baseUrl: s.base, token: async () => token(), fetch: f }, ncryptsec, IMPORT_PASSWORD, { consentVersion: 'textos test' });
+    expect(key.pubkey).toBe(getPublicKey(sk));
+    expect(posted).toEqual([JSON.stringify({ ncryptsec, password: IMPORT_PASSWORD, consent_version: 'textos test' })]);
+  });
+
   it('FR005-10: a client told to seal to an enclave stops at the 404 and does not fall back to sending the password in clear', async () => {
     const created = await call(s, '/v1/keys', 'POST', { consent_version: 'textos test' });
     const posted: string[] = [];
