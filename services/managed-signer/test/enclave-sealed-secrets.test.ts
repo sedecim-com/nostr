@@ -263,7 +263,9 @@ describe('secrets sealed to the enclave', () => {
     const clearExport = await refusal(client.exportNcryptsec(sealed, pubkey, EXPORT_PASSWORD, 4, pool.token({ sub: 'ana' })));
     expect(clearExport.status).toBe(403);
     const ncryptsecOut = await client.exportSealed(sealed, pubkey, await sealExport(sim, client, owner, pubkey), 4, pool.token({ sub: 'ana' }));
+    // The key imported sealed leaves sealed, for its owner's proof, under that password and no other (not the import one).
     expect(getPublicKey(nip49.decryptKey(ncryptsecOut, EXPORT_PASSWORD).secretKey)).toBe(pubkey);
+    expect(() => nip49.decryptKey(ncryptsecOut, IMPORT_PASSWORD)).toThrow();
     // Without the flag, secrets in clear keep working as before.
     const legacy = setup();
     expect((await legacy.client.importNcryptsec(owner, nip49.encryptKey(generateSecretKey(), IMPORT_PASSWORD, 4), IMPORT_PASSWORD)).pubkey).toMatch(/^[0-9a-f]{64}$/);
