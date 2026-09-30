@@ -1,5 +1,5 @@
 import type { Action, Decision } from './evaluate';
-import type { RetentionPolicy } from './admin';
+import type { RelayGrant, RetentionPolicy } from './admin';
 
 /** HTTP client for the policy-engine service (service-to-service bearer routes). */
 export class PolicyEngineClient {
@@ -25,6 +25,13 @@ export class PolicyEngineClient {
     const res = await this.call('/v1/relay/allowlist');
     if (!res.ok) throw new Error(`policy engine error ${res.status}`);
     return ((await res.json()) as { pubkeys: string[] }).pubkeys;
+  }
+
+  /** FR023-10: who may publish in each registered channel and group (relay admission by `h`, NIP-29 membership). */
+  async relayGrants(): Promise<RelayGrant[]> {
+    const res = await this.call('/v1/relay/grants');
+    if (!res.ok) throw new Error(`policy engine error ${res.status}`);
+    return ((await res.json()) as { grants: RelayGrant[] }).grants;
   }
 
   /** Retention policies and the replication notice (FR023-08). Throws on error. */

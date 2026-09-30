@@ -173,7 +173,7 @@ jobs:
       - name: Production feature gates
         run: node scripts/release-gate.mjs config
       - name: Deploy scripts
-        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/image-sbom.sh scripts/rebuild-image.sh scripts/verify-release.sh scripts/stack-profiles.sh scripts/wait-stack.sh
+        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/mls-negative-control.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/image-sbom.sh scripts/rebuild-image.sh scripts/verify-release.sh scripts/stack-profiles.sh scripts/wait-stack.sh
       - name: SLO rules and their unit tests (promtool)
         run: |
           curl -sSfL -o prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
@@ -355,14 +355,17 @@ jobs:
           npx vitest run tests/interop/notification-gateway.interop.test.ts
       # FR023-13: institutional mode end to end on the same stack. The secure relay restarts with nauthz event admission
       # by relay-allowlist (infra/secure-relay/config.institutional.toml); the checks above used the open one.
-      - name: Institutional mode on the running stack (FR023-13)
+      # FR023-10: admission by `h` on the secure relay, and the NIP-29 membership relay-allowlist keeps on Buzz.
+      - name: Institutional mode on the running stack (FR023-13, FR023-10)
         env:
           INSTITUTIONAL_RELAY_URL: ws://localhost:7000
           STACK_POLICY_URL: http://localhost:8083
+          BUZZ_RELAY_URL: ws://localhost:3000
         run: |
           SECURE_RELAY_CONFIG=./infra/secure-relay/config.institutional.toml docker compose up -d secure-relay
           timeout 60 sh -c 'until curl -sf -H "Accept: application/nostr+json" http://localhost:7000 > /dev/null; do sleep 1; done'
-          POLICY_ADMIN_SECRET_KEY=$(sed -n 's/^POLICY_ADMIN_SECRET_KEY=//p' .env) npx vitest run tests/interop/institutional.interop.test.ts
+          POLICY_ADMIN_SECRET_KEY=$(sed -n 's/^POLICY_ADMIN_SECRET_KEY=//p' .env) BUZZ_MEMBERSHIP_NSEC=$(sed -n 's/^BUZZ_MEMBERSHIP_NSEC=//p' .env) \
+            npx vitest run tests/interop/institutional.interop.test.ts
       # NFR006-04: a request carrying a canary credential to each service; the scan below checks nobody logs it.
       - name: Canary requests to the services (NFR006-04)
         run: sh scripts/stack-profiles.sh exercise

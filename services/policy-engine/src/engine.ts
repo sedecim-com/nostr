@@ -6,6 +6,7 @@ import {
   type Device,
   type DirectoryEntry,
   type PolicyAuditEntry,
+  type RelayGrant,
   type Resource,
   type RevocationPage,
   type RetentionPolicy,
@@ -222,6 +223,26 @@ export class PolicyEngine {
       .filter((s) => !s.suspended && owners.has(s.pubkey))
       .map((s) => s.pubkey)
       .sort();
+  }
+
+  /**
+   * FR023-10: who may publish in each channel (NIP-29) and group (Marmot) resource, for the relays. Only people of the
+   * allowlist (active, with a device not revoked), each allowed when `evaluate` lets one of their devices publish: a
+   * relay knows the NIP-42 pubkey of a session, not its device. Computed with the pure `evaluate`: these are not
+   * access decisions and stay out of the access log.
+   */
+  async relayPublishGrants(): Promise<RelayGrant[]> {
+    const devices = new Map<string, Device[]>();
+    for (const d of await this.repo.listDevices()) if (d.revokedAt === undefined) devices.set(d.ownerPubkey, [...(devices.get(d.ownerPubkey) ?? []), d]);
+    const subjects = (await this.repo.listSubjects()).filter((s) => !s.suspended && devices.has(s.pubkey));
+    const now = this.now();
+    const grants: RelayGrant[] = [];
+    for (const resource of await this.repo.listResources()) {
+      if (resource.kind !== 'channel' && resource.kind !== 'group') continue;
+      const pubkeys = subjects.filter((subject) => devices.get(subject.pubkey)!.some((device) => evaluate({ subject, device, resource, action: 'publish', now }).allow)).map((s) => s.pubkey);
+      grants.push({ resourceId: resource.id, kind: resource.kind, pubkeys: pubkeys.sort() });
+    }
+    return grants.sort((a, b) => (a.resourceId < b.resourceId ? -1 : a.resourceId > b.resourceId ? 1 : 0));
   }
 
   // FR023-06: organisational directory (admin-only; never published).

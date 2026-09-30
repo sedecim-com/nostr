@@ -54,7 +54,8 @@
  *   sovereign group history --persona ID --group GID    (messages kept on this device, restored ones included)
  *   sovereign group remove --persona ID --group GID --member NPUB
  *   sovereign group rotate --persona ID --group GID     (self-update: post-compromise security)
- *   sovereign group list --persona ID
+ *   sovereign group list --persona ID                   (MLS id, name, epoch, members and h=nostr_group_id: the id
+ *                                        relays see, which an organisation registers the group by, FR023-10)
  *   sovereign group device --persona ID [--label NAME]           (this installation's MLS device id / label)
  *   sovereign group devices --persona ID --group GID             (leaves: one per device of each persona)
  *   sovereign group add-device --persona ID --group GID [--member NPUB]
@@ -278,8 +279,9 @@ async function main() {
       const gid = opt('--group');
       const pendingLine = (p: PendingGroupOperation) =>
         `${p.id}  ${p.type.padEnd(9)} ${new Date(p.createdAt).toISOString()}  intentos=${p.attempts}${p.target ? `  ${p.target.slice(0, 8)}` : ''}${p.failed ? `  RECHAZADA: ${p.failed}` : p.lastError ? `  (${p.lastError})` : ''}`;
-      const show = (g: { groupId: string; name: string; epoch: number; members: string[]; pending?: PendingGroupOperation[] }) => {
-        console.log(`${g.groupId}  ${g.name}  epoch=${g.epoch}  members=${g.members.length}`);
+      // FR023-10: `h=` is the id relays see (nostr_group_id): an organisation registers the group by it in its policy.
+      const show = (g: { groupId: string; nostrGroupId?: string; name: string; epoch: number; members: string[]; pending?: PendingGroupOperation[] }) => {
+        console.log(`${g.groupId}  ${g.name}  epoch=${g.epoch}  members=${g.members.length}${g.nostrGroupId ? `  h=${g.nostrGroupId}` : ''}`);
         // FR025-12: what no relay took yet is not lost: it goes out on the next sync (group pending / group retry).
         if (g.pending?.length) console.log(`pendiente sin relay (se reintenta solo; group pending para verlo):\n${g.pending.map((p) => `  ${pendingLine(p)}`).join('\n')}`);
       };
