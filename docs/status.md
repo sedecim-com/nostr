@@ -47,7 +47,7 @@ Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
 
 | Tarea | Sprint | Estado | Depende de |
 |---|---|---|---|
-| [OPS-08](https://github.com/sedecim-com/nostr/issues/59) Separación de funciones en releases (quién construye vs quién publica) | S9 | Parcial | OPS-12 |
+| [OPS-08](https://github.com/sedecim-com/nostr/issues/59) Separación de funciones en releases (quién construye vs quién publica) | S9 | Parcial | — |
 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) Firma de releases y provenance (SLSA/cosign) | S9 | Parcial | OPS-08 |
 | [REL-01](https://github.com/sedecim-com/nostr/issues/196) Checklist de Definition of Done automatizado en el pipeline de release | S9 | Parcial | NFR010-02, NFR003-02, FR020-03, DEC-10, OPS-08 |
 | [REL-02](https://github.com/sedecim-com/nostr/issues/197) Release notes con los cambios de trust model por release | S9 | Parcial | REL-01 |
