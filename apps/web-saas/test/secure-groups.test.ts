@@ -5,7 +5,7 @@
  * deployment's nostr-rs-relay: NIP-42 challenge, gift wraps only for their authenticated recipient.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ciphertextUploader, publishServerList, UnsanitizableFileError } from '@sedecim/blossom-client';
+import { AttachmentTooLargeError, ciphertextUploader, MAX_ATTACHMENT_BYTES, publishServerList, UnsanitizableFileError } from '@sedecim/blossom-client';
 import { EncryptedStore, MemoryBackend, type Vault } from '@sedecim/encrypted-store';
 import { MediaKeyUnavailableError, type ExtendedGroupSession, type GroupSession } from '@sedecim/marmot-adapter';
 import { hexToBytes, npubEncode, randomBytes } from '@sedecim/nostr-core';
@@ -13,6 +13,7 @@ import { heicWithGps, TestBlossomServer, TestRelay, tinyPng } from '@sedecim/tes
 import type { DeploymentConfig } from '../src/lib/config';
 import {
   addGroupDevices,
+  checkGroupFileSize,
   decideProposals,
   dropGroupSession,
   exclusive,
@@ -456,4 +457,19 @@ describe('web secure groups: devices, rotation, proposals and encrypted files (F
       await blobStore.stop();
     }
   }, 300_000);
+});
+
+describe('web secure groups: the size of a file (FR018-06)', () => {
+  it('FR018-06: a group file over the limit is refused with its size before it is read or sent, and the limit itself goes', async () => {
+    expect(() => checkGroupFileSize(MAX_ATTACHMENT_BYTES.group)).not.toThrow();
+    const over = () => checkGroupFileSize(MAX_ATTACHMENT_BYTES.group + 1);
+    expect(over).toThrow(AttachmentTooLargeError);
+    expect(over).toThrow('El archivo pesa 25,1 MB y los archivos de los grupos seguros pueden pesar como mucho 25,0 MB.');
+    // Whoever prepares or sends the bytes without having checked gets the same refusal, with the wording of a group.
+    expect(() => prepareGroupFile(new Uint8Array(MAX_ATTACHMENT_BYTES.group + 1), 'application/octet-stream', false)).toThrow(/los archivos de los grupos seguros/);
+    const upload = async () => {
+      throw new Error('nothing is uploaded');
+    };
+    await expect(sendGroupFile({} as GroupSession, 'g', { data: new Uint8Array(MAX_ATTACHMENT_BYTES.group + 1), filename: 'grande.bin', type: 'application/octet-stream' }, upload)).rejects.toBeInstanceOf(AttachmentTooLargeError);
+  });
 });

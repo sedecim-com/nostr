@@ -1,4 +1,4 @@
-import { ciphertextUploader, downloadFromServers, prepareBlob, type UnsanitizableFileError } from '@sedecim/blossom-client';
+import { checkAttachmentSize, ciphertextUploader, downloadFromServers, prepareBlob, type UnsanitizableFileError } from '@sedecim/blossom-client';
 import type { ArchivedGroupMessage, MlsSnapshot } from '@sedecim/continuity';
 import type { AddDevicesResult, ExtendedGroupSession, FetchedGroupMedia, GroupHandle, GroupMediaAttachment, GroupMediaReference, GroupMessage, GroupProposal, GroupSession, GroupStorage, MediaDownloader, MediaUploader, MemberChange, PendingGroupOperation } from '@sedecim/marmot-adapter';
 import type { EncryptedStore } from '@sedecim/encrypted-store/browser';
@@ -362,7 +362,12 @@ export async function decideProposals(gs: GroupSession, groupId: string, approve
  * web (FR019), and the sovereign client's. Other documents go as they are.
  */
 export function prepareGroupFile(bytes: Uint8Array, mimeType: string, stripFileMetadata: boolean): Uint8Array {
-  return prepareBlob(bytes, { sanitize: true, requireSanitizable: stripFileMetadata && 'images', mimeType }).data;
+  return prepareBlob(bytes, { sanitize: true, requireSanitizable: stripFileMetadata && 'images', mimeType, flow: 'group' }).data;
+}
+
+/** FR018-06: a group file over the limit is refused with its size in the message, before it is read into memory. */
+export function checkGroupFileSize(size: number): void {
+  checkAttachmentSize('group', size);
 }
 
 /**
@@ -387,6 +392,7 @@ export async function checkGroupFileName(filename: string): Promise<void> {
  */
 export async function sendGroupFile(gs: GroupSession, groupId: string, file: { data: Uint8Array; filename: string; type: string }, upload: MediaUploader, caption = ''): Promise<GroupMediaReference> {
   await checkGroupFileName(file.filename);
+  checkGroupFileSize(file.data.length);
   return (await extended(gs)).sendMedia(groupId, { data: file.data, filename: file.filename, type: file.type || 'application/octet-stream' }, upload, caption);
 }
 

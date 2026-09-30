@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
-import { BlossomClient, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
+import { BlossomClient, checkAttachmentSize, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
 import { fileDigest } from '@sedecim/identity/usage';
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
 import { cappedQuorumNotice, fileKey, SendOperation } from '../lib/outbox';
@@ -240,6 +240,8 @@ export function ChannelsView() {
     if (!openId || blocked) return;
     setBusy(true);
     try {
+      // FR018-06: the size is checked before the file is read into memory.
+      if (file) checkAttachmentSize('channelImage', file.size);
       const bytes = file ? new Uint8Array(await file.arrayBuffer()) : undefined;
       // FR006-07: an image another persona of this browser already sent waits for an explicit confirmation.
       const uses = bytes ? [{ fileHash: await fileDigest(bytes) }] : [];
@@ -253,7 +255,7 @@ export function ChannelsView() {
           // FR018-05: the user's Blossom servers (kind 10063, primary first), else the relay media server.
           const targets = uploadTargets(ws.cfg, await blossomServersOf(s), false);
           if (targets.length === 0) throw new Error('Este despliegue no tiene servidor de media configurado.');
-          const prepared = prepareBlob(bytes, { sanitize: true, requireSanitizable: config.stripFileMetadata, mimeType: file.type, fileName: file.name });
+          const prepared = prepareBlob(bytes, { sanitize: true, requireSanitizable: config.stripFileMetadata, mimeType: file.type, fileName: file.name, flow: 'channelImage' });
           await reuse.record(uses);
           const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
           tmpl.content = [text, desc.url].filter(Boolean).join('\n');

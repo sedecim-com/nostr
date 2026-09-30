@@ -13,6 +13,7 @@ import {
   groupMediaUploader,
   groupRelays,
   checkGroupFileName,
+  checkGroupFileSize,
   inviteMembers,
   membership,
   openGroupSession,
@@ -289,7 +290,8 @@ export function GroupsView() {
    */
   const sendFile = async (chosen: File, caption: string) => {
     await checkGroupFileName(chosen.name);
-    // FR018-06 (pending in @sedecim/blossom-client): checkAttachmentSize('group', chosen.size) goes here, before the file is read.
+    // FR018-06: the size of the file as chosen, before it is read into memory.
+    checkGroupFileSize(chosen.size);
     const bytes = new Uint8Array(await chosen.arrayBuffer());
     // FR006-07: a file another persona of this browser already sent waits for an explicit confirmation; it is recorded
     // once it passes the metadata rule, before the upload.

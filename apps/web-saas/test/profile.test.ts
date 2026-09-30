@@ -4,6 +4,7 @@
  * nothing new; avatars never tell a third-party server who is looking. The views are exercised by the browser E2E.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { AttachmentTooLargeError, MAX_ATTACHMENT_BYTES } from '@sedecim/blossom-client';
 import { EncryptedStore, MemoryBackend, type Vault } from '@sedecim/encrypted-store';
 import { createManagedSignerApi, ManagedSigner, MemoryVault } from '@sedecim/managed-signer';
 import { ProfileCache } from '@sedecim/messaging';
@@ -170,6 +171,22 @@ describe('web: public profile of a persona (FR006-04)', () => {
       expect(Buffer.from(stored.data).includes(Buffer.from('casa de mi madre'))).toBe(false);
       await expect(uploadAvatar(s, cfg, heicWithGps(), personaConfig(p))).rejects.toThrow(/JPEG, PNG o WebP/);
       await expect(uploadAvatar(s, cfg, tinyPng(), { ...personaConfig(p), network: 'tor-only' })).rejects.toThrow(/Tor-only/);
+    } finally {
+      s.close();
+    }
+  });
+
+  it('refuses an avatar over the size limit before anything is sanitized or uploaded (FR018-06)', async () => {
+    const book = newBook();
+    const p = await createPersona(book, { kind: 'create' }, { label: 'Avatar grande', relays: [relay.url], preset: 'convenience' });
+    const s = await openPersona(book, p);
+    try {
+      const cfg = { mode: 'self-hosted' as const, relays: [relay.url], buzzMedia: media.url };
+      const before = media.blobs.size;
+      const err = await uploadAvatar(s, cfg, new Uint8Array(MAX_ATTACHMENT_BYTES.avatar + 1), personaConfig(p)).catch((e: Error) => e);
+      expect(err).toBeInstanceOf(AttachmentTooLargeError);
+      expect((err as Error).message).toBe('El archivo pesa 1,1 MB y los avatares de los perfiles pueden pesar como mucho 1,0 MB.');
+      expect(media.blobs.size).toBe(before);
     } finally {
       s.close();
     }
