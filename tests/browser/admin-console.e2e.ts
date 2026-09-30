@@ -116,7 +116,8 @@ const watch = (page: Page) => {
   if (process.env.DEBUG_E2E) page.on('console', (m) => console.log('[browser]', m.type(), m.text()));
   page.on('request', (r) => r.url().startsWith(policyUrl) && policyRequests.push({ method: r.method(), url: r.url(), ...(r.headers().authorization ? { auth: r.headers().authorization } : {}) }));
 };
-const tab = (p: Page, name: string) => p.getByRole('tab', { name }).click();
+// FR023-11: «Dispositivos» is also a part of «Mis dispositivos»: that one is matched whole, the rest by what they contain.
+const tab = (p: Page, name: string) => p.getByRole('tab', { name, exact: name === 'Dispositivos' }).click();
 const signInLocal = async (p: Page, sk: Uint8Array) => {
   await p.fill('#dev-nsec', nsecEncode(sk));
   await p.getByRole('button', { name: 'Entrar con llave local' }).click();
@@ -479,7 +480,7 @@ try {
   await audit('Recursos: dialog');
   await a11y.keyboard.press('Escape');
   await a11y.getByRole('dialog').waitFor({ state: 'detached' });
-  await a11y.getByRole('tab', { name: 'Dispositivos' }).click();
+  await a11y.getByRole('tab', { name: 'Dispositivos', exact: true }).click();
   await a11y.fill('#device-owner', alicePk);
   await a11y.getByRole('button', { name: 'Buscar dispositivos' }).click();
   await row(a11y, 'device', d1!.id).waitFor();
