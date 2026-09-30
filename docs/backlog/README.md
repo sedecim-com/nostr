@@ -5,7 +5,7 @@
 
 ## Resumen
 
-- **249 tareas** · 182 hechas · 24 parciales · 37 pendientes · 6 descartadas
+- **249 tareas** · 182 hechas · 26 parciales · 35 pendientes · 6 descartadas
 - **227 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
@@ -416,8 +416,8 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | [FR005-09](https://github.com/sedecim-com/nostr/issues/279) | P1 | Exportar desde el enclave exige una prueba del usuario verificada dentro del enclave | FR-026, IR-01, PRD GC-A03 | Seguridad | 5 | FR005-05 | Pendiente | JWT con JWKS fijado en la imagen o firma de la llave de destino; sin ella el enclave se niega; test. Requisito para sacar el enclave de Preview |
 | [NFR001-05](https://github.com/sedecim-com/nostr/issues/281) | P1 | Entorno de producción del SaaS | NFR-001 | Infra | 8 | NFR001-04, OPS-20 | Pendiente | Overlay de producción con la topología HA probada en stage, los feature gates de OPS-20, sonda externa y el SLO de 99,9 % medido |
 | [SEC-10](https://github.com/sedecim-com/nostr/issues/278) | P1 | Revisión criptográfica delta de MLS estable | §20.3 | Seguridad | 3 | FR025-08 | Pendiente | Informe externo del delta tras FR025-08 sin críticos abiertos; requisito de la etiqueta high-security |
-| [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | ADR 0010, PRD GC-G03 | Decisión | 1 | OPS-06 | Pendiente | Diseño evaluado cuando se retome un cliente móvil; no bloquea el RC |
-| [DEC-14](https://github.com/sedecim-com/nostr/issues/292) | P2 | Modelo comercial del SaaS: organizaciones, planes y facturación | §15.2 | Decisión | 1 | — | Pendiente | ADR con el modelo de tenants, planes y proveedor de cobro |
+| [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | ADR 0010, PRD GC-G03 | Decisión | 1 | OPS-06 | Parcial | Diseño evaluado cuando se retome un cliente móvil; no bloquea el RC |
+| [DEC-14](https://github.com/sedecim-com/nostr/issues/292) | P2 | Modelo comercial del SaaS: organizaciones, planes y facturación | §15.2 | Decisión | 1 | — | Parcial | ADR con el modelo de tenants, planes y proveedor de cobro |
 | [FR004-08](https://github.com/sedecim-com/nostr/issues/290) | P2 | Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | §14, FR-002, FR-004 | Dev | 3 | FR004-01 | Pendiente | Perfiles Tor con signer externo (§14: offline/signer) y custodia declarada según la llave real |
 | [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | FR-005 | Seguridad | 3 | FR005-05 | Pendiente | El ncryptsec se cifra hacia la clave atestada del enclave; test |
 | [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | §7, FR-006 | Dev | 3 | FR006-02 | Pendiente | Se publica y se muestra en canales, DMs y grupos; en perfiles seudónimos no se publica nada salvo elección explícita |
