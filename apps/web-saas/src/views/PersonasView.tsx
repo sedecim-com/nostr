@@ -9,7 +9,7 @@ import { LinkPersonas } from './LinkPersonas';
 import { BlossomServers } from './BlossomServers';
 import { ContinuityVault } from './ContinuityVault';
 import { RemoteSigner } from './RemoteSigner';
-import { ManagedActivity, ManagedOptIn, ManagedRecovery, MigrationWizard } from './ManagedCustody';
+import { CancelCustody, ClosedManagedKeys, ManagedActivity, ManagedOptIn, ManagedRecovery, MigrationWizard } from './ManagedCustody';
 import { QrCode } from './QrCode';
 import { openKeyBackup, parseKeyBackup, type ParsedKeyBackup } from '@sedecim/identity/key-backup';
 import { npubEncode } from '@sedecim/nostr-core';
@@ -238,6 +238,14 @@ export function PersonasView() {
       {session && cfg.continuityVault && <ContinuityVault key={session.persona.id} url={cfg.continuityVault} />}
       {session?.persona.managedKeyId && session.persona.custody === 'managed' && managedAvailable && <ManagedActivity key={session.persona.id} />}
       {session?.persona.managedKeyId && managedAvailable && <MigrationWizard key={session.persona.id} />}
+      {session?.persona.managedKeyId && session.persona.custody === 'managed' && managedAvailable && <CancelCustody key={`cancel-${session.persona.id}`} />}
+      {managedAvailable && (
+        <Card>
+          <CardContent>
+            <ClosedManagedKeys />
+          </CardContent>
+        </Card>
+      )}
 
       <Card component="form" onSubmit={create}>
         <CardContent>

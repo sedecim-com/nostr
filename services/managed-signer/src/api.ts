@@ -151,6 +151,8 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
     }),
   );
   svc.get('/v1/keys', route(async (_req, c) => ({ keys: await core.list(c.owner) })));
+  // FR026-04: before /v1/keys/:id, which would take "closed" for a key id.
+  svc.get('/v1/keys/closed', route(async (_req, c) => ({ keys: await core.closed(c.owner) })));
   svc.post('/v1/keys', route(async (req, c) => {
     const body = req.json<{ allowed_kinds?: number[]; consent_version?: string }>();
     if (body.allowed_kinds !== undefined && (!Array.isArray(body.allowed_kinds) || !body.allowed_kinds.every((k) => Number.isInteger(k) && k >= 0))) {
@@ -195,6 +197,12 @@ export function createManagedSignerApi(core: ManagedSigner, opts: ManagedSignerA
   svc.delete('/v1/keys/:id', route(async (req, c) => {
     const { destroyAfter } = await core.delete(req.params.id!, c.owner, c.principal);
     return { deleted: true, destroy_after: new Date(destroyAfter).toISOString() };
+  }));
+  svc.post('/v1/keys/:id/cancel', route(async (req, c) => {
+    const { confirm } = req.json<{ confirm?: unknown }>();
+    const { destroyAfter } = await core.cancel(req.params.id!, c.owner, c.principal, confirm);
+    log.info('managed key cancelled', { key_id: req.params.id });
+    return { cancelled: true, destroy_after: new Date(destroyAfter).toISOString() };
   }));
   svc.get('/v1/keys/:id/usage', route(async (req, c) => ({ usage: await core.usageOf(req.params.id!, c.owner) })));
   return svc;

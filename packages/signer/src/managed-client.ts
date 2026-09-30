@@ -39,6 +39,17 @@ export interface ManagedKeyInfo {
   disclosure: string;
 }
 
+/** FR026-04: a key on its way out of managed custody, until its material is destroyed. */
+export interface ClosedManagedKey {
+  keyId: string;
+  pubkey: string;
+  /** Migrated to its owner's custody (FR026-03) or cancelled without migrating. */
+  exit: 'migrated' | 'cancelled';
+  deletedAt: number;
+  /** When the material is destroyed (end of the retention window, DEC-09). */
+  destroyAfter: number;
+}
+
 /** FR005-11: one entry of a managed key's usage log (DEC-09: kept 12 months). Metadata only, never content. */
 export interface ManagedKeyUsage {
   at: number;
@@ -107,6 +118,14 @@ export class ManagedSignerClient implements Signer {
   /** The caller's live managed keys. */
   static async listKeys(conn: ManagedSignerConnection): Promise<ManagedKeyInfo[]> {
     return (await request<{ keys: ManagedKeyInfo[] }>(conn, 'GET', '')).keys;
+  }
+
+  /**
+   * FR026-04: the caller's keys that left managed custody and are waiting for their material to be destroyed. Once
+   * destroyed a key is no longer tied to its owner and stops appearing here.
+   */
+  static async closedKeys(conn: ManagedSignerConnection): Promise<ClosedManagedKey[]> {
+    return (await request<{ keys: ClosedManagedKey[] }>(conn, 'GET', '/closed')).keys;
   }
 
   /** Creates a managed key for the caller. Only after an explicit, informed opt-in (FR005-07). */
@@ -187,5 +206,14 @@ export class ManagedSignerClient implements Signer {
   /** FR-026 step 3: deletes the managed copy; the material is destroyed after the retention window. */
   async deleteKey(): Promise<{ destroyAfter: string }> {
     return { destroyAfter: (await this.call<{ destroy_after: string }>('', undefined, 'DELETE')).destroy_after };
+  }
+
+  /**
+   * FR026-04: cancels managed custody without migrating (ARCO cancellation). `npub` must be this key's npub, as the
+   * user confirmed it. The key stops working at once; its material is destroyed after the retention window, so offer
+   * the encrypted backup (exportForMigration) first.
+   */
+  async cancelCustody(npub: string): Promise<{ destroyAfter: string }> {
+    return { destroyAfter: (await this.call<{ destroy_after: string }>('/cancel', { confirm: npub })).destroy_after };
   }
 }

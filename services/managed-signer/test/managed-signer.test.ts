@@ -144,6 +144,34 @@ describe('managed-signer (FR-005, FR-026)', () => {
     expect((await call(`/v1/keys/${k.keyId}`)).status).toBe(404);
   });
 
+  it('cancels managed custody without migrating, confirmed with the npub, and lists the key until destruction (FR026-04)', async () => {
+    const conn = { baseUrl: base, token: async () => tokenA() };
+    const { json: k } = await call('/v1/keys', 'POST', { consent_version: 'textos test' });
+    const npub = nip19.npubEncode(k.pubkey);
+    expect((await call(`/v1/keys/${k.keyId}/cancel`, 'POST', {})).status).toBe(400);
+    expect((await call(`/v1/keys/${k.keyId}/cancel`, 'POST', { confirm: nip19.npubEncode(getPublicKey(generateSecretKey())) })).status).toBe(400);
+    // Knowing the npub is not enough for another user.
+    expect((await call(`/v1/keys/${k.keyId}/cancel`, 'POST', { confirm: npub }, tokenB())).status).toBe(403);
+
+    const { destroyAfter } = await new ManagedSignerClient({ ...conn, keyId: k.keyId }).cancelCustody(npub);
+    // Unusable at once, gone from the live keys, listed as closed (with when it is destroyed) for its owner only.
+    expect((await call(`/v1/keys/${k.keyId}/sign`, 'POST', { template: { kind: 1, content: 'x' } })).status).toBe(404);
+    expect((await ManagedSignerClient.listKeys(conn)).map((x) => x.keyId)).not.toContain(k.keyId);
+    const closed = (await ManagedSignerClient.closedKeys(conn)).find((x) => x.keyId === k.keyId);
+    expect(closed).toEqual({ keyId: k.keyId, pubkey: k.pubkey, exit: 'cancelled', deletedAt: expect.any(Number), destroyAfter: Date.parse(destroyAfter) });
+    expect((await call('/v1/keys/closed', 'GET', undefined, tokenB())).json.keys.map((x: { keyId: string }) => x.keyId)).not.toContain(k.keyId);
+    expect((await call(`/v1/keys/${k.keyId}/cancel`, 'POST', { confirm: npub })).status).toBe(404);
+
+    // A migrated key is not cancelled: its managed copy is deleted (FR026-03).
+    const { json: m } = await call('/v1/keys', 'POST', { consent_version: 'textos test' });
+    const exp = await call(`/v1/keys/${m.keyId}/export`, 'POST', { password: 'una contraseña larga' });
+    await call(`/v1/keys/${m.keyId}/confirm-migration`, 'POST', { proof: proofFor(nip49.decryptKey(exp.json.ncryptsec, 'una contraseña larga').secretKey, exp.json.challenge) });
+    expect((await call(`/v1/keys/${m.keyId}/cancel`, 'POST', { confirm: nip19.npubEncode(m.pubkey) })).status).toBe(409);
+    expect((await call(`/v1/keys/${m.keyId}`, 'DELETE')).status).toBe(200);
+    expect((await ManagedSignerClient.closedKeys(conn)).find((x) => x.keyId === m.keyId)?.exit).toBe('migrated');
+    expect(logs.some((r) => r.msg === 'managed key cancelled' && r.key_id === k.keyId)).toBe(true);
+  });
+
   it('refuses the retired service-token mode: no x-account-id, and a service token is not a credential (FR005-12)', async () => {
     const tpl = { template: { kind: 1, content: 'hola' } };
     const k = (await call('/v1/keys', 'POST', { consent_version: 'textos test' }, tokenA())).json;
@@ -181,7 +209,7 @@ describe('managed-signer retention (DEC-09)', () => {
     await expect(c.describe(k.keyId, 'o')).rejects.toThrow(/unknown key/);
 
     now += 29 * 86_400_000;
-    expect(await c.runRetention()).toEqual({ usagePurged: 0, keysDestroyed: 0, sessionsPurged: 0 });
+    expect(await c.runRetention()).toEqual({ usagePurged: 0, keysDestroyed: 0, keysScrubbed: 0, sessionsPurged: 0 });
     expect(await vault.get(k.keyId)).toBeDefined();
 
     now += 2 * 86_400_000;
@@ -195,5 +223,46 @@ describe('managed-signer retention (DEC-09)', () => {
     now = Date.UTC(2027, 0, 20);
     expect((await c.runRetention()).usagePurged).toBe(4);
     expect((await registry.usageOf(k.keyId)).map((u) => u.action)).toEqual(['destroyed']);
+  });
+
+  it('destroys a cancelled key after the window, then clears its owner and consent (FR026-04)', async () => {
+    let now = Date.UTC(2026, 0, 15);
+    const vault = new MemoryVault();
+    const registry = new MemoryKeyRegistry();
+    const c = new ManagedSigner(vault, { registry, retentionDays: 30, now: () => now });
+    const k = await c.create('o', 'p', { consentVersion: 'textos test' });
+    await expect(c.cancel(k.keyId, 'o', 'p', 'npub1nada')).rejects.toThrow(/confirm must be the npub/);
+    const { destroyAfter } = await c.cancel(k.keyId, 'o', 'p', nip19.npubEncode(k.pubkey));
+    expect(destroyAfter).toBe(now + 30 * 86_400_000);
+    expect(await c.closed('o')).toEqual([{ keyId: k.keyId, pubkey: k.pubkey, exit: 'cancelled', deletedAt: now, destroyAfter }]);
+
+    now += 31 * 86_400_000;
+    expect(await c.runRetention()).toMatchObject({ keysDestroyed: 1, keysScrubbed: 1 });
+    expect(await vault.get(k.keyId)).toBeUndefined();
+    const rec = (await registry.get(k.keyId))!;
+    expect(rec).toMatchObject({ owner: '', exit: 'cancelled', destroyedAt: now, scrubbedAt: now });
+    expect(rec.consentVersion).toBeUndefined();
+    expect(rec.consentAt).toBeUndefined();
+    expect(await c.closed('o')).toEqual([]);
+    expect((await registry.usageOf(k.keyId)).map((u) => u.action)).toEqual(['created', 'cancelled', 'destroyed']);
+    expect((await c.runRetention()).keysScrubbed).toBe(0);
+  });
+
+  it('lets the operator close every live key of an owner, as an ARCO cancellation (FR026-04)', async () => {
+    const now = Date.UTC(2026, 0, 15);
+    const registry = new MemoryKeyRegistry();
+    const c = new ManagedSigner(new MemoryVault(), { registry, retentionDays: 30, now: () => now });
+    const a = await c.create('o', 'p');
+    const b = await c.create('o', 'p');
+    await c.export(b.keyId, 'o', 'p', 'contraseña suficientemente larga', 4);
+    const other = await c.create('otra', 'x');
+    const closed = await c.closeOwner('o', 'operator:ARCO-7');
+    expect(closed.map((x) => x.keyId).sort()).toEqual([a.keyId, b.keyId].sort());
+    expect(closed.every((x) => x.destroyAfter === now + 30 * 86_400_000)).toBe(true);
+    expect(await c.list('o')).toEqual([]);
+    expect((await c.closed('o')).map((x) => x.exit)).toEqual(['cancelled', 'cancelled']);
+    expect((await registry.usageOf(a.keyId)).at(-1)).toMatchObject({ action: 'cancelled', principal: 'operator:ARCO-7' });
+    expect((await c.list('otra')).map((x) => x.keyId)).toEqual([other.keyId]);
+    expect(await c.closeOwner('o', 'operator:ARCO-7')).toEqual([]);
   });
 });

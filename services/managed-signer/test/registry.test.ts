@@ -1,15 +1,20 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { finalizeEvent, generateSecretKey, nip49, toUnsigned, verifyEvent } from '@sedecim/nostr-core';
+import { bytesToHex, finalizeEvent, generateSecretKey, nip19, nip49, toUnsigned, verifyEvent } from '@sedecim/nostr-core';
 import { createPgPool, createTestCognito, migrate, resetScope, type Pool } from '@sedecim/service-kit';
 import { ManagedSignerClient } from '@sedecim/signer';
 import { createLogger } from '@sedecim/telemetry-policy';
 import { createManagedSignerApi, LocalEnvelopeVault, ManagedSigner, MemoryDeviceStore, MemoryKeyRegistry, PgDeviceStore, PgKeyRegistry, type DeviceStore, type KeyRegistry } from '../src/index';
 
 const MIGRATIONS = fileURLToPath(new URL('../migrations', import.meta.url));
+const OPS = fileURLToPath(new URL('../src/ops.ts', import.meta.url));
+/** Runs an operator command (src/ops.ts) as the operator would, with only the given configuration. */
+const ops = (args: string[], env: Record<string, string> = {}) =>
+  spawnSync(process.execPath, ['--import', 'tsx', OPS, ...args], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', ...env }, timeout: 60_000 });
 const acceso = createTestCognito();
 const silent = createLogger({ write: () => {} });
 
@@ -77,6 +82,26 @@ function suite(name: string, open: () => Promise<KeyRegistry>) {
       expect(usagePurged).toBeGreaterThanOrEqual(5);
       expect(await registry.usageOf(k.keyId)).toEqual([]);
     });
+
+    it('records how a key left and clears its owner and consent once destroyed (FR026-04)', async () => {
+      const registry = await open();
+      let now = Date.UTC(2026, 10, 2);
+      const core = new ManagedSigner(new LocalEnvelopeVault(await mkdtemp(join(tmpdir(), 'vault-')), new Uint8Array(32).fill(3)), { registry, retentionDays: 30, now: () => now });
+      const owner = 'owner-exit';
+      const k = await core.create(owner, owner, { consentVersion: 'textos test' });
+      await core.cancel(k.keyId, owner, owner, nip19.npubEncode(k.pubkey));
+      expect((await registry.get(k.keyId))!).toMatchObject({ state: 'deleted', exit: 'cancelled', deletedAt: now, consentVersion: 'textos test' });
+      expect((await registry.listClosedByOwner(owner)).map((r) => r.keyId)).toEqual([k.keyId]);
+
+      now += 31 * 86_400_000;
+      expect((await core.runRetention()).keysScrubbed).toBeGreaterThanOrEqual(1);
+      const rec = (await registry.get(k.keyId))!;
+      expect(rec).toMatchObject({ owner: '', exit: 'cancelled', destroyedAt: now, scrubbedAt: now });
+      expect(rec.consentVersion).toBeUndefined();
+      expect(rec.consentAt).toBeUndefined();
+      expect(await registry.listClosedByOwner(owner)).toEqual([]);
+      expect(await registry.pendingScrub()).toEqual([]);
+    });
   });
 }
 
@@ -117,6 +142,19 @@ function deviceStoreSuite(name: string, open: () => Promise<DeviceStore>) {
   });
 }
 
+describe('managed-signer operator commands (FR026-04)', () => {
+  it('validates their arguments and never act on a fresh in-memory registry', async () => {
+    expect(ops([]).stderr).toMatch(/usage: ops.ts close-owner/);
+    const noOwner = ops(['close-owner', 'sin-emisor', 'ARCO-1']);
+    expect(noOwner.status).toBe(2);
+    expect(noOwner.stderr).toMatch(/'<issuer>#<sub>'/);
+    expect(ops(['close-owner', 'https://idp.example#sub', 'ticket con espacios']).stderr).toMatch(/name the request/);
+    const noDb = ops(['close-owner', 'https://idp.example#sub', 'ARCO-1'], { MANAGED_SIGNER_KEK: '00'.repeat(32), MANAGED_SIGNER_VAULT_DIR: await mkdtemp(join(tmpdir(), 'vault-')) });
+    expect(noDb.status).toBe(2);
+    expect(noDb.stderr).toMatch(/DATABASE_URL is not set/);
+  });
+});
+
 const memory = new MemoryKeyRegistry();
 suite('managed-signer registry (memory)', async () => memory);
 deviceStoreSuite('managed-signer device store (memory)', async () => new MemoryDeviceStore());
@@ -139,5 +177,25 @@ if (PG) {
     return pool;
   };
   suite('managed-signer registry (postgres)', async () => new PgKeyRegistry(await openPool()));
+  describe('managed-signer operator commands (postgres)', () => {
+    it("close-owner takes every live key of the owner out of managed custody, in the service's registry (FR026-04)", async () => {
+      const registry = new PgKeyRegistry(await openPool());
+      const dir = await mkdtemp(join(tmpdir(), 'vault-'));
+      const kek = new Uint8Array(32).fill(4);
+      const core = new ManagedSigner(new LocalEnvelopeVault(dir, kek), { registry, retentionDays: 30 });
+      const owner = 'https://idp.example#arco-user';
+      const k = await core.create(owner, owner, { consentVersion: 'textos test' });
+      const other = await core.create('https://idp.example#otra', 'x');
+      const run = ops(['close-owner', owner, 'ARCO-2026-001'], { DATABASE_URL: PG, MANAGED_SIGNER_KEK: bytesToHex(kek), MANAGED_SIGNER_VAULT_DIR: dir });
+      expect(run.status, run.stderr).toBe(0);
+      const out = JSON.parse(run.stdout) as { owner: string; closed: Array<{ key_id: string; destroy_after: string }> };
+      expect(out.owner).toBe(owner);
+      expect(out.closed.map((c) => c.key_id)).toEqual([k.keyId]);
+      expect(Date.parse(out.closed[0]!.destroy_after)).toBeGreaterThan(Date.now() + 29 * 86_400_000);
+      expect(await registry.get(k.keyId)).toMatchObject({ state: 'deleted', exit: 'cancelled' });
+      expect((await registry.usageOf(k.keyId)).at(-1)).toMatchObject({ action: 'cancelled', principal: 'operator:ARCO-2026-001' });
+      expect((await registry.get(other.keyId))!.state).toBe('active');
+    });
+  });
   deviceStoreSuite('managed-signer device store (postgres)', async () => new PgDeviceStore(await openPool()));
 }
