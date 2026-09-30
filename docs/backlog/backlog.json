@@ -737,9 +737,7 @@
    "type": "Infra",
    "priority": "P0",
    "sp": 1,
-   "deps": [
-    "OPS-12"
-   ],
+   "deps": [],
    "sprint": "S9",
    "status": "Parcial",
    "evidence": ".github/workflows/release.yml: builds con contents: read; publicación solo desde el entorno `release`. Falta configurar en GitHub el entorno con aprobadores y \"Prevent self-review\" y la regla de tags v* (docs/building.md)",
