@@ -43,6 +43,8 @@ export function GroupProposals({ gs, group, relays, isAdmin, readOnly, busy, act
   const [removal, setRemoval] = useState('');
   const [confirmRemoval, setConfirmRemoval] = useState<string | undefined>();
   const count = group.pendingProposals ?? 0;
+  // A removed browser or a restored copy cannot commit: it only sees what waits.
+  const canDecide = isAdmin && !readOnly;
   const removable = group.members.filter((m) => m !== s.pubkey && !group.admins.includes(m));
 
   // The pending proposals of this epoch, read again whenever their number or the epoch changes.
@@ -120,7 +122,7 @@ export function GroupProposals({ gs, group, relays, isAdmin, readOnly, busy, act
             <List dense disablePadding aria-label="Propuestas pendientes">
               {proposals.map((p) => (
                 <ListItem key={p.ref} disableGutters>
-                  {isAdmin && p.admissible ? (
+                  {canDecide && p.admissible ? (
                     <FormControlLabel
                       control={
                         <Checkbox
@@ -141,7 +143,7 @@ export function GroupProposals({ gs, group, relays, isAdmin, readOnly, busy, act
                 </ListItem>
               ))}
             </List>
-            {isAdmin ? (
+            {canDecide ? (
               <>
                 <Typography variant="body2" id="group-proposals-decide">
                   {SECURE_GROUP_TEXTS.decide}
