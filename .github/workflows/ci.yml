@@ -200,7 +200,7 @@ jobs:
         run: node scripts/release-gate.mjs config
       # SEC-12: the public relay host forwards only / and /media/ to Buzz (docs/security/buzz-attack-surface.md). The real
       # edge config, in the pinned nginx image, in front of a stub upstream that answers to any path.
-      - name: Edge proxy: only / and /media/ reach Buzz (SEC-12)
+      - name: Edge proxy forwards only / and /media/ to Buzz (SEC-12)
         run: bash scripts/edge-check.sh
       - name: Deploy scripts
         run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/mls-negative-control.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/image-sbom.sh scripts/rebuild-image.sh scripts/verify-release.sh scripts/stack-profiles.sh scripts/wait-stack.sh scripts/edge-check.sh
