@@ -144,23 +144,28 @@ dm_relays_ready() {
   grep -q 'relays de DM (kind 10050): REPLICATED' "$log"
 }
 
-# read_dm LOG DIR PERSONA TEXT: reads the persona's DM inbox until TEXT shows up. Each attempt keeps its output
-# (LOG.N) and says how long it took, so a failure shows where the time went.
-read_dm() {
-  local log=$1 dir=$2 persona=$3 text=$4 start=$SECONDS t
+# read_until LOG DIR TEXT WHAT CMD...: runs the read command CMD until TEXT shows up. Each attempt keeps its output
+# (LOG.N) and says how long it took, so a failure shows where the time went. OPS-21: over Tor a single read can end
+# before the relay has answered with the event, even after the publish was accepted.
+read_until() {
+  local log=$1 dir=$2 text=$3 what=$4 start=$SECONDS t
+  shift 4
   for i in 1 2 3 4 5 6 7 8; do
     t=$SECONDS
-    cli "$dir" dm inbox --persona "$persona" > "$log.$i" 2>&1 || true
+    cli "$dir" "$@" > "$log.$i" 2>&1 || true
     cp "$log.$i" "$log"
     if grep -qF "$text" "$log"; then
-      echo "ok - $dir: DM read on attempt $i, $((SECONDS - start))s after the first"
+      echo "ok - $dir: $what read on attempt $i, $((SECONDS - start))s after the first"
       return 0
     fi
-    echo "  $dir: attempt $i did not show the DM ($((SECONDS - t))s): $(tail -n 1 "$log")"
+    echo "  $dir: attempt $i did not show the $what ($((SECONDS - t))s): $(tail -n 1 "$log")"
     sleep $((i * 5))
   done
   return 1
 }
+
+# read_dm LOG DIR PERSONA TEXT: reads the persona's DM inbox until TEXT shows up.
+read_dm() { read_until "$1" "$2" "$4" DM dm inbox --persona "$3"; }
 
 # --- secure-relay .onion: channel message published and read back
 cli secure persona create --label tor-secure --relay "ws://$SECURE_ONION" --tor --high-risk > "$OUT/secure.persona.json" || fail "persona create (secure-relay onion)"
@@ -168,8 +173,9 @@ S=$(persona_id "$OUT/secure.persona.json")
 TEXT="tor profile check $(date +%s)"
 send_with_retry "$OUT/secure.send.log" secure "$S" channel send --persona "$S" --group tor-check "$TEXT" ||
   fail "channel message to the secure-relay .onion was not accepted (see $OUT/secure.send.log)"
-cli secure channel read --persona "$S" --group tor-check | tee "$OUT/secure.read.log" || true
-grep -qF "$TEXT" "$OUT/secure.read.log" || fail "the message published to the secure-relay .onion was not read back through Tor"
+read_until "$OUT/secure.read.log" secure "$TEXT" "channel message" channel read --persona "$S" --group tor-check ||
+  fail "the message published to the secure-relay .onion was not read back through Tor (see $OUT/secure.read.log.*)"
+cat "$OUT/secure.read.log"
 echo "ok - secure-relay .onion: published and read back through the compose Tor SOCKS port"
 
 # --- secure-relay .onion: NIP-17 DM from the Tor persona above to a second one, read back by the recipient
