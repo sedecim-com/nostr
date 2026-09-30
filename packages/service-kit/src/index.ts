@@ -5,3 +5,4 @@ export * from './cognito';
 export * from './cognito-testing';
 export * from './replay';
 export * from './ratelimit';
+export * from './tracing';
