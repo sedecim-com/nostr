@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useState } from 'react';
 import { Alert, Avatar, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
-import { UnsanitizableFileError } from '@sedecim/blossom-client';
+import { checkAttachmentSize, UnsanitizableFileError } from '@sedecim/blossom-client';
 import { PROFILE_LIMITS } from '@sedecim/messaging';
 import { PUBLIC_PROFILE_TEXTS } from '@sedecim/profiles';
 import { unsanitizableMessage } from '../lib/blossom';
@@ -122,6 +122,8 @@ export function PublicProfileCard() {
     });
   const upload = (file: File) =>
     void run(async () => {
+      // FR018-06: the size is checked before the file is read into memory.
+      checkAttachmentSize('avatar', file.size);
       setPicture(await uploadAvatar(s, ws.cfg, new Uint8Array(await file.arrayBuffer()), config));
     });
 

@@ -16,6 +16,9 @@
 # - .env (relay key and every stack secret), unless --no-env: keep the backup directory encrypted/offline.
 # - SHA256SUMS over everything, checked by scripts/restore.sh.
 # Redis is not backed up: it only holds caches and pub/sub state (docs/rpo-rto.md).
+# Nor is sovereign-data (FR020-06), the stores of the sovereign CLI container: they are the personas of whoever runs
+# it, sealed with a passphrase that is not in .env. Their backup is the CLI's own, `backup export` of each persona
+# (docs/sovereign-tor.md): this archive holds nobody's key stores, and restoring the stack never copies a device.
 set -eu
 umask 077
 

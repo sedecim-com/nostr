@@ -1,7 +1,7 @@
 import { Service, HttpError, isHex64, lookupToken, requireFields, type Req, type ServiceOptions } from '@sedecim/service-kit';
 import type { Action, Resource, Subject, Device, Rotation } from '@sedecim/policy-client';
-import { ConflictError, DEFAULT_ACCESS_LOG_RETENTION_DAYS, NotFoundError, PolicyEngine, RETENTION_NOTICE } from './engine';
-import { WebAuthnError, type RegistrationCredentialJSON } from './webauthn';
+import { ConflictError, DEFAULT_ACCESS_LOG_RETENTION_DAYS, NotFoundError, PolicyEngine, RETENTION_NOTICE, SessionDeniedError } from './engine';
+import { WebAuthnError, type AssertionCredentialJSON, type RegistrationCredentialJSON } from './webauthn';
 
 const TEXT_MAX = 200;
 const optText = (v: unknown, field: string): string | undefined => {
@@ -28,6 +28,7 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
     if (e instanceof NotFoundError) throw new HttpError(404, e.message);
     if (e instanceof ConflictError) throw new HttpError(409, e.message);
     if (e instanceof WebAuthnError) throw new HttpError(400, `webauthn: ${e.message}`);
+    if (e instanceof SessionDeniedError) throw new HttpError(403, e.message);
     throw e;
   }
 }
@@ -96,10 +97,18 @@ export function createPolicyApi(
     }
     return admin(req.pubkey);
   };
-  const deviceOwnerOrAdmin = async (req: Req) => {
+  /**
+   * FR023-07/FR023-11: who may register a passkey on a device: an admin, or its owner until they register their first
+   * one. Any other (for a new device, replacing one, or after revoking the device that held it) goes through an admin:
+   * whoever holds only the owner's Nostr key must not enroll an authenticator of their own and open sessions with it.
+   * To anyone else the device does not exist, so a 403 cannot confirm that an id is in use.
+   */
+  const passkeyEnroller = async (req: Req) => {
     const d = await engine.getDevice(req.params.id!);
-    if (!d) throw new HttpError(404, 'unknown device');
-    if (req.pubkey !== d.ownerPubkey) admin(req.pubkey);
+    const isAdmin = !!req.pubkey && opts.adminPubkeys.includes(req.pubkey);
+    if (!d || (!isAdmin && req.pubkey !== d.ownerPubkey)) throw new HttpError(404, 'unknown device');
+    if (isAdmin) return req.pubkey!;
+    if (await engine.passkeyBound(d.ownerPubkey)) throw new HttpError(403, 'this owner already registered a passkey: an admin registers any other');
     return req.pubkey!;
   };
 
@@ -130,8 +139,9 @@ export function createPolicyApi(
   }, 'nip98');
 
   svc.get('/v1/devices', async (req) => {
-    admin(req.pubkey);
     const owner = req.query.get('owner') ?? undefined;
+    // FR023-11: an owner reads their own devices, to register a passkey and open sessions on them; the rest is for admins.
+    if (owner === undefined || owner !== req.pubkey) admin(req.pubkey);
     if (owner !== undefined && !isHex64(owner)) throw new HttpError(400, 'invalid owner');
     return { devices: await engine.listDevices(owner) };
   }, 'nip98');
@@ -147,24 +157,32 @@ export function createPolicyApi(
     return run(async () => ({ rotations: await engine.revokeDevice(actor, req.params.id!, req.json<{ reason?: string }>().reason) }));
   }, 'nip98');
   svc.post('/v1/devices/:id/webauthn/options', async (req) => {
-    await deviceOwnerOrAdmin(req);
+    await passkeyEnroller(req);
     return run(() => engine.webauthnOptions(req.params.id!));
   }, 'nip98');
   svc.post('/v1/devices/:id/webauthn/register', async (req) => {
-    const actor = await deviceOwnerOrAdmin(req);
+    const actor = await passkeyEnroller(req);
     const body = req.json<RegistrationCredentialJSON | { credential: RegistrationCredentialJSON } | null>();
     if (!body || typeof body !== 'object') throw new HttpError(400, 'credential JSON required');
     const credential = 'credential' in body ? body.credential : body;
     return run(() => engine.webauthnRegister(actor, req.params.id!, credential));
   }, 'nip98');
+  // FR023-11: only the owner, who is the only one who can open a session on the device.
+  svc.post('/v1/devices/:id/webauthn/assert/options', async (req) => run(() => engine.webauthnAssertionOptions(req.pubkey!, req.params.id!)), 'nip98');
 
+  /**
+   * FR023-11: `{deviceId, assertion?}` (`device_id` still accepted). The assertion is the JSON of navigator.credentials.get
+   * on the challenge of /webauthn/assert/options; an owner who registered a passkey cannot open a session without one.
+   */
   svc.post('/v1/sessions', async (req) => {
-    const { device_id } = req.json<{ device_id: string }>();
-    try {
-      return { status: 201, body: { token: await engine.openSession(req.pubkey!, device_id) } };
-    } catch (e) {
-      throw new HttpError(403, (e as Error).message);
-    }
+    const body = req.json<{ deviceId?: unknown; device_id?: unknown; assertion?: unknown } | null>();
+    if (!body || typeof body !== 'object') throw new HttpError(400, 'JSON object required');
+    const deviceId = body.deviceId ?? body.device_id;
+    if (typeof deviceId !== 'string' || !deviceId) throw new HttpError(400, 'deviceId required');
+    const { assertion } = body;
+    if (assertion !== undefined && (!assertion || typeof assertion !== 'object')) throw new HttpError(400, 'assertion must be the JSON of navigator.credentials.get()');
+    const token = await run(() => engine.openSession(req.pubkey!, deviceId, assertion as AssertionCredentialJSON | undefined));
+    return { status: 201, body: { token, deviceId, asserted: assertion !== undefined } };
   }, 'nip98');
 
   svc.post('/v1/evaluate', async (req) => {

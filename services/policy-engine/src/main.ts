@@ -33,6 +33,10 @@ const webauthn = {
   rpName: env.WEBAUTHN_RP_NAME || 'Acceso Nostr',
   origins,
   allowNone: env.WEBAUTHN_REQUIRE_ATTESTATION !== 'true',
+  // FR023-11: user verification (PIN, biometrics) on top of presence, in registrations and assertions.
+  requireUserVerification: env.WEBAUTHN_REQUIRE_UV === 'true',
+  // FR023-11: a passkey assertion for every session, not only for owners that already have a passkey.
+  sessionRequireAssertion: env.SESSION_REQUIRE_ASSERTION === 'true',
 };
 const corsOrigins = (env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const engine = new PolicyEngine(repo, Date.now, webauthn);

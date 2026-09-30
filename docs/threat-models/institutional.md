@@ -35,6 +35,7 @@ de auditoría, dispositivos registrados.
 | Acceso al relay de un usuario dado de baja | Allowlist NIP-42 sincronizado desde el engine a Buzz (tabla) y al secure-relay (admisión gRPC) | `allowlist-sync.test.ts` (FR023-04) |
 | Lectura del mirror fuera de rol | El indexer evalúa cada lectura en el engine; deny por defecto, también ante errores. Los contadores de no leídos y la búsqueda de la web pasan por las mismas lecturas (FR014-04) | `indexer/test/policy.test.ts`, `tests/e2e/institutional-policy.test.ts` (FR023-05), `apps/web-saas/test/mirror.test.ts` |
 | Dispositivo suplantado | Nivel `attested` solo con registro WebAuthn verificado en servidor | `webauthn.test.ts`, `policy-engine.test.ts` (FR023-07) |
+| Llave Nostr robada sin el autenticador de la persona | Desde que la persona registra su passkey, cada sesión de política pide una aserción WebAuthn de ella: desafío de un solo uso y con caducidad para ese dispositivo, origen y RP id fijados por configuración, firma con la llave registrada y contador contra autenticadores clonados. Revocar el dispositivo que la tenía no quita el requisito, y otra passkey solo la registra un administrador. Una aserción rechazada no dice por qué, y queda en la auditoría con el motivo | `policy-engine.test.ts`, `webauthn.test.ts`, `tests/fuzz/webauthn.test.ts`, `passkey-session.test.ts`, `admin-console.e2e.ts` (FR023-11) |
 
 ## Riesgos residuales
 | Riesgo | Nivel | Nota |
@@ -47,6 +48,7 @@ de auditoría, dispositivos registrados.
 | El worker de rotaciones puede descifrar sus grupos | Medio | Es un miembro más de los grupos que lo tienen como admin: mientras está, descifra lo que se envía, aunque no lo guarda. Quien lo controle podría leer esos grupos; los miembros lo ven en la lista (`docs/institutional.md`, FR024-05) |
 | Límites de firma por réplica | Bajo | El token bucket vive en memoria de cada réplica: con N réplicas el límite efectivo es hasta N veces mayor |
 | Administrador malicioso | Medio | Falta separación de funciones; la auditoría es append-only en la base, pero un superusuario de Postgres puede desactivar los triggers |
+| La passkey protege sesiones que nadie más comprueba | Medio | Ningún otro servicio exige todavía una sesión de política, y no caducan: `evaluate` confía en el dispositivo que le indica el servicio (`x-policy-device-id` en el indexer). La primera passkey la registra quien tenga la llave Nostr, así que con la llave ya robada el ladrón puede adelantarse; que la registre un administrador lo evita (`docs/institutional.md`, FR023-11) |
 | Canales NIP-29 legibles por el operador | Medio | Por diseño: usar salas Marmot |
 
 ## Supuestos

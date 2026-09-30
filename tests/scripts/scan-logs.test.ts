@@ -68,6 +68,19 @@ describe('scripts/scan-logs.sh (NFR006-03)', () => {
     expect(r.out).not.toContain(nsecEncode(sk));
   });
 
+  it.skipIf(!hasGitleaks)('does not take the bkey field of the Buzz relay logs for a credential, and still reports anything else on that line', () => {
+    const value = bytesToHex(randomBytes(32));
+    const line = (field: string, message = 'stored') => `relay-1  | {"timestamp":"2026-09-30T22:49:00.000000Z","level":"INFO","message":"${message}","${field}":"${value}","target":"buzz_relay::media"}\n`;
+    const bkey = scan({ 'compose.log': clean + line('bkey'), '.env': env });
+    expect(bkey.status, bkey.out).toBe(0);
+    // Only the text of that field: the same value under another name is still a finding, and so is a secret key on the same line.
+    expect(scan({ 'compose.log': clean + line('api_key'), '.env': env }).status).toBe(1);
+    const sk = nsecEncode(generateSecretKey());
+    const withNsec = scan({ 'compose.log': clean + line('bkey', `leaked ${sk}`), '.env': env });
+    expect(withNsec.status, withNsec.out).toBe(1);
+    expect(withNsec.out).toMatch(/RuleID:\s+nostr-nsec/);
+  });
+
   it.skipIf(!hasGitleaks)('says which rule, line and service each finding comes from, with the value redacted', () => {
     const sk = generateSecretKey();
     const log = clean + 'relay-1  | INFO client connected\n' + `rotation-worker-1  | debug ${nsecEncode(sk)}\n`;

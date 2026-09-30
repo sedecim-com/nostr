@@ -1,6 +1,7 @@
 # Sovereign / self-hosted stack (spec §4.1):
 #   cp .env.example .env && $EDITOR .env && docker compose up -d
-# Optional profiles: --profile tor (Tor SOCKS + onion relay), --profile managed (custodial managed signer),
+# Optional profiles: --profile tor (Tor SOCKS + onion relay; `docker compose run --rm sovereign …` runs the sovereign
+#   CLI through it, docs/sovereign-tor.md), --profile managed (custodial managed signer),
 #   --profile push (opaque Web Push notification gateway, ADR 0010),
 #   --profile institutional (relay allowlist sync from the policy-engine, docs/institutional.md).
 name: sedecim-nostr
@@ -231,6 +232,10 @@ services:
       WEBAUTHN_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
       WEBAUTHN_REQUIRE_ATTESTATION: ${WEBAUTHN_REQUIRE_ATTESTATION:-false}
+      # FR023-11: user verification (PIN, biometrics) in passkey registrations and assertions; a passkey assertion in
+      # every session, also of owners who have not registered a passkey yet.
+      WEBAUTHN_REQUIRE_UV: ${WEBAUTHN_REQUIRE_UV:-false}
+      SESSION_REQUIRE_ASSERTION: ${SESSION_REQUIRE_ASSERTION:-false}
       # FR023-12: days the access decisions are kept (resources under legal hold excepted).
       ACCESS_LOG_RETENTION_DAYS: ${POLICY_ACCESS_LOG_RETENTION_DAYS:-90}
       PORT: "8083"
@@ -442,7 +447,31 @@ services:
     # Tor resolves the onion targets when it starts: they must be running (secure-relay-onion waits for Tor).
     depends_on: [relay, secure-relay-onion]
     restart: unless-stopped
-    networks: [nostr]
+    # tor-socks: where the sovereign CLI container reaches its SOCKS port (FR020-06).
+    networks: [nostr, tor-socks]
+
+  # FR020-06: the sovereign CLI as a one-off container of this profile, never a long-running service
+  # (docs/sovereign-tor.md):
+  #   docker compose run --rm sovereign persona create --label Fuente --relay ws://<onion>.onion --tor
+  # Its only network, tor-socks, is internal and shared with tor alone: it reaches tor's SOCKS port (TOR_SOCKS=tor:9050)
+  # and nothing else, so with tor down a Tor persona sends nothing. No published ports, no capabilities, a read-only
+  # root filesystem: it writes to its volume (sovereign-data, which scripts/backup.sh leaves out: docs/runbooks/
+  # restore.md) and to /tmp (tmpfs). The passphrase of its stores and the password of its backups come as secret
+  # files, never as variables. `up` runs it once with its default command (the maturity table) and it exits.
+  sovereign:
+    profiles: [tor]
+    build: { context: ., target: sovereign }
+    environment:
+      TOR_SOCKS: tor:9050
+    secrets: [sovereign_passphrase, sovereign_backup_password]
+    volumes: [sovereign-data:/data]
+    depends_on: [tor]
+    networks: [tor-socks]
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
   # The secure relay behind its onion service, as its own instance (FR025-11): nostr-rs-relay accepts a NIP-42
   # AUTH only for the host of its relay_url, which here must be the onion. It renders relay_url from the
@@ -471,7 +500,22 @@ volumes:
   onion-names:
   secure-relay-onion-data:
   rotation-state:
+  sovereign-data:
+
+# FR020-06: files on the host, mounted read-only at /run/secrets/<name> in the sovereign CLI container. Set
+# SOVEREIGN_PASSPHRASE_FILE and SOVEREIGN_BACKUP_PASSWORD_FILE to their paths (docs/sovereign-tor.md); unset, each is
+# /dev/null, empty, and only the commands that need neither run (`maturity`).
+secrets:
+  sovereign_passphrase:
+    file: ${SOVEREIGN_PASSPHRASE_FILE:-/dev/null}
+  sovereign_backup_password:
+    file: ${SOVEREIGN_BACKUP_PASSWORD_FILE:-/dev/null}
 
 networks:
   nostr:
     driver: bridge
+  # FR020-06: tor and the sovereign CLI only. Internal: no route out of it and no DNS forwarded from it, so the CLI
+  # reaches nothing but tor (scripts/tor-profile-check.sh checks both from inside the container).
+  tor-socks:
+    driver: bridge
+    internal: true

@@ -92,6 +92,7 @@
  *                                        revocation; with --managed-signer, propagates device revocations)
  *
  * Env: SOVEREIGN_DATA_DIR (default ./.data/sovereign), SOVEREIGN_PASSPHRASE, TOR_SOCKS (127.0.0.1:9050),
+ *      SOVEREIGN_PASSPHRASE_FILE (a file with the passphrase, e.g. a compose secret; when set it is the only source),
  *      SOVEREIGN_BACKUP_PASSWORD (backup files, when --password-file is not given),
  *      SOVEREIGN_BLOB_STORE (fallback Blossom/blob-store URL for encrypted group media),
  *      SOVEREIGN_VAULT_URL (Continuity Vault URL, when --vault is not given),
@@ -102,12 +103,13 @@
  *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer)
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import type { PendingGroupOperation } from '@sedecim/marmot-adapter';
 import { ReuseNotConfirmedError } from '@sedecim/identity';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
+import { checkAttachmentSize } from '@sedecim/blossom-client';
 import { CONTINUITY_VAULT_TEXTS, configMaturity, disclose, MATURITY, MATURITY_LABELS } from '@sedecim/profiles';
 import { describePermissions, SOVEREIGN_NIP46_PERMISSIONS } from '@sedecim/signer';
 import { SovereignClient, type PersonaInput, type SignerSource } from './app';
@@ -157,6 +159,36 @@ function sendOperation(): string {
 /** A new persona as the flags describe it (FR004-08: the same for a created, imported or connected one). */
 const personaInput = (): PersonaInput => ({ label: opt('--label') ?? 'persona', relays: opts('--relay'), tor: argv.includes('--tor'), highRisk: argv.includes('--high-risk'), onionOnly: argv.includes('--onion-only') });
 
+/**
+ * FR018-06: the file of a group attachment, read only if it is within the limit. The size is measured on the open file
+ * (not on its path), so it cannot change between the check and the read, and nothing is read into memory before it.
+ */
+function readGroupFile(path: string): Uint8Array {
+  const fd = openSync(path, 'r');
+  try {
+    checkAttachmentSize('group', fstatSync(fd).size);
+    return new Uint8Array(readFileSync(fd));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * FR020-06: passphrase of the local stores. SOVEREIGN_PASSPHRASE_FILE, when set, is the only source (the compose
+ * service reads a secret file and ignores any variable); otherwise SOVEREIGN_PASSPHRASE.
+ */
+function storePassphrase(): string {
+  const file = process.env.SOVEREIGN_PASSPHRASE_FILE;
+  if (!file) {
+    const pass = process.env.SOVEREIGN_PASSPHRASE;
+    if (!pass) throw new Error('set SOVEREIGN_PASSPHRASE or SOVEREIGN_PASSPHRASE_FILE (protects the local encrypted stores)');
+    return pass;
+  }
+  const pass = readFileSync(file, 'utf8').replace(/\r?\n$/, '');
+  if (!pass) throw new Error(`empty passphrase file: ${file} (SOVEREIGN_PASSPHRASE_FILE)`);
+  return pass;
+}
+
 /** Password of a backup file: --password-file (first line) or SOVEREIGN_BACKUP_PASSWORD. */
 function backupPassword(): string {
   const file = opt('--password-file');
@@ -171,8 +203,7 @@ async function main() {
     for (const m of MATURITY) console.log(`${MATURITY_LABELS[m.level].padEnd(14)} ${m.name}: ${m.why} En v1.0: ${m.atV1}`);
     return;
   }
-  const passphrase = process.env.SOVEREIGN_PASSPHRASE;
-  if (!passphrase) throw new Error('set SOVEREIGN_PASSPHRASE (protects the local encrypted stores)');
+  const passphrase = storePassphrase();
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
   const needsDm = argv[0] === 'dm' && argv[1] === 'send';
   const watching = argv[0] === 'dm' && argv[1] === 'watch';
@@ -387,9 +418,11 @@ async function main() {
       else if (b === 'send-file') {
         const file = opt('--file');
         if (!file) throw new Error('--file PATH required');
+        // FR018-06: the size is checked before the file is read into memory.
+        const data = readGroupFile(file);
         const mimeType = opt('--mime') ?? MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
         const servers = opts('--server');
-        const ref = await client.groupSendFile(id, gid!, { data: new Uint8Array(readFileSync(file)), filename: basename(file), mimeType, caption: positional().join(' ') }, { ...(servers.length ? { servers } : {}), confirmReuse });
+        const ref = await client.groupSendFile(id, gid!, { data, filename: basename(file), mimeType, caption: positional().join(' ') }, { ...(servers.length ? { servers } : {}), confirmReuse });
         console.log(`enviado ${ref.attachment.filename} (época ${ref.epoch}) → ${ref.attachment.url}`);
       } else if (b === 'fetch-file') {
         const out = opt('--out');
