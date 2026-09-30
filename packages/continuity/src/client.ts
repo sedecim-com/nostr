@@ -101,13 +101,22 @@ export class ArchiveVaultClient {
     return (await this.request<{ archives: ArchiveMeta[]; next?: string }>(`/v1/archives${qs ? `?${qs}` : ''}`)).json;
   }
 
-  /** Every archive of the account (follows the pages). */
+  /**
+   * Every archive of the account (follows the pages). The vault lists them in strictly increasing id order and each
+   * `next` is the last id of its page; anything else is refused (IR-2026-10-04): a repeated entry would hide an archive
+   * the operator removed from a restore's missing count, and a `next` that does not advance would never end.
+   */
   async listAll(): Promise<ArchiveMeta[]> {
     const all: ArchiveMeta[] = [];
     let after: string | undefined;
     do {
       const page = await this.list({ ...(after ? { after } : {}), limit: 1000 });
-      all.push(...page.archives);
+      for (const a of page.archives) {
+        const prev = all.at(-1)?.id ?? after;
+        if (!isArchiveId(a.id) || (prev !== undefined && a.id <= prev)) throw new ArchiveEnvelopeError('the vault listing is not in strictly increasing id order');
+        all.push(a);
+      }
+      if (page.next !== undefined && page.next !== all.at(-1)?.id) throw new ArchiveEnvelopeError('the vault listing gave a next page that does not follow its last archive');
       after = page.next;
     } while (after);
     return all;

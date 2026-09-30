@@ -57,9 +57,56 @@ jobs:
       buzz_image: ${{ needs.detect.outputs.image }}
       stack_only: true
 
-  pin-pr:
+  # IR-2026-10-06: npm runs in a job without any write credential. It installs with --ignore-scripts and only computes
+  # the new pin as a patch; pin-pr, where the App token lives, runs no npm and no script of the tree.
+  pin-files:
     needs: [detect, gate]
     if: needs.detect.outputs.changed == 'true' && needs.gate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: interop-reports
+          path: gate
+      # scripts/interop-flags.ts (the deployment flags carry the pinned relay commit, FR-017)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Compute the new pin
+        env:
+          IMAGE: ${{ needs.detect.outputs.image }}
+          REVISION: ${{ needs.detect.outputs.revision }}
+          DATE: ${{ needs.detect.outputs.date }}
+        run: |
+          short=$(printf '%s' "${IMAGE#*@sha256:}" | cut -c1-12)
+          mkdir -p "$RUNNER_TEMP/pin"
+          # FR017-05: keep the flags of the current pin to tell the reviewer if the NIP-17 jitter changes
+          # (e.g. upstream fixed #4192 and the gate went back to the standard 2-day jitter).
+          cp infra/web/flags.json "$RUNNER_TEMP/flags.before.json"
+          sh scripts/buzz-upstream.sh apply "$IMAGE" "$REVISION" "$DATE"
+          npx tsx scripts/interop-flags.ts gate/interop-report.json --change-from "$RUNNER_TEMP/flags.before.json" > "$RUNNER_TEMP/pin/jitter-note.txt"
+          # Same check ci runs on the PR: flags.json must match the gate report for the new pin.
+          npx tsx scripts/interop-flags.ts gate/interop-report.json
+          npx tsx scripts/interop-flags.ts gate/interop-report.json --check
+          report="docs/interop/buzz-upstream-$short-report.json"
+          cp gate/interop-report.json "$report"
+          git add infra/buzz/PIN docker-compose.yml deploy/k8s/base/kustomization.yaml infra/web/flags.json "$report"
+          git diff --cached --binary > "$RUNNER_TEMP/pin/pin.patch"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: buzz-pin
+          path: ${{ runner.temp }}/pin
+          retention-days: 7
+
+  pin-pr:
+    needs: [detect, pin-files]
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -80,18 +127,12 @@ jobs:
           permission-pull-requests: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The pin branch is pushed with this token: the App's when there is one.
+          # The pin branch is pushed with this token: the App's when there is one. Nothing of the tree runs here.
           token: ${{ steps.bot.outputs.token || github.token }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: interop-reports
-          path: gate
-      # scripts/interop-flags.ts (the deployment flags carry the pinned relay commit, FR-017)
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci --no-audit --no-fund
+          name: buzz-pin
+          path: ${{ runner.temp }}/pin
       - name: Update the pin and open the PR
         env:
           GH_TOKEN: ${{ steps.bot.outputs.token || github.token }}
@@ -110,20 +151,12 @@ jobs:
             echo "branch $branch already exists: this digest already has a PR"
             exit 0
           fi
-          # FR017-05: keep the flags of the current pin to tell the reviewer if the NIP-17 jitter changes
-          # (e.g. upstream fixed #4192 and the gate went back to the standard 2-day jitter).
-          cp infra/web/flags.json "$RUNNER_TEMP/flags.before.json"
-          sh scripts/buzz-upstream.sh apply "$IMAGE" "$REVISION" "$DATE"
-          jitter_note=$(npx tsx scripts/interop-flags.ts gate/interop-report.json --change-from "$RUNNER_TEMP/flags.before.json")
-          # Same check ci runs on the PR: flags.json must match the gate report for the new pin.
-          npx tsx scripts/interop-flags.ts gate/interop-report.json
-          npx tsx scripts/interop-flags.ts gate/interop-report.json --check
+          jitter_note=$(cat "$RUNNER_TEMP/pin/jitter-note.txt")
           report="docs/interop/buzz-upstream-$short-report.json"
-          cp gate/interop-report.json "$report"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git add infra/buzz/PIN docker-compose.yml deploy/k8s/base/kustomization.yaml infra/web/flags.json "$report"
+          git apply --index "$RUNNER_TEMP/pin/pin.patch"
           git commit -m "Pin Buzz upstream image $short (interop gate passed)"
           git push origin "$branch"
           {

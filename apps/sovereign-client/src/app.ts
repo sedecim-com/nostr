@@ -281,14 +281,7 @@ export class SovereignClient {
     const persona = await mgr.get(personaId);
     const signer = await mgr.unlock(personaId, this.opts.passphrase);
     const dmDiscovery = [...new Set([...persona.relays, ...(this.opts.discoveryRelays ?? [])])];
-    const guard = new NetworkGuard({
-      mode: persona.network,
-      ...(persona.onionOnly ? { onionOnly: true } : {}),
-      socksHost: this.opts.socksHost,
-      socksPort: this.opts.socksPort,
-      isolationKey: persona.id,
-      allowedHosts: [...new Set(dmDiscovery.map((r) => new URL(r).hostname))],
-    });
+    const guard = this.guardFor(persona, dmDiscovery);
     const pool = new RelayPool({
       webSocketFactory: persona.network === 'tor-only' ? guard.webSocketFactory() : async (u) => (await guard.assertRoute(u), new WebSocket(u) as unknown as WebSocketLike),
       signer,
@@ -669,14 +662,7 @@ export class SovereignClient {
    */
   /** The persona's vault client, through a guard of its own: Tor-only stays Tor-only, onion-only reaches only a .onion vault. */
   private async vaultClient(persona: PersonaConfig, url: string): Promise<{ client: ArchiveVaultClient; key: Uint8Array }> {
-    const guard = new NetworkGuard({
-      mode: persona.network,
-      ...(persona.onionOnly ? { onionOnly: true } : {}),
-      socksHost: this.opts.socksHost,
-      socksPort: this.opts.socksPort,
-      isolationKey: persona.id,
-      allowedHosts: [...new Set([...persona.relays, url].map((u) => new URL(u).hostname))],
-    });
+    const guard = this.guardFor(persona, [...persona.relays, url]);
     const key = await (await this.identities()).archiveKey(persona.id);
     return { client: new ArchiveVaultClient({ baseUrl: url, auth: { archiveKey: key }, fetch: guard.fetchApi() }), key };
   }
@@ -903,16 +889,26 @@ export class SovereignClient {
     }
   }
 
+  /**
+   * The persona's network policy for these destinations: Tor-only goes through SOCKS on circuits of its own
+   * (FR006-06) and onion-only reaches .onion hosts only (FR021-03). Every guard of a persona comes from here, so none
+   * forgets part of the policy (IR-2026-10-02: group media and the rotation worker did not carry onion-only).
+   */
+  private guardFor(persona: PersonaConfig, urls: string[]): NetworkGuard {
+    return new NetworkGuard({
+      mode: persona.network,
+      ...(persona.onionOnly ? { onionOnly: true } : {}),
+      socksHost: this.opts.socksHost,
+      socksPort: this.opts.socksPort,
+      isolationKey: persona.id,
+      allowedHosts: [...new Set(urls.map((u) => new URL(u).hostname))],
+    });
+  }
+
   /** HTTP through a guard with the persona's network policy, allowing only these extra hosts. */
   private async blobHttp(personaId: string, urls: string[]): Promise<HttpClient> {
     const s = await this.session(personaId);
-    const guard = new NetworkGuard({
-      mode: s.persona.network,
-      socksHost: this.opts.socksHost,
-      socksPort: this.opts.socksPort,
-      isolationKey: s.persona.id,
-      allowedHosts: [...new Set([...s.persona.relays, ...urls].map((u) => new URL(u).hostname))],
-    });
+    const guard = this.guardFor(s.persona, [...s.persona.relays, ...urls]);
     return (url, init) => guard.fetch(url, init);
   }
 
@@ -980,13 +976,7 @@ export class SovereignClient {
   ): Promise<{ worker: RotationWorker; propagator?: RevocationPropagator }> {
     const s = await this.session(personaId);
     const urls = [opts.policyUrl, ...(opts.managedSigner ? [opts.managedSigner.url] : [])];
-    const guard = new NetworkGuard({
-      mode: s.persona.network,
-      socksHost: this.opts.socksHost,
-      socksPort: this.opts.socksPort,
-      isolationKey: s.persona.id,
-      allowedHosts: [...new Set([...s.persona.relays, ...urls].map((u) => new URL(u).hostname))],
-    });
+    const guard = this.guardFor(s.persona, [...s.persona.relays, ...urls]);
     const f = guard.fetchApi();
     const source = new HttpPolicySource({ baseUrl: opts.policyUrl, signer: s.signer, fetch: f, ...(opts.policyBearer ? { bearer: opts.policyBearer } : {}) });
     const worker = new RotationWorker({ source, session: await this.groupSession(personaId), ...(opts.backoff ? { backoff: opts.backoff } : {}) });

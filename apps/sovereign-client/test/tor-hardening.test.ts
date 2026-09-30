@@ -81,6 +81,18 @@ describe('Sovereign Tor hardening (FR006-06, FR021-03)', () => {
     expect(socks.requests.slice(before).every((r) => r.host === ONION)).toBe(true);
   });
 
+  it('keeps an onion-only persona on .onion hosts for group media and the rotation worker too (IR-2026-10-02)', async () => {
+    const p = await client.createPersona({ label: 'Solo onion, media', relays: [`ws://${ONION}`], onionOnly: true });
+    const before = socks.requests.length;
+    // What groupSendFile and groupFetchFile use for Blossom: the sender's imeta URL and kind 10063 servers.
+    const http = await (client as unknown as { blobHttp(id: string, urls: string[]): Promise<(url: string, init?: RequestInit) => Promise<unknown>> }).blobHttp(p.id, ['http://blossom.example.com']);
+    await expect(http(`http://blossom.example.com/${'a'.repeat(64)}`, { method: 'GET' })).rejects.toThrow(/onion-only/);
+    const { worker } = await client.revocationWorker(p.id, { policyUrl: 'http://policy.example.com' });
+    await worker.runOnce().catch(() => undefined);
+    // Refused before Tor is even asked: no CONNECT to a clearnet host.
+    expect(socks.requests.slice(before).filter((r) => !r.host.endsWith('.onion'))).toEqual([]);
+  });
+
   it('any SOCKS-level failure is the same held failure: «No enviado: red de privacidad no disponible»', async () => {
     const p = await client.createPersona({ label: 'Onion caído', relays: [`ws://${MISSING_ONION}`], tor: true });
     const rec = await client.sendChannel(p.id, 'sala', 'no llega');
