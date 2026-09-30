@@ -13,6 +13,8 @@ import {
   MemoryShardCoordinator,
   PgEventRepository,
   PgShardCoordinator,
+  channelShard,
+  relayShard,
   sealedCodec,
   shardOwner,
   type EventRepository,
@@ -267,13 +269,26 @@ function clusterSuite(name: string, makeBackend: () => Promise<Backend>) {
           return have.length === want.size && have.every((id) => want.has(id));
         }, 20_000, what);
       };
-      /** Once membership settled, every live replica owns shards and ownership is a partition. */
+      /**
+       * Once membership settled, every live replica sees the same members and mirrors exactly the shards rendezvous
+       * hashing gives it, so ownership is a partition. A replica may own none: with 3 replicas and 18 shard keys (the
+       * relay ports are random) that happens in ~0.2% of runs, and requiring every replica to own a shard made this
+       * test time out there.
+       */
       const partitioned = async () => {
+        const keys = relays.flatMap((r) => [relayShard(r), ...channels.map((h) => channelShard(r, h))]);
         await until(async () => {
+          const ids = live.map((r) => r.id).sort();
           const owned = live.map((r) => r.idx.ownedShards());
           const all = owned.flat();
-          const expected = relays.length * (1 + channels.length);
-          return owned.every((o) => o.length > 0) && all.length === expected && new Set(all).size === expected;
+          return (
+            all.length === keys.length &&
+            new Set(all).size === keys.length &&
+            live.every((r, i) => {
+              const want = keys.filter((k) => shardOwner(k, ids) === r.id).sort();
+              return [...r.idx.members].sort().join() === ids.join() && [...owned[i]!].sort().join() === want.join();
+            })
+          );
         }, 10_000, 'shard partition');
       };
 
