@@ -511,6 +511,36 @@ try {
   await page.getByLabel('Crear llave local nueva (la nsec no sale del navegador)').check();
   await page.getByRole('button', { name: 'Crear persona' }).click();
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Personal'));
+
+  // --- FR006-07: Personal writes to Bob, whom Trabajo already wrote to, and sends him the document Trabajo sent: a
+  // dialog names Trabajo, nothing leaves until the user confirms, and a confirmed crossing is not asked again.
+  const bobWraps = () => bobRelay.query([{ kinds: [1059], '#p': [getPublicKey(bobKey)] }]).length;
+  await tab(page, 'Mensajes directos');
+  await fill(page, 'dm-to', npubEncode(getPublicKey(bobKey)));
+  await fill(page, 'dm-text', 'hola bob, desde Personal');
+  const wrapsBeforeReuse = bobWraps();
+  await page.locator('#dm-send').getByRole('button', { name: 'Enviar' }).click();
+  await page.locator('#reuse-title').waitFor({ timeout: 10_000 });
+  assert((await page.textContent('#reuse-warnings'))?.includes('a este contacto desde tu persona "Trabajo"'), 'writing to a contact of another persona asks first, naming that persona (FR006-07)');
+  await page.locator('#reuse-cancel').click();
+  await page.locator('#reuse-title').waitFor({ state: 'detached' });
+  await page.waitForTimeout(500);
+  assert(bobWraps() === wrapsBeforeReuse && (await page.inputValue('#dm-text')) === 'hola bob, desde Personal', 'cancelling sends nothing and keeps the message (FR006-07)');
+  await page.locator('#dm-send').getByRole('button', { name: 'Enviar' }).click();
+  await page.locator('#reuse-confirm').click();
+  await page.waitForFunction(() => (document.querySelector('#dm-text') as HTMLTextAreaElement).value === '');
+  for (let i = 0; i < 40 && bobWraps() === wrapsBeforeReuse; i++) await new Promise((r) => setTimeout(r, 250));
+  assert(bobWraps() === wrapsBeforeReuse + 1, 'once confirmed, the DM goes to Bob (FR006-07)');
+  const blobsBeforeReuse = storedBlobs();
+  await page.locator('#dm-send input[type=file]').setInputFiles({ name: 'doc.txt', mimeType: 'text/plain', buffer: secretDoc });
+  await page.locator('#dm-send').getByRole('button', { name: 'Enviar' }).click();
+  await page.locator('#reuse-title').waitFor({ timeout: 10_000 });
+  const fileWarning = (await page.textContent('#reuse-warnings')) ?? '';
+  assert(fileWarning.includes('este mismo archivo desde tu persona "Trabajo"') && !fileWarning.includes('a este contacto'), 'the same document asks again, only for the file: the contact was already confirmed (FR006-07)');
+  await page.locator('#reuse-cancel').click();
+  await page.locator('#reuse-title').waitFor({ state: 'detached' });
+  assert(storedBlobs() === blobsBeforeReuse, 'a file whose reuse is cancelled is not uploaded (FR006-07)');
+
   await page.locator('#persona-select').click();
   await page.getByRole('option', { name: /Trabajo/ }).click();
   await page.waitForFunction(() => document.querySelector('#sending-as')?.textContent?.includes('Enviando como Trabajo'));
