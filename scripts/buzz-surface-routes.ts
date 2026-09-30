@@ -17,9 +17,26 @@ export interface SurfaceRoute {
   edge: 'allow' | 'deny';
   /** Spanish, it is rendered into the inventory. */
   note: string;
+  /** Query string of the probe, for the routes whose handler rejects a request without it before it looks at credentials. */
+  query?: string;
+  /** JSON body of the probe when `{}` is rejected as malformed before the handler reaches its own checks. */
+  body?: string;
+  /**
+   * The status the pinned Buzz answers, before it looks at credentials, when the feature the route needs is not configured
+   * here (the operator API without RELAY_OPERATOR_API_ORIGIN answers a generic 500). The request is refused and nothing runs:
+   * the only server error a route may answer.
+   */
+  unconfigured?: number;
 }
 
-const r = (method: string, path: string, group: string, exposure: Exposure, edge: 'allow' | 'deny', note: string): SurfaceRoute => ({ method, path, group, exposure, edge, note });
+type Extra = Pick<SurfaceRoute, 'query' | 'body' | 'unconfigured'>;
+const r = (method: string, path: string, group: string, exposure: Exposure, edge: 'allow' | 'deny', note: string, extra: Extra = {}): SurfaceRoute => ({ method, path, group, exposure, edge, note, ...extra });
+
+const ZERO_UUID = '00000000-0000-4000-8000-000000000000';
+/** A query and a body a handler accepts, so that what answers is its authentication and not the parsing in front of it. */
+const OPERATOR = { unconfigured: 500 } satisfies Extra;
+const OWNER_QUERY = `owner_pubkey=${'0'.repeat(64)}`;
+const DEMO_BODY = JSON.stringify({ community_id: ZERO_UUID, session_id: ZERO_UUID, payload: 'x' });
 
 export const ROUTES: SurfaceRoute[] = [
   r('GET', '/', 'websocket', 'public', 'allow', 'WebSocket (NIP-01, NIP-42) y documento NIP-11'),
@@ -36,15 +53,15 @@ export const ROUTES: SurfaceRoute[] = [
   r('GET', '/workflows/{workflow_id}/runs', 'workflows', 'authenticated', 'deny', 'ejecuciones de un workflow'),
   r('GET', '/workflows/{workflow_id}/runs/{run_id}/approvals', 'workflows', 'authenticated', 'deny', 'aprobaciones de una ejecución'),
   r('POST', '/hooks/{id}', 'workflows', 'authenticated', 'deny', 'webhook de workflow, autenticado por un secreto y no por NIP-98'),
-  r('GET', '/operator/communities', 'operator', 'operator', 'deny', 'lista las comunidades de la clave de operador (NIP-98); exige RELAY_OPERATOR_PUBKEYS'),
-  r('POST', '/operator/communities', 'operator', 'operator', 'deny', 'provisiona una comunidad (scripts/buzz-provision-community.ts)'),
-  r('POST', '/operator/listener/pubkeys', 'operator', 'operator', 'deny', 'registra las claves que sigue un listener de operador'),
-  r('DELETE', '/operator/listener/pubkeys', 'operator', 'operator', 'deny', 'las retira'),
-  r('POST', '/operator/communities/archive', 'operator', 'operator', 'deny', 'archiva una comunidad'),
-  r('POST', '/operator/communities/unarchive', 'operator', 'operator', 'deny', 'la desarchiva'),
-  r('POST', '/operator/communities/delete', 'operator', 'operator', 'deny', 'la borra'),
-  r('GET', '/operator/communities/availability', 'operator', 'operator', 'deny', 'comprueba si un host está libre'),
-  r('POST', '/operator/communities/transfer', 'operator', 'operator', 'deny', 'transfiere la propiedad'),
+  r('GET', '/operator/communities', 'operator', 'operator', 'deny', 'lista las comunidades de la clave de operador (NIP-98); exige RELAY_OPERATOR_PUBKEYS', { ...OPERATOR, query: OWNER_QUERY }),
+  r('POST', '/operator/communities', 'operator', 'operator', 'deny', 'provisiona una comunidad (scripts/buzz-provision-community.ts)', OPERATOR),
+  r('POST', '/operator/listener/pubkeys', 'operator', 'operator', 'deny', 'registra las claves que sigue un listener de operador', OPERATOR),
+  r('DELETE', '/operator/listener/pubkeys', 'operator', 'operator', 'deny', 'las retira', OPERATOR),
+  r('POST', '/operator/communities/archive', 'operator', 'operator', 'deny', 'archiva una comunidad', OPERATOR),
+  r('POST', '/operator/communities/unarchive', 'operator', 'operator', 'deny', 'la desarchiva', OPERATOR),
+  r('POST', '/operator/communities/delete', 'operator', 'operator', 'deny', 'la borra', OPERATOR),
+  r('GET', '/operator/communities/availability', 'operator', 'operator', 'deny', 'comprueba si un host está libre', { ...OPERATOR, query: 'host=probe.invalid' }),
+  r('POST', '/operator/communities/transfer', 'operator', 'operator', 'deny', 'transfiere la propiedad', OPERATOR),
   r('POST', '/api/invites', 'invites', 'authenticated', 'deny', 'crea una invitación (dueño o admin)'),
   r('GET', '/api/join-policy', 'invites', 'public', 'deny', 'política que debe aceptar quien se une'),
   r('GET', '/api/join-policy/terms', 'invites', 'public', 'deny', 'página de términos de servicio'),
@@ -54,7 +71,7 @@ export const ROUTES: SurfaceRoute[] = [
   r('GET', '/moderation/reports', 'moderation', 'authenticated', 'deny', 'cola de moderación (NIP-98 y autorización de moderador)'),
   r('GET', '/moderation/audit', 'moderation', 'authenticated', 'deny', 'auditoría de moderación'),
   r('GET', '/moderation/restricted', 'moderation', 'authenticated', 'deny', 'contenido restringido'),
-  r('POST', '/_mesh/demo/echo', 'mesh', 'disabled', 'deny', 'solo de banco de pruebas: 404 salvo con BUZZ_MESH y BUZZ_MESH_DEMO_ECHO'),
+  r('POST', '/_mesh/demo/echo', 'mesh', 'disabled', 'deny', 'solo de banco de pruebas: 404 salvo con BUZZ_MESH y BUZZ_MESH_DEMO_ECHO', { body: DEMO_BODY }),
   r('GET', '/huddle/{channel_id}/audio', 'huddle', 'authenticated', 'deny', 'WebSocket de audio de los huddles'),
   r('PUT', '/upload', 'media', 'authenticated', 'deny', 'subida Blossom en la raíz (BUD-02); los clientes usan /media/upload'),
   r('PUT', '/media/upload', 'media', 'authenticated', 'allow', 'subida Blossom'),
@@ -80,9 +97,10 @@ const EXPOSURE_ES: Record<Exposure, string> = {
 
 /** The route table of docs/security/buzz-attack-surface.md, between its routes markers. Controls are not routes. */
 export function surfaceTable(routes: SurfaceRoute[] = ROUTES): string {
+  const asks = (x: SurfaceRoute) => (x.unconfigured ? `${EXPOSURE_ES[x.exposure]}; sin configurar responde ${x.unconfigured}` : EXPOSURE_ES[x.exposure]);
   const rows = routes
     .filter((x) => x.group !== 'control')
-    .map((x) => `| \`${x.method} ${x.path}\` | ${x.group} | ${EXPOSURE_ES[x.exposure]} | ${x.edge === 'allow' ? 'sí' : 'no (404 del edge)'} | ${x.note} |`);
+    .map((x) => `| \`${x.method} ${x.path}\` | ${x.group} | ${asks(x)} | ${x.edge === 'allow' ? 'sí' : 'no (404 del edge)'} | ${x.note} |`);
   return ['| Ruta | Grupo | Qué pide sin credenciales | ¿La reenvía el edge? | Nota |', '|---|---|---|---|---|', ...rows].join('\n');
 }
 
@@ -94,19 +112,24 @@ export interface Probed {
 }
 
 const SHA256 = 'a'.repeat(64);
-const fill = (path: string) => path.replace(/\{([^}]+)\}/g, (_m, name: string) => (name === 'sha256_ext' ? `${SHA256}.png` : 'x'));
+// Path parameters that are ids: Buzz answers 400 to anything that does not parse as one, before it asks who is calling.
+const UUID_PARAMS = new Set(['workflow_id', 'run_id', 'id', 'channel_id']);
+const fill = (path: string) => path.replace(/\{([^}]+)\}/g, (_m, name: string) => (name === 'sha256_ext' ? `${SHA256}.png` : UUID_PARAMS.has(name) ? ZERO_UUID : 'x'));
 
-/** One request per route, with no credentials, no redirects followed and no side effects a rejection does not stop. */
+/**
+ * One request per route, with no credentials, no redirects followed and no side effects a rejection does not stop.
+ * Ids, queries and bodies are well formed, so that what answers is the authentication and not the parsing in front of it.
+ */
 export async function probe(base: string, routes: SurfaceRoute[] = ROUTES, fetchFn: typeof fetch = fetch): Promise<Probed[]> {
   const out: Probed[] = [];
   for (const route of routes) {
-    const url = new URL(fill(route.path), base).toString();
-    const hasBody = route.method === 'POST';
+    const url = new URL(fill(route.path) + (route.query ? `?${route.query}` : ''), base).toString();
+    const body = route.body ?? (route.method === 'POST' ? '{}' : undefined);
     const res = await fetchFn(url, {
       method: route.method,
       redirect: 'manual',
-      headers: { accept: 'application/json', ...(hasBody ? { 'content-type': 'application/json' } : {}) },
-      ...(hasBody ? { body: '{}' } : {}),
+      headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      ...(body === undefined ? {} : { body }),
       signal: AbortSignal.timeout(10_000),
     });
     out.push({ route, url, status: res.status, body: route.method === 'HEAD' ? '' : (await res.text()).slice(0, 200) });
@@ -115,15 +138,18 @@ export async function probe(base: string, routes: SurfaceRoute[] = ROUTES, fetch
 }
 
 /**
- * What the relay itself must never do for a client without credentials: fail (5xx) or answer a route that needs them
- * with anything but a client error. Public routes may answer anything below 500.
+ * What the relay itself must never do for a client without credentials: fail (5xx, but for the refusal a route documents
+ * for what is not configured), answer a route that needs them with anything but a client error, or answer a route that is
+ * off here with anything but the 404 of a path that does not exist. Public routes may answer anything below 500.
  */
 export function relayViolations(results: Probed[]): string[] {
   const bad: string[] = [];
   for (const { route, status } of results) {
     const label = `${route.method} ${route.path}`;
-    if (status >= 500) bad.push(`${label}: ${status}, a server error for a request without credentials`);
-    else if (route.exposure !== 'public' && status < 400) bad.push(`${label}: ${status} without credentials, but it is ${route.exposure}`);
+    if (status >= 500) {
+      if (status !== route.unconfigured) bad.push(`${label}: ${status}, a server error for a request without credentials`);
+    } else if (route.exposure !== 'public' && status < 400) bad.push(`${label}: ${status} without credentials, but it is ${route.exposure}`);
+    else if (route.exposure === 'disabled' && status !== 404) bad.push(`${label}: ${status}, a route that is off here should answer 404`);
   }
   return bad;
 }

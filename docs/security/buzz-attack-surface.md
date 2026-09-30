@@ -23,7 +23,7 @@
 |---|---|---|
 | El edge reenvía solo `/` y `/media/*` | `bash scripts/edge-check.sh`: la config real de nginx, en la imagen fijada, delante de un upstream de pega que contesta `UPSTREAM-HIT` a cualquier ruta; cada ruta denegada y cada variante debe dar el 404 del edge | CI, job `deploy-config` |
 | Caddy hace lo mismo | `caddy validate` (job `compose`) y `tests/scripts/buzz-surface.test.ts` (el bloque del relay) | CI |
-| Buzz no contesta sin credenciales lo que las exige | `npx tsx scripts/buzz-surface.ts --relay http://localhost:3000`: una petición por ruta, sin credenciales; ninguna ruta que las exija puede dar 2xx o 3xx y ninguna puede dar 5xx | CI, job `stack`, contra la imagen fijada |
+| Buzz no contesta sin credenciales lo que las exige | `npx tsx scripts/buzz-surface.ts --relay http://localhost:3000`: una petición por ruta, sin credenciales y con ids, consultas y cuerpos bien formados (para que conteste la autenticación y no el parseo que la precede). Ninguna ruta que las exija puede dar 2xx o 3xx; las apagadas dan el 404 de una ruta que no existe; y ninguna puede dar 5xx salvo el 500 que da a propósito la API de operador sin configurar (variable `RELAY_OPERATOR_API_ORIGIN`, abajo) | CI, job `stack`, contra la imagen fijada |
 | Este documento y el código dicen lo mismo | la tabla de rutas se genera de `scripts/buzz-surface-routes.ts` y `tests/scripts/buzz-surface.test.ts` la compara | CI |
 
 ## Quién llega a qué
@@ -56,15 +56,15 @@ credenciales» es lo que Buzz exige en esta configuración; lo comprueba la sond
 | `GET /workflows/{workflow_id}/runs` | workflows | credenciales (NIP-98, BUD-01 o un secreto) | no (404 del edge) | ejecuciones de un workflow |
 | `GET /workflows/{workflow_id}/runs/{run_id}/approvals` | workflows | credenciales (NIP-98, BUD-01 o un secreto) | no (404 del edge) | aprobaciones de una ejecución |
 | `POST /hooks/{id}` | workflows | credenciales (NIP-98, BUD-01 o un secreto) | no (404 del edge) | webhook de workflow, autenticado por un secreto y no por NIP-98 |
-| `GET /operator/communities` | operator | clave de operador | no (404 del edge) | lista las comunidades de la clave de operador (NIP-98); exige RELAY_OPERATOR_PUBKEYS |
-| `POST /operator/communities` | operator | clave de operador | no (404 del edge) | provisiona una comunidad (scripts/buzz-provision-community.ts) |
-| `POST /operator/listener/pubkeys` | operator | clave de operador | no (404 del edge) | registra las claves que sigue un listener de operador |
-| `DELETE /operator/listener/pubkeys` | operator | clave de operador | no (404 del edge) | las retira |
-| `POST /operator/communities/archive` | operator | clave de operador | no (404 del edge) | archiva una comunidad |
-| `POST /operator/communities/unarchive` | operator | clave de operador | no (404 del edge) | la desarchiva |
-| `POST /operator/communities/delete` | operator | clave de operador | no (404 del edge) | la borra |
-| `GET /operator/communities/availability` | operator | clave de operador | no (404 del edge) | comprueba si un host está libre |
-| `POST /operator/communities/transfer` | operator | clave de operador | no (404 del edge) | transfiere la propiedad |
+| `GET /operator/communities` | operator | clave de operador; sin configurar responde 500 | no (404 del edge) | lista las comunidades de la clave de operador (NIP-98); exige RELAY_OPERATOR_PUBKEYS |
+| `POST /operator/communities` | operator | clave de operador; sin configurar responde 500 | no (404 del edge) | provisiona una comunidad (scripts/buzz-provision-community.ts) |
+| `POST /operator/listener/pubkeys` | operator | clave de operador; sin configurar responde 500 | no (404 del edge) | registra las claves que sigue un listener de operador |
+| `DELETE /operator/listener/pubkeys` | operator | clave de operador; sin configurar responde 500 | no (404 del edge) | las retira |
+| `POST /operator/communities/archive` | operator | clave de operador; sin configurar responde 500 | no (404 del edge) | archiva una comunidad |
+| `POST /operator/communities/unarchive` | operator | clave de operador; sin configurar responde 500 | no (404 del edge) | la desarchiva |
+| `POST /operator/communities/delete` | operator | clave de operador; sin configurar responde 500 | no (404 del edge) | la borra |
+| `GET /operator/communities/availability` | operator | clave de operador; sin configurar responde 500 | no (404 del edge) | comprueba si un host está libre |
+| `POST /operator/communities/transfer` | operator | clave de operador; sin configurar responde 500 | no (404 del edge) | transfiere la propiedad |
 | `POST /api/invites` | invites | credenciales (NIP-98, BUD-01 o un secreto) | no (404 del edge) | crea una invitación (dueño o admin) |
 | `GET /api/join-policy` | invites | nada (pública) | no (404 del edge) | política que debe aceptar quien se une |
 | `GET /api/join-policy/terms` | invites | nada (pública) | no (404 del edge) | página de términos de servicio |
@@ -96,7 +96,7 @@ credenciales» es lo que Buzz exige en esta configuración; lo comprueba la sond
 | `BUZZ_KLIPY_API_KEY` | el proxy de GIF llama a un tercero | sin definir |
 | `BUZZ_PUSH_ENABLED` | push del propio Buzz (NIP-PL) | `false` |
 | `BUZZ_NIP_FI_MODE` | JWT en el upgrade del WebSocket (NIP-FI) | **debe seguir sin definir**: en `enforce` los servicios internos, que solo hacen NIP-42, no entrarían (`docs/buzz-integration.md`) |
-| `RELAY_OPERATOR_PUBKEYS`, `RELAY_OPERATOR_API_ORIGIN` | las rutas `/operator/*` aceptan claves de operador | vacías por defecto (`docker-compose.yml`): sin aprovisionamiento. Se ponen solo para aprovisionar la comunidad del `.onion` (`scripts/buzz-provision-community.ts`), contra el puerto 3000 por `localhost` o por la red interna, no por el host público, que ya no reenvía `/operator/*` |
+| `RELAY_OPERATOR_PUBKEYS`, `RELAY_OPERATOR_API_ORIGIN` | las rutas `/operator/*` aceptan claves de operador | vacías por defecto (`docker-compose.yml`): sin aprovisionamiento. Se ponen solo para aprovisionar la comunidad del `.onion` (`scripts/buzz-provision-community.ts`), contra el puerto 3000 por `localhost` o por la red interna, no por el host público, que ya no reenvía `/operator/*`. **Medido en CI con la imagen fijada y ambas vacías:** las rutas `/operator/*` que no fallan antes por parámetros contestan un 500 genérico. No es una puerta abierta: el código upstream (`crates/buzz-relay/src/api/operator.rs`) comprueba primero que exista el origen de la API de operador y, si no, rechaza la petición antes de mirar credenciales y sin ejecutar nada; pero es un 500 y no un 401. La sonda lo tolera solo en las nueve rutas `/operator/*` (`unconfigured` en `scripts/buzz-surface-routes.ts`); cualquier otro 5xx, o un 2xx o 3xx sin credenciales, falla. Con las dos puestas lo esperado es 401 (código upstream; no medido aquí) |
 | `BUZZ_OPERATOR_LISTENERS` | entrega a listeners de operador | sin definir |
 | `BUZZ_GIT_REPO_PATH`, `BUZZ_GIT_HOOK_HMAC_SECRET` | dónde guarda Buzz sus repositorios git. En el código revisado el git HTTP no tiene una variable que lo apague: sus rutas siempre están montadas | puestas (`/data/git`, volumen `relay-git`): las rutas `/git/*` existen y el edge las niega |
 | `BUZZ_HUDDLE_AUDIO_AVAILABLE` | WebSocket de audio de los huddles | activo por defecto en Buzz; el edge niega la ruta |
