@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **249 tareas** · 185 hechas · 28 parciales · 30 pendientes · 6 descartadas
-- **216 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **249 tareas** · 186 hechas · 28 parciales · 29 pendientes · 6 descartadas
+- **213 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -42,7 +42,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 - **aws**: faltan la cuenta, la región o el stage reales de AWS
 - **externo**: depende de un tercero: auditor externo, asesoría legal, una publicación upstream o un dispositivo de hardware
 
-**Listas para trabajar ahora (15):** FR004-08, FR006-04, FR020-06, FR023-11, FR025-14, PANEL-06, FR013-05, FR015-05, FR018-06, FR020-02, NFR007-02, NFR007-03, OPS-16, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
+**Listas para trabajar ahora (14):** FR004-08, FR020-06, FR023-11, FR025-14, PANEL-06, FR013-05, FR015-05, FR018-06, FR020-02, NFR007-02, NFR007-03, OPS-16, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
 
 | Ola | ID | Prio | Tarea | Sprint | SP | Desbloquea | Espera a | Bloqueo |
 |---:|---|---|---|---|---:|---:|---|---|
@@ -60,7 +60,6 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | 0 | [DEC-11](https://github.com/sedecim-com/nostr/issues/198) | P2 | Búsqueda y registro de la marca "Acceso Nostr" | S13 | 1 | — | — | externo |
 | 0 | [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | Diferido | 1 | — | — | persona |
 | 0 | [FR004-08](https://github.com/sedecim-com/nostr/issues/290) | P2 | Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | Diferido | 3 | — | — | lista |
-| 0 | [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | Diferido | 3 | — | — | lista |
 | 0 | [FR007-06](https://github.com/sedecim-com/nostr/issues/388) | P2 | Retirar un vínculo entre personas en el servicio y en la web | S10 | 3 | — | — | en PR |
 | 0 | [FR020-06](https://github.com/sedecim-com/nostr/issues/291) | P2 | Cliente soberano como servicio del perfil tor | Diferido | 2 | — | — | lista |
 | 0 | [FR023-11](https://github.com/sedecim-com/nostr/issues/289) | P2 | Device trust en uso: passkey del propio usuario | Diferido | 5 | — | — | lista |
@@ -114,7 +113,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | FR-003 | 7 | 5 | FR003-06 (S9), FR003-07 (S9) |
 | FR-004 | 7 | 6 | FR004-08 (Diferido) |
 | FR-005 | 12 | 9 | FR005-05 (S14), FR005-13 (S11), FR005-10 (Diferido) |
-| FR-006 | 4 | 3 | FR006-04 (Diferido) |
+| FR-006 | 4 | 4 | — |
 | FR-007 | 6 | 5 | FR007-06 (S10) |
 | FR-008 | 3 | 3 | — |
 | FR-009 | 3 | 3 | — |
@@ -417,7 +416,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | [DEC-14](https://github.com/sedecim-com/nostr/issues/292) | P2 | Modelo comercial del SaaS: organizaciones, planes y facturación | §15.2 | Decisión | 1 | — | Parcial | ADR con el modelo de tenants, planes y proveedor de cobro |
 | [FR004-08](https://github.com/sedecim-com/nostr/issues/290) | P2 | Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | §14, FR-002, FR-004 | Dev | 3 | FR004-01 | Pendiente | Perfiles Tor con signer externo (§14: offline/signer) y custodia declarada según la llave real |
 | [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | FR-005 | Seguridad | 3 | FR005-05 | Pendiente | El ncryptsec se cifra hacia la clave atestada del enclave; test |
-| [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | §7, FR-006 | Dev | 3 | FR006-02 | Pendiente | Se publica y se muestra en canales, DMs y grupos; en perfiles seudónimos no se publica nada salvo elección explícita |
+| [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | §7, FR-006 | Dev | 3 | FR006-02 | Hecho | Se publica y se muestra en canales, DMs y grupos; en perfiles seudónimos no se publica nada salvo elección explícita |
 | [FR006-07](https://github.com/sedecim-com/nostr/issues/287) | P2 | Compartimentación: avisar antes de reutilizar un contacto o un archivo entre personas | §14.1 | Dev | 3 | FR006-01 | Hecho | Aviso con confirmación explícita en la web y en el CLI, también para archivos (recordUsage) |
 | [FR014-04](https://github.com/sedecim-com/nostr/issues/284) | P2 | La web usa el mirror: no leídos por canal y búsqueda | FR-014, §15.2 | Dev | 3 | FR014-05, FR023-05 | Hecho | Contadores de no leídos y búsqueda en la web vía NIP-98, respetando la política |
 | [FR015-04](https://github.com/sedecim-com/nostr/issues/285) | P2 | Reacciones, hilos y borrado en canales | §15.1 | Dev | 5 | FR015-02 | Hecho | Kinds 7, respuestas con e/q y borrado 5/9005 en la web, con E2E contra Buzz |
