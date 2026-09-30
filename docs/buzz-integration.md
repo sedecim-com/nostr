@@ -88,6 +88,36 @@ permite; nadie tiene que acordarse de revisarlo:
 Pruebas: `packages/messaging/test/flags.test.ts` (172800 cuando la estrategia estándar pasa, 300 mientras no,
 coherencia con el informe y los flags versionados, texto de la PR).
 
+## Reacciones, hilos y borrado en canales (FR015-04)
+Lo que envía la web y por qué, según el código del relay en `b0d6fb8` (el último commit de Buzz que se puede leer aquí; el
+pin es posterior: `infra/buzz/PIN`) en `crates/buzz-relay/src/handlers/ingest.rs` y `side_effects.rs`,
+`crates/buzz-core/src/nip10.rs` y `crates/buzz-db/src/store/event.rs`. Lo que vale para la imagen fijada lo dice el gate
+de abajo, que corre contra ella:
+
+| Acción | Evento de la web | Qué comprueba Buzz |
+|---|---|---|
+| Responder | kind 9 con `h`, `["e", raíz, "", "root"]`, `["e", padre, "", "reply"]` y `["q", padre, "", autor]` (NIP-C7) | El padre debe estar en el mismo canal y la `root` debe ser la raíz del hilo del padre; si no, `invalid: root tag does not match thread ancestry`. Buzz lee un `root` sin `reply` como mensaje de primer nivel, así que la web pone los dos marcadores también en una respuesta directa |
+| Reaccionar | kind 7 con `h`, `e` (el mensaje), `p` y `k` (NIP-25) | El objetivo debe existir (`invalid: reaction target event not found`) y el canal sale de él. Una reacción repetida del mismo autor con el mismo contenido se rechaza (`duplicate: reaction already exists`): la web ofrece quitarla en vez de repetirla |
+| Quitar mi reacción | kind 5 con `h`, `e` (la reacción) y `k` 7 | NIP-09 no está en el NIP-11 de Buzz, pero su ingest acepta un kind 5 del autor de su objetivo (un objetivo por evento) y es lo que usan sus clientes para quitar una reacción. El gate registra el resultado sin exigirlo |
+| Borrar un mensaje | kind 9005 con `h` y `e` | El autor del mensaje o un owner/admin del canal, y el objetivo en ese canal; si no, `invalid: must be event author or channel owner/admin`. Buzz lo borra en blando: las lecturas (`query_events`) dejan de devolverlo |
+
+La web no usa kind 5 para borrar mensajes: el 9005 es el borrado de NIP-29 y lo aceptan igual para el autor y para los
+admins. La vista aplica un 9005 que le llega solo si lo firma el autor del mensaje o un admin de la lista 39001 firmada
+por la misma llave que el 39000 del canal; y un kind 5 solo sobre eventos de quien lo firma. Un relay que aceptara
+cualquier borrado no basta para ocultar mensajes ajenos.
+
+**Qué ve cada parte.** Reacciones, respuestas y borrados son eventos firmados con la npub de quien los hace: los ven los
+miembros del canal y el operador del relay, que sabe quién borró qué y cuándo. El borrado no retira las copias que ya
+circularon: quien recibió el mensaje y otros clientes y relays pueden conservarlo. El mirror marca el mensaje como
+borrado y deja de servirlo, pero conserva la fila. La web lo dice antes de borrar con los textos de
+`CHANNEL_DELETION_TEXTS` (catálogo revisado, `docs/disclosures.md`).
+
+**Gate.** `tests/interop/buzz.interop.test.ts` («FR015-04: …») crea un canal y, con las mismas plantillas que la web,
+responde (directa y anidada), reacciona, quita la reacción y borra con 9005 como autor, como miembro sin permiso y como
+owner. Exige lo que la web necesita (respuestas, reacción leída por `#h`, los dos borrados permitidos que dejan de
+servirse y el rechazo del miembro) y guarda todo en `interop-report.json` → `nip29Collaboration`. Corre en el job
+`stack` de CI y en cada sync de `buzz-upstream`; en `docs/interop/` aún no hay un informe con ese campo.
+
 ## Revisión del pin 8519db1 (2026-09-30, ADR 0003)
 De `b0d6fb8` a `8519db1`: 22 commits upstream. Se revisaron los del relay (`crates/buzz-relay`, `buzz-db`, `buzz-media`) y
 su despliegue. El CI completo (job `stack` con la membresía NIP-29 de FR023-10, `tor-profile` con el DM por el
