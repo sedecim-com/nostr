@@ -367,10 +367,49 @@
         }
       }
     },
+    "/v1/enclave/attestation": {
+      "get": {
+        "operationId": "getV1EnclaveAttestation",
+        "summary": "Documento de attestation del enclave para el nonce del cliente (`nonce`, base64url de 16 a 64 bytes): el cliente lo verifica antes de sellar secretos hacia la llave RSA que trae (FR005-10). 404 si las llaves no están en un enclave.",
+        "security": [
+          {
+            "acceso": []
+          },
+          {
+            "deviceSession": []
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Respuesta correcta (JSON salvo los blobs de Blossom)."
+          },
+          "4XX": {
+            "description": "Petición rechazada: 400, 401, 403, 404, 409, 413 o 429 (con `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Error interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/keys/import": {
       "post": {
         "operationId": "postV1KeysImport",
-        "summary": "Importa una llave existente a custodia gestionada.",
+        "summary": "Importa una llave existente a custodia gestionada: `ncryptsec` y `password`, o `sealed_secrets`, los dos sellados por el cliente hacia el enclave (FR005-10).",
         "security": [
           {
             "acceso": []
@@ -649,7 +688,7 @@
     "/v1/keys/{id}/export": {
       "post": {
         "operationId": "postV1KeysByIdExport",
-        "summary": "Exporta la llave cifrada con una contraseña (NIP-49) para pasar a custodia propia. Solo con un login de Acceso de los últimos minutos (`MANAGED_SIGNER_REAUTH_MAX_AGE_S`, 300 s por defecto), nunca con una sesión de dispositivo; si no, 401 con `WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` (RFC 9470, IR-2026-10-03).",
+        "summary": "Exporta la llave cifrada con una contraseña (NIP-49) para pasar a custodia propia: `password`, o `sealed_password` sellada por el cliente hacia el enclave (FR005-10). Solo con un login de Acceso de los últimos minutos (`MANAGED_SIGNER_REAUTH_MAX_AGE_S`, 300 s por defecto), nunca con una sesión de dispositivo; si no, 401 con `WWW-Authenticate: Bearer error=\"insufficient_user_authentication\"` (RFC 9470, IR-2026-10-03).",
         "parameters": [
           {
             "name": "id",
