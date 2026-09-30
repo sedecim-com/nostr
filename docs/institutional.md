@@ -599,7 +599,7 @@ intento, falla con `lease_expired`. Las entregas van en paralelo y sin un orden 
 
 **Registro de entregas.** `GET /v1/webhooks/:id/deliveries` da el estado, los intentos, el código HTTP y la clase del
 último error (`http_5xx`, `timeout`, `connection_closed`, `redirect`, `blocked_destination`…). No guarda el cuerpo ni las
-cabeceras de la respuesta: ni siquiera se leen. Las entregas terminadas se borran a los
+cabeceras de la respuesta. Las entregas terminadas se borran a los
 `POLICY_WEBHOOK_DELIVERY_RETENTION_DAYS` días (30).
 
 ### Destinos (SSRF)
@@ -614,7 +614,8 @@ entrega se comprueba:
   metadatos de AWS, GCP y Azure), las reservadas de IANA, multicast, las ULA de IPv6 (con fd00:ec2::254) y las formas de
   IPv6 que llevan una IPv4 dentro (mapeada, NAT64, 6to4, Teredo).
 - La conexión va a la dirección ya comprobada, sin volver a resolver, así que un DNS que cambia de respuesta
-  (rebinding) no sirve. TLS sigue verificando el certificado para el nombre.
+  (rebinding) no sirve. Con https, `node:https` verifica el certificado para el nombre (`servername`); eso no lo prueba
+  un test de aquí (ver «Sin probar aquí»).
 - Las redirecciones no se siguen.
 
 `POLICY_WEBHOOKS_ALLOW_PRIVATE=true` quita esas comprobaciones y permite `http`: es para pruebas y desarrollo con un
@@ -707,3 +708,7 @@ compose. El stack de CI no activa los eventos.
   internas: conviene además una NetworkPolicy de salida para el policy-engine.
 - El registro de entregas da la clase del error de conexión, así que quien da de alta un webhook sabe si un puerto de
   un host público responde. Solo lo hace un admin, y el alta queda en la auditoría.
+- Cada aserción rechazada es un evento: quien tenga la llave Nostr de una persona puede provocar entregas a las
+  suscripciones de `session.assert`, dentro de los límites de peticiones del engine (IR-2026-09-05).
+- Los plazos de los reclamos usan el reloj de cada réplica: con relojes muy desfasados (más que el margen de 30 s) una
+  entrega puede enviarse dos veces, algo que el receptor ya debe tolerar.
