@@ -164,7 +164,25 @@ Además: `scripts/backlog-github.mjs`, `.github/ISSUE_TEMPLATE/backlog-task.yml`
 "FR023-08","FR · Modo institucional","§16, §12.2","Retención por workspace/canal y legal hold donde el modelo lo permita","Políticas configurables y aviso de que borrar no borra copias replicadas","Dev","P2","5","FR023-03","S7","2027-01-15","Hecho","Retención por recurso (canal o workspace) con legal hold (GET/PUT /v1/retention) y job enforceRetention en el indexer que borra el mirror vencido salvo legal hold; la API devuelve el aviso de que borrar no elimina copias replicadas en otros relays o clientes. Tests: repositorios memoria/Postgres y tests/e2e/institutional-policy.test.ts","https://github.com/sedecim-com/nostr/issues/166"
 "FR024-01","FR · Modo institucional","FR-024","Revocar dispositivo: bloquea sesiones y señala rotación de grupos","Tests de sesión invalidada y rotación requerida","Dev","P0","2","FR023-02","v0.1","2026-09-26","Hecho","services/policy-engine/test","https://github.com/sedecim-com/nostr/issues/167"
 "FR024-02","FR · Modo institucional","FR-024","Ejecutar la rotación MLS automáticamente al revocar (commit Remove)","La revocación dispara removeMember en los grupos afectados","Dev","P1","3","FR024-01 FR025-01 FR023-03","S7","2027-01-15","Hecho","packages/rotation-worker + sovereign group rotation-worker: lee rotaciones pendientes del policy-engine, hace removeMember (todas las hojas) como admin del grupo y marca done solo tras el commit aceptado (época nueva, pubkey fuera); idempotente, backoff, nunca done si falla. Tests: packages/rotation-worker/test y tests/security/device-loss.test.ts contra la API real del policy-engine","https://github.com/sedecim-com/nostr/issues/168"
-"FR024-03","FR · Modo institucional","FR-024","Revocar sesiones NIP-46 y tokens de managed-signer ligados al dispositivo","Tras revocar, el signer rechaza al dispositivo también en la web y sin depender de que alguien ejecute el CLI","Dev","P2","2","FR024-01 FR005-04 FR024-04 FR024-05","S10","2026-10-23","Parcial","Managed-signer: sesiones ligadas a dispositivo (POST /v1/device-sessions, solo hash), POST /v1/devices/:id/revoke (tokens MANAGED_SIGNER_REVOCATION_TOKENS) que borra sus sesiones y bloquea nuevas; el worker lo propaga desde la auditoría del policy-engine. Bunker NIP-46: revokeDevice/revokeClient y rotación del secreto. Tests: devices-limits.test.ts, signer.test.ts, device-loss.test.ts. Reabierta por la revisión del 27/09/2026: el propagador pierde revocaciones (B2, FR024-04) y la web no usa sesiones de dispositivo (FR024-05).","https://github.com/sedecim-com/nostr/issues/169"
+"FR024-03","FR · Modo institucional","FR-024","Revocar sesiones NIP-46 y tokens de managed-signer ligados al dispositivo","Tras revocar, el signer rechaza al dispositivo también en la web y sin depender de que alguien ejecute el CLI","Dev","P2","2","FR024-01 FR005-04 FR024-04 FR024-05","S10","2026-10-23","Hecho","Commit f8dfaa5 (PR #365):
+
+- Web: la persona gestionada liga su sesión del managed-signer al dispositivo que la organización registró en el policy-engine (`BrowserManagedSession.bindDevice`, `organizationDevices` en config.json).
+- Al revocar ese dispositivo, el managed-signer tira la sesión y no deja abrir otra ni con el login; la web lo explica (`DeviceRevokedError`).
+- Tests:
+  - tests/browser/web-saas.e2e.ts, con el policy-engine real y el feed del worker: el navegador vinculado deja de firmar tras la revocación y el otro navegador de la persona sigue;
+  - apps/web-saas/test/managed-session.test.ts, contra el managed-signer real.
+- Docs: docs/institutional.md («Navegadores como dispositivos de la organización») y docs/runbooks/device-loss.md.
+
+Commit 35bc287 (PR #364), FR024-05:
+
+- El worker de rotaciones corre como servicio (compose y k8s) y lleva cada revocación al managed-signer sin que nadie ejecute el CLI.
+
+Antes (PR #214 y FR024-04):
+
+- Managed-signer: sesiones ligadas a dispositivo (`POST /v1/device-sessions`, solo hash) y `POST /v1/devices/:id/revoke` (tokens `MANAGED_SIGNER_REVOCATION_TOKENS`), que borra sus sesiones y bloquea nuevas.
+- Bunker NIP-46: revokeDevice/revokeClient y rotación del secreto.
+- El propagador lee `GET /v1/revocations` sin perder revocaciones.
+- Tests: devices-limits.test.ts, signer.test.ts, device-loss.test.ts.","https://github.com/sedecim-com/nostr/issues/169"
 "NFR001-01","NFR · Requisitos no funcionales","NFR-001, PRD GC-C01","Infraestructura como código del SaaS (Helm/Terraform)","Stage desplegado con terraform apply en infrastructure y deploy de Kubernetes reales; smoke e interop contra los hosts de stage; kubeconform en CI","Infra","P0","8","OPS-02","S10","2026-10-23","Parcial","deploy/k8s (kustomize base + overlay stage, scripts deploy/update/teardown), deploy/terraform/modules/acceso-nostr, deploy/README.md; validado con kustomize, kubeconform y terraform validate. Falta el terraform apply en infrastructure y el despliegue en sedecim-stage","https://github.com/sedecim-com/nostr/issues/170"
 "NFR001-02","NFR · Requisitos no funcionales","NFR-001, PRD GC-C02","Monitorización de SLO (99,9 % mensual) y alertas","Dashboard de disponibilidad y alertas por servicio desplegados en stage (Prometheus, Grafana, receptores y sonda externa); 7 días de señal útil antes del RC","Infra","P0","3","NFR001-01","S10","2026-10-23","Parcial","deploy/monitoring (blackbox probes, reglas SLO 99,9 % multi-ventana, alertas, dashboard Grafana, tests promtool), docs/slo.md. Falta desplegarlo y definir los receptores de alertas","https://github.com/sedecim-com/nostr/issues/171"
 "NFR001-03","NFR · Requisitos no funcionales","NFR-001, PRD GC-C03","Postgres de alta disponibilidad y backups gestionados","RDS aplicado y datos migrados; failover real y restore point probados en stage; runbook con los tiempos observados","Infra","P0","3","NFR001-01","S10","2026-10-23","Parcial","Terraform rds.tf: PostgreSQL 17 Multi-AZ, backups automáticos 14 días con PITR, cifrado KMS, TLS obligatorio, contraseña gestionada por RDS; componente k8s rds-postgres (TLS verificado) en el overlay stage; scripts/rds-failover-test.sh (dry-run por defecto, tests con aws simulado); runbook docs/runbooks/rds-postgres.md. Falta el terraform apply, migrar los datos y ejecutar el failover en staging","https://github.com/sedecim-com/nostr/issues/172"
@@ -196,8 +214,8 @@ Además: `scripts/backlog-github.mjs`, `.github/ISSUE_TEMPLATE/backlog-task.yml`
 "DEC-11","DEC · Decisiones de arquitectura","§25.1-1","Búsqueda y registro de la marca ""Acceso Nostr""","Búsqueda de anterioridades y solicitud de registro presentada, o marca alternativa decidida","Decisión","P2","1","DEC-01","S13","2026-12-04","Pendiente","","https://github.com/sedecim-com/nostr/issues/198"
 "OPS-12","OPS · Despliegue y DevSecOps","§21.2","Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor","main exige 1 aprobación y los checks de CI, CodeQL y dependency-review; private vulnerability reporting activo; una segunda persona puede aprobar PRs y entornos","Infra","P0","1","","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/220"
 "OPS-17","OPS · Despliegue y DevSecOps","PRD GC-F01, GC-F02","Estados de evidencia y nada «Hecho» desde una rama","Estados Proposed, In PR, Merged, CI Verified, Stage Verified, Externally Audited y Production Enabled documentados en GITHUB.md y visibles en los issues; backlog-sync solo acepta Hecho si la evidencia cita un SHA ancestro de main y avisa del resto","Infra","P0","3","","S9","2026-10-09","Hecho","Commit 1c531c5 (PR #304): backlog-sync solo acepta Hecho si la evidencia cita un commit de main (API compare) y avisa del resto. Labels evidencia:* (de Proposed a Production Enabled): los crea seed y pull pone evidencia:merged. Estados documentados en docs/backlog/GITHUB.md. Tests: tests/scripts/backlog-github.test.ts.","https://github.com/sedecim-com/nostr/issues/221"
-"SEC-06","SEC/REL · Gates de seguridad y release","§20.3, PRD GC-A02","IR-15: ligar el payload sellado del mirror a su event_id con AAD versionado","Intercambiar ciphertext entre filas falla la autenticación; migración compatible hacia atrás probada; internal-review actualizado (IR-04, IR-05, IR-16, IR-19 e IR-20 ya se corrigieron en la PR #216)","Seguridad","P0","3","","S9","2026-10-09","Pendiente","El payload sellado del mirror lleva como AAD `acceso-nostr/mirror/v2/<event_id>` y `seal_version` 2 (migración `services/indexer/migrations/005_seal_version.sql`): movido a otra fila no autentica, y no se puede leer como el formato sin AAD. Toda lectura exige además que el evento sea el que nombra el `event_id` de su fila. Las filas selladas antes se siguen leyendo, solo en su propia fila, y el indexer las vuelve a sellar al arrancar (`PgEventRepository.resealLegacy`, seguro con varias réplicas). Tests en `services/indexer/test/seal.test.ts`: intercambio entre filas en Postgres, y un mirror en las migraciones 001–004 con filas antiguas (una manipulada) actualizado a 005 y re-sellado. IR-2026-09-15 queda Corregido en `docs/security/internal-review-2026-09.md`; actualizados el inventario criptográfico y los threat models. Commit 39c456c (PR #329).","https://github.com/sedecim-com/nostr/issues/222"
-"SEC-07","SEC/REL · Gates de seguridad y release","§20.3, §21.1","Vectores oficiales de NIP-44 y vectores JSON exportables","nip44.vectors.json oficial corre en CI; vectores de NIP-44, NIP-49 y NIP-59 exportables en JSON para futuros clientes en otros lenguajes (ADR 0004)","Seguridad","P1","2","SEC-03","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/223"
+"SEC-06","SEC/REL · Gates de seguridad y release","§20.3, PRD GC-A02","IR-15: ligar el payload sellado del mirror a su event_id con AAD versionado","Intercambiar ciphertext entre filas falla la autenticación; migración compatible hacia atrás probada; internal-review actualizado (IR-04, IR-05, IR-16, IR-19 e IR-20 ya se corrigieron en la PR #216)","Seguridad","P0","3","","S9","2026-10-09","Hecho","El payload sellado del mirror lleva como AAD `acceso-nostr/mirror/v2/<event_id>` y `seal_version` 2 (migración `services/indexer/migrations/005_seal_version.sql`): movido a otra fila no autentica, y no se puede leer como el formato sin AAD. Toda lectura exige además que el evento sea el que nombra el `event_id` de su fila. Las filas selladas antes se siguen leyendo, solo en su propia fila, y el indexer las vuelve a sellar al arrancar (`PgEventRepository.resealLegacy`, seguro con varias réplicas). Tests en `services/indexer/test/seal.test.ts`: intercambio entre filas en Postgres, y un mirror en las migraciones 001–004 con filas antiguas (una manipulada) actualizado a 005 y re-sellado. IR-2026-09-15 queda Corregido en `docs/security/internal-review-2026-09.md`; actualizados el inventario criptográfico y los threat models. Commit 39c456c (PR #329).","https://github.com/sedecim-com/nostr/issues/222"
+"SEC-07","SEC/REL · Gates de seguridad y release","§20.3, §21.1","Vectores oficiales de NIP-44 y vectores JSON exportables","nip44.vectors.json oficial corre en CI; vectores de NIP-44, NIP-49 y NIP-59 exportables en JSON para futuros clientes en otros lenguajes (ADR 0004)","Seguridad","P1","2","SEC-03","S9","2026-10-09","Hecho","`packages/nostr-core/test/nip44-vectors.test.ts` corre el `nip44.vectors.json` oficial completo, tras comprobar su SHA-256 publicado en la NIP. `packages/nostr-core/test/vectors/generate.ts` escribe `nip49.vectors.json` y `nip59.vectors.json` de forma determinista con `@noble`: el vector de NIP-49, NFKC, casos válidos con sal y nonce e inválidos; un DM NIP-59 y su copia, y cinco rechazos. `nip49-vectors.test.ts` y `packages/messaging/test/nip59-vectors.test.ts` los validan contra el SDK, y otra prueba exige que coincidan con el generador. El formato está en el README de la carpeta. Commit 8cee819 (PR #334).","https://github.com/sedecim-com/nostr/issues/223"
 "FR025-11","FR · Grupos high-security (Marmot/MLS)","FR-025, FR-016","G1: las invitaciones a grupos seguros llegan con el secure relay real","AUTH NIP-42 temprano en relays con nip42_dms (hoy nostr-rs-relay descarta en silencio los kind 1059 sin AUTH y los clientes solo se autentican bajo demanda); E2E de grupos en web y CLI contra nostr-rs-relay real en CI; relay_url correcto para el .onion","Dev","P0","5","FR025-07 FR016-01","S9","2026-10-09","Hecho","Commit 330d9fa (PR #304): relay-pool se autentica (NIP-42) antes de pedir los kinds 4, 44 y 1059, también en on-demand y al reconectar (packages/relay-pool/test/pool.test.ts). E2E de grupos contra el nostr-rs-relay real en el job stack de CI: web (tests/browser/web-groups.e2e.ts) y CLI (tests/interop/sovereign-secure-relay.interop.test.ts). Perfil tor: secure-relay-onion con relay_url = onion (infra/secure-relay/onion-entrypoint.sh) y un DM leído por ese onion en scripts/tor-profile-check.sh.","https://github.com/sedecim-com/nostr/issues/224"
 "FR005-12","FR · Identidad, llaves y custodia","FR-005, ADR 0009","Retirar el modo legado del managed-signer (token de servicio + x-account-id)","Solo se firma con el token de Acceso o una sesión de dispositivo; test que rechaza el modo legado","Seguridad","P1","1","FR005-04","S9","2026-10-09","Hecho","Commit 7cb7d44 (PR #305): el managed-signer rechaza x-account-id (403) para cualquier llamante y solo firma con el token de Acceso del usuario o una sesión de dispositivo abierta con él. No arranca si MANAGED_SIGNER_SERVICE_TOKENS está definida; la variable sale de compose, Kubernetes, el generador de secretos y .env.example. Tests: services/managed-signer/test/managed-signer.test.ts («refuses the retired service-token mode»).","https://github.com/sedecim-com/nostr/issues/225"
 "FR023-09","FR · Modo institucional","FR-023","B1: editar una persona revocada no la reactiva; reactivar es explícito y auditado","PUT /v1/subjects conserva suspended; ruta de reactivación con entrada de auditoría; test de regresión","Seguridad","P0","1","FR023-03","S9","2026-10-09","Hecho","Commit eb0f69b (PR #304): PUT /v1/subjects conserva suspended; POST /v1/subjects/:pubkey/reactivate (404 si no existe, 409 si no está revocada) deja la entrada subject.reactivate en la auditoría, y los dispositivos siguen revocados. Consola: «Reactivar» con confirmación. Tests: services/policy-engine/test/policy-engine.test.ts (memoria y Postgres) y tests/browser/admin-console.e2e.ts.","https://github.com/sedecim-com/nostr/issues/226"
@@ -487,31 +505,202 @@ Documentado en ADR 0011 (sección VAULT-05), en el threat model del vault y en l
 - restore drill (`.github/workflows/restore-drill.yml`).
 
 Documentado en ADR 0011 (sección VAULT-06), el threat model del vault, `docs/runbooks/restore.md`, `docs/rpo-rto.md` y la trazabilidad (NFR-003).","https://github.com/sedecim-com/nostr/issues/249"
-"OPS-18","OPS · Despliegue y DevSecOps","PRD GC-F03","Trazabilidad y estado generados desde la fuente, con check en CI","requirements-traceability.md y un tablero de estado se regeneran desde los issues y el código; CI falla si una referencia o evidencia (archivo, prueba, SHA o ADR) no existe","Infra","P0","5","OPS-17","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/250"
+"OPS-18","OPS · Despliegue y DevSecOps","PRD GC-F03","Trazabilidad y estado generados desde la fuente, con check en CI","requirements-traceability.md y un tablero de estado se regeneran desde los issues y el código; CI falla si una referencia o evidencia (archivo, prueba, SHA o ADR) no existe","Infra","P0","5","OPS-17","S9","2026-10-09","Hecho","Commit 2914c0b (PR #338):
+
+- scripts/traceability.mjs genera docs/requirements-traceability.md y docs/status.md desde backlog.json (los issues) y desde los tests que citan cada tarea o requisito.
+- `--check` falla si no están al día o si la evidencia de una tarea no Pendiente cita un archivo, una prueba, un commit (de main si está Hecha) o un ADR que no existe.
+- Job `traceability` de CI con la historia completa, exigido por el gate de release; backlog-sync los regenera y comprueba.
+- `pull` guarda el nivel `evidencia:*` de cada issue y el tablero lo cuenta.
+- Tests: tests/scripts/traceability.test.ts, tests/scripts/backlog-github.test.ts. Reglas para citar: docs/backlog/GITHUB.md.","https://github.com/sedecim-com/nostr/issues/250"
 "NFR003-03","NFR · Requisitos no funcionales","NFR-003, PRD GC-C05","Simulacro completo de RPO/RTO en stage","Restore nocturno de RDS (PITR) y del almacenamiento S3 con interop, más un drill manual en un entorno limpio con los tiempos reales documentados","Infra","P0","3","NFR001-03","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/251"
 "OPS-20","OPS · Despliegue y DevSecOps","PRD GC-D05, GC-A03, GC-G01","Feature gates de producción para managed, enclave y push","Con legal o auditoría pendientes, el onboarding managed no aparece en la configuración de producción; enclave y su exportación apagados mientras sean Preview; push apagado donde no hay disparador seguro; el gate de release comprueba la configuración","Seguridad","P0","3","OPS-06","S11","2026-11-06","Hecho","`deploy/production-gates.json` y `node scripts/release-gate.mjs config` (en `all` del job `dod` de release.yml y en el job `deploy-config` de CI; revisa la web, `deploy/k8s` y `deploy/terraform` salvo stage): managed solo con la aprobación legal registrada en `docs/legal/approvals/custodia-managed.md` (SHA-256 del texto aprobado, DEC-12; hoy pendiente) y los informes de SEC-01 y SEC-02, sin waiver; enclave y `ENCLAVE_ALLOW_EXPORT` apagados mientras sean Preview; push apagado con `safeTrigger: false` (matriz de ADR 0010), e `infra/web/config.saas.example.json` ya no lo ofrece. Tests en `tests/scripts/release-gate.test.ts`; gate 9 de `docs/release-checklist.md`. Commit 6fd6686 (PR #327).","https://github.com/sedecim-com/nostr/issues/252"
 "FR026-04","FR · Identidad, llaves y custodia","§8.5, FR-026, PRD GC-D03","Salida de la custodia, borrado verificable y derechos ARCO","Cancelar sin migrar (API y UI) con confirmación y descarga del backup antes de borrar; npub en el JSON de migración; borrado por el operador de cuentas cerradas; ventanas de Secrets Manager y logs verificadas en AWS; el usuario ve el estado de eliminación","Dev","P0","5","FR026-01 FR005-13","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/253"
-"FR023-10","FR · Modo institucional","FR-023","Aplicar «publicar» por recurso en los relays","Admisión por #h en el secure relay y en Buzz, y sincronía de la membresía NIP-29 con el policy-engine; test de denegación","Dev","P1","8","FR023-04","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/254"
+"FR023-10","FR · Modo institucional","FR-023","Aplicar «publicar» por recurso en los relays","Admisión por #h en el secure relay y en Buzz, y sincronía de la membresía NIP-29 con el policy-engine; test de denegación","Dev","P1","8","FR023-04","S10","2026-10-23","Hecho","Commit bbdb81e (PR #367):
+
+- Policy-engine: `GET /v1/relay/grants`, por cada recurso `channel` y `group`, las pubkeys del allowlist que pueden publicar en él. Se calcula con `evaluate` sin registrar accesos.
+- Relay seguro: la admisión gRPC de `relay-allowlist` deniega por `h` a quien no puede publicar en un recurso registrado (`restricted: not allowed to publish in <h>`), con fail closed hasta leer los permisos.
+- Buzz: con `BUZZ_MEMBERSHIP_NSEC`, `relay-allowlist` hace que la membresía NIP-29 de los canales privados registrados siga a la política (kinds 9000/9001). El estado 39000–39002 se verifica con la llave del relay.
+- Worker de rotaciones: acepta el `nostr_group_id` (el `h` que ven los relays); el CLI lo muestra como `h=`.
+- Tests:
+  - `services/policy-engine/test/policy-engine.test.ts`, `services/policy-engine/test/allowlist-sync.test.ts`, `services/policy-engine/test/membership-sync.test.ts`, `tests/fuzz/nauthz-proto.test.ts`;
+  - `tests/interop/institutional.interop.test.ts` (test de denegación contra el nostr-rs-relay real y, en el job `stack`, contra Buzz).
+- Docs: `docs/institutional.md` («Publicar por recurso en los relays»), `docs/buzz-integration.md` y `docs/threat-model.md`.","https://github.com/sedecim-com/nostr/issues/254"
 "FR005-13","FR · Identidad, llaves y custodia","FR-005, ADR 0009, PRD GC-D02","KMS y Secrets Manager validados en la cuenta y región reales","Crear, firmar y exportar-borrar contra AWS real en stage; IAM de mínimo privilegio revisado y documentado en ADR 0009","Seguridad","P0","3","NFR001-01","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/255"
 "NFR001-04","NFR · Requisitos no funcionales","NFR-001","Alta disponibilidad en stage","Réplicas y PDB; Redis, SeaweedFS y secure relay en HA o gestionados; blob-store con allowlist o cuotas; el SLO de 99,9 % queda instrumentado sobre una topología que puede cumplirlo","Infra","P1","5","NFR001-02 NFR001-03","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/256"
 "SEC-11","SEC/REL · Gates de seguridad y release","§20.3, PRD GC-A04, GC-F05","Tag de auditoría firmado y v1.0.0-rc.1","Tag audit-2026-11 firmado sobre main con internal-review, threat models y backlog sin contradicciones; v1.0.0-rc.1 publicada desde ese commit con el gate y waiver de auditoría; durante el trabajo de campo, cambiar cripto, custodia o continuidad exige waiver y nuevo baseline","Seguridad","P0","3","SEC-06 SEC-07 SEC-13 FR025-11 VAULT-03 VAULT-04 FR026-04 FR005-13 OPS-18 DEC-10 REL-01","S12","2026-11-20","Pendiente","","https://github.com/sedecim-com/nostr/issues/257"
 "SEC-12","SEC/REL · Gates de seguridad y release","§20.3, PRD GC-A07","Inventario de la superficie de ataque de Buzz desplegado","Rutas y capacidades realmente alcanzables del Buzz de stage documentadas para el pentest; opcionales innecesarios deshabilitados","Seguridad","P0","3","NFR001-01 BUZZ-07","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/258"
-"PANEL-07","PANEL · Panel de soberanía y privacidad","FR-028, PRD §12","Etiquetas de madurez por perfil y función en web, CLI y documentación","Beta para Marmot/MLS, Experimental para Sovereign Tor y push, Preview para el enclave y ninguna GA de private-resilient sin el vault; visibles en la web, el CLI, el README y las notas de release; NIP-17 solo habilitado con el gate de interop en verde","Dev","P0","3","PANEL-05","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/259"
-"OPS-19","OPS · Despliegue y DevSecOps","PRD GC-F04","README con el estado por release, no con checkmarks","El README muestra el estado de cada perfil y capacidad por nivel de evidencia (Merged, CI, stage, auditado, producción), generado por OPS-18 y con la advertencia de no aptitud para alto riesgo","Doc","P1","2","OPS-18 PANEL-07","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/260"
-"NFR010-04","NFR · Requisitos no funcionales","NFR-010, PRD GC-E02","SBOM fiel a cada imagen","SBOM por imagen (syft) atestado, sin devDependencies en runtime; también para la imagen de Buzz fijada","Infra","P1","3","NFR010-01","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/261"
-"OPS-13","OPS · Despliegue y DevSecOps","§21.2","Higiene de la cadena de suministro en CI","Acciones por SHA, imágenes por digest, checksums de herramientas, Dependabot para infra/tor y compose, npm audit y CodeQL como gate","Infra","P2","2","OPS-05","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/262"
+"PANEL-07","PANEL · Panel de soberanía y privacidad","FR-028, PRD §12","Etiquetas de madurez por perfil y función en web, CLI y documentación","Beta para Marmot/MLS, Experimental para Sovereign Tor y push, Preview para el enclave y ninguna GA de private-resilient sin el vault; visibles en la web, el CLI, el README y las notas de release; NIP-17 solo habilitado con el gate de interop en verde","Dev","P0","3","PANEL-05","S9","2026-10-09","Hecho","Catálogo único en `packages/profiles/src/maturity.ts` (`maturity.test.ts`): Grupos Marmot Beta, sovereign-tor y push Experimental, enclave Preview, nada GA antes de v1.0, y `configMaturity` nunca deja private-resilient por encima de Beta sin Continuity Vault en el despliegue; coincide con `deploy/production-gates.json` en enclave y push. Web: `MaturityChip` en el panel, grupos, notificaciones y custodia gestionada (`web-saas.e2e.ts`, `web-groups.e2e.ts`). CLI: `sovereign maturity` y la línea de madurez de `whoami` (`tor-hardening.test.ts`). README y notas: tabla generada por `scripts/maturity.ts` (`--check` en CI), y el gate de release exige en las notas del tag la del README (`release-gate.test.ts`). NIP-17 ya se habilita solo con el gate de interop (`apps/web-saas/src/views/Workspace.tsx`, `apps/sovereign-client/src/cli.ts`). Commit a96580a (PR #337).","https://github.com/sedecim-com/nostr/issues/259"
+"OPS-19","OPS · Despliegue y DevSecOps","PRD GC-F04","README con el estado por release, no con checkmarks","El README muestra el estado de cada perfil y capacidad por nivel de evidencia (Merged, CI, stage, auditado, producción), generado por OPS-18 y con la advertencia de no aptitud para alto riesgo","Doc","P1","2","OPS-18 PANEL-07","S9","2026-10-09","Hecho","Commit 6c684bc (PR #341):
+
+- README.md sin checkmarks: la sección «Estado por perfil y capacidad» la genera scripts/traceability.mjs desde los issues.
+  - Da el nivel de evidencia de cada perfil y capacidad (el más bajo de sus tareas; «En curso» mientras falte alguna), sus tareas hechas y abiertas.
+  - Lleva la advertencia de no aptitud para alto riesgo mientras nada tenga auditoría externa.
+- Filas en `meta.capabilities` de docs/backlog/backlog.json, validadas por scripts/backlog.mjs.
+- El job `traceability` falla si el bloque no está al día; backlog-sync lo regenera.
+- Tests: tests/scripts/traceability.test.ts.","https://github.com/sedecim-com/nostr/issues/260"
+"NFR010-04","NFR · Requisitos no funcionales","NFR-010, PRD GC-E02","SBOM fiel a cada imagen","SBOM por imagen (syft) atestado, sin devDependencies en runtime; también para la imagen de Buzz fijada","Infra","P1","3","NFR010-01","S9","2026-10-09","Hecho","Commit 2b9f533 (PR #339):
+
+- Dockerfile: la imagen de los servicios sale de una instalación `npm ci --omit=dev` (etapa prod-deps); tsx pasa a dependencia.
+- scripts/image-sbom.sh hace el SBOM de la propia imagen con syft (versión y checksum fijados), y scripts/image-sbom-check.mjs falla si un paquete npm de /app es solo de desarrollo en package-lock.json.
+- .github/workflows/reproducible-images.yml lo hace en cada PR que toca las imágenes.
+- .github/workflows/release.yml atesta el SBOM de cada imagen (tor incluida) y el de la imagen de Buzz fijada (sbom-buzz.cdx.json); scripts/verify-release.sh los verifica.
+- Tests: tests/scripts/image-sbom.test.ts. En local, la imagen indexer real pasa el check (272 paquetes, ninguno de desarrollo), falla con vitest añadido, y los siete servicios arrancan desde ella.","https://github.com/sedecim-com/nostr/issues/261"
+"OPS-13","OPS · Despliegue y DevSecOps","§21.2","Higiene de la cadena de suministro en CI","Acciones por SHA, imágenes por digest, checksums de herramientas, Dependabot para infra/tor y compose, npm audit y CodeQL como gate","Infra","P2","2","OPS-05","S9","2026-10-09","Hecho","Commit b6dacdb (PR #340):
+
+- Todas las acciones de los workflows van por SHA con la versión en un comentario.
+- Las imágenes de terceros van por digest en:
+  - docker-compose.yml;
+  - los servicios de CI;
+  - deploy/k8s/base/kustomization.yaml;
+  - deploy/monitoring/kustomization.yaml;
+  - deploy/k8s/scripts/mirror-ecr-deps.sh.
+- gitleaks y promtool se contrastan con el sha256 de su release.
+- .github/dependabot.yml cubre infra/tor y docker-compose.
+- npm audit es gate en el job test.
+- `release-gate.mjs codeql` exige el análisis de CodeQL y ninguna alerta alta o crítica abierta.
+- Tests: tests/scripts/supply-chain.test.ts, tests/scripts/release-gate.test.ts. Docs: docs/building.md, docs/release-checklist.md.
+
+Commit 2dd47a0 (PR #352) corrige la configuración de Dependabot:
+
+- ignora Buzz por el nombre que Dependabot usa (`block/buzz`, sin registro), porque su pin sigue el gate de buzz-upstream.yml (ADR 0003);
+- no propone versiones mayores de postgres ni de redis, que exigen migrar datos.","https://github.com/sedecim-com/nostr/issues/262"
 "NFR002-03","NFR · Requisitos no funcionales","NFR-002, PRD GC-C06","Simulacros de fallo de dependencias en stage","Caída de un relay, de una réplica del indexer, failover de Postgres y object storage degradado no corrompen la outbox ni los estados; 0 LOCAL_PERSISTED perdidos en las pruebas de crash","QA","P1","5","NFR001-04","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/263"
-"FR005-11","FR · Identidad, llaves y custodia","§8.1, FR-005","Recuperar la persona gestionada en un navegador nuevo","Con el login de Acceso se reabre la llave gestionada; el usuario ve su log de uso y revoca sus sesiones","Dev","P1","3","FR005-04","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/264"
-"FR024-05","FR · Modo institucional","FR-024","Rotaciones como servicio, sesiones de dispositivo en la web y runbook de pérdida","Worker de rotaciones en compose y k8s; la persona managed de la web usa sesiones de dispositivo revocables; docs/runbooks/device-loss.md","Dev","P1","5","FR024-02 FR024-04","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/265"
-"FR023-12","FR · Modo institucional","§16, §12.2","Auditoría y retención legal coherentes con el modelo de confidencialidad","Retención propia para las entradas de evaluate; legal hold solo donde el modelo lo permite; reemplazables respetan la retención legal","Dev","P2","3","FR023-08","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/266"
-"FR023-13","FR · Modo institucional","FR-023","CI del modo institucional","El perfil institutional del compose y el componente k8s se validan en CI; E2E de la consola contra el policy-engine real","QA","P2","2","OPS-07","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/267"
-"FR011-05","FR · Mensajería, entrega y resiliencia","§11.2","Identificador de operación estable en la UI","Reintentar desde la web o el CLI no crea otro evento ni otro rumor; los wraps se crean después de persistir","Dev","P2","2","FR011-01","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/268"
-"FR025-12","FR · Grupos high-security (Marmot/MLS)","FR-011, FR-020","Outbox para mensajes y commits MLS","Con Tor caído o sin red, un mensaje o commit de grupo queda pendiente y se reintenta, en lugar de fallar","Dev","P1","3","FR025-11","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/269"
-"FR020-05","FR · Privacidad y Sovereign Tor","FR-020, Apéndice D","Suite de fugas completa en el cliente soberano","La captura real también cubre dm, group, media y rotation-worker, con MLS por Tor; control negativo de ts-mls rc.10 en CI","Seguridad","P1","3","FR020-03","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/270"
-"NFR006-04","NFR · Requisitos no funcionales","NFR-006","Escaneo de secretos en logs con todos los perfiles","El job stack también levanta managed, push, institutional y tor y escanea sus logs","QA","P3","2","NFR006-03","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/271"
-"FR011-06","FR · Mensajería, entrega y resiliencia","FR-011, NFR-004","Métricas de outbox reales o alerta retirada","La alerta OutboxOldestPendingTooOld se alimenta de un proceso real o se retira del monitoreo del SaaS","Infra","P2","2","FR011-03","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/272"
-"DEC-15","DEC · Decisiones de arquitectura","§21.1","Estructura de repositorios","ADR que justifica el monorepo frente a los seis repositorios sugeridos por el scope","Decisión","P3","1","","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/273"
-"OPS-14","OPS · Despliegue y DevSecOps","§17, §26","Documentación del SDK y de las APIs","TypeDoc de los paquetes, OpenAPI de cada servicio y ADR sobre cómo se distribuye el SDK","Doc","P2","5","","S10","2026-10-23","Pendiente","","https://github.com/sedecim-com/nostr/issues/274"
+"FR005-11","FR · Identidad, llaves y custodia","§8.1, FR-005","Recuperar la persona gestionada en un navegador nuevo","Con el login de Acceso se reabre la llave gestionada; el usuario ve su log de uso y revoca sus sesiones","Dev","P1","3","FR005-04","S10","2026-10-23","Hecho","Commit d31efb7 (PR #362):
+
+- services/managed-signer: el usuario lista sus sesiones de dispositivo (`GET /v1/device-sessions`) y las cierra (`DELETE /v1/device-sessions/:id`, o todas menos una con `?except=`). Nunca se ven tokens ni sesiones ajenas, y cerrar una sesión no revoca el dispositivo. Migración 004.
+- packages/signer: `ManagedSignerClient` con `listDeviceSessions`, `closeDeviceSession(s)`, `usage()` y renovación de la sesión ante un 401.
+- Web:
+  - la persona gestionada firma por una sesión de dispositivo del navegador, abierta con el login de Acceso;
+  - «Recuperar mi persona gestionada» reabre en un navegador nuevo la llave que ya existe (misma npub, ninguna llave nueva);
+  - la tarjeta «Actividad de tu llave gestionada» muestra el log de uso y las sesiones, con «Cerrar» y «Cerrar las demás sesiones».
+- Tests:
+  - services/managed-signer/test/own-sessions.test.ts;
+  - registry.test.ts (memoria y Postgres);
+  - tests/browser/web-saas.e2e.ts, con el managed-signer en modo estricto: un navegador nuevo recupera la persona, firma y cierra la sesión del otro.
+- Docs: docs/architecture.md («Custodia gestionada: sesiones del navegador y recuperación»).","https://github.com/sedecim-com/nostr/issues/264"
+"FR024-05","FR · Modo institucional","FR-024","Rotaciones como servicio, sesiones de dispositivo en la web y runbook de pérdida","Worker de rotaciones en compose y k8s; la persona managed de la web usa sesiones de dispositivo revocables; docs/runbooks/device-loss.md","Dev","P1","5","FR024-02 FR024-04","S10","2026-10-23","Hecho","Commit 35bc287 (PR #364):
+
+- services/rotation-worker: el worker de rotaciones como servicio:
+  - estado MLS cifrado con `ROTATION_STATE_KEY` en su volumen;
+  - entra en los grupos que lo tienen como admin, saca a los miembros revocados y propaga las revocaciones de dispositivo al managed-signer;
+  - `GET /health` con el error de cada paso.
+- compose (perfil `institutional`, volumen `rotation-state`) y k8s `components/institutional` (1 réplica `Recreate`, PVC, Service); init-env, stack-profiles, wait-stack, backup/restore y generate-secret.
+- El worker lee el policy-engine con su token de servicio (`GET /v1/rotations` lo acepta): ya no es admin del engine.
+- Web: con `rotationWorker` en config.json, los grupos nuevos lo tienen como admin, lo invitan y lo muestran.
+- docs/runbooks/device-loss.md; docs/institutional.md («Worker de rotaciones»).
+- Tests:
+  - services/rotation-worker/test/service.test.ts (relay con NIP-42 y URL pública, policy-engine y managed-signer reales, reinicio sobre el mismo estado);
+  - packages/rotation-worker/test/service.test.ts;
+  - tests/browser/web-groups.e2e.ts;
+  - tests/scripts (deploy-manifests, init-env, stack-profiles);
+  - CI `stack`: `wait-stack.sh` espera al primer ciclo sin errores.
+
+Commit d31efb7 (PR #362):
+
+- La persona gestionada de la web firma por una sesión de dispositivo revocable (`BrowserManagedSession`), también con `MANAGED_SIGNER_REQUIRE_DEVICE_SESSION=true` (tests/browser/web-saas.e2e.ts).","https://github.com/sedecim-com/nostr/issues/265"
+"FR023-12","FR · Modo institucional","§16, §12.2","Auditoría y retención legal coherentes con el modelo de confidencialidad","Retención propia para las entradas de evaluate; legal hold solo donde el modelo lo permite; reemplazables respetan la retención legal","Dev","P2","3","FR023-08","S10","2026-10-23","Hecho","Commit 5888e20 (PR #363):
+
+- policy-engine:
+  - las decisiones de `POST /v1/evaluate` van a `policy_access_log` (migración 003), no a la auditoría append-only. `GET /v1/access-log` (admin) las lista;
+  - se podan a los `ACCESS_LOG_RETENTION_DAYS` días (90), salvo las de recursos con legal hold; con un hold sobre un espacio de trabajo no se poda nada;
+  - la migración copia al registro las decisiones que ya estaban en la auditoría, que no se tocan.
+- Legal hold solo donde el modelo lo permite: `PUT /v1/retention` sobre un grupo MLS responde 409, y una política que quedara sobre un grupo ni se aplica ni se lista.
+- indexer: en modo institucional las versiones que reemplaza un evento reemplazable o direccionable pasan a `events_superseded` (migración 006), también las que llegan fuera de orden. La retención borra las que no cubre ningún legal hold.
+- Consola: pantalla «Accesos» y «No aplica» para los grupos en «Retención».
+- Tests:
+  - services/policy-engine/test/policy-engine.test.ts (memoria y Postgres, incluida la actualización de una base existente);
+  - services/indexer/test/indexer.test.ts, bloque «Retention» (memoria y Postgres);
+  - tests/browser/admin-console.e2e.ts;
+  - tests/e2e/institutional-policy.test.ts.
+- Docs: docs/institutional.md («Qué cubre y qué no»), docs/admin-console.md, docs/architecture.md.","https://github.com/sedecim-com/nostr/issues/266"
+"FR023-13","FR · Modo institucional","FR-023","CI del modo institucional","El perfil institutional del compose y el componente k8s se validan en CI; E2E de la consola contra el policy-engine real","QA","P2","2","OPS-07","S10","2026-10-23","Hecho","Commit f2c1557 (PR #359), con el arreglo que encontró en f36dfd1 (PR #358):
+
+- tests/browser/admin-console.e2e.ts: la consola corre contra `createPolicyApi` + `PolicyEngine` reales (repositorio en memoria, verificación WebAuthn real de la passkey) y lo que guarda cada acción se lee del motor. Se borra el stub del policy-engine que usaba antes la prueba.
+- Job `stack` de .github/workflows/ci.yml: reinicia el relay seguro con infra/secure-relay/config.institutional.toml y corre tests/interop/institutional.interop.test.ts contra el relay, relay-allowlist y el policy-engine reales. Una persona con dispositivo activo publica, una llave ajena recibe `restricted: pubkey not in the institutional allowlist` y, tras revocarla, deja de publicar.
+- Job `compose`: valida todos los perfiles (tor, managed, push, institutional) y el institucional con esa configuración del relay.
+- Job `deploy-config`: renderiza la base con deploy/k8s/components/institutional. tests/scripts/deploy-manifests.test.ts comprueba relay-allowlist con su token, el relay con `event_admission_server` y Buzz con su allowlist.
+- Encontrado en el camino: el relay institucional responde `blocked: auth-required: …` a un evento enviado antes del AUTH, y el outbox lo daba por FAILED. relay-pool y el delivery engine ya lo tratan como petición de NIP-42 (f36dfd1; tests en packages/relay-pool/test/pool.test.ts y packages/delivery-engine/test/engine.test.ts).","https://github.com/sedecim-com/nostr/issues/267"
+"FR011-05","FR · Mensajería, entrega y resiliencia","§11.2","Identificador de operación estable en la UI","Reintentar desde la web o el CLI no crea otro evento ni otro rumor; los wraps se crean después de persistir","Dev","P2","2","FR011-01","S10","2026-10-23","Hecho","Commit 6c85360 (PR #356):
+
+- packages/delivery-engine/src/engine.ts:
+  - `submit` se serializa por opId y un submit repetido reenvía la operación;
+  - `submitOnce(opId, build)` construye el evento solo la primera vez.
+- packages/messaging/src/messenger.ts y packages/messaging/src/operations.ts:
+  - `sendDmOnce` y `sendFileOnce` guardan el rumor en el store cifrado de la persona antes de crear ningún seal o wrap;
+  - cada wrap va al outbox como `<operación>:<pubkey>`, y un reintento solo crea los que falten;
+  - otro texto con el mismo id se rechaza.
+- Web: apps/web-saas/src/lib/outbox.ts (`SendOperation`) en DmView y ChannelsView.
+- CLI: `--op` en `dm send` y `channel send`, con el id impreso antes de enviar.
+- Tests:
+  - packages/delivery-engine/test/engine.test.ts;
+  - packages/messaging/test/operations.test.ts;
+  - apps/sovereign-client/test/operation-id.test.ts, con procesos reales del CLI;
+  - apps/web-saas/test/send-operation.test.ts.
+- Docs: docs/architecture.md.","https://github.com/sedecim-com/nostr/issues/268"
+"FR025-12","FR · Grupos high-security (Marmot/MLS)","FR-011, FR-020","Outbox para mensajes y commits MLS","Con Tor caído o sin red, un mensaje o commit de grupo queda pendiente y se reintenta, en lugar de fallar","Dev","P1","3","FR025-11","S10","2026-10-23","Hecho","Commit 228d079 (PR #361):
+
+- packages/marmot-adapter/src/marmot-ts.ts: lo que ningún relay toma queda pendiente, sellado con el estado MLS (`mls-outbox`), y sale en la siguiente sincronización o con `retryPending`.
+  - Mensajes: se reenvía el mismo cifrado; si cambia la época, se vuelve a cifrar.
+  - Commits: los construye el adaptador y guarda el evento, el estado al que llevan y los Welcomes. Así se aplica un commit que un relay guardó sin OK (orden MIP-03), o se reconstruye si otro ganó la época.
+  - Nada adelanta a un commit pendiente.
+- CLI: `group pending|retry|discard`; lo pendiente sale al final de cualquier comando de la persona. Web: la vista de grupos lo lista y lo reintenta en cada sondeo y al volver la conexión.
+- Tests:
+  - packages/marmot-adapter/test/group-outbox.test.ts (mensaje sin red, cambio de época, expulsión sin red, OK perdido, carrera de commits, Welcome, rechazo definitivo; cada mecanismo con su prueba de mutación);
+  - apps/sovereign-client/test/groups.test.ts (persona Tor-only con el proxy SOCKS caído);
+  - tests/browser/web-groups.e2e.ts (navegador sin red y de vuelta);
+  - packages/marmot-adapter/test/multidevice.test.ts (`rejoin` pendiente).
+- Docs: docs/marmot.md («Sin red: mensajes y commits pendientes»).","https://github.com/sedecim-com/nostr/issues/269"
+"FR020-05","FR · Privacidad y Sovereign Tor","FR-020, Apéndice D","Suite de fugas completa en el cliente soberano","La captura real también cubre dm, group, media y rotation-worker, con MLS por Tor; control negativo de ts-mls rc.10 en CI","Seguridad","P1","3","FR020-03","S10","2026-10-23","Hecho","Commit 3ed7746 (PR #366):
+
+- `scripts/leak-test.sh`, fase `tor-groups`: dos personas Tor, cada una con su directorio de datos, trabajan solo por el proxy SOCKS mientras se captura el enlace.
+  - MLS por Tor: key package, grupo, invitación, mensaje y lectura.
+  - Media del grupo (MIP-04) en un Blossom `.onion`: la otra persona lo baja y descifra idéntico.
+  - DM NIP-17 y `dm inbox`.
+  - `group rotation-worker --once` contra un policy-engine `.onion` (NIP-98) que saca a la persona revocada.
+- Veredicto: cero DNS, cero IPv6 y nada fuera del proxy; cada CONNECT con las credenciales de su persona (`--all-personas`, `--socks-allow` en `tests/leak/check.ts`).
+- `scripts/mls-negative-control.sh`, en el job `leak-tests`: con ts-mls 2.0.0-rc.10 (tarball fijado por integridad), la autoprueba (`tests/security/mls-selftest.ts`) debe fallar cerrada; restaurado, debe pasar.
+- Tests: `tests/leak/leak.test.ts` (dos personas, aislamiento y hosts extra).
+- Docs: `docs/sovereign-tor.md`, `docs/marmot.md` y `docs/threat-model.md`.","https://github.com/sedecim-com/nostr/issues/270"
+"NFR006-04","NFR · Requisitos no funcionales","NFR-006","Escaneo de secretos en logs con todos los perfiles","El job stack también levanta managed, push, institutional y tor y escanea sus logs","QA","P3","2","NFR006-03","S10","2026-10-23","Hecho","Commit 04c315d (PR #357):
+
+- scripts/stack-profiles.sh:
+  - `configure` activa los cuatro perfiles con secretos generados que el escaneo conoce: KEK del signer, nsec y llave VAPID del gateway, token del allowlist.
+  - `exercise` envía una credencial canario a managed-signer, notification-gateway, policy-engine e identity-service.
+  - `logged` exige que cada servicio del stack salga en el log escaneado.
+- scripts/wait-stack.sh espera a los servicios de los perfiles activos.
+- .github/workflows/ci.yml: el job stack usa las tres órdenes.
+- En la ejecución de la PR:
+  - todos los servicios aparecen en compose.log (managed-signer, notification-gateway, relay-allowlist, tor, secure-relay-onion y el stack base);
+  - gitleaks escaneó 274 KB;
+  - el canario comprobó 15 valores secretos sin hallazgos.
+- Tests: tests/scripts/stack-profiles.test.ts.","https://github.com/sedecim-com/nostr/issues/271"
+"FR011-06","FR · Mensajería, entrega y resiliencia","FR-011, NFR-004","Métricas de outbox reales o alerta retirada","La alerta OutboxOldestPendingTooOld se alimenta de un proceso real o se retira del monitoreo del SaaS","Infra","P2","2","FR011-03","S10","2026-10-23","Hecho","Commit 616cf78 (PR #355): se retira del monitoreo del SaaS.
+
+- Motivo: los outboxes están en los clientes (web y CLI), que no envían telemetría al SaaS. El único exportador desplegado, el indexer, no tiene outbox y publicaba `nostr_outbox_*` a cero.
+- packages/metrics/src/exporter.ts registra las métricas de outbox solo al conectar un DeliveryEngine (attachEngine).
+- deploy/monitoring/prometheus/rules/relay-latency.rules.yml queda sin la alerta ni la regla de outbox. También salen sus tests de promtool y los paneles de outbox del dashboard.
+- docs/slo.md explica por qué.
+- Tests:
+  - packages/metrics/test/metrics.test.ts: sin motor no hay métricas de outbox; con motor, sí.
+  - tests/scripts/deploy-manifests.test.ts: ninguna regla ni dashboard del SaaS usa métricas de outbox.","https://github.com/sedecim-com/nostr/issues/272"
+"DEC-15","DEC · Decisiones de arquitectura","§21.1","Estructura de repositorios","ADR que justifica el monorepo frente a los seis repositorios sugeridos por el scope","Decisión","P3","1","","S10","2026-10-23","Parcial","Commit 8243e88 (PR #354): docs/adr/0012-estructura-de-repositorios.md, en estado Propuesto.
+
+- Mapea cada repositorio del scope a su directorio: platform, nostr-sdk, sovereign, key-tool, buzz-fork (no existe, ADR 0002) y security-specs.
+- Justifica un solo repositorio y una sola versión por release:
+  - los cambios cruzan SDK, servicios y clientes;
+  - hay un gate de interop y un release con su DoD;
+  - la cadena de suministro se configura una vez;
+  - los threat models y los vectores se versionan con el código.
+- Recoge sus costes y cuándo reabrir la decisión.
+
+Falta: que el responsable de producto lo apruebe (estado Aceptado en el ADR y en docs/adr/README.md). Con eso, la tarea se cierra.","https://github.com/sedecim-com/nostr/issues/273"
+"OPS-14","OPS · Despliegue y DevSecOps","§17, §26","Documentación del SDK y de las APIs","TypeDoc de los paquetes, OpenAPI de cada servicio y ADR sobre cómo se distribuye el SDK","Doc","P2","5","","S10","2026-10-23","Parcial","Commit 8617474 (PR #368):
+
+- SDK: referencia con TypeDoc de los 20 paquetes (`npm run docs:api`, portada en `docs/sdk.md`), que falla con cualquier aviso. En CI, el job `docs` la genera y la sube como artefacto `sdk-api-reference`.
+- APIs: OpenAPI 3.1 de los 9 servicios en `docs/openapi/`, generado desde las rutas que registra cada servicio (`Service.describe()` de service-kit y `scripts/openapi.ts`). `--check`, en el job `docs`, falla si los documentos no están al día, si una ruta no tiene resumen o si un resumen no tiene ruta.
+- ADR 0013 (`docs/adr/0013-distribucion-del-sdk.md`, **Propuesto**): los 15 paquetes de cliente se publican en npm bajo `@sedecim`, como ESM con `.d.ts`, desde `release.yml` con Trusted Publishing y provenance.
+  - Falta que lo apruebe el responsable de producto. Según `docs/adr/README.md`, esa aprobación es la que cierra la tarea, así que hasta entonces queda Parcial.
+- Tests: `tests/scripts/openapi.test.ts`.","https://github.com/sedecim-com/nostr/issues/274"
 "SEC-08","SEC/REL · Gates de seguridad y release","§20.3, PRD GC-A05, GC-A06","Corregir los hallazgos críticos y altos de SEC-01 y SEC-02","Cada crítico o alto con corrección, test de regresión y verificación del auditor; medios con plan o aceptación explícita; v1.0.0-rc.2 publicada para el retest","Seguridad","P0","8","SEC-01","S15","2027-01-15","Pendiente","","https://github.com/sedecim-com/nostr/issues/275"
 "REL-04","SEC/REL · Gates de seguridad y release","§2.3, PRD §12","Revisión final de afirmaciones y etiquetas de madurez","Ninguna función parcial aparece como GA; Sovereign Tor sigue Experimental y el README conserva la advertencia de no aptitud para alto riesgo; notas de trust model de v1.0.0","Doc","P1","1","PANEL-07 OPS-19 SEC-08","S16","2027-01-29","Pendiente","","https://github.com/sedecim-com/nostr/issues/276"
 "REL-03","SEC/REL · Gates de seguridad y release","Apéndice D, PRD G5","v1.0.0 firmada con la Definition of Done completa y sin waiver","Informes externos en docs/security/audits/v1.0.0.md, threat models aprobados, restore drills self-hosted y SaaS, fugas, artefactos firmados con SBOM y provenance, y feature gates de producción correctos","Infra","P0","3","SEC-01 SEC-02 SEC-08 REL-01 OPS-20 NFR003-03 REL-04","S16","2027-01-29","Pendiente","","https://github.com/sedecim-com/nostr/issues/277"
@@ -539,5 +728,22 @@ Documentado en ADR 0011 (sección VAULT-06), el threat model del vault, `docs/ru
 "FR013-05","FR · Mensajería, entrega y resiliencia","§7, §12","Caché local cifrada de eventos y NIP-77 con estado local","Lectura sin conexión, reanudación por since y NIP-77 con conjunto local (interop con strfry)","Dev","P3","5","","Diferido","","Pendiente","","https://github.com/sedecim-com/nostr/issues/299"
 "FR018-06","FR · Mensajería, entrega y resiliencia","§13.1","Política de tamaño, MIME y antivirus compatible con la confidencialidad","Política documentada y comprobación de tamaño en el cliente","Doc","P3","2","","Diferido","","Pendiente","","https://github.com/sedecim-com/nostr/issues/300"
 "FR004-07","FR · Identidad, llaves y custodia","§8.2","Signer de hardware (opcional en el scope)","Spike con un dispositivo de hardware y decisión documentada","Dev","P3","5","","Diferido","","Pendiente","","https://github.com/sedecim-com/nostr/issues/301"
-"OPS-21","OPS · Despliegue y DevSecOps","FR-021 (FR021-02)","El job tor-profile no falla por la latencia de Tor","scripts/tor-profile-check.sh no envía el DM hasta que el 10050 del destinatario está REPLICATED y da a cada lectura por Tor el margen de un circuito lento; si aun así falla, el log dice en qué paso y tras cuánto tiempo; el job tor-profile pasa en 5 ejecuciones seguidas","Infra","P1","2","FR021-02","S9","2026-10-09","Pendiente","","https://github.com/sedecim-com/nostr/issues/330"
+"OPS-21","OPS · Despliegue y DevSecOps","FR-021 (FR021-02)","El job tor-profile no falla por la latencia de Tor","scripts/tor-profile-check.sh no envía el DM hasta que el 10050 del destinatario está REPLICATED (en Buzz, que no acepta el kind 10050, hasta que el relay lo rechaza: ese DM va a los relays del emisor) y da a cada lectura por Tor el margen de un circuito lento; si aun así falla, el log dice en qué paso y tras cuánto tiempo; el job tor-profile pasa en 5 ejecuciones seguidas","Infra","P1","2","FR021-02","S9","2026-10-09","Parcial","Commits 090fd28, eec6291 y 8721843 (PR #336, merge 7f7246d):
+
+- relay-pool: con un challenge NIP-42 tardío se autentica y repite los REQ de gift wraps (packages/relay-pool/src/connection.ts; test con un enlace de 300 ms en packages/relay-pool/test/pool.test.ts).
+- CLI: 30 s por lectura en Tor (apps/sovereign-client/src/app.ts) y el motivo del relay cuando el 10050 queda FAILED (apps/sovereign-client/test/tor-hardening.test.ts).
+- scripts/tor-profile-check.sh:
+  - republica el 10050 mientras siga QUEUED; el secure relay lo acepta y Buzz lo rechaza con `restricted: unknown event kind`;
+  - relee el inbox hasta 8 veces y guarda cada intento con su duración.
+- tor-profile en verde en las 2 ejecuciones de la PR con el cambio completo (eec6291 y 8721843).
+
+Commits 6fc0ec6 y 57b1ce8 (PR #370, merge e974237):
+
+- scripts/tor-profile-check.sh:
+  - `read_until` repite también la relectura del mensaje del canal por el .onion. Antes era una sola lectura, y así falló en la PR #351.
+  - Si el arranque de Tor no avanza en 180 s (`TOR_CHECK_BOOTSTRAP_STALL`), guarda el log y reinicia tor una vez. En la PR #370, Tor se quedó cinco minutos en el 69 %.
+  - El arranque tiene su propio límite de 600 s (`TOR_CHECK_BOOTSTRAP_TIMEOUT`), y el fallo dice en qué porcentaje se quedó.
+- tor-profile en verde en la PR #370 con los dos cambios.
+
+Falta: 5 ejecuciones seguidas del job en verde.","https://github.com/sedecim-com/nostr/issues/330"
 "SEC-13","SEC/REL · Gates de seguridad y release","§20.3, PRD GC-A04","Segunda revisión interna de seguridad antes del tag de auditoría","docs/security/internal-review-2026-10.md revisa, con el método de la primera revisión, lo fusionado desde entonces (Continuity Vault, motor de entrega, feature gates de producción, SEC-06 y SEC-07); cada hallazgo medio o superior queda corregido, o aceptado con ADR, antes del tag de auditoría; el alcance y los hallazgos entran en el paquete de SEC-01 y SEC-02","Seguridad","P1","5","SEC-06 SEC-07","S11","2026-11-06","Pendiente","","https://github.com/sedecim-com/nostr/issues/331"

@@ -6,16 +6,16 @@
 
 | Estado | Cuántos | Cuáles |
 |---|---:|---|
-| Hecho | 21 | FR-001, FR-002, FR-004, FR-006, FR-007, FR-008, FR-009, FR-010, FR-012, FR-013, FR-014, FR-015, FR-016, FR-017, FR-018, FR-019, FR-022, FR-025, FR-027, NFR-007, NFR-008 |
-| Parcial | 17 | FR-003, FR-005, FR-011, FR-020, FR-021, FR-023, FR-024, FR-026, FR-028, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-006, NFR-009, NFR-010 |
+| Hecho | 26 | FR-001, FR-002, FR-004, FR-006, FR-007, FR-008, FR-009, FR-010, FR-011, FR-012, FR-013, FR-014, FR-015, FR-016, FR-017, FR-018, FR-019, FR-020, FR-022, FR-023, FR-024, FR-025, FR-027, NFR-006, NFR-007, NFR-008 |
+| Parcial | 12 | FR-003, FR-005, FR-021, FR-026, FR-028, NFR-001, NFR-002, NFR-003, NFR-004, NFR-005, NFR-009, NFR-010 |
 
 ## Tareas
 
 | Estado | Tareas | Story points |
 |---|---:|---:|
-| Hecho | 163 | 424 |
-| Parcial | 21 | 72 |
-| Pendiente | 58 | 209 |
+| Hecho | 181 | 479 |
+| Parcial | 23 | 78 |
+| Pendiente | 38 | 148 |
 | Descartado | 6 | 21 |
 
 Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
@@ -26,15 +26,15 @@ Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
 | Externally Audited | 0 |
 | Stage Verified | 0 |
 | CI Verified | 0 |
-| Merged | 29 |
+| Merged | 47 |
 | Sin label (anteriores a OPS-17) | 134 |
 
 ## Sprints abiertos
 
 | Sprint | Fechas | Fase | Objetivo | Hechas | Abiertas | SP abiertos | P0 abiertas |
 |---|---|---|---|---:|---:|---:|---:|
-| S9 | 2026-09-28 → 2026-10-09 | G0 | Código de la auditoría y v0.1.0 firmada | 15 de 31 | 16 | 37 | 8 |
-| S10 | 2026-10-12 → 2026-10-23 | G1 | Resto del código, vault aprobado y v0.2.0 | 9 de 27 | 18 | 60 | 4 |
+| S9 | 2026-09-28 → 2026-10-09 | G0 | Código de la auditoría y v0.1.0 firmada | 22 de 31 | 9 | 17 | 5 |
+| S10 | 2026-10-12 → 2026-10-23 | G1 | Resto del código, vault aprobado y v0.2.0 | 20 de 27 | 7 | 25 | 4 |
 | S11 | 2026-10-26 → 2026-11-06 | G2 | Stage real en AWS | 5 de 14 | 9 | 36 | 6 |
 | S12 | 2026-11-09 → 2026-11-20 | G3 | Freeze de auditoría y v1.0.0-rc.1 | 0 de 1 | 1 | 3 | 1 |
 | S13 | 2026-11-23 → 2026-12-04 | G4 | Auditoría en campo y aprobación legal | 0 de 3 | 3 | 4 | 0 |
@@ -52,9 +52,6 @@ Nivel de evidencia de las tareas hechas (label `evidencia:*`, OPS-17):
 | [REL-01](https://github.com/sedecim-com/nostr/issues/196) Checklist de Definition of Done automatizado en el pipeline de release | S9 | Parcial | NFR010-02, NFR003-02, FR020-03, DEC-10, OPS-08 |
 | [REL-02](https://github.com/sedecim-com/nostr/issues/197) Release notes con los cambios de trust model por release | S9 | Parcial | REL-01 |
 | [OPS-12](https://github.com/sedecim-com/nostr/issues/220) Gobierno del repositorio: proteger main, activar private vulnerability reporting y nombrar un segundo mantenedor | S9 | Pendiente | — |
-| [SEC-06](https://github.com/sedecim-com/nostr/issues/222) IR-15: ligar el payload sellado del mirror a su event_id con AAD versionado | S9 | Pendiente | — |
-| [OPS-18](https://github.com/sedecim-com/nostr/issues/250) Trazabilidad y estado generados desde la fuente, con check en CI | S9 | Pendiente | OPS-17 |
-| [PANEL-07](https://github.com/sedecim-com/nostr/issues/259) Etiquetas de madurez por perfil y función en web, CLI y documentación | S9 | Pendiente | PANEL-05 |
 | [NFR001-01](https://github.com/sedecim-com/nostr/issues/170) Infraestructura como código del SaaS (Helm/Terraform) | S10 | Parcial | OPS-02 |
 | [NFR001-02](https://github.com/sedecim-com/nostr/issues/171) Monitorización de SLO (99,9 % mensual) y alertas | S10 | Parcial | NFR001-01 |
 | [NFR001-03](https://github.com/sedecim-com/nostr/issues/172) Postgres de alta disponibilidad y backups gestionados | S10 | Parcial | NFR001-01 |
