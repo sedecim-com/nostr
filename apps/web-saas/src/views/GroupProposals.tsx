@@ -43,7 +43,6 @@ export function GroupProposals({ gs, group, relays, isAdmin, readOnly, busy, act
   const [removal, setRemoval] = useState('');
   const [confirmRemoval, setConfirmRemoval] = useState<string | undefined>();
   const count = group.pendingProposals ?? 0;
-  const who = (pubkey: string) => (pubkey === s.pubkey ? 'ti' : authorLabel(s, pubkey));
   const removable = group.members.filter((m) => m !== s.pubkey && !group.admins.includes(m));
 
   // The pending proposals of this epoch, read again whenever their number or the epoch changes.
@@ -67,7 +66,9 @@ export function GroupProposals({ gs, group, relays, isAdmin, readOnly, busy, act
 
   const line = (p: GroupProposal) => {
     const kind = p.type === 'add' && p.target && group.members.includes(p.target) ? 'Dispositivo nuevo' : TYPE_LABELS[p.type];
-    return `${kind}${p.target ? ` de ${p.target === s.pubkey ? 'ti' : authorLabel(s, p.target)}` : ''} · propuesta por ${p.proposer ? who(p.proposer) : 'alguien de fuera del grupo'}`;
+    const target = p.target ? `: ${p.target === s.pubkey ? 'tú' : authorLabel(s, p.target)}` : '';
+    const proposer = !p.proposer ? 'alguien de fuera del grupo' : p.proposer === s.pubkey ? 'ti' : authorLabel(s, p.proposer);
+    return `${kind}${target} · propuesta por ${proposer}`;
   };
 
   const decide = (approve: string[]) =>

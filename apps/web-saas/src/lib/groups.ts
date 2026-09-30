@@ -375,13 +375,18 @@ export async function groupMediaUploader(s: PersonaSession, cfg: DeploymentConfi
   return ciphertextUploader(targets, s.signer, { mirror: true });
 }
 
+/** Refuses a file name MIP-04 cannot carry (members' clients would drop the file): checked before anything else. */
+export async function checkGroupFileName(filename: string): Promise<void> {
+  const m = await import('@sedecim/marmot-adapter');
+  if (!m.isValidMediaFilename(filename)) throw new Error('Ese nombre de archivo no se puede enviar a un grupo seguro: debe ocupar entre 1 y 255 bytes y no llevar saltos de línea. Cámbiale el nombre.');
+}
+
 /**
  * Encrypts the (prepared) file with the group's current epoch, uploads the ciphertext and sends the message that carries
- * it (MIP-04, `imeta`). The name must be one MIP-04 can carry: members' clients drop the others.
+ * it (MIP-04, `imeta`).
  */
 export async function sendGroupFile(gs: GroupSession, groupId: string, file: { data: Uint8Array; filename: string; type: string }, upload: MediaUploader, caption = ''): Promise<GroupMediaReference> {
-  const m = await import('@sedecim/marmot-adapter');
-  if (!m.isValidMediaFilename(file.filename)) throw new Error('Ese nombre de archivo no se puede enviar a un grupo seguro: debe ocupar entre 1 y 255 bytes y no llevar saltos de línea. Cámbiale el nombre.');
+  await checkGroupFileName(file.filename);
   return (await extended(gs)).sendMedia(groupId, { data: file.data, filename: file.filename, type: file.type || 'application/octet-stream' }, upload, caption);
 }
 

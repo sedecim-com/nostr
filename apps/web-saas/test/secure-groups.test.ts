@@ -17,6 +17,7 @@ import {
   dropGroupSession,
   exclusive,
   fetchGroupFile,
+  forgetRemovedGroup,
   groupErrorMessage,
   GroupHistory,
   groupMediaDownloader,
@@ -179,6 +180,18 @@ describe('web secure groups: devices, rotation, proposals and encrypted files (F
       expect(await contents(b, g.groupId)).toContain('sin el portátil');
       expect(membership(await handle(b, g.groupId), bob)).toBe('member');
     }
+    // What the view tells it to do to come back: forget the group here and have another device propose it again.
+    bob2.gs = await forgetRemovedGroup(bob2.s, bob2.book.store, cfg, g.groupId);
+    const again = await exclusive(bob1.gs, (x) => missingDevices(x, g.groupId, bob, groupRelays));
+    expect(again).toHaveLength(1);
+    expect((await exclusive(bob1.gs, (x) => addGroupDevices(x, g.groupId, again))).committed).toBe(false);
+    await sync(alice, g.groupId);
+    await exclusive(alice.gs, async (x) => decideProposals(x, g.groupId, (await pendingProposals(x, g.groupId)).map((p) => p.ref)));
+    expect(await accept(bob2)).toEqual([g.groupId]);
+    await send(alice, g.groupId, 'otra vez dentro');
+    await sync(bob2, g.groupId);
+    expect(await contents(bob2, g.groupId)).toContain('otra vez dentro');
+    expect(membership(await handle(bob2, g.groupId), bob)).toBe('member');
     // The secure relay only ever held ciphertext: no text, group name or device name.
     for (const e of secure.events.values()) for (const t of ['hola bob', 'ya sois tres', 'Redacción', 'Móvil', 'Portátil', 'Escritorio']) expect(e.content).not.toContain(t);
   }, 300_000);

@@ -57,7 +57,8 @@ export function GroupDevices({ gs, group, relays, isAdmin, commitsBlocked, busy,
         await reuse.record(uses);
       }
       const candidates = await exclusive(gs, (g) => missingDevices(g, group.groupId, owner, relays));
-      setAdding({ owner, candidates, picked: new Set(candidates.map((k) => k.id)) });
+      // Closed (or pointed at someone else) while it searched: the answer is not shown.
+      setAdding((cur) => (cur?.owner === owner ? { owner, candidates, picked: new Set(candidates.map((k) => k.id)) } : cur));
     });
 
   const confirmAdd = () => {

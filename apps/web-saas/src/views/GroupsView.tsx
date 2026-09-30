@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Alert, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import type { GroupHandle, GroupSession, PendingGroupOperation } from '@sedecim/marmot-adapter';
 import { fileDigest } from '@sedecim/identity/usage';
 import { npubEncode } from '@sedecim/nostr-core';
@@ -12,6 +12,7 @@ import {
   GroupHistory,
   groupMediaUploader,
   groupRelays,
+  checkGroupFileName,
   inviteMembers,
   membership,
   openGroupSession,
@@ -287,6 +288,7 @@ export function GroupsView() {
    * (FR019) before it is encrypted with the group's epoch; only the ciphertext is uploaded, and the text is its caption.
    */
   const sendFile = async (chosen: File, caption: string) => {
+    await checkGroupFileName(chosen.name);
     // FR018-06 (pending in @sedecim/blossom-client): checkAttachmentSize('group', chosen.size) goes here, before the file is read.
     const bytes = new Uint8Array(await chosen.arrayBuffer());
     // FR006-07: a file another persona of this browser already sent waits for an explicit confirmation; it is recorded
@@ -519,7 +521,7 @@ export function GroupsView() {
                       }
                     >
                       {standing === 'device-removed'
-                        ? 'Quitaron este navegador del grupo: no recibirá sus mensajes nuevos. Tus otros dispositivos siguen en él; para volver, olvida aquí el grupo y pide a uno de ellos o a un admin que lo añada de nuevo.'
+                        ? 'Quitaron este navegador del grupo: no recibirá sus mensajes nuevos. Tus otros dispositivos siguen en él; para volver, olvida aquí el grupo y pide a un admin que lo añada de nuevo, o a otro de tus dispositivos que lo proponga.'
                         : 'Ya no eres miembro de este grupo: no recibirás sus mensajes nuevos.'}
                     </Alert>
                   )}
@@ -618,7 +620,11 @@ export function GroupsView() {
                           primary={
                             m.media?.length ? (
                               <>
-                                {m.content && <span style={{ display: 'block' }}>{m.content}</span>}
+                                {m.content && (
+                                  <Box component="span" sx={{ display: 'block' }}>
+                                    {m.content}
+                                  </Box>
+                                )}
                                 {m.media.map((a) => (
                                   <GroupAttachment key={a.sha256} s={s} gs={gs} groupId={openId} attachment={a} />
                                 ))}
@@ -653,7 +659,14 @@ export function GroupsView() {
                       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
                         <Button component="label" size="small" variant="outlined" disabled={busy || proposalsPending}>
                           Adjuntar archivo cifrado
-                          <input hidden type="file" onChange={(e) => setFile(e.target.files?.[0])} />
+                          <input
+                            hidden
+                            type="file"
+                            onChange={(e) => {
+                              setFile(e.target.files?.[0]);
+                              e.target.value = ''; // the same file can be picked again after it went or was removed
+                            }}
+                          />
                         </Button>
                         {file && <Chip label={file.name} onDelete={() => setFile(undefined)} />}
                       </Stack>
