@@ -448,7 +448,11 @@ describe('OTLP/HTTP JSON exporter (NFR007-02)', () => {
     const failing = await collector('fail');
     for (const url of [down.url, failing.url]) {
       const policy = new TelemetryPolicy({ level: 'standard', traceSampleRate: 1, endpoints: [url] });
-      const exporter = new OtlpHttpExporter({ url, policy, serviceName: 'down-test', timeoutMs: 1000 });
+      // Even a reporter that throws cannot turn the background send into a rejection.
+      const onDrop = () => {
+        throw new Error('reporter failed');
+      };
+      const exporter = new OtlpHttpExporter({ url, policy, serviceName: 'down-test', timeoutMs: 1000, onDrop });
       exporter.export(finished(1)[0]!);
       await expect(exporter.flush()).resolves.toBeUndefined();
       expect(exporter.stats).toEqual({ exported: 0, dropped: 0, failed: 1 });

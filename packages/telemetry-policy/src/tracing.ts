@@ -524,8 +524,17 @@ export class OtlpHttpExporter implements SpanExporter {
 
   private report(): void {
     if (!this.unreported) return;
-    this.opts.onDrop?.('queue-full', this.unreported);
+    this.dropped('queue-full', this.unreported);
     this.unreported = 0;
+  }
+
+  /** A drain runs unawaited: a throwing `onDrop` must not turn into an unhandled rejection. */
+  private dropped(reason: 'queue-full' | 'send-failed', spans: number): void {
+    try {
+      this.opts.onDrop?.(reason, spans);
+    } catch {
+      // Reporting never breaks exporting.
+    }
   }
 
   private async send(batch: FinishedSpan[]): Promise<void> {
@@ -543,7 +552,7 @@ export class OtlpHttpExporter implements SpanExporter {
       this.stats.exported += batch.length;
     } catch {
       this.stats.failed += batch.length;
-      this.opts.onDrop?.('send-failed', batch.length);
+      this.dropped('send-failed', batch.length);
     }
   }
 }
