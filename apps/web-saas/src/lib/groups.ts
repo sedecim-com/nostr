@@ -448,5 +448,8 @@ export function groupErrorMessage(e: unknown): string {
   if (/no pending proposals in this epoch/.test(message)) return 'Esas propuestas ya no están pendientes (el grupo cambió de época): quien las hizo tiene que volver a proponerlas.';
   if (/^blob [0-9a-f]+… not available/.test(message)) return 'Ningún servidor entregó el archivo cifrado con el hash que anuncia el mensaje: no se ha descifrado nada.';
   if (/epoch changed (during the upload|before the file went out)/.test(message)) return 'El grupo cambió de época mientras se subía el archivo: vuelve a enviarlo.';
+  // A proposal does not wait for a relay as messages and commits do (marmot-ts publishes it or fails).
+  if (/Failed to publish proposal event/.test(message)) return 'Sin conexión con el relay de grupos: la propuesta no salió. Vuelve a hacerla cuando haya conexión.';
+  if (/^blossom upload failed on every server/.test(message)) return 'Ningún servidor aceptó el archivo cifrado: no se ha enviado nada al grupo.';
   return message;
 }

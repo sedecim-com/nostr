@@ -5,7 +5,7 @@
  * deployment's nostr-rs-relay: NIP-42 challenge, gift wraps only for their authenticated recipient.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { publishServerList, UnsanitizableFileError } from '@sedecim/blossom-client';
+import { ciphertextUploader, publishServerList, UnsanitizableFileError } from '@sedecim/blossom-client';
 import { EncryptedStore, MemoryBackend, type Vault } from '@sedecim/encrypted-store';
 import { MediaKeyUnavailableError, type ExtendedGroupSession, type GroupSession } from '@sedecim/marmot-adapter';
 import { hexToBytes, npubEncode, randomBytes } from '@sedecim/nostr-core';
@@ -321,6 +321,17 @@ describe('web secure groups: devices, rotation, proposals and encrypted files (F
     await sync(alice, gid);
     expect(await exclusive(alice.gs, (g) => pendingProposals(g, gid))).toEqual([]);
     expect((await handle(alice, gid)).members).toContain(D);
+
+    // Without a relay a proposal does not wait (unlike messages and commits): it fails, and the web says so.
+    await sync(bob, gid);
+    secure.faults.rejectReason = 'error: relay caído';
+    try {
+      const offline = await exclusive(bob.gs, (g) => proposeChange(g, gid, { remove: D }, groupRelays)).catch((e: unknown) => e);
+      expect(groupErrorMessage(offline)).toMatch(/la propuesta no salió/);
+    } finally {
+      secure.faults.rejectReason = null;
+    }
+    expect(await exclusive(bob.gs, (g) => pendingProposals(g, gid))).toEqual([]);
   }, 300_000);
 
   it('a file goes without its metadata and encrypted, only ciphertext reaches Blossom, members open it with its hash checked, a tampered copy is refused and a removed member cannot open newer files (FR025-14)', async () => {
@@ -389,6 +400,8 @@ describe('web secure groups: devices, rotation, proposals and encrypted files (F
 
       // The shared URL fails: the file comes from the other servers of the sender's list, still checked.
       await primary.stop();
+      const nowhere = await exclusive(alice.gs, (g) => sendGroupFile(g, gid, { data, filename: 'otra.png', type: 'image/png' }, ciphertextUploader([primary.url], alice.s.signer))).catch((e: unknown) => e);
+      expect(groupErrorMessage(nowhere)).toMatch(/Ningún servidor aceptó el archivo cifrado/);
       expect((await fetchGroupFile(bob.gs, gid, msg.media![0]!.sha256, groupMediaDownloader(bob.s))).data.length).toBe(tinyPng().length);
       // A server that serves other bytes is refused before anything is decrypted.
       second.corruptDownloads = true;
