@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { constants, createDecipheriv, createHash, generateKeyPairSync, privateDecrypt, randomBytes } from 'node:crypto';
+import { constants, createDecipheriv, createHash, createPublicKey, generateKeyPairSync, type JsonWebKey, privateDecrypt, randomBytes } from 'node:crypto';
 import { accesoOwner, checkEnclaveTrust, envelopeAad, EnvelopeError, fromBase64Url, MAX_ENVELOPE_CHARS, ownerTag, sealToEnclave, toBase64Url } from '../src/index';
 
 const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const spki = new Uint8Array(rsa.publicKey.export({ type: 'spki', format: 'der' }));
+// The control for a key that is too short: a fixed public key of 1024 bits, as a literal and not a key generated here.
+const SHORT_RSA: JsonWebKey = {
+  kty: 'RSA',
+  n: 'uvm_xx0x3dWhnLFLOXoHBxklnfUt1KJeqoE8TAgmRqJeZnH0C6SAxaMahBzmcjO6VQLkYyzJR-Q7VUztD8QuQ-JiytpJ1C7-J05dtb-7X6g8LhL6fLJpcwZvbu-A9Tow6VliNCgkqehGYCvQDgDEZGjon50v1HFATX0n1wQkqpk',
+  e: 'AQAB',
+};
 const TAG = ownerTag('https://cognito-idp.us-east-1.amazonaws.com/us-east-1_TEST#ana');
 const PUBKEY = 'a'.repeat(64);
 const pcr = (c: string) => c.repeat(96);
@@ -37,7 +43,7 @@ describe('sealing a secret to the enclave, in the client', () => {
   it('FR005-10: refuses what it cannot seal properly: a secret too large, no attestation time, a short RSA key, a bad owner tag or pubkey', async () => {
     await expect(sealToEnclave(spki, { purpose: 'import', ownerTag: TAG, at: Date.now(), ncryptsec: 'ncryptsec1x', password: 'x'.repeat(MAX_ENVELOPE_CHARS) })).rejects.toThrow(/too large/);
     for (const at of [0, -1, 1.5, Number.NaN]) await expect(sealToEnclave(spki, { purpose: 'import', ownerTag: TAG, at, ncryptsec: 'n', password: 'p' })).rejects.toThrow(EnvelopeError);
-    const short = new Uint8Array(generateKeyPairSync('rsa', { modulusLength: 1024 }).publicKey.export({ type: 'spki', format: 'der' }));
+    const short = new Uint8Array(createPublicKey({ key: SHORT_RSA, format: 'jwk' }).export({ type: 'spki', format: 'der' }));
     await expect(sealToEnclave(short, { purpose: 'import', ownerTag: TAG, at: Date.now(), ncryptsec: 'n', password: 'p' })).rejects.toThrow(/2048 bits/);
     await expect(sealToEnclave(spki, { purpose: 'import', ownerTag: 'ana', at: Date.now(), ncryptsec: 'n', password: 'p' })).rejects.toThrow(/owner tag/);
     await expect(sealToEnclave(spki, { purpose: 'export', ownerTag: TAG, pubkey: 'npub1x', at: Date.now(), password: 'p' })).rejects.toThrow(/pubkey/);
