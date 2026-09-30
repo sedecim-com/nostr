@@ -66,7 +66,7 @@ Un requisito está **Hecho** si lo están todas sus tareas del programa, sin con
 | [FR002-01](https://github.com/sedecim-com/nostr/issues/71) Importar nsec/ncryptsec validando la correspondencia pubkey/secret | Hecho | packages/identity/test | — |
 | [FR002-02](https://github.com/sedecim-com/nostr/issues/72) Registrar persona con signer externo (bunker) o managed | Hecho | packages/identity | — |
 | [FR002-03](https://github.com/sedecim-com/nostr/issues/73) Importar el backup del key-generator (sedecim-offline-key) en web y CLI | Hecho | packages/identity/src/key-backup.ts (parseKeyBackup/openKeyBackup verifican la npub); web (Importar archivo de backup) y CLI (persona import --backup); tests/browser/web-saas.e2e.ts | [import.test.ts](../apps/sovereign-client/test/import.test.ts), [identity.test.ts](../packages/identity/test/identity.test.ts), [web-saas.e2e.ts](../tests/browser/web-saas.e2e.ts), [backup.test.ts](../tests/fuzz/backup.test.ts) |
-| [FR004-08](https://github.com/sedecim-com/nostr/issues/290) Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | Pendiente (Diferido) | — | — |
+| [FR004-08](https://github.com/sedecim-com/nostr/issues/290) Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | Pendiente (Diferido) | — | [nip46.test.ts](../apps/sovereign-client/test/nip46.test.ts), [profiles.test.ts](../packages/profiles/test/profiles.test.ts), [signer.test.ts](../packages/signer/test/signer.test.ts) |
 
 ## FR-003 · Generador offline
 
@@ -94,7 +94,7 @@ Un requisito está **Hecho** si lo están todas sus tareas del programa, sin con
 | [FR004-04](https://github.com/sedecim-com/nostr/issues/84) UI de permisos mínimos visibles al conectar un signer | Hecho | describePermissions + WEB_NIP46_PERMISSIONS (solo los kinds que firma la web), listados antes de conectar; tests/browser/web-saas.e2e.ts | [nip46-permissions.test.ts](../apps/web-saas/test/nip46-permissions.test.ts), [signer.test.ts](../packages/signer/test/signer.test.ts), [web-saas.e2e.ts](../tests/browser/web-saas.e2e.ts) |
 | [FR004-05](https://github.com/sedecim-com/nostr/issues/85) Soporte de auth_url del signer remoto | Hecho | Nip46Signer onAuthUrl con ventana de espera ampliada; alerta "Abrir aprobación" en la web; packages/signer/test | [signer.test.ts](../packages/signer/test/signer.test.ts) |
 | [FR004-06](https://github.com/sedecim-com/nostr/issues/232) Permisos NIP-46 completos para los kinds que firma la web | Hecho · Merged | Commit aac7167 (PR #306): `WEB_SIGNED_KINDS` (packages/signer/src/nip46.ts) lista los kinds que la web firma con la llave de la persona, y `WEB_NIP46_PERMISSIONS` sale de esa lista. Suma 10063, 30078 y 30443 y ya no pide 5 ni 7. · Test: apps/web-saas/test/nip46-permissions.test.ts pasa todos los caminos de firma de la web por un signer que registra lo que firma y contrasta la lista en los dos sentidos. | [nip46-permissions.test.ts](../apps/web-saas/test/nip46-permissions.test.ts) |
-| [FR004-08](https://github.com/sedecim-com/nostr/issues/290) Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | Pendiente (Diferido) | — | — |
+| [FR004-08](https://github.com/sedecim-com/nostr/issues/290) Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | Pendiente (Diferido) | — | [nip46.test.ts](../apps/sovereign-client/test/nip46.test.ts), [profiles.test.ts](../packages/profiles/test/profiles.test.ts), [signer.test.ts](../packages/signer/test/signer.test.ts) |
 
 ## FR-005 · Managed key
 

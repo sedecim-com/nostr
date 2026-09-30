@@ -1,16 +1,16 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.10.0** · huella `c77e72631f7b5747` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.11.0** · huella `7d98f0e859013455` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
 
 | Control | Opción | Texto mostrado | Refuerza | Reduce | Confías en |
 |---|---|---|---|---|---|
-| custody | local | La llave se genera y guarda cifrada en este dispositivo. La plataforma no puede firmar ni recuperar tu llave. | soberania, privacidad-operador | recuperabilidad | Seguridad del dispositivo y de tu passphrase. |
+| custody | local | La llave se guarda cifrada en este dispositivo, creada aquí o importada (nsec, ncryptsec o un backup). La plataforma no puede firmar ni recuperar tu llave. | soberania, privacidad-operador | recuperabilidad | Seguridad del dispositivo y de tu passphrase. |
 | custody | offline | La llave vive fuera de línea (air-gapped/hardware). Nadie más puede firmar; la recuperación es tu responsabilidad. | soberania, privacidad-operador | recuperabilidad | Custodia física del respaldo. |
-| custody | external | Un signer externo (NIP-46/NIP-07) firma por ti; este cliente nunca ve la nsec. | soberania, privacidad-operador | — | El signer externo y los permisos que le concedas. |
+| custody | external | Un signer externo (NIP-46/NIP-07) firma por ti; este cliente nunca ve la nsec. El signer ve lo que firma y los mensajes directos que descifra por ti. | soberania, privacidad-operador | — | El signer externo y los permisos que le concedas. |
 | custody | encrypted-backup | El operador almacena un backup cifrado con una clave que solo tú controlas: guarda ciphertext, no la clave de descifrado. | recuperabilidad | — | Fortaleza de tu contraseña de backup (scrypt). |
 | custody | managed | Managed Key activado: la plataforma tiene capacidad técnica de firmar como tú y descifra en su servidor tus mensajes directos (NIP-44). Este modo es CUSTODIAL. | recuperabilidad, control-institucional | soberania, privacidad-operador | Operador, su vault (Secrets Manager/KMS) y su personal. |
 | custody | managed-enclave | Custodia en enclave: el backend general no ve la llave en claro, pero el servicio de firma sí puede firmar como tú. Sigue siendo CUSTODIAL. | recuperabilidad, control-institucional | soberania | Attestation del enclave y políticas KMS del operador. |
