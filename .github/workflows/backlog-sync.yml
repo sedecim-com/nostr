@@ -9,6 +9,10 @@ name: backlog-sync
 # `seed` (create on GitHub whatever backlog.json has and the issues don't; rename milestones after meta.sprints
 # and align "blocked by" links with each issue's "Depende de") runs when this workflow or the sync script change
 # on main — that is how the first merge populates the issues — or on demand.
+# OPS-12: with the bots' GitHub App configured (variable BOT_APP_CLIENT_ID, secret BOT_APP_PRIVATE_KEY) the sync
+# branch is pushed and its PR opened by the App, so the PR runs CI like any other: a PR opened with the
+# workflow's GITHUB_TOKEN runs none, and with required checks on main it could never be merged. Without the App,
+# the GITHUB_TOKEN as before. Issues are always read and written with the GITHUB_TOKEN.
 on:
   push:
     branches: [main]
@@ -49,11 +53,22 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       BRANCH: backlog-sync
     steps:
+      - name: Bot token (GitHub App, OPS-12)
+        id: bot
+        if: vars.BOT_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
           # OPS-18: the commits cited as evidence are checked against the history.
           fetch-depth: 0
+          # The sync branch is pushed with this token: the App's when there is one.
+          token: ${{ steps.bot.outputs.token || github.token }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -68,6 +83,8 @@ jobs:
           node scripts/traceability.mjs
           node scripts/traceability.mjs --check
       - name: Open, update or close the sync PR
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token || github.token }}
         run: |
           base="${{ github.event.repository.default_branch }}"
           if git diff --quiet -- docs/backlog docs/requirements-traceability.md docs/status.md README.md; then
@@ -98,4 +115,4 @@ jobs:
           No editar esta rama: cada cambio en los issues la regenera.
           MD
           gh pr create --base "$base" --head "$BRANCH" --title "backlog: sync desde GitHub Issues" --body-file "$RUNNER_TEMP/body.md" \
-            || echo "::warning::No se pudo abrir el PR (¿\"Allow GitHub Actions to create and approve pull requests\" desactivado?). La rama $BRANCH tiene el backlog sincronizado: ${{ github.server_url }}/${{ github.repository }}/compare/$base...$BRANCH"
+            || echo "::warning::No se pudo abrir el PR (sin la GitHub App de los bots, ¿\"Allow GitHub Actions to create and approve pull requests\" desactivado?; con ella, revisa sus permisos). La rama $BRANCH tiene el backlog sincronizado: ${{ github.server_url }}/${{ github.repository }}/compare/$base...$BRANCH"

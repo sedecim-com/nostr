@@ -155,9 +155,22 @@ Además:
 - Corre al fusionar en `main` un cambio del script o del workflow; así se sembró el backlog la primera vez.
 - También se puede lanzar a mano (*Run workflow* → `seed`).
 
-Requisito del repositorio: *Settings → Actions → General → Allow GitHub Actions to create and approve pull
-requests*. Sin él, la rama `backlog-sync` se actualiza igual y el workflow deja un aviso con el enlace para
-abrir la PR a mano.
+### Quién abre la PR de sincronización (OPS-12)
+
+Una PR que abre el `GITHUB_TOKEN` del workflow no lanza ningún workflow, así que no tiene checks, y con los
+checks obligatorios en `main` no se podría fusionar. Por eso la rama y la PR las sube una GitHub App de los bots
+cuando está configurada:
+
+- La App: *Organization settings → Developer settings → GitHub Apps*, sin webhook, con *Contents* y *Pull
+  requests* en escritura e instalada solo en este repositorio.
+- En el repositorio, *Settings → Secrets and variables → Actions*: la variable `BOT_APP_CLIENT_ID` (el *Client
+  ID* de la App) y el secreto `BOT_APP_PRIVATE_KEY` (su clave privada `.pem` entera).
+- El workflow pide un token de la App solo con esos dos permisos (`actions/create-github-app-token`), empuja la
+  rama y abre, actualiza o cierra la PR con él. Los issues los sigue leyendo y escribiendo con el `GITHUB_TOKEN`.
+
+Sin la variable, todo va con el `GITHUB_TOKEN`, como antes, y hace falta *Settings → Actions → General → Allow
+GitHub Actions to create and approve pull requests*. Si no se puede abrir la PR, la rama `backlog-sync` se
+actualiza igual y el workflow deja un aviso con el enlace para abrirla a mano.
 
 Pruebas locales: `npx vitest run tests/scripts/backlog-github.test.ts` (API de GitHub simulada en memoria). La
 prueba verifica el viaje completo backlog → issues → backlog.

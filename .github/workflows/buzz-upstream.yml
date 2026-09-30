@@ -67,7 +67,21 @@ jobs:
       issues: write
       pull-requests: write
     steps:
+      # OPS-12: with the bots' GitHub App configured, the pin branch and its PR are the App's, so the PR runs ci,
+      # CodeQL and dependency-review on its own. Without it, the GITHUB_TOKEN plus a dispatched ci run, as before.
+      - name: Bot token (GitHub App, OPS-12)
+        id: bot
+        if: vars.BOT_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The pin branch is pushed with this token: the App's when there is one.
+          token: ${{ steps.bot.outputs.token || github.token }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: interop-reports
@@ -80,7 +94,10 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Update the pin and open the PR
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot.outputs.token || github.token }}
+          # The workflow's own token for what the App may not do: dispatch ci and open the fallback issue.
+          WORKFLOW_TOKEN: ${{ github.token }}
+          BOT: ${{ steps.bot.outputs.token != '' }}
           IMAGE: ${{ needs.detect.outputs.image }}
           PINNED: ${{ needs.detect.outputs.pinned }}
           REVISION: ${{ needs.detect.outputs.revision }}
@@ -131,21 +148,23 @@ jobs:
           } > "$RUNNER_TEMP/body.md"
           if url=$(gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --title "Buzz upstream: pin $short" --body-file "$RUNNER_TEMP/body.md"); then
             echo "opened $url"
-            # PRs opened with GITHUB_TOKEN don't trigger `ci`; a workflow_dispatch does, and its checks
-            # show up on the PR's head commit.
-            gh workflow run ci.yml --ref "$branch" || echo "::warning::could not dispatch ci on $branch: run it by hand"
+            if [ "$BOT" != true ]; then
+              # PRs opened with GITHUB_TOKEN don't trigger `ci`; a workflow_dispatch does, and its checks
+              # show up on the PR's head commit. A PR opened by the App runs its checks on its own.
+              GH_TOKEN="$WORKFLOW_TOKEN" gh workflow run ci.yml --ref "$branch" || echo "::warning::could not dispatch ci on $branch: run it by hand"
+            fi
           else
-            # Repo setting "Allow GitHub Actions to create and approve pull requests" is off: leave the
-            # branch and an issue so the review is not lost.
+            # Without the App, "Allow GitHub Actions to create and approve pull requests" is off; with it, its
+            # permissions are wrong. Leave the branch and an issue so the review is not lost.
             echo "::warning::could not open the PR; opening an issue instead"
             {
-              echo "No se pudo abrir la PR automática (activar *Allow GitHub Actions to create and approve pull requests* en Settings → Actions → General)."
+              echo "No se pudo abrir la PR automática. Sin la GitHub App de los bots: activar *Allow GitHub Actions to create and approve pull requests* en Settings → Actions → General. Con ella: revisar que tenga *Contents* y *Pull requests* en escritura."
               echo
               echo "Rama lista para la PR: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$GITHUB_REF_NAME...$branch"
               echo
               cat "$RUNNER_TEMP/body.md"
             } > "$RUNNER_TEMP/issue.md"
-            gh issue create --title "Buzz upstream: pin $short pendiente de PR" --body-file "$RUNNER_TEMP/issue.md"
+            GH_TOKEN="$WORKFLOW_TOKEN" gh issue create --title "Buzz upstream: pin $short pendiente de PR" --body-file "$RUNNER_TEMP/issue.md"
           fi
 
   # Gate failed against the candidate: no PR (ADR 0003), but leave a trace to review by hand.
