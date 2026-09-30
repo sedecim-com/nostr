@@ -344,9 +344,17 @@ suite('events (memory)', async () => new MemoryPolicyRepository());
 
 const PG = process.env.TEST_DATABASE_URL;
 if (PG) {
+  // A schema of this file's own: the other suites reset the policy tables of the default one.
+  const SCHEMA = 'ops16_events';
+  const url = `${PG}${PG.includes('?') ? '&' : '?'}options=${encodeURIComponent(`-c search_path=${SCHEMA}`)}`;
   let pool: Pool;
   const fresh = async () => {
-    pool ??= createPgPool(PG);
+    if (!pool) {
+      const admin = createPgPool(PG);
+      await admin.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`);
+      await admin.end();
+      pool = createPgPool(url);
+    }
     await resetScope(pool, 'policy-engine', POLICY_TABLES);
     await migrate(pool, MIGRATIONS, 'policy-engine');
     return new PgPolicyRepository(pool);
@@ -380,7 +388,7 @@ if (PG) {
     it('pages the stream without holes or repeats while writers race, as each write commits (OPS-16)', async () => {
       const reader = await fresh();
       const key = parseSigningKey(seed());
-      const writers = Array.from({ length: 6 }, () => jittery(createPgPool(PG)));
+      const writers = Array.from({ length: 6 }, () => jittery(createPgPool(url)));
       const person = pubkey();
       try {
         let done = false;
@@ -420,7 +428,7 @@ if (PG) {
       await first.initEvents();
       await first.registerDevice('admin', pubkey());
       // "Restart" with a rotated key: a new pool, repository and engine.
-      const pool2 = createPgPool(PG);
+      const pool2 = createPgPool(url);
       try {
         const second = new PolicyEngine(new PgPolicyRepository(pool2), Date.now, WEBAUTHN, { issuer: ISSUER, key: b });
         await second.initEvents();

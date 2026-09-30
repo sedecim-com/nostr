@@ -19,6 +19,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
+        # The mounted keys (policy-keys) belong to this group, readable by it alone.
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -59,6 +61,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # OPS-16: the events signing key and the webhook secrets key as files, when acceso-nostr-secrets has them.
+            # Only read when POLICY_EVENTS_SIGNING_KEY_FILE / POLICY_WEBHOOK_SECRETS_KEY_FILE (acceso-nostr-config) point here.
+            - name: policy-keys
+              mountPath: /run/secrets/policy-engine
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /health
@@ -86,6 +93,16 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: policy-keys
+          secret:
+            secretName: acceso-nostr-secrets
+            optional: true
+            defaultMode: 0440
+            items:
+              - key: POLICY_EVENTS_SIGNING_KEY
+                path: events-signing-key
+              - key: POLICY_WEBHOOK_SECRETS_KEY
+                path: webhook-secrets-key
 ---
 apiVersion: v1
 kind: Service

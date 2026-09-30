@@ -28,6 +28,11 @@
       "components": ["notification-gateway"],
       "safeTrigger": false,
       "evidence": "ADR 0010, matriz real por relay: ni Buzz ni el secure relay entregan al gateway los gift wraps de otras personas (tests/interop/notification-gateway.interop.test.ts, job stack)"
+    },
+    "webhooks-private": {
+      "title": "webhooks del policy-engine hacia destinos privados o locales (OPS-16)",
+      "settings": { "POLICY_WEBHOOKS_ALLOW_PRIVATE": "true" },
+      "testOnly": "abre los webhooks a loopback, redes privadas y los metadatos de la nube, también por http (SSRF)"
     }
   }
 }

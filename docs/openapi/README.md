@@ -4,7 +4,7 @@
 
 | Servicio | Operaciones | Qué hace |
 |---|---|---|
-| [policy-engine](policy-engine.json) | 27 | Modo institucional (spec §16): personas, recursos, dispositivos, revocación, auditoría y retención. docs/institutional.md. |
+| [policy-engine](policy-engine.json) | 34 | Modo institucional (spec §16): personas, recursos, dispositivos, revocación, auditoría, eventos firmados y webhooks (OPS-16), y retención. docs/institutional.md. |
 | [managed-signer](managed-signer.json) | 19 | Custodia gestionada de llaves Nostr en KMS (FR005): firma y NIP-44 con sesiones de dispositivo revocables. docs/managed-enclave.md. |
 | [identity-service](identity-service.json) | 18 | Cuentas SaaS: personas, vínculos entre personas, login de Acceso asociado y backups cifrados en el cliente. |
 | [continuity-vault](continuity-vault.json) | 8 | Continuity Vault (ADR 0011): sobres de archivo sellados en cada dispositivo; el operador ve cuentas, tamaños y fechas, nunca contenido ni llaves. |
