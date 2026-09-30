@@ -16,13 +16,54 @@ red (IP, horarios) · outbox local · backups · credenciales de servicio (KEK, 
 | Robo físico del dispositivo | Passphrase + scrypt en stores y NIP-49; revocación de dispositivo (policy-engine) | Passphrase débil |
 | Persona de la organización que publica donde la política no la deja | Modo institucional: el relay seguro admite por `h` solo a quien puede publicar en el canal o grupo registrado; en Buzz, la membresía NIP-29 de los canales privados registrados sigue a la política (FR023-10); lecturas del mirror filtradas (FR023-05) | Canales y grupos sin registrar quedan abiertos a todo el allowlist; un cambio de la política llega en la siguiente sincronización; los owners y admins de un canal de Buzz publican aunque la política no los incluya |
 | Compromiso de cuenta cloud | El backup cloud solo contiene ciphertext (vault `/v1/backups`: el servidor valida que el sobre sea NIP-49/XChaCha20 y rechaza nsec o hex en claro; la contraseña del backup no sale del cliente); NIP-98 en APIs (sin contraseñas de servidor). El Continuity Vault (ADR 0011) guarda solo sobres sellados en el cliente con la llave de archivo (256 bits, que el servidor no recibe) y rechaza texto plano ([threat model](threat-models/continuity-vault.md)) | Disponibilidad; quien obtenga el login de Acceso vinculado o el volcado de la base puede descargar el ciphertext e intentar fuerza bruta offline (scrypt): depende de la fortaleza de la contraseña del backup. El operador ve npub, tamaño y fechas de las copias; en el vault, la cuenta, cuántos archivos, su tamaño aproximado y cuándo cambian |
-| Correlación entre identidades | Personas sin vínculo por defecto, compartimentos con store/relays/circuito Tor separados (IsolateSOCKSAuth), avisos de reutilización de contactos en el CLI (en la web y para archivos: FR006-07, después de v1.0), banner "Enviando como…" | Estilo de escritura, horarios, errores humanos |
+| Correlación entre identidades | Personas sin vínculo por defecto, compartimentos con store/relays/circuito Tor separados (IsolateSOCKSAuth), aviso con confirmación explícita antes de usar desde una persona un contacto o un archivo que ya usó otra, en la web y en el CLI ([más abajo](#compartimentación-aviso-antes-de-reutilizar-un-contacto-o-un-archivo-fr006-07), FR006-07), banner "Enviando como…" | Estilo de escritura, horarios, errores humanos; un contacto o un archivo que otra persona usó desde otro dispositivo, o antes de restaurar un backup, no se detecta |
 | Insider organizacional | RBAC/ABAC default-deny, auditoría sin plaintext, dispositivos registrados para recursos sensibles | Admins con privilegios amplios |
 | Bug en biblioteca criptográfica | Autoprueba de secreto post-expulsión al abrir sesiones MLS (fail closed), con control negativo en CI que instala ts-mls rc.10 y exige que falle (`scripts/mls-negative-control.sh`, FR020-05); override de ts-mls (hoy 2.0.0-rc.16; la corrección llegó en rc.11) tras hallar que rc.10 omitía UpdatePath en un Remove (RFC 9420 §12.4); tests de propiedades/fuzz con fast-check (`tests/fuzz`, SEC-03: eventos NIP-01, NIP-44, NIP-49, TLV NIP-19, codecs MLS y parsers de backup, con pruebas diferenciales contra nostr-tools; `FUZZ_RUNS=2000 npx vitest run tests/fuzz --testTimeout=0` para una campaña larga) | Otros fallos no cubiertos por la autoprueba; revisión independiente pendiente |
 | Supply chain | Dependencias fijadas (versiones exactas + lockfile), noble/scure auditadas, keygen sin dependencias en runtime y bundle reproducible, SBOM, gitleaks, Dependabot, CodeQL y dependency review en CI, imágenes reproducibles bit a bit (NFR010-03), releases firmados con cosign keyless + provenance SLSA desde un entorno protegido (`release.yml`, docs/building.md) | Primer release firmado pendiente y entorno `release` sin aprobador distinto del autor del tag (OPS-08); `main` sin protección hasta OPS-12, prevista para noviembre |
 | Servicio push / operador del gateway de notificaciones (ADR 0010) | Push opt-in y opaco (payload constante cifrado RFC 8291 o vacío; sin contenido, remitente ni recuento), retardo aleatorio + agrupación + ticks comunes por perfil, registro NIP-98 (solo el propio npub), un scope de service worker por persona, registros solo en memoria, baja ante 404/410, logs con HMAC truncado; sin push en sovereign y Tor (validación + 403 en el gateway) | El servicio push ve cuándo llega un aviso al dispositivo y la IP del gateway; el gateway conoce npub ↔ endpoint mientras el push esté activo; correlación temporal relay↔push posible con poco tráfico |
 | Usuario de la plataforma fuera de un canal | El espejo solo sirve un canal (mensajes, estado NIP-29, no leídos y búsqueda) a quien figura en sus listas 39001/39002 firmadas por el relay (NIP-11 `self` o `INDEXER_GROUP_AUTHORITIES`), y aplica los 9005 de moderación como Buzz: autor o admin del canal (FR014-05) | Las listas se consultan en cada refresco de canales (`INDEXER_CHANNEL_REFRESH_MS`, 30 s por defecto): quien sale de un canal puede seguir leyéndolo por el espejo hasta el siguiente refresco |
 | Error humano | Advertencia antes de mostrar nsec, confirmación explícita para vínculos, no sobrescribir backups, disclosures por opción | — |
+
+## Compartimentación: aviso antes de reutilizar un contacto o un archivo (FR006-07)
+
+Spec §14.1: la aplicación advierte antes de reutilizar una identidad, un archivo o un contacto entre compartimentos.
+Implementación en `packages/identity/src/usage.ts` (compartida por la web y el CLI); pruebas en
+`packages/identity/test/usage.test.ts`, `apps/sovereign-client/test/compartment.test.ts`,
+`apps/web-saas/test/compartment.test.ts` y `tests/browser/web-saas.e2e.ts`.
+
+**Qué cuenta como uso.** Lo que la persona hace hacia un contacto o con un archivo: escribirle un DM, invitarlo a un
+grupo seguro, proponer que entre o añadir sus dispositivos, y enviar un archivo (adjunto de DM, imagen de canal o
+media de grupo). Lo que la persona recibe no cuenta.
+
+**Cuándo avisa.** Antes de cualquier petición de red, cuando la persona activa va a usar un contacto o un archivo que
+otra persona de este dispositivo ya usó y ella todavía no, sean cuales sean los compartimentos o perfiles. El aviso
+nombra la otra persona y quién podría relacionarlas (el contacto, quien vea el tráfico de las dos, quien reciba las
+dos copias del archivo). Sin confirmación explícita no sale nada: en la web, un diálogo con «Cancelar» y «Entiendo el
+riesgo, seguir con …»; en el CLI, la orden termina con error y hay que repetirla con `--confirm-reuse` (`dm send`,
+`group invite`, `group propose --add`, `group add-device --member`, `group send-file`). Cuando el envío sigue adelante,
+el uso queda registrado antes de su primera petición de red (un archivo, después de pasar el saneador de metadatos) y
+ese mismo cruce no se vuelve a preguntar. Escribir a otra de tus propias identidades también avisa, cada vez, cuando
+una de las dos es de alto riesgo; invitarla a un grupo sigue prohibido (todos los miembros verían a las dos), también
+en la web, que no admite personas de alto riesgo y rechaza invitar a cualquier otra persona propia.
+
+**Qué se guarda para detectarlo.** Un registro por persona, dentro de su propio almacén cifrado (en el CLI, el
+directorio de la persona; en la web, la colección `usage-<id>` del almacén del navegador, junto a su outbox), nunca
+en una lista común a todas: una llave aleatoria de 32 bytes de esa persona y, por cada contacto o archivo usado, una
+etiqueta HMAC-SHA256(llave, `contact:<pubkey>` o `file:<sha256 del archivo tal como se eligió>`). No se guarda la
+npub, ni el hash del archivo, ni su nombre, ni la conversación, ni cuándo se usó (en el CLI cada entrada es un
+archivo, y el sistema de archivos conserva su fecha de modificación, como la de cada operación del outbox). Para
+comprobar un uso se calcula la etiqueta con la llave de cada una de las otras personas; lo que la persona activa ya
+usó ni siquiera abre las demás. El registro no sale del dispositivo: no va en los backups ni en el Continuity Vault.
+Lo que el CLI guardaba antes (las npubs y los hashes de todas las personas, juntos en una lista del almacén de la
+cuenta) se pasa al registro de cada persona y se borra la primera vez que se usa.
+
+**Qué ve cada parte.** Nadie fuera del dispositivo: la comprobación es local y no añade ninguna petición. Quien abra
+el almacén local tiene también las llaves: puede comprobar si una npub o un archivo concretos están en el registro de
+una persona, pero no listarlos, y las etiquetas de dos personas no se pueden cruzar sin las dos llaves.
+
+**Riesgo residual.** El registro es de cada dispositivo: lo usado desde otro dispositivo, o antes de restaurar un
+backup, no se detecta. Un archivo con los mismos píxeles y otros bytes (por ejemplo, reexportado) cuenta como otro.
+Confirmar el aviso no borra el riesgo: solo deja constancia de que el usuario lo aceptó.
 
 ## Propiedades por modo (§20.2)
 

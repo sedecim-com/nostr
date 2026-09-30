@@ -32,7 +32,7 @@ de auditoría, dispositivos registrados.
 | Pérdida del registro de llaves al reiniciar | Registro y log de uso en Postgres; retención de 12 meses para el uso y de 30 días para el material borrado | `registry.test.ts` (FR005-03, DEC-09) |
 | Pérdida o manipulación del estado de políticas | Persistencia en Postgres (`policy_*`); auditoría append-only por triggers; tokens de sesión con hash | `policy-engine.test.ts` (FR023-03: reinicio, append-only) |
 | Acceso al relay de un usuario dado de baja | Allowlist NIP-42 sincronizado desde el engine a Buzz (tabla) y al secure-relay (admisión gRPC) | `allowlist-sync.test.ts` (FR023-04) |
-| Lectura del mirror fuera de rol | El indexer evalúa cada lectura en el engine; deny por defecto, también ante errores | `indexer/test/policy.test.ts`, `tests/e2e/institutional-policy.test.ts` (FR023-05) |
+| Lectura del mirror fuera de rol | El indexer evalúa cada lectura en el engine; deny por defecto, también ante errores. Los contadores de no leídos y la búsqueda de la web pasan por las mismas lecturas (FR014-04) | `indexer/test/policy.test.ts`, `tests/e2e/institutional-policy.test.ts` (FR023-05), `apps/web-saas/test/mirror.test.ts` |
 | Dispositivo suplantado | Nivel `attested` solo con registro WebAuthn verificado en servidor | `webauthn.test.ts`, `policy-engine.test.ts` (FR023-07) |
 
 ## Riesgos residuales

@@ -1,5 +1,5 @@
 /**
- * Full-stack checks against the Docker Compose deployment (OPS-01, FR-014, FR-018, FR-017, VAULT-06).
+ * Full-stack checks against the Docker Compose deployment (OPS-01, FR-014, FR014-04, FR-018, FR-017, VAULT-06).
  *   docker compose up -d && STACK_INDEXER_URL=http://localhost:8081 BUZZ_RELAY_URL=ws://localhost:3000 \
  *     STACK_BLOB_URL=http://localhost:8085 STACK_VAULT_URL=http://localhost:8088 STACK_WEB_URL=http://localhost:8080 \
  *     npm run test:interop
@@ -14,12 +14,15 @@ import { chatMessage, createGroup, parseGroupMetadata } from '@sedecim/messaging
 import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
 import { nip98Fetch } from '@sedecim/service-kit';
 import { ArchiveVaultClient, archiveEvent, generateArchiveKey, restoreHistory } from '@sedecim/continuity';
+import { MirrorClient } from '../../apps/web-saas/src/lib/mirror';
 
 const RELAY = process.env.BUZZ_RELAY_URL;
 const INDEXER = process.env.STACK_INDEXER_URL;
 const BLOBS = process.env.STACK_BLOB_URL;
 const WEB = process.env.STACK_WEB_URL;
 const VAULT = process.env.STACK_VAULT_URL;
+/** The web origin the compose services answer (WEB_ORIGIN in .env). */
+const WEB_ORIGIN = process.env.STACK_WEB_ORIGIN ?? 'http://localhost:8080';
 const factory = (u: string) => new WebSocket(u) as unknown as WebSocketLike;
 
 async function eventually<T>(fn: () => Promise<T | undefined>, ms: number): Promise<T | undefined> {
@@ -51,6 +54,15 @@ describe.skipIf(!RELAY || !INDEXER)('stack: mirror follows Buzz (FR-014, FR014-0
     }, 90_000);
     expect(found, 'indexer did not mirror the message').toBeDefined();
     expect(found.meta.find((m: { id: string }) => m.id === msg.id).sensitivity).toBe('channel');
+
+    // FR014-04: the web's own mirror client, over NIP-98 as the browser runs it, and the CORS answer for the web
+    // origin. The author's own message is never unread for the author; the search finds it.
+    const web = new MirrorClient(INDEXER!, signer);
+    expect((await web.recent([meta!.id], { kinds: [9] })).get(meta!.id)).toEqual([]);
+    expect((await web.search('espejado por el stack', { kinds: [9] })).map((h) => h.event.id)).toContain(msg.id);
+    const preflight = await fetch(`${INDEXER}/v1/unread/recent?h=${meta!.id}`, { method: 'OPTIONS', headers: { origin: WEB_ORIGIN, 'access-control-request-method': 'GET', 'access-control-request-headers': 'authorization' } });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-origin')).toBe(WEB_ORIGIN);
 
     // FR014-05: the mirror follows Buzz's own NIP-29 lists (signed with the key in its NIP-11 `self`): someone
     // outside the channel reads nothing of it, and a deletion (kind 9005) accepted by Buzz hides the message.

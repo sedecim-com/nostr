@@ -35,6 +35,7 @@ services:
     environment:
       INDEXER_RELAY_PUBLIC_URL: wss://relay.${DOMAIN}
       PUBLIC_BASE_URL: https://mirror.${DOMAIN}
+      CORS_ORIGINS: https://${DOMAIN}
       # Behind Caddy, which sets X-Forwarded-For to the client: the rate limiter trusts that one hop.
       RATE_LIMIT_TRUST_PROXY_HOPS: "1"
 

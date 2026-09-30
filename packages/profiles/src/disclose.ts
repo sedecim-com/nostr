@@ -1,5 +1,6 @@
 import type { Dimension, Disclosure, SovereigntyConfig } from './types';
 import { PRESETS } from './presets';
+import { CHANNEL_MIRROR_TEXTS } from './mirror';
 
 type Entry = Omit<Disclosure, 'control' | 'option'>;
 const d = (statement: string, improves: Dimension[], sacrifices: Dimension[], trustAssumptions: string[] = []): Entry => ({ statement, improves, sacrifices, trustAssumptions });
@@ -73,7 +74,7 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.8.0';
+export const DISCLOSURE_VERSION = '1.10.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.
@@ -116,6 +117,16 @@ export const PUBLIC_PROFILE_TEXTS = {
   groups: 'Buscar los perfiles de los miembros les dice a tus relays a quién buscas: podrían deducir quién está en este grupo. Por eso solo se buscan si lo pides; si no, se muestran los que ya conocías por los canales o los mensajes directos.',
 } as const;
 
+/**
+ * FR015-04: what deleting in a NIP-29 channel does and does not do, shown by the web wherever it deletes. Part of the
+ * reviewed copy (disclosureCatalog, docs/disclosures.md).
+ */
+export const CHANNEL_DELETION_TEXTS = {
+  message: 'Borrar un mensaje de canal publica una petición firmada con tu npub (NIP-29, kind 9005). El relay del canal y el mirror la aplican si la firma el autor del mensaje o un admin del canal: dejan de servirlo, y la web lo oculta.',
+  copies: 'Borrar no retira las copias que ya circularon: quien recibió el mensaje, otros clientes y otros relays pueden conservarlo, y la petición de borrado es un evento público firmado con tu npub.',
+  reaction: 'Quitar tu reacción publica un borrado NIP-09 (kind 5) de esa reacción: los clientes que lo aplican dejan de contarla, pero quien ya la vio puede conservarla.',
+} as const;
+
 /** The version recorded with a managed key's consent: the reviewed copy and the terms that were shown. */
 export function managedConsentVersion(termsVersion?: string): string {
   return `textos ${DISCLOSURE_VERSION}; términos ${termsVersion ?? 'no publicados'}`;
@@ -135,6 +146,9 @@ export function disclosureCatalog(): Disclosure[] {
   for (const [key, statement] of Object.entries(MANAGED_CONSENT_TEXTS)) out.push({ control: 'custody', option: `managed (consentimiento: ${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   for (const [key, statement] of Object.entries(CONTINUITY_VAULT_TEXTS)) out.push({ control: 'cloudBackup', option: `continuity-vault (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   for (const [key, statement] of Object.entries(PUBLIC_PROFILE_TEXTS)) out.push({ control: 'identity', option: `public-profile (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+  for (const [key, statement] of Object.entries(CHANNEL_DELETION_TEXTS)) out.push({ control: 'persistence', option: `borrado en canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+  // FR014-04: listed under the control that decides whether the web asks the mirror (see mirrorPolicy).
+  for (const [key, statement] of Object.entries(CHANNEL_MIRROR_TEXTS)) out.push({ control: key === 'torOnly' ? 'network' : 'identity', option: `mirror de canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   return out;
 }
 

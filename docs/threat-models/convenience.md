@@ -25,6 +25,8 @@ cuenta↔npub en el identity-service, backup cifrado.
 | Suplantación en DMs | El unwrap verifica que el firmante del seal coincide con el autor del rumor | `messaging.test.ts` (impersonation) |
 | Oráculo de presencia con los acuses de entrega | Solo a contactos, quien la persona ya escribió (IR-2026-10-09): un desconocido que escribe primero no recibe acuse ni hace que el dispositivo se conecte, y firme un AUTH NIP-42, en sus relays | `packages/messaging/test/inbox.test.ts` |
 | Pérdida de mensajes | Outbox cifrada, persistida antes de transmitir; reintentos | `packages/delivery-engine/test` |
+| Mensajes ajenos ocultados por un borrado falso | La web solo aplica un 9005 del autor del mensaje o de un admin de la lista 39001 firmada por la llave del canal, y un kind 5 sobre eventos de quien lo firma (FR015-04) | `packages/messaging/test/channels.test.ts`, `apps/web-saas/test/channel-collab.test.ts` |
+| Registro en el operador de hasta dónde lees cada canal | La web guarda ese cursor cifrado en el vault del navegador y al mirror solo le pide la hora de los mensajes recientes (FR014-04) | `apps/web-saas/test/mirror.test.ts` |
 | Metadatos EXIF en imágenes | Saneamiento por defecto (`stripFileMetadata`); las imágenes que no se pueden sanear (HEIC, TIFF/RAW) se rechazan, también en DMs | `packages/blossom-client/test`, `tests/browser/web-saas.e2e.ts` |
 
 ## Riesgos residuales
@@ -34,6 +36,8 @@ cuenta↔npub en el identity-service, backup cifrado.
 | IP y horarios visibles para relays y servicio push | Alto | Red directa; push opaco (sin contenido, remitente ni recuento) con retardo aleatorio y agrupación (ADR 0010); aceptado en este perfil |
 | Sin forward secrecy en DMs (NIP-44) | Medio | Si se compromete la nsec, se expone el historial |
 | Correlación cuenta↔npub en el identity-service | Medio | Solo si el usuario registra la persona |
+| Borrar un mensaje de canal no retira sus copias | Medio | Quien lo recibió, otros clientes y relays pueden conservarlo, y el mirror conserva la fila marcada; la web lo dice antes de borrar (FR015-04) |
+| El mirror ve qué canales consultas, cuándo y qué buscas | Medio | Contadores de no leídos y búsqueda firmados con NIP-98 (FR014-04); la vista de canales lo dice; aceptado en este perfil, con identidad vinculada |
 | Contraseña local débil | Medio | scrypt `logN=15` (store) y `logN=16` (NIP-49); falta medidor de fortaleza |
 | XSS en la web | Medio | CSP estricta con nonce por petición (sin `unsafe-inline`); la sesión de Acceso no da acceso a las llaves; pentest pendiente (SEC-02) |
 | Acceso físico al navegador con llave del dispositivo | Medio | Solo si el usuario la elige (ADR 0007); disclosure y aviso `DEVICE_KEY`; se puede volver a contraseña en cualquier momento |

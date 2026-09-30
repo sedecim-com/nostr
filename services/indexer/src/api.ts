@@ -11,6 +11,8 @@ function parseList(v: string | null): string[] | undefined {
 }
 
 const MAX_CHANNELS = 100;
+/** FR014-04: message times returned per channel by /v1/unread/recent (default 100). */
+const MAX_RECENT = 500;
 
 /** Non-negative integer query parameter; NaN or negative values would otherwise reach SQL (500). */
 function intParam(req: Req, name: string): number | undefined {
@@ -163,6 +165,18 @@ export function createIndexerApi(repo: EventRepository, opts: ServiceOptions & {
       // Channels the reader may not read (not a member, or denied by policy) are left out of the answer.
       const hs = await guard(req).channels(channelList(req.query.get('h'), true)!);
       return { unread: await repo.unreadCounts(req.pubkey!, hs), cursors: await repo.readCursors(req.pubkey!, hs) };
+    },
+    'nip98',
+  );
+  // FR014-04: unread counts for a client that keeps its read cursors to itself (the web). The mirror returns when each
+  // readable channel's newest messages were written, without the reader's own or deleted ones, and the client counts
+  // those after its cursor: which channel was read up to when never reaches the mirror.
+  svc.get(
+    '/v1/unread/recent',
+    async (req) => {
+      const hs = await guard(req).channels(channelList(req.query.get('h'), true)!);
+      const limit = Math.max(1, Math.min(intParam(req, 'limit') ?? 100, MAX_RECENT));
+      return { recent: await repo.recentMessageTimes(req.pubkey!, hs, { kinds: kindList(req.query.get('kinds')), limit }), limit };
     },
     'nip98',
   );

@@ -88,6 +88,9 @@ spec:
               value: $(RELAY_URL)
             - name: PUBLIC_BASE_URL
               value: $(INDEXER_PUBLIC_URL)
+            # FR014-04: the web asks for unread counts and search from the browser.
+            - name: CORS_ORIGINS
+              value: $(WEB_ORIGIN)
             # Institutional mode (FR023-05/08): empty URL keeps it off (components/institutional sets it).
             - name: POLICY_ENGINE_URL
               value: $(INDEXER_POLICY_ENGINE_URL)

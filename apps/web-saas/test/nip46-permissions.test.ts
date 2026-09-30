@@ -10,10 +10,11 @@ import { generateSecretKey, getPublicKey, nip98, type EventTemplate, type NostrE
 import { buildServerList, prepareBlob, uploadToServers, type HttpClient } from '@sedecim/blossom-client';
 import { createPublicLink } from '@sedecim/identity/public-link';
 import { MarmotTsProvider, MemoryGroupNetwork, VolatileGroupStorage, type ExtendedGroupSession } from '@sedecim/marmot-adapter';
-import { buildProfile, chatMessage, createDirectMessage, createFileMessage, createGroup, createReceipt, joinRequest, publishDmRelayList } from '@sedecim/messaging';
+import { buildProfile, chatMessage, createDirectMessage, createFileMessage, createGroup, createReceipt, deleteEvent, joinRequest, publishDmRelayList, replyMessage } from '@sedecim/messaging';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { LocalSigner, WEB_NIP46_PERMISSIONS } from '@sedecim/signer';
 import { TestRelay } from '@sedecim/test-relay';
+import { reactionToggle } from '../src/lib/channels';
 
 /** Stands in for a remote (NIP-46) signer and records every kind it is asked to sign. */
 class RecordingSigner implements Signer {
@@ -51,6 +52,12 @@ describe('NIP-46 permissions of the web (FR004-04, FR004-06)', () => {
 
     // Channels (NIP-29), the Blossom server list and the public profile go through the outbox, which signs their templates.
     for (const t of [chatMessage('g1', 'hola'), createGroup('Redacción', 'open'), joinRequest('g1'), buildServerList(['https://blossom.example']), buildProfile({ name: 'Ana' })]) await me.signEvent(t);
+    // FR015-04: replies, reactions and their removal, and deletions of channel messages (what the channels view sends).
+    const channelMsg = await other.signEvent(chatMessage('g1', 'tema'));
+    const channelEntry = { event: channelMsg, reactions: [] };
+    const [react] = reactionToggle('g1', channelEntry, '👍');
+    const reacted = await me.signEvent(react!);
+    for (const t of [replyMessage('g1', 'respuesta', channelMsg), ...reactionToggle('g1', { ...channelEntry, reactions: [{ content: '👍', count: 1, mine: [reacted] }] }, '👍'), deleteEvent('g1', channelMsg.id)]) await me.signEvent(t);
     const http: HttpClient = async (_url, init) => ({ status: 200, headers: {}, body: new TextEncoder().encode(JSON.stringify({ sha256: init.headers!['x-sha-256'], url: 'https://blossom.example/x', size: 3, type: 'application/octet-stream', uploaded: 0 })) });
     await uploadToServers(prepareBlob(new Uint8Array([1, 2, 3]), { encrypt: true }), ['https://blossom.example'], me, { http });
 
