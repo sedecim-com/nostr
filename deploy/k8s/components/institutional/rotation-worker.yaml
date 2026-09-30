@@ -1,0 +1,133 @@
+# FR024-05: rotation worker. Its identity joins the groups that list it as an admin and invite it, removes the members the
+# policy-engine revokes (FR024-02) and sends device revocations to the managed-signer (FR024-03/04). It can decrypt those
+# groups while it is in them (it keeps no messages): docs/institutional.md, «Worker de rotaciones».
+# One replica, Recreate: the MLS state in the volume (encrypted with ROTATION_STATE_KEY) has a single writer.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rotation-worker-state
+  labels:
+    app: rotation-worker
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rotation-worker
+  labels:
+    app: rotation-worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: rotation-worker
+  template:
+    metadata:
+      labels:
+        app: rotation-worker
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rotation-worker
+          image: acceso-nostr-service
+          ports:
+            - name: http
+              containerPort: 8089
+          envFrom:
+            - configMapRef:
+                name: acceso-nostr-config
+          env:
+            - name: SERVICE
+              value: rotation-worker
+            - name: PORT
+              value: "8089"
+            - name: POLICY_ENGINE_URL
+              value: http://policy-engine:8083
+            # One of POLICY_SERVICE_TOKENS: rotations and revocations are read with it (not a policy-engine admin).
+            - name: POLICY_ENGINE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: ROTATION_WORKER_POLICY_TOKEN
+            - name: ROTATION_WORKER_NSEC
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: ROTATION_WORKER_NSEC
+            - name: ROTATION_STATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: ROTATION_STATE_KEY
+            - name: ROTATION_STATE_DIR
+              value: /data
+            # With components/managed-signer: set ROTATION_MANAGED_SIGNER_URL in the config and this secret (one of
+            # MANAGED_SIGNER_REVOCATION_TOKENS). Neither set: revocations are not sent to a managed-signer.
+            - name: ROTATION_MANAGED_SIGNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: acceso-nostr-secrets
+                  key: ROTATION_MANAGED_SIGNER_TOKEN
+                  optional: true
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 20m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: rotation-worker-state
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rotation-worker
+  labels:
+    app: rotation-worker
+spec:
+  selector:
+    app: rotation-worker
+  ports:
+    - name: http
+      port: 8089
+      targetPort: 8089

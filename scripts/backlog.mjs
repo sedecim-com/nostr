@@ -30,6 +30,12 @@ if (meta.github !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(meta.github)) errors
 // OPS-18: the names of the requirements the traceability (scripts/traceability.mjs) is generated for.
 for (const r of REQUIRED) if (!meta.requirements?.[r]) errors.push(`meta.requirements has no name for ${r}`);
 for (const r of Object.keys(meta.requirements ?? {})) if (!REQUIRED.includes(r)) errors.push(`meta.requirements: unknown requirement ${r}`);
+// OPS-19: the rows of the README status block; each selector names a requirement, a task or an id prefix (VAULT-*).
+for (const c of meta.capabilities ?? [])
+  for (const sel of c.select ?? []) {
+    const known = /^N?FR-\d{3}$/.test(sel) ? REQUIRED.includes(sel) : sel.endsWith('*') ? tasks.some((t) => t.id.startsWith(sel.slice(0, -1))) : byId.has(sel);
+    if (!known) errors.push(`meta.capabilities "${c.name}": ${sel} does not select any requirement or task`);
+  }
 for (const t of tasks) {
   for (const d of t.deps) {
     const dep = byId.get(d);

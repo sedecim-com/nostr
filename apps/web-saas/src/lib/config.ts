@@ -1,4 +1,5 @@
 import type { DeploymentFlags } from '@sedecim/messaging';
+import { normalizePubkey } from '@sedecim/nostr-core';
 
 export interface CognitoSettings {
   region: string;
@@ -19,6 +20,17 @@ export interface DeploymentConfig {
    * the pinned Buzz rejects. Unset: groups use the persona relays.
    */
   secureRelays?: string[];
+  /**
+   * FR024-03: the organisation registers each browser as a device in its policy-engine. The managed persona then offers
+   * to bind this browser's session to that device id, so that revoking the device turns this browser away.
+   */
+  organizationDevices?: boolean;
+  /**
+   * FR024-05: npub (or hex) of the organisation's rotation worker (services/rotation-worker). Set: every group created
+   * here lists it as an admin and invites it, so that it can remove a member whose device the organisation revokes.
+   * While in a group it can decrypt it; the group shows it as a member. Unset: groups get no such member.
+   */
+  rotationWorker?: string;
   /**
    * FR010-03: extra relays where the recipients' DM relay lists (kinds 10050 and 10002) are looked up, besides the
    * persona's own relays, e.g. an indexer that collects relay lists. Unset: only the persona's relays. Each lookup
@@ -70,6 +82,14 @@ export async function loadConfig(): Promise<DeploymentConfig> {
   }
   // Fail closed: a SaaS deployment without Cognito settings must not silently run without login.
   if (cfg.mode === 'saas' && !cfg.cognito) throw new Error('config.json: mode "saas" requiere la configuración de cognito');
+  // A worker the groups cannot add would leave them without rotation: a wrong key is a configuration error.
+  if (cfg.rotationWorker) {
+    try {
+      cfg = { ...cfg, rotationWorker: normalizePubkey(cfg.rotationWorker) };
+    } catch {
+      throw new Error('config.json: rotationWorker debe ser una npub o 64 caracteres hex');
+    }
+  }
   return cfg;
 }
 

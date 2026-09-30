@@ -1,17 +1,18 @@
 import { join } from 'node:path';
 import WebSocket from 'ws';
-import { bytesToHex, normalizePubkey, randomBytes, type NostrEvent, type Signer } from '@sedecim/nostr-core';
+import { bytesToHex, getTagValue, normalizePubkey, randomBytes, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { EncryptedStore, FileBackend } from '@sedecim/encrypted-store';
 import { IdentityManager, type BackupPackage, type BackupPackageV2, type PersonaConfig } from '@sedecim/identity';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
 import { NetworkGuard } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, publishDmRelayList, type DirectMessage, type DmInboxOptions, type InboxOutbox, type InboxPool, type RelayAdapter } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, OperationMismatchError, publishDmRelayList, type DirectMessage, type DmInboxOptions, type DmOperation, type InboxOutbox, type InboxPool, type OperationOutbox, type RelayAdapter } from '@sedecim/messaging';
 import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
 import { continuityPolicy, disclose, preset, receiptPolicy, validateConfig, type ContinuityOption, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
 import {
   EncryptedGroupStorage,
+  hasPendingGroupOperations,
   MarmotTsProvider,
   PoolGroupNetwork,
   assertHighSecurity,
@@ -26,6 +27,7 @@ import {
   type GroupMessage,
   type GroupProposal,
   type GroupSession,
+  type PendingGroupOperation,
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
 import { downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
@@ -143,7 +145,7 @@ interface Session {
   /** FR017-06: where recipients' DM relay lists are looked up (the persona's relays plus the configured ones). */
   dmDiscovery: string[];
   /** FR017-06: the outbox as DMs and receipts use it: queueing for someone's DM relays lets the guard reach them. */
-  dmOutbox: InboxOutbox<OutboxRecord>;
+  dmOutbox: InboxOutbox<OutboxRecord> & OperationOutbox<OutboxRecord>;
   store: EncryptedStore;
   groups?: Promise<GroupSession>;
   /** FR011-04: the retry of what earlier runs left pending, started when the persona was opened. */
@@ -319,9 +321,12 @@ export class SovereignClient {
     pool.onReconnect(() => void engine.resume().catch(() => undefined));
     // DM wraps an earlier run left pending may target the recipients' DM relays: the guard may reach them again.
     for (const r of await engine.list()) if (r.meta?.recipient) allow(Object.keys(r.relayStatus));
-    const dmOutbox: InboxOutbox<OutboxRecord> = {
+    const dmOutbox: Session['dmOutbox'] = {
       submit: (input, o) => (allow(o.relays), engine.submit(input, o)),
       applyReceipt: (r) => engine.applyReceipt(r),
+      // FR011-05: a retried DM finds what it already queued (the guard already allows those relays, see above).
+      get: (opId) => engine.get(opId),
+      process: (opId) => engine.process(opId),
     };
     // FR011-04: what an earlier run left pending (sent without network, cut off) goes out as soon as the
     // persona is opened again, whatever the command. In the background: the command does not wait for it.
@@ -331,9 +336,16 @@ export class SovereignClient {
     return s;
   }
 
-  async sendChannel(personaId: string, groupId: string, text: string): Promise<OutboxRecord> {
+  /**
+   * FR011-05: `opId` is the operation of this send (the CLI's --op). Sent again with the same one, it retries that
+   * message: no other event. Another text or channel under it is refused.
+   */
+  async sendChannel(personaId: string, groupId: string, text: string, opts: { opId?: string } = {}): Promise<OutboxRecord> {
     const s = await this.session(personaId);
-    return s.engine.submit({ template: chatMessage(groupId, text) }, { relays: s.persona.relays, quorum: this.profileFor(s.persona).quorum, wait: true });
+    const opId = opts.opId ?? bytesToHex(randomBytes(16));
+    const stored = (await s.engine.get(opId))?.template;
+    if (stored && (stored.content !== text || getTagValue({ tags: stored.tags ?? [] }, 'h') !== groupId)) throw new OperationMismatchError(opId);
+    return s.engine.submitOnce(opId, async () => ({ template: chatMessage(groupId, text) }), { relays: s.persona.relays, quorum: this.profileFor(s.persona).quorum, wait: true });
   }
 
   /** NIP-29 join request (kind 9021) for a channel. */
@@ -413,8 +425,10 @@ export class SovereignClient {
    * FR017-06: a DM goes the way the web sends it. The recipient's wrap goes to the DM relays they published
    * (kind 10050, else their NIP-65 read relays, else this persona's relays as a disclosed fallback), and the
    * sender's copy to this persona's relays. Each record keeps `meta.recipient` and `meta.dmRelaySource`.
+   * FR011-05: the DM is the operation `opId` (the CLI's --op), stored before its wraps are made. Sent again with the
+   * same one, it retries that message: no other rumor, no other event. Another text or recipient under it is refused.
    */
-  async sendDm(personaId: string, to: string, text: string): Promise<OutboxRecord[]> {
+  async sendDm(personaId: string, to: string, text: string, opts: { opId?: string } = {}): Promise<OutboxRecord[]> {
     const s = await this.session(personaId);
     const recipient = normalizePubkey(to);
     const warnings = await (await this.identities()).reuseWarnings(personaId, { contact: recipient });
@@ -422,7 +436,8 @@ export class SovereignClient {
     await (await this.identities()).recordUsage(personaId, { contact: recipient });
     // The NIP-17 gate is checked by the CLI before a DM is composed (flags.json of the interop gate).
     const messenger = new DirectMessenger(s.signer, { nip17: true, readReceipts: false }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
-    const { deliveries } = await messenger.send({ recipients: [recipient], content: text }, { pool: s.pool, outbox: s.dmOutbox, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, timeoutMs: readTimeoutMs(s.persona), wait: true });
+    const operations = s.store.collection<DmOperation>('dm-ops');
+    const { deliveries } = await messenger.sendDmOnce(opts.opId ?? bytesToHex(randomBytes(16)), { recipients: [recipient], content: text }, { pool: s.pool, outbox: s.dmOutbox, operations, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, timeoutMs: readTimeoutMs(s.persona), wait: true });
     return deliveries.map((d) => d.record);
   }
 
@@ -476,11 +491,26 @@ export class SovereignClient {
    * short-lived CLI command does not exit in the middle of delivering what an earlier run left pending.
    */
   async settle(timeoutMs = 20_000): Promise<void> {
-    const pending = [...this.sessions.values()].map((s) => s.resumed);
+    const pending = [...this.sessions.values()].map((s) => s.resumed.then(() => this.retryGroups(s)));
     if (pending.length === 0) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([Promise.all(pending), new Promise<void>((r) => (timer = setTimeout(r, timeoutMs)))]);
     clearTimeout(timer);
+  }
+
+  /**
+   * FR025-12: the group messages and commits that found no relay (in this run or an earlier one) go out at the end of
+   * any command that opened the persona, as FR011-04 does for DMs. After the command, not during it: two operations on
+   * the same MLS state must never interleave.
+   */
+  private async retryGroups(s: Session): Promise<void> {
+    try {
+      if (!(await hasPendingGroupOperations(new EncryptedGroupStorage(s.store)))) return;
+      const gs = await this.groupSession(s.persona.id);
+      if (isExtendedGroupSession(gs)) await gs.retryPending();
+    } catch {
+      /* they stay pending: the next command tries again */
+    }
   }
 
   async outbox(personaId: string): Promise<OutboxRecord[]> {
@@ -973,10 +1003,26 @@ export class SovereignClient {
     return (await this.groupSession(personaId)).acceptInvites();
   }
 
-  async groupSend(personaId: string, groupId: string, text: string): Promise<void> {
+  /** FR025-12: without a relay, the message comes back `pending` and goes out later (sync, `groupRetry`, next command). */
+  async groupSend(personaId: string, groupId: string, text: string): Promise<GroupMessage> {
     const gs = await this.groupSession(personaId);
     await gs.sync(groupId);
-    await gs.send(groupId, text);
+    return gs.send(groupId, text);
+  }
+
+  /** FR025-12: group messages and commits of this persona still waiting for a relay (one group, or all). */
+  async groupPending(personaId: string, groupId?: string): Promise<PendingGroupOperation[]> {
+    return (await this.extended(personaId)).pendingOperations(groupId);
+  }
+
+  /** FR025-12: syncs the groups with pending operations and sends them again; returns what is still pending. */
+  async groupRetry(personaId: string, groupId?: string): Promise<PendingGroupOperation[]> {
+    return (await this.extended(personaId)).retryPending(groupId);
+  }
+
+  /** FR025-12: forgets a pending operation (e.g. one every relay refused). */
+  async groupDiscard(personaId: string, id: string): Promise<void> {
+    await (await this.extended(personaId)).discardPending(id);
   }
 
   /** New messages of the group (each is also kept in this device's group history, VAULT-03). */

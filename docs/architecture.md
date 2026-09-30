@@ -31,7 +31,7 @@ firmados; las bases de datos son índices derivados.
 | `delivery-engine` | Máquina de estados DRAFT→…→READ, outbox persistente, quorum, reintentos idempotentes, reconciliación, y la copia en el Continuity Vault como pista propia (`CONTINUITY_BACKED_UP`, VAULT-04) |
 | `encrypted-store` | Store local cifrado (XChaCha20-Poly1305, nombres HMAC), backends memoria/archivo atómico/IndexedDB; `Vault` con contraseña o llave del dispositivo (ADR 0007) |
 | `identity` | Personas, compartimentos, vínculos con consentimiento, backup/restore NIP-49; vínculo público opcional firmado por ambas personas ([`public-link.md`](public-link.md)) |
-| `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación |
+| `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación, DMs como operaciones de envío (FR011-05) |
 | `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad |
 | `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash; lista de servidores del usuario (BUD-03, kind 10063) con subida al principal y descarga con alternativas |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
@@ -40,7 +40,7 @@ firmados; las bases de datos son índices derivados.
 | `profiles` | Configuración del panel, presets (Apéndice B), validación, disclosures y matriz de notificaciones push (ADR 0010) |
 | `policy-client` | Evaluador RBAC/ABAC + device trust |
 | `qr` | Codificador QR propio (ISO/IEC 18004, modo byte) sin dependencias ni red, salida SVG (generador offline, `nostrconnect` en la web) |
-| `rotation-worker` | Worker de revocación (FR-024): rotación MLS pendiente del policy-engine y propagación de revocaciones al managed-signer; hoy corre desde el CLI (`sovereign group rotation-worker`) |
+| `rotation-worker` | Worker de revocación (FR-024): rotación MLS pendiente del policy-engine y propagación de revocaciones al managed-signer. Corre como servicio `services/rotation-worker` (FR024-05, compose perfil `institutional` y k8s) o desde el CLI (`sovereign group rotation-worker`) |
 | `sync` | Reconstrucción de historial: NIP-77 (Negentropy) con detección NIP-11/sonda y fallback automático a REQ por ventanas; `rebuildHistory` (canales, DMs, evidencia para el outbox); export/import JSONL |
 | `continuity` | Continuity Vault (ADR 0011): llave de archivo por persona distinta de la nsec, sobres XChaCha20-Poly1305 con relleno y AAD ligado al id, validador compartido que rechaza texto plano, cliente del vault, y archivo y restauración del historial de la persona (eventos, mensajes de grupo, ledger y estado MLS; VAULT-03), y su exportación portable (`sedecim-vault-export`, VAULT-05) |
 | `service-kit` | HTTP mínimo con NIP-98/bearer, anti-replay NIP-98, límites de tasa, verificación de tokens de Acceso (Cognito) y migraciones SQL |
@@ -56,6 +56,79 @@ firmados; las bases de datos son índices derivados.
 6. **Notificaciones push**: opacas y opt-in por perfil, sin push en sovereign ni Tor (ADR 0010). **Custodia managed**:
    `us-east-1`, KMS + Secrets Manager y LFPDPPP (ADR 0009; términos pendientes de aprobación legal). Threat models por
    perfil en `docs/threat-models/`.
+
+## Operaciones de envío del cliente (FR011-05)
+
+El scope pide un identificador interno estable por operación, además del `event_id` (§11.1), para que un reintento de
+la interfaz no duplique nada (§11.2). Cada envío de la web y del CLI es una operación con un id propio:
+
+- **Web.** El id se mantiene mientras la persona reintenta el mismo mensaje (mismo destinatario o canal, texto y
+  archivo) y cambia en cuanto edita algo o el envío sale (`SendOperation`, `apps/web-saas/src/lib/outbox.ts`).
+- **CLI.** `dm send` y `channel send` imprimen el id antes de enviar, y `--op ID` reintenta ese envío, aunque se
+  cortara a medias. Otro texto u otro destinatario con el mismo id se rechaza: sería un mensaje nuevo, no un
+  reintento.
+- **Canales y otros eventos.** `DeliveryEngine.submitOnce(opId, build)` guarda la operación (`LOCAL_PERSISTED`)
+  antes de firmarla. Un reintento la vuelve a enviar y no construye nada: ni otro evento ni otra subida del adjunto.
+  `submit` se serializa por id, así que un doble clic deja una sola operación.
+- **DMs.** `DirectMessenger.sendDmOnce` y `sendFileOnce` guardan el rumor en el store cifrado de la persona
+  (`dm-ops`) antes de crear ningún seal ni wrap. El wrap de cada destinatario, y la copia propia, va al outbox con
+  el id `<operación>:<pubkey>`. Un reintento usa el mismo rumor, reenvía los wraps ya encolados y crea solo los que
+  falten; si el firmante falló a mitad, el destinatario que ya tenía su wrap no recibe otro.
+
+## Custodia gestionada: sesiones del navegador y recuperación (FR005-11)
+
+**Sesión de dispositivo.** La web firma por una persona gestionada con una sesión de dispositivo de ese navegador, no
+con el token de Acceso:
+- la abre con el login de Acceso (`POST /v1/device-sessions`, 12 h) y la guarda en el almacén cifrado;
+- su id de dispositivo es aleatorio (`web-…`) y es el mismo para todas las personas del navegador;
+- si el managed-signer la rechaza (caducada o cerrada), la reabre con el login y repite la petición una vez. Un 401
+  significa que no se hizo nada, así que repetirla no duplica nada.
+
+La web funciona igual con `MANAGED_SIGNER_REQUIRE_DEVICE_SESSION=true`: el E2E corre así.
+
+**Sesiones propias** (`services/managed-signer`). Nunca se muestra un token.
+- `GET /v1/device-sessions` lista las del usuario: dispositivo, apertura y caducidad. Acepta el login o cualquiera de
+  sus sesiones, y marca la de la llamada como `current`.
+- `DELETE /v1/device-sessions/:id` cierra una. Con el login, cualquiera de las suyas; con una sesión, solo esa misma.
+- `DELETE /v1/device-sessions?except=<id>` cierra todas menos una. Solo con el login.
+- Otro usuario no ve ni cierra las sesiones ajenas.
+- El id público se deriva del hash del token: nombra la sesión, no sirve para abrirla.
+- Cerrar una sesión no revoca el dispositivo: eso lo decide la organización (FR024-03). Un navegador que sigue con el
+  login abierto abre otra sesión en su siguiente firma. Ante un dispositivo perdido hay que cambiar también la
+  contraseña de Acceso.
+- Con `organizationDevices` en la configuración, el navegador puede vincularse al dispositivo que la organización le
+  registró: sus sesiones llevan ese id y revocarlo lo corta (docs/institutional.md, «Navegadores como dispositivos de
+  la organización»).
+
+**Recuperación en otro navegador.**
+1. Se entra con el mismo login de Acceso.
+2. En «Nueva persona», «Recuperar mi persona gestionada» lista las llaves gestionadas que aún firman (`GET /v1/keys`,
+   por la sesión del navegador) y no están ya en ese navegador.
+3. Se abre la elegida: misma npub, ninguna llave nueva y el consentimiento registrado con la llave.
+
+No se vuelve a publicar la lista de relays de DM (kind 10050), que es la del otro navegador. La llave de archivo del
+Continuity Vault vuelve desde el archivo de backup, en su tarjeta.
+
+**Registro de uso.** La tarjeta «Actividad de tu llave gestionada» muestra:
+- las 20 operaciones más recientes (`GET /v1/keys/:id/usage`), con el dispositivo que las hizo. El registro se
+  guarda 12 meses (DEC-09);
+- las sesiones abiertas, con «Cerrar» y «Cerrar las demás sesiones».
+
+**Pruebas.**
+- `services/managed-signer/test/own-sessions.test.ts`;
+- `registry.test.ts`, en memoria y Postgres;
+- `tests/browser/web-saas.e2e.ts`: un segundo navegador recupera la persona, firma, ve las dos sesiones y cierra la
+  del primero, que vuelve a firmar tras abrir otra.
+
+## Grupos MLS sin red (FR025-12)
+
+Los mensajes y commits de grupos Marmot tienen su propio outbox en el adaptador (`packages/marmot-adapter`), sellado
+con el estado MLS. No van por el `DeliveryEngine`, porque un evento de grupo no es fijo:
+- un mensaje se vuelve a cifrar si el grupo cambia de época antes de que salga;
+- un commit se guarda con el estado al que lleva, para aplicarlo si un relay lo tomó sin que llegara el OK, o se
+  vuelve a construir si otro commit ganó su época.
+
+Nada adelanta a un commit pendiente. Detalle en `docs/marmot.md` («Sin red: mensajes y commits pendientes»).
 
 ## APIs: anti-replay NIP-98 y límites de tasa
 Aplica a identity-service, policy-engine, indexer, notification-gateway, managed-signer y continuity-vault (todos sobre
@@ -147,7 +220,8 @@ Las lecturas (`/v1/*`) no tienen estado: cualquier réplica las sirve detrás de
   reemplazables y direccionables, los escritores de una misma dirección se serializan con
   `pg_advisory_xact_lock` y la nueva cabeza borra las versiones que reemplaza: tras cualquier carrera queda
   solo la cabeza NIP-01 (mayor `created_at`, empate por menor id). La columna `d_tag` (migración 003)
-  permite elegir cabezas también en un espejo sellado.
+  permite elegir cabezas también en un espejo sellado. En modo institucional las versiones reemplazadas pasan a
+  `events_superseded` en la misma transacción, y la retención borra las que no cubre un legal hold (FR023-12).
 - **Trabajos únicos.** La retención institucional (FR023-08) se reclama de forma atómica en `indexer_jobs`:
   la ejecuta una sola réplica por `RETENTION_INTERVAL_MS`, y sus borrados son idempotentes de todos modos.
   El filtrado por políticas (FR023-05) se evalúa en cada lectura, en la réplica que la atiende.

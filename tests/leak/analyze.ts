@@ -155,20 +155,29 @@ export function networkAllowlist(p: PersonaEgress, socks: Endpoint): Endpoint[] 
 /**
  * SOCKS-level check: in the Tor profile every CONNECT must name an allowlisted relay host by name
  * (socks5h: resolution inside Tor, never an address the client resolved locally).
- */
-/**
+ *
  * `requireIsolation` (FR006-06): every CONNECT of a Tor persona authenticated with the persona id as SOCKS username,
  * so Tor (IsolateSOCKSAuth) keeps each persona on its own circuits. Logs recorded before usernames were logged
  * cannot show it.
+ *
+ * FR020-05: `extraHosts` (`host:port`) are other names the personas may reach through Tor besides their relays: the
+ * Blossom server of their group files, the policy-engine of the rotation worker. With several personas (two users of
+ * the CLI in one capture), each CONNECT is judged against the persona its SOCKS username names.
  */
-export function checkSocksRequests(requests: SocksRequest[], p: PersonaEgress, opts: { requireIsolation?: boolean } = {}): string[] {
+export function checkSocksRequests(requests: SocksRequest[], personas: PersonaEgress | PersonaEgress[], opts: { requireIsolation?: boolean; extraHosts?: string[] } = {}): string[] {
+  const list = Array.isArray(personas) ? personas : [personas];
   const problems: string[] = [];
-  const hosts = new Set(p.relays.map((u) => `${u.hostname}:${defaultPort(u)}`));
-  if (p.network !== 'tor-only' && requests.length) problems.push(`direct persona used the SOCKS proxy (${requests.length} requests)`);
+  const hostsOf = (ps: PersonaEgress[]) => new Set([...ps.flatMap((p) => p.relays.map((u) => `${u.hostname}:${defaultPort(u)}`)), ...(opts.extraHosts ?? [])]);
+  if (list.every((p) => p.network !== 'tor-only') && requests.length) problems.push(`direct persona used the SOCKS proxy (${requests.length} requests)`);
   for (const r of requests) {
+    const owner = list.length === 1 ? list[0] : list.find((p) => p.id === r.username);
+    const hosts = hostsOf(owner ? [owner] : list);
     if (r.addressType !== 'domain') problems.push(`SOCKS CONNECT by ${r.addressType} address ${r.host}: the client resolved the name locally (expected socks5h)`);
     if (!hosts.has(`${r.host}:${r.port}`)) problems.push(`SOCKS CONNECT to ${r.host}:${r.port} outside the persona allowlist (${[...hosts].join(', ')})`);
-    if (opts.requireIsolation && r.username !== p.id) problems.push(`SOCKS CONNECT to ${r.host}:${r.port} without the persona isolation credentials (username ${r.username ?? 'none'}, expected ${p.id})`);
+    if (opts.requireIsolation && (!owner || r.username !== owner.id)) {
+      const expected = list.length === 1 ? list[0]!.id : `one of ${list.map((p) => p.id).join(', ')}`;
+      problems.push(`SOCKS CONNECT to ${r.host}:${r.port} without the persona isolation credentials (username ${r.username ?? 'none'}, expected ${expected})`);
+    }
   }
   return problems;
 }

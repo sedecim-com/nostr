@@ -15,7 +15,9 @@ updates:
     directory: /
     schedule: { interval: weekly }
   # OPS-13: the tor image, and the images of the compose stack (postgres, redis, SeaweedFS, secure relay…).
-  # Buzz is pinned per ADR 0003 through buzz-upstream.yml, which runs the interop gate first.
+  # Buzz is pinned per ADR 0003 through buzz-upstream.yml, which runs the interop gate first; Dependabot names
+  # it without its registry. A major of postgres or redis needs its data migrated and the same bump in
+  # deploy/k8s, so it is a planned change, not a Dependabot PR.
   - package-ecosystem: docker
     directory: /infra/tor
     schedule: { interval: weekly }
@@ -23,4 +25,8 @@ updates:
     directory: /
     schedule: { interval: weekly }
     ignore:
-      - dependency-name: ghcr.io/block/buzz
+      - dependency-name: block/buzz
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+      - dependency-name: redis
+        update-types: ["version-update:semver-major"]

@@ -1,6 +1,6 @@
 import type { JsonWebKey } from 'node:crypto';
 import type { Pool } from '@sedecim/service-kit';
-import type { Device, DirectoryEntry, PolicyAuditEntry, Resource, RetentionPolicy, Rotation, Subject } from '@sedecim/policy-client';
+import type { AccessLogEntry, Device, DirectoryEntry, PolicyAuditEntry, Resource, RetentionPolicy, Rotation, Subject } from '@sedecim/policy-client';
 
 /** Device as stored: the public Device plus the WebAuthn public key and counter (never returned by the API). */
 export interface StoredDevice extends Device {
@@ -45,6 +45,12 @@ export interface PolicyRepository {
   listAuditByAction(q: { action: string; after: number; limit: number }): Promise<PolicyAuditEntry[]>;
   /** Id of the newest entry of one action, 0 if none. */
   lastAuditId(action: string): Promise<number>;
+  /** FR023-12: one access decision. The access log, unlike the audit, has a retention: see `purgeAccess`. */
+  appendAccess(e: Omit<AccessLogEntry, 'id'>): Promise<void>;
+  /** Newest first; `before` is an exclusive id; only one resource's with `resourceId`. */
+  listAccess(q: { limit: number; before?: number; resourceId?: string }): Promise<AccessLogEntry[]>;
+  /** Deletes the decisions made before `before` (ms), except those on `exceptResources` (legal hold). Returns how many. */
+  purgeAccess(q: { before: number; exceptResources: string[] }): Promise<number>;
   listDirectory(): Promise<DirectoryEntry[]>;
   putDirectoryEntry(e: DirectoryEntry): Promise<void>;
   deleteDirectoryEntry(pubkey: string): Promise<boolean>;
@@ -135,6 +141,25 @@ export class MemoryPolicyRepository implements PolicyRepository {
   async lastAuditId(action: string) {
     for (let i = this.audit.length - 1; i >= 0; i--) if (this.audit[i]!.action === action) return this.audit[i]!.id;
     return 0;
+  }
+  private access: AccessLogEntry[] = [];
+  private accessSeq = 0;
+  async appendAccess(e: Omit<AccessLogEntry, 'id'>) {
+    this.access.push(clone({ id: ++this.accessSeq, ...e }));
+  }
+  async listAccess(q: { limit: number; before?: number; resourceId?: string }) {
+    return clone(
+      this.access
+        .filter((e) => (q.before === undefined || e.id < q.before) && (q.resourceId === undefined || e.resourceId === q.resourceId))
+        .slice(-q.limit)
+        .reverse(),
+    );
+  }
+  async purgeAccess(q: { before: number; exceptResources: string[] }) {
+    const keep = this.access.filter((e) => e.at >= q.before || q.exceptResources.includes(e.resourceId));
+    const n = this.access.length - keep.length;
+    this.access = keep;
+    return n;
   }
   async listDirectory() {
     return clone([...this.directory.values()].sort(byKey((e) => e.pubkey)));
@@ -300,6 +325,20 @@ export class PgPolicyRepository implements PolicyRepository {
     const { rows } = await this.pool.query('SELECT * FROM policy_audit WHERE action = $1 AND id > $2 ORDER BY id LIMIT $3', [q.action, q.after, q.limit]);
     return rows.map(this.auditEntry);
   }
+  async appendAccess(e: Omit<AccessLogEntry, 'id'>) {
+    await this.pool.query('INSERT INTO policy_access_log (at, pubkey, device_id, resource_id, action, allow) VALUES ($1,$2,$3,$4,$5,$6)', [e.at, e.pubkey, e.deviceId ?? null, e.resourceId, e.action, e.allow]);
+  }
+  async listAccess(q: { limit: number; before?: number; resourceId?: string }) {
+    const { rows } = await this.pool.query(
+      'SELECT * FROM policy_access_log WHERE ($2::bigint IS NULL OR id < $2) AND ($3::text IS NULL OR resource_id = $3) ORDER BY id DESC LIMIT $1',
+      [q.limit, q.before ?? null, q.resourceId ?? null],
+    );
+    return rows.map((r) => ({ id: Number(r.id), at: Number(r.at), pubkey: r.pubkey as string, ...(r.device_id ? { deviceId: r.device_id as string } : {}), resourceId: r.resource_id as string, action: r.action as string, allow: r.allow as boolean }));
+  }
+  async purgeAccess(q: { before: number; exceptResources: string[] }) {
+    const r = await this.pool.query('DELETE FROM policy_access_log WHERE at < $1 AND NOT resource_id = ANY($2)', [q.before, q.exceptResources]);
+    return r.rowCount ?? 0;
+  }
   async lastAuditId(action: string) {
     const { rows } = await this.pool.query('SELECT coalesce(max(id), 0) AS id FROM policy_audit WHERE action = $1', [action]);
     return Number(rows[0].id);
@@ -331,4 +370,4 @@ export class PgPolicyRepository implements PolicyRepository {
 }
 
 /** Tables of the policy-engine migration scope (tests reset them). */
-export const POLICY_TABLES = ['policy_webauthn_challenges', 'policy_retention', 'policy_directory', 'policy_audit', 'policy_rotations', 'policy_sessions', 'policy_devices', 'policy_resources', 'policy_subjects'];
+export const POLICY_TABLES = ['policy_access_log', 'policy_webauthn_challenges', 'policy_retention', 'policy_directory', 'policy_audit', 'policy_rotations', 'policy_sessions', 'policy_devices', 'policy_resources', 'policy_subjects'];

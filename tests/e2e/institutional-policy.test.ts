@@ -56,10 +56,11 @@ describe('institutional mode: policy-engine + indexer', () => {
     expect(await read(guestSk)).toEqual([ev.lobby.id, ev.lobbyOld.id].sort());
     expect(await read(generateSecretKey())).toEqual([]);
     expect((await nip98Fetch(guestSk, `${indexerBase}/v1/channels/legal/summary`)).status).toBe(403);
-    // Decisions are audited by the engine (no content).
-    const audit = (await nip98Fetch(adminSk, `${policyBase}/v1/audit?limit=5`)).json.audit;
-    expect(audit[0]).toMatchObject({ action: 'policy.evaluate', details: { action: 'read' } });
-    expect(JSON.stringify(audit)).not.toContain('en legal');
+    // Decisions are logged by the engine (no content), in the access log with its own retention (FR023-12).
+    const access = (await nip98Fetch(adminSk, `${policyBase}/v1/access-log?limit=5`)).json.access;
+    expect(access[0]).toMatchObject({ action: 'read', allow: expect.any(Boolean) });
+    expect(JSON.stringify(access)).not.toContain('en legal');
+    expect(((await nip98Fetch(adminSk, `${policyBase}/v1/audit?limit=100`)).json.audit as Array<{ action: string }>).map((a) => a.action)).not.toContain('policy.evaluate');
   });
 
   it('retention purges expired mirror data except under legal hold, and carries the notice', async () => {

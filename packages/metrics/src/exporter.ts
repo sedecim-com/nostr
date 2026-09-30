@@ -33,7 +33,9 @@ export function levelOf(t: TelemetryLevel | TelemetryPolicy): TelemetryLevel {
 
 /**
  * Prometheus exporter for relay ACK latency (NFR004-01) and outbox health (FR011-03) that respects the
- * profile's telemetry level (FR-022):
+ * profile's telemetry level (FR-022). The outbox metrics appear only once a DeliveryEngine is attached: a
+ * process without an outbox (the indexer only subscribes and probes) must not report an empty, healthy one
+ * (FR011-06). Telemetry levels:
  *  - 'none' (Sovereign, Sovereign Tor): the exporter cannot be created (TelemetryBlockedError); nothing is
  *    recorded or served.
  *  - 'minimal': aggregated health only; relay hosts are replaced by stable hashes (which relays a person
@@ -48,10 +50,7 @@ export class NostrMetricsExporter {
   private readonly engines = new Set<OutboxObservable>();
   readonly ackLatency: Histogram;
   readonly publishes: Counter;
-  readonly outboxFailures: Counter;
-  private readonly outboxDepth: Gauge;
-  private readonly outboxOldest: Gauge;
-  private readonly outboxFailed: Gauge;
+  private outbox?: { failures: Counter; depth: Gauge; oldest: Gauge; failed: Gauge };
   private readonly info: Gauge;
 
   constructor(private readonly opts: MetricsExporterOptions) {
@@ -63,10 +62,20 @@ export class NostrMetricsExporter {
     this.info.set({ telemetry_level: level }, 1);
     this.ackLatency = r.register(new Histogram('nostr_relay_ack_latency_seconds', 'Publish to OK latency per relay (accepted or duplicate), NIP-01 OK=true only means accepted by that relay.', ['relay', 'region'], opts.buckets ?? ACK_LATENCY_BUCKETS));
     this.publishes = r.register(new Counter('nostr_relay_publish_total', 'Publish attempts per relay by result class (ok, duplicate, or failure class).', ['relay', 'region', 'result']));
-    this.outboxFailures = r.register(new Counter('nostr_outbox_relay_failures_total', 'Failed outbox publish attempts per relay by reason class.', ['relay', 'region', 'reason']));
-    this.outboxDepth = r.register(new Gauge('nostr_outbox_depth', 'Outbox operations not yet replicated (quorum not reached) and not failed.', []));
-    this.outboxOldest = r.register(new Gauge('nostr_outbox_oldest_pending_age_seconds', 'Age of the oldest outbox operation not yet replicated (0 when empty).', []));
-    this.outboxFailed = r.register(new Gauge('nostr_outbox_failed_operations', 'Outbox operations in FAILED (quorum unreachable).', []));
+  }
+
+  /** Registers the outbox metrics on first use: only a process with an outbox exports them. */
+  private outboxMetrics() {
+    if (!this.outbox) {
+      const r = this.registry;
+      this.outbox = {
+        failures: r.register(new Counter('nostr_outbox_relay_failures_total', 'Failed outbox publish attempts per relay by reason class.', ['relay', 'region', 'reason'])),
+        depth: r.register(new Gauge('nostr_outbox_depth', 'Outbox operations not yet replicated (quorum not reached) and not failed.', [])),
+        oldest: r.register(new Gauge('nostr_outbox_oldest_pending_age_seconds', 'Age of the oldest outbox operation not yet replicated (0 when empty).', [])),
+        failed: r.register(new Gauge('nostr_outbox_failed_operations', 'Outbox operations in FAILED (quorum unreachable).', [])),
+      };
+    }
+    return this.outbox;
   }
 
   /** Exporter for a profile, or undefined when its telemetry level forbids it (never throws). */
@@ -88,7 +97,7 @@ export class NostrMetricsExporter {
 
   observeAttempt(a: AttemptEvent): void {
     if (a.ok || !a.failure) return;
-    this.outboxFailures.inc({ ...this.labels(a.relay), reason: FAILURE_CLASSES.includes(a.failure) ? a.failure : 'other' });
+    this.outboxMetrics().failures.inc({ ...this.labels(a.relay), reason: FAILURE_CLASSES.includes(a.failure) ? a.failure : 'other' });
   }
 
   /** Records every publish of a RelayPool. Returns a detach function. */
@@ -98,6 +107,7 @@ export class NostrMetricsExporter {
 
   /** Records failures of a DeliveryEngine and adds its outbox to the depth/age gauges (summed across engines). */
   attachEngine(engine: OutboxObservable): () => void {
+    this.outboxMetrics();
     const off = engine.onAttempt((a) => this.observeAttempt(a));
     this.engines.add(engine);
     return () => {
@@ -108,18 +118,20 @@ export class NostrMetricsExporter {
 
   /** Prometheus text exposition (text/plain; version=0.0.4). */
   async render(): Promise<string> {
-    let depth = 0;
-    let oldest = 0;
-    let failed = 0;
-    for (const e of this.engines) {
-      const s = await e.stats();
-      depth += s.depth;
-      failed += s.failed;
-      oldest = Math.max(oldest, s.oldestPendingAgeMs);
+    if (this.outbox) {
+      let depth = 0;
+      let oldest = 0;
+      let failed = 0;
+      for (const e of this.engines) {
+        const s = await e.stats();
+        depth += s.depth;
+        failed += s.failed;
+        oldest = Math.max(oldest, s.oldestPendingAgeMs);
+      }
+      this.outbox.depth.set({}, depth);
+      this.outbox.oldest.set({}, oldest / 1000);
+      this.outbox.failed.set({}, failed);
     }
-    this.outboxDepth.set({}, depth);
-    this.outboxOldest.set({}, oldest / 1000);
-    this.outboxFailed.set({}, failed);
     return this.registry.render();
   }
 }

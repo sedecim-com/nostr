@@ -4,7 +4,7 @@
 # Requires Docker Compose >= 2.24.4 (`!reset`). Only Caddy publishes host ports.
 services:
   caddy:
-    image: caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d # caddy:2.10.2-alpine
+    image: caddy@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52 # caddy:2.10.2-alpine
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}

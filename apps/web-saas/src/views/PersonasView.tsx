@@ -2,20 +2,20 @@ import { useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardActions, CardContent, Checkbox, FormControlLabel, List, ListItem, ListItemText, MenuItem, Radio, RadioGroup, Stack, TextField, Typography } from '@mui/material';
 import { managedConsentVersion, PRESETS, type PresetName } from '@sedecim/profiles';
 import { fetchCloudBackup, linkAccesoLogin, saveCloudBackup } from '../lib/identity';
-import { backupJson, createPersona, custodyFacts, custodyLabel, ensureArchiveKey, exportBackup, realCustody, shortNpub, type NewPersona } from '../lib/session';
+import { backupJson, createPersona, custodyFacts, custodyLabel, ensureArchiveKey, exportBackup, managedConnection, realCustody, shortNpub, type NewPersona } from '../lib/session';
 import { deviceKeyAllowed, setProtection } from '../lib/vault';
 import { useWorkspace } from '../lib/workspace';
 import { LinkPersonas } from './LinkPersonas';
 import { BlossomServers } from './BlossomServers';
 import { ContinuityVault } from './ContinuityVault';
 import { RemoteSigner } from './RemoteSigner';
-import { ManagedOptIn, MigrationWizard } from './ManagedCustody';
+import { ManagedActivity, ManagedOptIn, ManagedRecovery, MigrationWizard } from './ManagedCustody';
 import { QrCode } from './QrCode';
 import { openKeyBackup, parseKeyBackup, type ParsedKeyBackup } from '@sedecim/identity/key-backup';
 import { npubEncode } from '@sedecim/nostr-core';
-import type { Nip46Signer, NostrConnectOffer } from '@sedecim/signer';
+import type { ManagedKeyInfo, Nip46Signer, NostrConnectOffer } from '@sedecim/signer';
 
-type Mode = 'create' | 'import' | 'backup' | 'nip07' | 'nip46' | 'managed';
+type Mode = 'create' | 'import' | 'backup' | 'nip07' | 'nip46' | 'managed' | 'recover';
 
 export function PersonasView() {
   const ws = useWorkspace();
@@ -26,6 +26,7 @@ export function PersonasView() {
   const [secret, setSecret] = useState('');
   const [ncPass, setNcPass] = useState('');
   const [managedConsent, setManagedConsent] = useState(false);
+  const [recoverKey, setRecoverKey] = useState<ManagedKeyInfo | undefined>();
   const [backupFile, setBackupFile] = useState<{ json: string; parsed: ParsedKeyBackup } | undefined>();
   const [showNpubQr, setShowNpubQr] = useState(false);
   const managedAvailable = !!ws.managedEnv.baseUrl;
@@ -72,6 +73,17 @@ export function PersonasView() {
         ws.notify(`Persona "${p.label}" importada desde el backup (npub verificada)`, 'success');
         return;
       }
+      // FR005-11: the managed key this Acceso user already has, reopened in this browser. Its DM relay list is the one
+      // published from the other browser: not overwritten from here.
+      if (mode === 'recover') {
+        if (!recoverKey) throw new Error('Elige la llave gestionada que quieres recuperar.');
+        const p = await createPersona(book, { kind: 'managed-existing', key: recoverKey }, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device', continuityVault: !!cfg.continuityVault });
+        setRecoverKey(undefined);
+        await ws.reloadPersonas();
+        await ws.selectPersona(p.id);
+        ws.notify(`Persona "${p.label}" recuperada: este navegador firma con tu llave gestionada`, 'success');
+        return;
+      }
       const input: NewPersona = connected
         ? { kind: 'nip46-connected', signer: connected.signer, clientSecretKey: connected.offer.clientSecretKey }
         : mode === 'create'
@@ -81,7 +93,7 @@ export function PersonasView() {
             : mode === 'nip07'
               ? { kind: 'nip07' }
               : mode === 'managed'
-                ? { kind: 'managed', baseUrl: ws.managedEnv.baseUrl!, token: ws.managedEnv.token!, consentVersion: managedConsentVersion(ws.cfg.managedTerms?.version) }
+                ? { kind: 'managed', conn: managedConnection(ws.managedEnv), consentVersion: managedConsentVersion(ws.cfg.managedTerms?.version) }
                 : { kind: 'nip46', bunker: secret };
       if (mode === 'managed' && !managedConsent) throw new Error('La custodia gestionada requiere tu consentimiento explícito.');
       const p = await createPersona(book, input, { label: label.trim() || 'Persona', relays: relays.split('\n').map((s) => s.trim()).filter(Boolean), preset: presetName, deviceKey: book.vault.kind === 'device', continuityVault: !!cfg.continuityVault });
@@ -224,6 +236,7 @@ export function PersonasView() {
       {session && <LinkPersonas />}
       {session && <BlossomServers key={session.persona.id} />}
       {session && cfg.continuityVault && <ContinuityVault key={session.persona.id} url={cfg.continuityVault} />}
+      {session?.persona.managedKeyId && session.persona.custody === 'managed' && managedAvailable && <ManagedActivity key={session.persona.id} />}
       {session?.persona.managedKeyId && managedAvailable && <MigrationWizard key={session.persona.id} />}
 
       <Card component="form" onSubmit={create}>
@@ -250,6 +263,7 @@ export function PersonasView() {
               <FormControlLabel value="nip07" control={<Radio />} label="Extensión del navegador (NIP-07)" />
               <FormControlLabel value="nip46" control={<Radio />} label="Signer remoto (NIP-46)" />
               {managedAvailable && <FormControlLabel value="managed" control={<Radio />} label="Llave gestionada por la plataforma (custodial, opcional)" />}
+              {managedAvailable && <FormControlLabel value="recover" control={<Radio />} label="Recuperar mi persona gestionada (con este login de Acceso)" />}
             </RadioGroup>
             {mode === 'backup' && (
               <Stack spacing={1}>
@@ -289,6 +303,7 @@ export function PersonasView() {
               </Stack>
             )}
             {mode === 'managed' && <ManagedOptIn accepted={managedConsent} onChange={setManagedConsent} terms={ws.cfg.managedTerms} />}
+            {mode === 'recover' && <ManagedRecovery selected={recoverKey} onSelect={setRecoverKey} />}
             {mode === 'import' && <TextField id="secret-input" label="nsec o ncryptsec" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} required />}
             {mode === 'nip46' && (
               <RemoteSigner
@@ -312,8 +327,8 @@ export function PersonasView() {
             {error && <Alert severity="error">{error}</Alert>}
             {!(mode === 'nip46' && nip46Mode === 'nostrconnect') && (
               <Box>
-                <Button type="submit" variant="contained" disabled={busy || (mode === 'managed' && !managedConsent)}>
-                  Crear persona
+                <Button type="submit" variant="contained" disabled={busy || (mode === 'managed' && !managedConsent) || (mode === 'recover' && !recoverKey)}>
+                  {mode === 'recover' ? 'Recuperar persona' : 'Crear persona'}
                 </Button>
               </Box>
             )}

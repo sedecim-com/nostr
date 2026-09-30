@@ -12,7 +12,7 @@ import { createPgPool, migrate, nip98Fetch, resetScope } from '@sedecim/service-
 import { createIndexerApi, GroupAuthorities, Indexer, MemoryEventRepository, PgEventRepository, sealedCodec, type EventRepository } from '../src/index';
 
 const factory = (url: string) => new WebSocket(url) as unknown as WebSocketLike;
-const INDEXER_TABLES = ['read_cursors', 'event_sources', 'events', 'indexer_checkpoints', 'indexer_jobs', 'indexer_replicas', 'moderation_deletions'];
+const INDEXER_TABLES = ['read_cursors', 'event_sources', 'events', 'events_superseded', 'indexer_checkpoints', 'indexer_jobs', 'indexer_replicas', 'moderation_deletions'];
 const now = () => Math.floor(Date.now() / 1000);
 let clock = now() - 1000;
 /** Each signed event one second after the previous one: newer lists replace older ones. */

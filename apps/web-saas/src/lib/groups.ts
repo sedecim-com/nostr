@@ -1,5 +1,5 @@
 import type { ArchivedGroupMessage, MlsSnapshot } from '@sedecim/continuity';
-import type { GroupHandle, GroupMessage, GroupSession, GroupStorage } from '@sedecim/marmot-adapter';
+import type { GroupHandle, GroupMessage, GroupSession, GroupStorage, PendingGroupOperation } from '@sedecim/marmot-adapter';
 import type { EncryptedStore } from '@sedecim/encrypted-store/browser';
 import type { RelayPool } from '@sedecim/relay-pool';
 import type { DeploymentConfig } from './config';
@@ -137,6 +137,8 @@ export async function forgetRemovedGroup(s: PersonaSession, store: EncryptedStor
   const gs = await openGroupSession(s, store, cfg);
   await exclusive(gs, async (g) => {
     const m = await import('@sedecim/marmot-adapter');
+    // FR025-12: what was still waiting for a relay in that group can no longer be sent.
+    if (m.isExtendedGroupSession(g)) for (const op of await g.pendingOperations(groupId)) await g.discardPending(op.id);
     await new PersonaGroupStorage(new m.EncryptedGroupStorage(store), s.persona.id).delete('groups', groupId);
     g.close();
   });
@@ -183,6 +185,21 @@ export async function restoreGroupState(s: PersonaSession, store: EncryptedStore
   const m = await import('@sedecim/marmot-adapter');
   await new PersonaGroupStorage(new m.EncryptedGroupStorage(store), s.persona.id).put('device', 'owner', RESTORED_OWNER);
   return 'restored';
+}
+
+/**
+ * FR025-12: syncs the groups with operations that found no relay and sends them again; returns what is still pending
+ * (nothing with a provider without an outbox).
+ */
+export async function retryPendingGroupOperations(gs: GroupSession, groupId?: string): Promise<PendingGroupOperation[]> {
+  const m = await import('@sedecim/marmot-adapter');
+  return m.isExtendedGroupSession(gs) ? gs.retryPending(groupId) : [];
+}
+
+/** FR025-12: forgets a pending group operation (one every relay refused). */
+export async function discardPendingGroupOperation(gs: GroupSession, id: string): Promise<void> {
+  const m = await import('@sedecim/marmot-adapter');
+  if (m.isExtendedGroupSession(gs)) await gs.discardPending(id);
 }
 
 /** A restored group is a copy of another device's leaf: join it again as a new leaf of this browser. */

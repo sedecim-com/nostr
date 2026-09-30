@@ -70,6 +70,15 @@ clases de resultado. Métricas:
 | `nostr_outbox_failed_operations` | gauge | — |
 | `nostr_outbox_relay_failures_total` | contador | `relay`, `region`, `reason` (mismas clases de fallo) |
 
+Las cuatro `nostr_outbox_*` solo existen en un proceso que conecta un outbox (`attachEngine`), y hoy
+ningún proceso desplegado lo hace:
+
+- los outboxes están en los clientes (la web y el CLI), que no envían telemetría al SaaS;
+- el indexer solo se suscribe y sondea, así que no publica un outbox vacío que parezca sano.
+
+Por eso el monitoreo del SaaS no tiene reglas ni alertas de outbox (FR011-06). La web muestra el suyo a quien
+lo usa (ver [Sin ocultarla al usuario](#sin-ocultarla-al-usuario)).
+
 En el despliegue, el **indexer** sirve `/metrics` en un puerto interno (`METRICS_PORT=9464`, nunca por la
 API pública ni por el edge) y, como el mirror solo se suscribe, publica una **sonda sintética de ACK**
 (`ACK_PROBE_INTERVAL_MS`, 30 s en stage; evento efímero vacío, kind 20001, firmado por la identidad de
@@ -84,20 +93,19 @@ no tiene modo de larga duración y su perfil es `none`: no exporta nada por dise
 - `relay:ack_latency_seconds:p95_rate5m`, `…:p99_rate5m`, `…:p95_rate30m`, `…:p99_rate30m`:
   `histogram_quantile` **por relay y región** (nunca agregado entre relays: la degradación de uno no se diluye).
 - `relay:ack_latency_seconds:p95_baseline1d`: P95 del día anterior sin la última hora.
-- `relay:publish_failures:ratio_rate5m` y `outbox:relay_failures:rate5m`.
+- `relay:publish_failures:ratio_rate5m`.
 
 | Alerta | Condición | `for` | Severidad |
 |---|---|---|---|
 | `RelayAckLatencyP95High` | P95 (5 min) > 2 s | 10 min | ticket |
 | `RelayAckLatencyDegraded` | P95 (30 min) > 2 × línea base de 1 d y > 0,5 s | 30 min | ticket |
 | `RelayPublishFailureRateHigh` | > 25 % de publicaciones sin `OK=true` | 15 min | ticket |
-| `OutboxOldestPendingTooOld` | pendiente más antiguo > 15 min | 10 min | ticket |
 | `NostrMetricsMissing` | exportador caído (`up == 0`) | 10 min | ticket |
 
 La alerta relativa detecta degradaciones que no cruzan el umbral absoluto; si la degradación dura más de
-unas 2 h la línea base la absorbe y queda la absoluta. Dashboard: **Acceso Nostr · Latencia de relays y
-outbox** (`grafana/dashboards/relay-latency.json`): tabla P95/P99/fallos por relay y región, series P95 y P99,
-P95 frente a 2× línea base, resultados de publicación, fallos del outbox por motivo, profundidad y antigüedad.
+unas 2 h la línea base la absorbe y queda la absoluta. Dashboard: **Acceso Nostr · Latencia de relays**
+(`grafana/dashboards/relay-latency.json`): tabla P95/P99/fallos por relay y región, series P95 y P99, P95
+frente a 2× línea base, resultados de publicación y alertas activas.
 
 ### Sin ocultarla al usuario
 
@@ -113,8 +121,6 @@ se calculan en el navegador y no se envían a ningún sitio.
    `result` (timeouts frente a rechazos) y los logs del relay.
 2. Si todos los relays de una región se degradan a la vez, sospechar de la red del cluster o del propio
    indexer (la sonda sale de él).
-3. `OutboxOldestPendingTooOld`: `nostr_outbox_relay_failures_total` por `reason` dice si es conectividad
-   (`connection`/`timeout`), autenticación (`auth`) o rechazo del relay (`rejected`).
 
 ## Alertas (multi-ventana, multi-tasa de consumo)
 

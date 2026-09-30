@@ -6,14 +6,17 @@
 #   - Tor profile (sovereign-tor): zero DNS, zero IPv6, zero packets to anything but the SOCKS proxy;
 #     every SOCKS CONNECT names an allowlisted relay by name (socks5h).
 #   - Direct profile (sovereign): every connection goes to the persona's relays (its allowlist).
+#   - Groups over Tor (FR020-05): two Tor personas, each with its own data dir, work together through the proxy
+#     only: MLS group (key package, invitation, messages), encrypted group media on a Blossom onion, a NIP-17 DM,
+#     and the rotation worker removing a revoked member for a policy-engine behind its own onion.
 #   - Negative controls: deliberately leaky commands (DNS, DoH, direct TCP, IPv6, a destination outside
 #     the allowlist) that the harness MUST detect, so the suite can actually fail.
 #
-# The "Tor" side is a local SOCKS5 stub (tests/leak/stub.ts) that maps a .onion name to an in-memory
-# relay: deterministic, no Tor bootstrap. The property under test is that the client emits nothing
+# The "Tor" side is a local SOCKS5 stub (tests/leak/stub.ts) that maps .onion names to an in-memory relay, a
+# Blossom server and a policy-engine: deterministic, no Tor bootstrap. The property under test is that the client emits nothing
 # except to the proxy; what sits behind the proxy is irrelevant to it (docs/sovereign-tor.md).
 #
-# Requirements: Linux, root (re-executes itself with sudo), iproute2, tcpdump, node + npm ci.
+# Requirements: Linux, root (re-executes itself with sudo), iproute2, tcpdump, curl, node + npm ci.
 # Usage: bash scripts/leak-test.sh            (results in ./leak-results, or LEAK_OUT)
 #        LEAK_REQUIRE_IPV6=1 bash scripts/leak-test.sh   (fail if the kernel has no IPv6: CI)
 set -euo pipefail
@@ -36,9 +39,13 @@ NS_IP6=fd00:acce:55::2
 RELAY_PORT=7777
 SOCKS_PORT=9050
 ONION=accesoleaktestrelayaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion
+BLOB_ONION=accesoleaktestblobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion
+POLICY_ONION=accesoleaktestpolicycccccccccccccccccccccccccccccccccccc.onion
+# Host side only (127.0.0.1, outside the namespace): sets the stub's policy-engine up for the rotation worker.
+CONTROL_PORT=7780
 CMD_TIMEOUT=${LEAK_CMD_TIMEOUT:-120}
 
-for bin in ip tcpdump node timeout; do
+for bin in ip tcpdump node timeout curl; do
   command -v "$bin" > /dev/null || { echo "leak-test: missing $bin" >&2; exit 2; }
 done
 [ -x "$TSX" ] || { echo "leak-test: run npm ci first ($TSX missing)" >&2; exit 2; }
@@ -116,7 +123,8 @@ sleep 1 # let the kernel's own link chatter (MLD/ND after link up) settle before
 # --- host side: relay + SOCKS stub standing in for Tor
 SOCKS_LOG="$OUT/socks.jsonl"
 : > "$SOCKS_LOG"
-"$TSX" tests/leak/stub.ts --host "$HOST_IP" --relay-port "$RELAY_PORT" --socks-port "$SOCKS_PORT" --socks-log "$SOCKS_LOG" > "$OUT/stub.log" 2>&1 &
+"$TSX" tests/leak/stub.ts --host "$HOST_IP" --relay-port "$RELAY_PORT" --socks-port "$SOCKS_PORT" --socks-log "$SOCKS_LOG" \
+  --control-port "$CONTROL_PORT" > "$OUT/stub.log" 2>&1 &
 STUB_PID=$!
 for _ in $(seq 1 100); do
   if grep -q 'leak stub ready' "$OUT/stub.log"; then break; fi
@@ -164,13 +172,17 @@ check() { # check NAME ARGS... : verdict of tests/leak/check.ts
   fi
 }
 
+json_field() { # json_field FIELD FILE : a top-level string field of the CLI's persona JSON
+  sed -n "s/^  \"$1\": \"\([^\"]*\)\".*/\1/p" "$2" | head -n 1
+}
+
 # profile_work NAME RELAY_URL TEXT [--tor --high-risk] : real work with the CLI (create, send, read, sync)
 profile_work() {
   local name=$1 relay=$2 text=$3 id
   shift 3
   cli "$name" persona create --label "leak-$name" --relay "$relay" "$@" > "$OUT/$name.persona.json" || return 1
   cat "$OUT/$name.persona.json"
-  id=$(sed -n 's/^ *"id": "\([^"]*\)".*/\1/p' "$OUT/$name.persona.json" | head -n 1)
+  id=$(json_field id "$OUT/$name.persona.json")
   [ -n "$id" ] || return 1
   cli "$name" channel send --persona "$id" --group leaktest "$text" || return 1
   cli "$name" channel read --persona "$id" --group leaktest || return 1
@@ -194,9 +206,84 @@ run_profile() {
   if [ "$ok" = 1 ] && grep -q 'REPLICATED' "$log" && grep -qF "$text" "$log"; then record PASS "$name-cli-real-work"; else record FAIL "$name-cli-real-work"; fi
 }
 
+# groups_work GROUP_TEXT DM_TEXT : two Tor personas (two users, each with its own data dir) through the proxy only
+groups_work() {
+  local group_text=$1 dm_text=$2 relay="ws://$ONION" a b pa pb gid sha
+  cli tor-a persona create --label leak-tor-a --relay "$relay" --tor --high-risk > "$OUT/tor-a.persona.json" || return 1
+  cli tor-b persona create --label leak-tor-b --relay "$relay" --tor --high-risk > "$OUT/tor-b.persona.json" || return 1
+  a=$(json_field id "$OUT/tor-a.persona.json")
+  pa=$(json_field pubkey "$OUT/tor-a.persona.json")
+  b=$(json_field id "$OUT/tor-b.persona.json")
+  pb=$(json_field pubkey "$OUT/tor-b.persona.json")
+  [ -n "$a" ] && [ -n "$pa" ] && [ -n "$b" ] && [ -n "$pb" ] || return 1
+  echo "persona A $a ($pa), persona B $b ($pb)"
+  # MLS over Tor: key package, group, invitation (Welcome), messages
+  cli tor-b group keypackage --persona "$b" || return 1
+  cli tor-a group create --persona "$a" --name leak-group > "$OUT/tor-groups.create.txt" || return 1
+  cat "$OUT/tor-groups.create.txt"
+  gid=$(awk 'NR == 1 { print $1 }' "$OUT/tor-groups.create.txt")
+  [ -n "$gid" ] || return 1
+  cli tor-a group invite --persona "$a" --group "$gid" --to "$pb" || return 1
+  cli tor-b group accept --persona "$b" || return 1
+  cli tor-a group send --persona "$a" --group "$gid" "$group_text" || return 1
+  # Group media (MIP-04): encrypted by A, uploaded to the Blossom onion; downloaded and decrypted by B
+  printf 'leak test file %s\n' "$group_text" > "$DATA/leak-file.txt"
+  cli tor-a group send-file --persona "$a" --group "$gid" --file "$DATA/leak-file.txt" --server "http://$BLOB_ONION" "adjunto" || return 1
+  cli tor-b group read --persona "$b" --group "$gid" | tee "$OUT/tor-groups.read.txt" || return 1
+  sha=$(sed -n 's/.*--sha \([0-9a-f]\{64\}\).*/\1/p' "$OUT/tor-groups.read.txt" | head -n 1)
+  [ -n "$sha" ] || return 1
+  cli tor-b group fetch-file --persona "$b" --group "$gid" --sha "$sha" --out "$DATA/leak-file.out" || return 1
+  if cmp "$DATA/leak-file.txt" "$DATA/leak-file.out"; then echo "FILE-ROUNDTRIP-OK"; else return 1; fi
+  # NIP-17 DM from A to B's DM relays (kind 10050, published by persona create)
+  cli tor-a dm send --persona "$a" --to "$pb" "$dm_text" || return 1
+  cli tor-b dm inbox --persona "$b" || return 1
+  # Rotation worker: the organisation revokes a device of B (policy-engine behind its onion, set up from the host);
+  # A, group admin and policy admin (NIP-98), removes B with an MLS commit and marks the rotation done
+  curl -fsS -X POST --data "{\"pubkey\":\"$pa\"}" "http://127.0.0.1:$CONTROL_PORT/admin" || return 1
+  curl -fsS -X POST --data "{\"groupId\":\"$gid\",\"member\":\"$pb\"}" "http://127.0.0.1:$CONTROL_PORT/revoke" || return 1
+  echo
+  cli tor-a group rotation-worker --persona "$a" --policy "http://$POLICY_ONION" --once | tee "$OUT/tor-groups.rotation.txt" || return 1
+  { cli tor-a persona list && cli tor-b persona list; } > "$OUT/tor-groups.personas.txt" || return 1
+  echo "$a" > "$OUT/tor-groups.ids.txt"
+  echo "$b" >> "$OUT/tor-groups.ids.txt"
+}
+
+# run_groups : groups_work while capturing the namespace link
+run_groups() {
+  local log="$OUT/tor-groups.cli.log" stamp group_text dm_text ok=1 onion id covered=1
+  stamp=$(date +%s)
+  group_text="leak test group $stamp"
+  dm_text="leak test dm $stamp"
+  : > "$SOCKS_LOG"
+  capture_start tor-groups
+  groups_work "$group_text" "$dm_text" > "$log" 2>&1 || ok=0
+  capture_stop
+  cp "$SOCKS_LOG" "$OUT/tor-groups.socks.jsonl"
+  cat "$log"
+  if [ "$ok" = 1 ] && grep -qF ": $group_text" "$OUT/tor-groups.read.txt" && grep -q 'FILE-ROUNDTRIP-OK' "$log" \
+    && grep -qF ": $dm_text" "$log" && grep -Eq '^[0-9a-f]+  removed  epoch=' "$OUT/tor-groups.rotation.txt"; then
+    record PASS tor-groups-cli-real-work
+  else
+    record FAIL tor-groups-cli-real-work
+  fi
+  # What the phase is about went through the proxy: the three onions, and each persona under its own credentials.
+  for onion in "$ONION" "$BLOB_ONION" "$POLICY_ONION"; do
+    grep -qF "\"host\":\"$onion\"" "$OUT/tor-groups.socks.jsonl" || { echo "no SOCKS CONNECT to $onion"; covered=0; }
+  done
+  while read -r id; do
+    grep -qF "\"username\":\"$id\"" "$OUT/tor-groups.socks.jsonl" || { echo "no SOCKS CONNECT by persona $id"; covered=0; }
+  done < <(cat "$OUT/tor-groups.ids.txt" 2> /dev/null || true)
+  if [ "$ok" = 1 ] && [ "$covered" = 1 ]; then record PASS tor-groups-socks-coverage; else record FAIL tor-groups-socks-coverage; fi
+}
+
 # --- FR020-03: Tor profile, zero traffic outside the proxy
 run_profile tor "ws://$ONION" --tor --high-risk
 check tor --pcap "$OUT/tor.pcap" --socks "$HOST_IP:$SOCKS_PORT" --personas "$OUT/tor.personas.txt" --socks-log "$OUT/tor.socks.jsonl" --min-outbound 10
+
+# --- FR020-05: groups, media, DM and rotation worker over Tor, two personas in one capture
+run_groups
+check tor-groups --pcap "$OUT/tor-groups.pcap" --socks "$HOST_IP:$SOCKS_PORT" --personas "$OUT/tor-groups.personas.txt" --all-personas \
+  --socks-log "$OUT/tor-groups.socks.jsonl" --socks-allow "$BLOB_ONION:80" --socks-allow "$POLICY_ONION:80" --min-outbound 20
 
 # --- FR022-02: direct profile (sovereign), every destination inside the persona allowlist
 run_profile direct "ws://$HOST_IP:$RELAY_PORT"
@@ -230,7 +317,7 @@ check neg-cli-bypass --pcap "$OUT/direct.pcap" --allow "$TOR_ALLOW" --expect dir
 echo "--- leak tests: $FAILS failure(s)"
 cat "$SUMMARY"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-  { echo "### Leak tests (FR020-03 / FR022-02)"; echo '```'; cat "$SUMMARY"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+  { echo "### Leak tests (FR020-03 / FR020-05 / FR022-02)"; echo '```'; cat "$SUMMARY"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 fi
 chmod -R a+rX "$OUT"
 [ "$FAILS" = 0 ]

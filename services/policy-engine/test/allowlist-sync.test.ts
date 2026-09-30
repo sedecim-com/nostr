@@ -6,14 +6,21 @@ import { join } from 'node:path';
 import { generateSecretKey, getPublicKey } from '@sedecim/nostr-core';
 import { bearer, PolicyEngineClient } from '@sedecim/policy-client';
 import { createPgPool, type Pool } from '@sedecim/service-kit';
-import { AdmissionServer, AllowlistSync, BuzzAllowlistSink, BUZZ_ALLOWLIST_NOTE, createPolicyApi, encodeEventReply, FileAllowlistSink, PolicyEngine } from '../src/index';
+import { AdmissionServer, AllowlistSync, BuzzAllowlistSink, BUZZ_ALLOWLIST_NOTE, createPolicyApi, decodeEventRequest, encodeEventReply, FileAllowlistSink, PolicyEngine } from '../src/index';
 
 /** Minimal protobuf writer for the nauthz EventRequest (what nostr-rs-relay sends). */
-function field(n: number, bytes: Uint8Array): number[] {
-  return [(n << 3) | 2, bytes.length, ...bytes];
+function varint(n: number): number[] {
+  const out: number[] = [];
+  for (; n > 0x7f; n = Math.floor(n / 128)) out.push((n & 0x7f) | 0x80);
+  return [...out, n];
 }
-function eventRequest(o: { authPubkey?: string; eventPubkey: string; kind: number }): Uint8Array {
-  const event = [...field(2, Buffer.from(o.eventPubkey, 'hex')), 0x20, o.kind, ...field(5, Buffer.from('hola'))];
+function field(n: number, bytes: Uint8Array): number[] {
+  return [(n << 3) | 2, ...varint(bytes.length), ...bytes];
+}
+function eventRequest(o: { authPubkey?: string; eventPubkey: string; kind: number; tags?: string[][] }): Uint8Array {
+  // FR023-10: `repeated TagEntry tags = 6`, `TagEntry { repeated string values = 1 }`.
+  const tags = (o.tags ?? []).flatMap((t) => field(6, new Uint8Array(t.flatMap((v) => field(1, Buffer.from(v))))));
+  const event = [...field(2, Buffer.from(o.eventPubkey, 'hex')), 0x20, ...varint(o.kind), ...field(5, Buffer.from('hola')), ...tags];
   return new Uint8Array([...field(1, new Uint8Array(event)), ...(o.authPubkey ? field(5, Buffer.from(o.authPubkey, 'hex')) : [])]);
 }
 
@@ -103,6 +110,119 @@ describe('relay allowlist sync (FR023-04)', () => {
   it('encodes replies as protobuf EventReply', () => {
     expect([...encodeEventReply(true)]).toEqual([0x08, 1]);
     expect([...encodeEventReply(false, 'no')]).toEqual([0x08, 2, 0x12, 2, 0x6e, 0x6f]);
+  });
+});
+
+describe('admission by h: publish grants per channel and group (FR023-10)', () => {
+  const adminSk = generateSecretKey();
+  const admin = getPublicKey(adminSk);
+  const key = () => getPublicKey(generateSecretKey());
+  const [ana, beto, worker, outsider] = [key(), key(), key(), key()];
+  const channel = 'b3f2c3a0-5c1e-4c55-9d7a-2f6a1c9e0d11';
+  const group = 'cd'.repeat(32);
+  const engine = new PolicyEngine();
+  const api = createPolicyApi(engine, { name: 'policy-grants-test', adminPubkeys: [admin], bearerTokens: { 'sync-token-5678': 'relay-allowlist' } });
+  const admission = new AdmissionServer();
+  let grpcPort: number;
+  let failGrants = false;
+  let sync: AllowlistSync;
+  /** A kind 445 (Marmot group message, signed by an ephemeral key) sent by a session authenticated as `auth`. */
+  const post = (auth: string, h: string[] = []) =>
+    admit(grpcPort, eventRequest({ authPubkey: auth, eventPubkey: getPublicKey(generateSecretKey()), kind: 445, tags: [['p', ana], ...h.map((v) => ['h', v]), ['e', 'ab'.repeat(32)]] }));
+
+  beforeAll(async () => {
+    const client = new PolicyEngineClient(await api.listen(), bearer('sync-token-5678'));
+    grpcPort = await admission.listen();
+    sync = new AllowlistSync({
+      fetch: () => client.relayAllowlist(),
+      fetchGrants: () => (failGrants ? Promise.reject(new Error('grants down')) : client.relayGrants()),
+      sinks: [],
+      admission,
+      extraPubkeys: [worker],
+    });
+    for (const p of [ana, beto]) {
+      await engine.upsertSubject(admin, { pubkey: p, roles: ['staff'], attributes: {} });
+      await engine.registerDevice(admin, p);
+    }
+    await engine.upsertResource(admin, { id: channel, kind: 'channel', sensitivity: 'internal', members: [ana], rules: [{ actions: ['read', 'publish'], anyRole: ['staff'] }] });
+    await engine.upsertResource(admin, { id: group, kind: 'group', sensitivity: 'internal', members: [beto], rules: [{ actions: ['publish'], anyRole: ['staff'] }] });
+  });
+  afterAll(async () => {
+    await api.close();
+    await admission.close();
+  });
+
+  it('reads the h tags of the event the relay sends', () => {
+    const req = decodeEventRequest(eventRequest({ authPubkey: ana, eventPubkey: beto, kind: 9, tags: [['h', channel], ['p', beto], ['h'], ['h', group, 'wss://relay.example']] }));
+    expect(req).toEqual({ authPubkey: ana, eventPubkey: beto, kind: 9, h: [channel, group] });
+  });
+
+  it('refuses events with h until the grants are loaded (fail closed); the rest follow the allowlist', () => {
+    const fresh = new AdmissionServer();
+    fresh.set([ana]);
+    expect(fresh.decide({ authPubkey: ana, h: [channel] })).toEqual({ permit: false, message: 'restricted: channel permissions not loaded yet, retry later' });
+    expect(fresh.decide({ authPubkey: ana })).toEqual({ permit: true });
+  });
+
+  it('admits in a registered channel or group only who may publish there', async () => {
+    await sync.syncOnce();
+    expect(sync.grants).toBe(2);
+    expect(await post(ana, [channel])).toEqual([1, '']);
+    expect(await post(beto, [channel])).toEqual([2, `restricted: not allowed to publish in ${channel}`]);
+    expect(await post(beto, [group])).toEqual([1, '']);
+    expect(await post(ana, [group])).toEqual([2, `restricted: not allowed to publish in ${group}`]);
+    // Every h of the event counts, and the id is matched whatever its case.
+    expect((await post(ana, [channel, group]))[0]).toBe(2);
+    expect(await post(beto, [channel.toUpperCase()])).toEqual([2, `restricted: not allowed to publish in ${channel.toUpperCase()}`]);
+    // An h nobody registered is left to the allowlist; without h, only the allowlist counts.
+    expect(await post(beto, ['ef'.repeat(32)])).toEqual([1, '']);
+    expect(await post(beto)).toEqual([1, '']);
+    // Service identities (the rotation worker commits in the groups it administers) skip the grants, not the allowlist.
+    expect(await post(worker, [channel])).toEqual([1, '']);
+    expect(await post(outsider, [channel])).toEqual([2, 'restricted: pubkey not in the institutional allowlist']);
+  });
+
+  it('never runs two syncs at once, even when one outlasts the interval', async () => {
+    let running = 0;
+    let max = 0;
+    let calls = 0;
+    const slow = new AllowlistSync({
+      fetch: async () => [],
+      fetchGrants: async () => [],
+      onGrants: async () => {
+        calls++;
+        max = Math.max(max, ++running);
+        await new Promise((r) => setTimeout(r, 60));
+        running--;
+      },
+      sinks: [],
+      intervalMs: 10,
+    });
+    slow.start();
+    await new Promise((r) => setTimeout(r, 250));
+    slow.stop();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(max).toBe(1);
+  });
+
+  it('follows the policy at the next sync; a failed grants fetch keeps the last ones', async () => {
+    await engine.upsertResource(admin, { id: channel, kind: 'channel', sensitivity: 'internal', members: [ana, beto], rules: [{ actions: ['read', 'publish'], anyRole: ['staff'] }] });
+    await sync.syncOnce();
+    expect(await post(beto, [channel])).toEqual([1, '']);
+    failGrants = true;
+    await engine.upsertResource(admin, { id: channel, kind: 'channel', sensitivity: 'internal', members: [ana], rules: [{ actions: ['read', 'publish'], anyRole: ['staff'] }] });
+    await sync.syncOnce();
+    expect(sync.lastError).toMatch(/grants: grants down/);
+    expect(await post(beto, [channel])).toEqual([1, '']);
+    failGrants = false;
+    await sync.syncOnce();
+    expect(sync.lastError).toBeUndefined();
+    expect((await post(beto, [channel]))[0]).toBe(2);
+    // Revoking the person closes every channel to them, through the allowlist.
+    await engine.revokeSubject(admin, ana);
+    await sync.syncOnce();
+    expect(await post(ana, [channel])).toEqual([2, 'restricted: pubkey not in the institutional allowlist']);
   });
 });
 
