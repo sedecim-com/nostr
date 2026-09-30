@@ -16,6 +16,13 @@ export interface CognitoIdentity {
   subject: string;
   username?: string;
   tokenUse: 'id' | 'access';
+  /** When the user last signed in with their password (`auth_time`, seconds): refreshed tokens keep it (RFC 9470 step-up). */
+  authTime?: number;
+  /**
+   * The sign-in the token comes from: `origin_jti` (shared by every token refreshed from the same sign-in), else
+   * `event_id`. It tells one browser's login from another's of the same user.
+   */
+  loginId?: string;
 }
 
 export class CognitoTokenError extends Error {}
@@ -80,6 +87,8 @@ export class CognitoVerifier {
     } else throw new CognitoTokenError('unexpected token_use');
     if (typeof claims.sub !== 'string') throw new CognitoTokenError('missing subject');
     const username = (claims['cognito:username'] ?? claims.username) as string | undefined;
-    return { issuer: this.issuer, subject: claims.sub, tokenUse: use, ...(username ? { username } : {}) };
+    const authTime = typeof claims.auth_time === 'number' && Number.isFinite(claims.auth_time) ? claims.auth_time : undefined;
+    const loginId = [claims.origin_jti, claims.event_id].find((v): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128);
+    return { issuer: this.issuer, subject: claims.sub, tokenUse: use, ...(username ? { username } : {}), ...(authTime !== undefined ? { authTime } : {}), ...(loginId ? { loginId } : {}) };
   }
 }

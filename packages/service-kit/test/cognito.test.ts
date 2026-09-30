@@ -8,8 +8,18 @@ describe('CognitoVerifier (Acceso login, ADR 0008)', () => {
   const v = verifier();
 
   it('accepts id and access tokens of the configured pool and client', async () => {
-    expect(await v.verify(token({}))).toEqual({ issuer: iss, subject: 'user-1', username: 'ana', tokenUse: 'id' });
+    const authTime = Math.floor(Date.now() / 1000) - 30;
+    expect(await v.verify(token({ auth_time: authTime }))).toEqual({ issuer: iss, subject: 'user-1', username: 'ana', tokenUse: 'id', authTime, loginId: 'test-login' });
     expect((await v.verify(token({ token_use: 'access', aud: undefined, client_id: cfg.clientId }))).tokenUse).toBe('access');
+  });
+
+  it('reports when the user last signed in and which sign-in the token comes from (IR-2026-10-03, IR-2026-10-11)', async () => {
+    // A refreshed token keeps auth_time and origin_jti; event_id stands in when the pool does not revoke tokens.
+    expect(await v.verify(token({ auth_time: 1_790_000_000, origin_jti: 'ojti-1', event_id: 'ev-1' }))).toMatchObject({ authTime: 1_790_000_000, loginId: 'ojti-1' });
+    expect((await v.verify(token({ origin_jti: undefined, event_id: 'ev-1' }))).loginId).toBe('ev-1');
+    const bare = await v.verify(token({ auth_time: '1790000000', origin_jti: 'x'.repeat(129), event_id: undefined }));
+    expect(bare.authTime).toBeUndefined();
+    expect(bare.loginId).toBeUndefined();
   });
 
   it('rejects forged, foreign, expired or mis-addressed tokens', async () => {
