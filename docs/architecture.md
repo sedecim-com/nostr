@@ -32,8 +32,8 @@ firmados; las bases de datos son índices derivados.
 | `encrypted-store` | Store local cifrado (XChaCha20-Poly1305, nombres HMAC), backends memoria/archivo atómico/IndexedDB; `Vault` con contraseña o llave del dispositivo (ADR 0007) |
 | `identity` | Personas, compartimentos, vínculos con consentimiento, backup/restore NIP-49; vínculo público opcional firmado por ambas personas ([`public-link.md`](public-link.md)) |
 | `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación, DMs como operaciones de envío (FR011-05) |
-| `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad |
-| `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash; lista de servidores del usuario (BUD-03, kind 10063) con subida al principal y descarga con alternativas |
+| `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad; los flujos que comparten el CLI y la web (dispositivos, propuestas y adjuntos MIP-04, FR025-14) |
+| `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash; lista de servidores del usuario (BUD-03, kind 10063) con subida al principal y descarga con alternativas; subida en espejo del cifrado de los archivos de grupo (`ciphertextUploader`) |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
 | `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none |
 | `metrics` | Exportador Prometheus (latencia de ACK por relay y región, outbox) que respeta el nivel de telemetría del perfil ([`slo.md`](slo.md#latencia)) |
@@ -144,6 +144,15 @@ con el estado MLS. No van por el `DeliveryEngine`, porque un evento de grupo no 
   vuelve a construir si otro commit ganó su época.
 
 Nada adelanta a un commit pendiente. Detalle en `docs/marmot.md` («Sin red: mensajes y commits pendientes»).
+
+## Grupos MLS completos en la web (FR025-14)
+
+La web y el CLI hacen lo mismo con los grupos: multi-dispositivo, rotación, propuestas y archivos MIP-04. Las
+decisiones viven en `packages/marmot-adapter/src/flows.ts`: quién hace commit y quién propone, qué lleva una propuesta
+y cómo se abre un adjunto. La vista añade las confirmaciones y las reglas de la web: el aviso de reutilización entre
+personas y la de no invitar ni proponer otra persona propia. Las operaciones MLS de una persona siguen en una sola
+cola por sesión. La descarga de un archivo queda fuera de la cola; su subida, dentro, porque la época no puede cambiar
+mientras se sube. Qué ve cada parte: `docs/threat-model.md`; detalle: `docs/marmot.md` («Uso (web…)»).
 
 ## Canales NIP-29: reacciones, hilos y borrado (FR015-04)
 La vista de canales suscribe los mensajes (kind 9) de un canal y, con su propio límite, las reacciones y los borrados

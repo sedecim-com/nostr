@@ -135,3 +135,51 @@ cuándo, solo tras «Mostrar avatares» o con las previews remotas activadas.
 **Riesgo residual.** Un perfil publicado se copia y se conserva fuera de tu control: retirarlo no borra esas copias.
 Un nombre o una foto pueden identificar a una persona seudónima; por eso hace falta la elección explícita, que es del
 usuario y no se puede deshacer una vez publicado.
+
+## Grupos seguros en la web: dispositivos, rotación, propuestas y archivos (FR025-14)
+
+Implementación: los flujos que comparten el CLI y la web están en `packages/marmot-adapter/src/flows.ts` (quién hace
+commit y quién propone un dispositivo, qué lleva una propuesta, cómo se busca, descarga y abre un archivo) y la subida
+del cifrado en `packages/blossom-client/src/ciphertext.ts`. La web los usa desde `apps/web-saas/src/lib/groups.ts` y
+las vistas `GroupsView.tsx`, `GroupDevices.tsx`, `GroupProposals.tsx` y `GroupAttachment.tsx`. Los textos de
+consecuencias están en el catálogo revisado (`SECURE_GROUP_TEXTS`, [disclosures](disclosures.md)). Pruebas:
+`apps/web-saas/test/secure-groups.test.ts`, `tests/fuzz/group-inputs.test.ts`, `apps/web-saas/test/nip46-permissions.test.ts`
+y el E2E de navegador `tests/browser/web-groups.e2e.ts`. Detalle del protocolo en [marmot.md](marmot.md).
+
+**Qué hace cada acción.**
+- *Dispositivos.* Invitar a alguien añade todos sus dispositivos con key package en un solo commit, como el CLI.
+  «Añadir dispositivos» (admin) o «Proponer dispositivos» (miembro) busca los key packages de dispositivos de una
+  persona que aún no están y deja marcar cuáles entran. El admin los añade con un commit; un miembro envía una propuesta.
+  El admin quita un dispositivo con confirmación, y ese navegador ve que está fuera aunque su persona siga en el grupo.
+  El nombre de cada navegador se guarda en su vault, fuera del estado MLS, y se anuncia cifrado dentro de cada grupo.
+- *Rotación.* «Rotar mis claves», con confirmación, publica un commit de self-update. Antes lee lo que el relay ya
+  tiene de esa época, así que no pierde los mensajes enviados antes de rotar. Las propuestas pendientes quedan
+  descartadas.
+- *Propuestas.* Un miembro propone altas y bajas. Todos ven las pendientes. El admin confirma las que marca: un commit
+  las aplica y descarta el resto. O rechaza todas con una rotación de sus claves. Mientras haya propuestas, la vista no
+  deja escribir, porque MLS no lo permite, ni hacer otros commits del admin, que aplicarían también algunas de ellas.
+- *Archivos (MIP-04).* Primero, el aviso de reutilización entre personas (FR006-07) con el archivo tal como se eligió.
+  Después se quitan los metadatos de JPEG, PNG y WebP. Con `stripFileMetadata`, una imagen que no se puede limpiar se
+  rechaza antes de subir nada, la regla de los demás adjuntos. El archivo se cifra con la clave de la época y solo se
+  sube el cifrado. La descarga comprueba el hash del cifrado antes de descifrar y se hace fuera de la cola MLS.
+
+**Qué ve cada parte.**
+- *Los miembros del grupo:* cada dispositivo de cada persona, con su identificador y el nombre que anuncie; quién
+  propone qué; el nombre, el tipo y el tamaño de cada archivo.
+- *El relay de grupos:* eventos kind 445 cifrados, firmados con una llave de un solo uso, y un key package firmado con
+  la npub por cada dispositivo.
+- *Los servidores Blossom del emisor y el blob-store del despliegue:* el archivo cifrado (tamaño y hash), la npub que
+  firma la subida y la IP. Al descargar, el servidor donde está el archivo ve la IP de quien lo pide, y su npub si exige
+  autorización. Si la dirección compartida falla, los relays de la persona ven que busca la lista de servidores del
+  emisor.
+
+**Riesgo residual.**
+- Un miembro puede bloquear el grupo proponiendo cambios: nadie escribe hasta que un admin decide.
+- Quien sale o es expulsado conserva lo que ya descifró. Puede abrir los archivos de las épocas en que era miembro si
+  consigue el cifrado.
+- Un nombre de dispositivo cambiado no llega a los grupos en los que ya está el navegador hasta que se anuncia otra vez.
+  Se anuncia al entrar en un grupo y, si es admin, al añadir a alguien.
+- La subida de un archivo ocupa la cola MLS de la persona mientras dura. Un servidor Blossom que no responde retrasa
+  las demás operaciones de sus grupos en ese navegador.
+- Tras revocar un dispositivo, un key package publicado por el dispositivo perdido aparece entre los candidatos: por
+  eso se marcan uno a uno.
