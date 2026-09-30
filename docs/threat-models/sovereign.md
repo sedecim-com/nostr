@@ -22,6 +22,7 @@ La llave (generada air-gapped), el stack self-hosted, el historial local.
 | Dependencia del SaaS | Stack completo con Docker Compose sin credenciales del SaaS | `docker-compose.yml`, CI `stack` (OPS-01) |
 | Telemetría hacia terceros | Nivel `none`: cero emisiones y endpoints bloqueados | `packages/telemetry-policy/test` |
 | Imágenes manipuladas | Imágenes fijadas por digest, también las de terceros (OPS-13), y las propias reproducibles bit a bit (NFR010-03); SBOM; gitleaks | `docker-compose.yml`, `tests/scripts/supply-chain.test.ts`, CI |
+| Consultas de la web al mirror | Con identidad pseudónima la web no consulta el mirror (ni contadores de no leídos ni búsqueda de canales), y la vista lo dice (FR014-04) | `apps/web-saas/test/mirror.test.ts`, `packages/profiles/test/profiles.test.ts` |
 | Datos en reposo en el host | Mirror sellado en reposo opcional (`MIRROR_AT_REST_KEY`), cada fila ligada a su `event_id` (SEC-06); vault envelope | `services/indexer/test` |
 
 ## Riesgos residuales
