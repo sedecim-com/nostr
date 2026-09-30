@@ -41,8 +41,8 @@ de auditoría, dispositivos registrados.
 | Admisión del secure-relay fail-open | Medio | nostr-rs-relay admite el evento si no alcanza el servidor gRPC de `relay-allowlist`; Buzz es fail-closed (`docs/institutional.md`) |
 | El borrado por retención no alcanza réplicas | Medio | Solo borra la copia del mirror; otros relays y clientes conservan la suya (aviso en la API) |
 | Lo descifrado antes de revocar sigue en el dispositivo | Medio | La rotación protege solo lo posterior; ventana del intervalo de sondeo del worker (FR-024, `docs/marmot.md`) |
-| Credenciales de Acceso en el dispositivo robado | Medio | Pueden abrir sesiones del managed-signer con otro id de dispositivo: cerrar las sesiones de Acceso (cierre global); el runbook de pérdida está pendiente (FR024-05) |
-| Revocación incompleta en la web managed | Medio | La web aún no usa sesiones de dispositivo del managed-signer y el worker de rotaciones corre desde el CLI, sin servicio desplegado (FR024-03, FR024-05) |
+| Credenciales de Acceso en el dispositivo robado | Medio | Pueden abrir sesiones del managed-signer con otro id de dispositivo: cerrar las sesiones de Acceso (cierre global), como dice el runbook de pérdida (`docs/runbooks/device-loss.md`, FR024-05) |
+| El worker de rotaciones puede descifrar sus grupos | Medio | Es un miembro más de los grupos que lo tienen como admin: mientras está, descifra lo que se envía, aunque no lo guarda. Quien lo controle podría leer esos grupos; los miembros lo ven en la lista (`docs/institutional.md`, FR024-05) |
 | Límites de firma por réplica | Bajo | El token bucket vive en memoria de cada réplica: con N réplicas el límite efectivo es hasta N veces mayor |
 | Administrador malicioso | Medio | Falta separación de funciones; la auditoría es append-only en la base, pero un superusuario de Postgres puede desactivar los triggers |
 | Canales NIP-29 legibles por el operador | Medio | Por diseño: usar salas Marmot |

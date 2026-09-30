@@ -21,7 +21,7 @@ La llave (generada air-gapped), el stack self-hosted, el historial local.
 | Llave expuesta al generarla | Generador offline con todas las primitivas de red bloqueadas; bundle reproducible con checksum | `apps/key-generator/test` |
 | Dependencia del SaaS | Stack completo con Docker Compose sin credenciales del SaaS | `docker-compose.yml`, CI `stack` (OPS-01) |
 | Telemetría hacia terceros | Nivel `none`: cero emisiones y endpoints bloqueados | `packages/telemetry-policy/test` |
-| Imágenes manipuladas | Imágenes fijadas por digest (salvo postgres y redis, por tag) y reproducibles bit a bit (NFR010-03); SBOM; gitleaks | `docker-compose.yml`, CI |
+| Imágenes manipuladas | Imágenes fijadas por digest, también las de terceros (OPS-13), y las propias reproducibles bit a bit (NFR010-03); SBOM; gitleaks | `docker-compose.yml`, `tests/scripts/supply-chain.test.ts`, CI |
 | Datos en reposo en el host | Mirror sellado en reposo opcional (`MIRROR_AT_REST_KEY`), cada fila ligada a su `event_id` (SEC-06); vault envelope | `services/indexer/test` |
 
 ## Riesgos residuales
