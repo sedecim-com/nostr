@@ -41,3 +41,11 @@ lee), así que es un dato sensible.
 
   El read receipt solo sale cuando el usuario ve el mensaje y el perfil lo permite (`DmInbox` en
   `packages/messaging/src/inbox.ts`).
+- IR-2026-10-09: los receipts solo van a **contactos**, es decir, a quien esta persona ya escribió un DM (lo que
+  registra su outbox, `outboxContacts`). Un desconocido que escribe primero no recibe ninguno hasta que la persona le
+  contesta:
+  - no sabe cuándo está conectado el dispositivo;
+  - no consigue que se conecte, y firme un AUTH NIP-42, en los relays que él elija.
+
+  Con un contacto, el receipt va a los mismos relays de DM a los que la persona ya le escribe, y firma el mismo AUTH.
+  Los relays de referencia exigen NIP-42 para publicar, así que sin AUTH el receipt no llegaría.

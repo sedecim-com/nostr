@@ -23,6 +23,7 @@ cuenta↔npub en el identity-service, backup cifrado.
 | Pérdida del dispositivo | Backup NIP-49 con clave del usuario; restauración en un dispositivo limpio | `packages/identity/test` (FR-027) |
 | Lectura de DMs por el operador | NIP-44 + gift wrap NIP-59; el relay no ve contenido ni remitente | `packages/messaging/test` |
 | Suplantación en DMs | El unwrap verifica que el firmante del seal coincide con el autor del rumor | `messaging.test.ts` (impersonation) |
+| Oráculo de presencia con los acuses de entrega | Solo a contactos, quien la persona ya escribió (IR-2026-10-09): un desconocido que escribe primero no recibe acuse ni hace que el dispositivo se conecte, y firme un AUTH NIP-42, en sus relays | `packages/messaging/test/inbox.test.ts` |
 | Pérdida de mensajes | Outbox cifrada, persistida antes de transmitir; reintentos | `packages/delivery-engine/test` |
 | Metadatos EXIF en imágenes | Saneamiento por defecto (`stripFileMetadata`); las imágenes que no se pueden sanear (HEIC, TIFF/RAW) se rechazan, también en DMs | `packages/blossom-client/test`, `tests/browser/web-saas.e2e.ts` |
 
