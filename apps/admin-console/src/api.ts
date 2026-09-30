@@ -1,7 +1,7 @@
 import { nip98, type Signer } from '@sedecim/nostr-core';
-import type { Device, Resource, Rule, Sensitivity, Subject } from '@sedecim/policy-client';
+import type { AccessLogEntry, Device, Resource, Rule, Sensitivity, Subject } from '@sedecim/policy-client';
 
-export type { Device, Resource, Rule, Sensitivity, Subject };
+export type { AccessLogEntry, Device, Resource, Rule, Sensitivity, Subject };
 
 /** Rotation the MLS group owner must perform after a member lost access (FR-024). */
 export interface Rotation {
@@ -134,6 +134,14 @@ export class PolicyAdminApi {
     const qs = new URLSearchParams({ limit: String(q.limit) });
     if (q.before !== undefined) qs.set('before', String(q.before));
     return (await this.call<{ audit: AuditEntry[] }>('GET', `/v1/audit?${qs}`)).audit;
+  };
+
+  /** FR023-12: access decisions, newest first, paged like `audit`; `retentionDays` is how long they are kept. */
+  accessLog = (q: { limit: number; before?: number; resource?: string }) => {
+    const qs = new URLSearchParams({ limit: String(q.limit) });
+    if (q.before !== undefined) qs.set('before', String(q.before));
+    if (q.resource) qs.set('resource', q.resource);
+    return this.call<{ access: AccessLogEntry[]; retentionDays: number }>('GET', `/v1/access-log?${qs}`);
   };
 
   pendingRotations = async () => (await this.call<{ rotations: Rotation[] }>('GET', '/v1/rotations?status=pending')).rotations;

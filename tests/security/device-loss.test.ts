@@ -121,8 +121,9 @@ describe('device loss end to end (SEC-04, FR-024)', () => {
     expect((await engine.evaluate({ pubkey: alice, deviceId: phone.id, resourceId: group.groupId, action: 'read' })).reasons).toEqual(['device revoked']);
 
     // 2. Revocation propagated to the managed-signer (and from it to the bunker), even after more than a
-    //    page of other audit entries: the default audit page no longer shows it (B2, FR024-04).
-    for (let i = 0; i < 150; i++) await engine.evaluate({ pubkey: alice, resourceId: group.groupId, action: 'read' });
+    //    page of other audit entries: the default audit page no longer shows it (B2, FR024-04). Access
+    //    decisions no longer go to the audit (FR023-12): admin actions fill it here.
+    for (let i = 0; i < 150; i++) await engine.putDirectoryEntry(admin, { pubkey: alice, title: `turno ${i}` });
     expect((await engine.listAudit()).some((e) => e.action === 'device.revoke')).toBe(false);
     const policy = new HttpPolicySource({ baseUrl: policyBase, signer: adminSigner });
     const propagator = new RevocationPropagator({ feed: policy, sinks: [managedSignerSink({ baseUrl: signerBase, token: REVOCATION_TOKEN })], logger: silent });

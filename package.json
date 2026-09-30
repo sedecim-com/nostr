@@ -22,6 +22,8 @@
     "build:keygen-html": "node apps/key-generator/build-html.mjs",
     "test:keygen-html": "tsx tests/browser/keygen-html.e2e.ts",
     "lint:claims": "tsx scripts/lint-claims.ts",
+    "docs:api": "typedoc",
+    "docs:openapi": "tsx scripts/openapi.ts",
     "sovereign": "tsx apps/sovereign-client/src/cli.ts",
     "dev:relay": "tsx packages/test-relay/src/cli.ts",
     "build:web": "vite build --config apps/web-saas/vite.config.ts",
@@ -35,6 +37,9 @@
     "dev:web": "vite --config apps/web-saas/vite.config.ts",
     "dev:admin": "vite --config apps/admin-console/vite.config.ts"
   },
+  "dependencies": {
+    "tsx": "4.23.15"
+  },
   "devDependencies": {
     "@types/node": "22.20.4",
     "@types/pg": "8.23.1",
@@ -47,7 +52,7 @@
     "fast-check": "4.10.2",
     "nostr-tools": "2.25.2",
     "playwright": "1.56.1",
-    "tsx": "4.23.15",
+    "typedoc": "0.28.20",
     "typescript": "5.9.3",
     "vite": "8.3.0",
     "vitest": "5.0.1"

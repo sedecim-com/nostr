@@ -129,6 +129,28 @@ jobs:
       - name: Traceability and status board are up to date and their evidence exists (OPS-18)
         run: node scripts/traceability.mjs --check
 
+  # OPS-14: the SDK reference (TypeDoc, any warning fails) and the OpenAPI of each service (docs/openapi up to date and
+  # every route with its summary).
+  docs:
+    if: ${{ !inputs.stack_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: OpenAPI of the services is up to date (OPS-14)
+        run: npx tsx scripts/openapi.ts --check
+      - name: SDK reference with TypeDoc (OPS-14)
+        run: npm run docs:api
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdk-api-reference
+          path: docs-api/
+
   compose:
     if: ${{ !inputs.stack_only }}
     runs-on: ubuntu-latest
@@ -137,7 +159,9 @@ jobs:
       - name: Validate docker compose (all profiles, TLS override)
         run: |
           sh scripts/init-env.sh
-          docker compose --profile tor --profile managed config -q
+          docker compose --profile tor --profile managed --profile push --profile institutional config -q
+          # FR023-13: institutional mode, with the secure relay admitting events through relay-allowlist.
+          SECURE_RELAY_CONFIG=./infra/secure-relay/config.institutional.toml docker compose --profile institutional config -q
           DOMAIN=example.org sh scripts/render-tls-config.sh
           DOMAIN=example.org ACME_EMAIL=ops@example.org docker compose -f docker-compose.yml -f compose.tls.yml config -q
       - name: Validate Caddyfile
@@ -158,12 +182,20 @@ jobs:
           node-version: 22
       - name: Render the stage overlay
         run: kubectl kustomize deploy/k8s/overlays/stage > /dev/null
+      # FR023-13: no overlay uses the institutional component yet; it is rendered on top of the base.
+      - name: Render the base with the institutional component (FR023-13)
+        run: |
+          dir="$RUNNER_TEMP/institutional"
+          mkdir -p "$dir"
+          k8s=$(realpath --relative-to="$dir" deploy/k8s)
+          printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nnamespace: acceso-nostr\nresources:\n  - %s/base\ncomponents:\n  - %s/components/institutional\n' "$k8s" "$k8s" > "$dir/kustomization.yaml"
+          kubectl kustomize "$dir" | grep -q 'event_admission_server = "http://relay-allowlist:50051"'
       # OPS-20: managed, the enclave and push only in the production configuration with their evidence
       # (deploy/production-gates.json); release.yml runs the same check on the tag.
       - name: Production feature gates
         run: node scripts/release-gate.mjs config
       - name: Deploy scripts
-        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/rebuild-image.sh scripts/verify-release.sh
+        run: shellcheck -x deploy/k8s/scripts/*.sh scripts/backup.sh scripts/restore.sh scripts/scan-logs.sh scripts/leak-test.sh scripts/mls-negative-control.sh scripts/tor-profile-check.sh scripts/marmot-upstream.sh scripts/rds-failover-test.sh scripts/build-image.sh scripts/image-diff.sh scripts/image-sbom.sh scripts/rebuild-image.sh scripts/verify-release.sh scripts/stack-profiles.sh scripts/wait-stack.sh
       - name: SLO rules and their unit tests (promtool)
         run: |
           curl -sSfL -o prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
@@ -240,6 +272,9 @@ jobs:
         env:
           LEAK_REQUIRE_IPV6: "1"
         run: bash scripts/leak-test.sh
+      # FR020-05: with ts-mls 2.0.0-rc.10 swapped in, the MLS self-test must fail closed; restored, it must pass.
+      - name: MLS negative control (ts-mls rc.10)
+        run: bash scripts/mls-negative-control.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -288,6 +323,8 @@ jobs:
           CANDIDATE_BUZZ_IMAGE: ${{ inputs.buzz_image }}
         run: |
           sh scripts/init-env.sh
+          # NFR006-04: the optional profiles (managed, push, institutional, tor) run too, so their logs are scanned.
+          sh scripts/stack-profiles.sh configure
           echo "INDEXER_CHANNEL_REFRESH_MS=2000" >> .env
           if [ -n "$CANDIDATE_BUZZ_IMAGE" ]; then
             case "$CANDIDATE_BUZZ_IMAGE" in *@sha256:*) ;; *) echo "buzz_image must be pinned by digest"; exit 1;; esac
@@ -338,9 +375,28 @@ jobs:
           docker run -d --name open-relay --network host -v "$RUNNER_TEMP/open-relay.toml:/usr/src/app/config.toml:ro" "$(docker compose config --images secure-relay)"
           timeout 60 sh -c 'until curl -sf -H "Accept: application/nostr+json" http://localhost:7010 > /dev/null; do sleep 1; done'
           npx vitest run tests/interop/notification-gateway.interop.test.ts
+      # FR023-13: institutional mode end to end on the same stack. The secure relay restarts with nauthz event admission
+      # by relay-allowlist (infra/secure-relay/config.institutional.toml); the checks above used the open one.
+      # FR023-10: admission by `h` on the secure relay, and the NIP-29 membership relay-allowlist keeps on Buzz.
+      - name: Institutional mode on the running stack (FR023-13, FR023-10)
+        env:
+          INSTITUTIONAL_RELAY_URL: ws://localhost:7000
+          STACK_POLICY_URL: http://localhost:8083
+          BUZZ_RELAY_URL: ws://localhost:3000
+        run: |
+          SECURE_RELAY_CONFIG=./infra/secure-relay/config.institutional.toml docker compose up -d secure-relay
+          timeout 60 sh -c 'until curl -sf -H "Accept: application/nostr+json" http://localhost:7000 > /dev/null; do sleep 1; done'
+          POLICY_ADMIN_SECRET_KEY=$(sed -n 's/^POLICY_ADMIN_SECRET_KEY=//p' .env) BUZZ_MEMBERSHIP_NSEC=$(sed -n 's/^BUZZ_MEMBERSHIP_NSEC=//p' .env) \
+            npx vitest run tests/interop/institutional.interop.test.ts
+      # NFR006-04: a request carrying a canary credential to each service; the scan below checks nobody logs it.
+      - name: Canary requests to the services (NFR006-04)
+        run: sh scripts/stack-profiles.sh exercise
       - name: Collect logs
         if: always()
         run: docker compose logs --no-color > compose.log 2>&1 || true
+      - name: Every service of the stack, optional profiles included, is in the log (NFR006-04)
+        if: always()
+        run: sh scripts/stack-profiles.sh logged compose.log
       # NFR006-03: the logs of the whole stack must not contain secrets. gitleaks (repository rules, no git)
       # plus a canary: every secret init-env.sh generated into .env is a known value that must not appear.
       - name: Scan service logs for secrets (NFR006-03)

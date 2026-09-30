@@ -1,4 +1,4 @@
-# Build desde source y verificación de releases (OPS-09, NFR010-02, NFR010-03, OPS-08)
+# Build desde source y verificación de releases (OPS-09, NFR010-02, NFR010-03, NFR010-04, OPS-08)
 
 Esta guía explica cómo construir cada artefacto desde el código de un tag, cómo compararlo con lo
 publicado y qué partes son reproducibles bit a bit (y cuáles no). Los releases los genera
@@ -11,9 +11,11 @@ publicado y qué partes son reproducibles bit a bit (y cuáles no). Los releases
 | `keygen.html`: generador air-gapped en un solo archivo (FR003-05) | assets del GitHub Release | `keygen.html.sigstore.json` (cosign keyless), attestation SLSA y SBOM |
 | `keygen.mjs`: CLI del generador en un solo archivo (Node 22) | assets del GitHub Release | `keygen.mjs.sigstore.json`, attestation SLSA y SBOM |
 | `sbom.cdx.json`: SBOM CycloneDX de las dependencias de producción | assets del GitHub Release | `sbom.cdx.json.sigstore.json`, attestation SLSA |
+| `sbom-buzz.cdx.json`: SBOM de la imagen de Buzz fijada, hecho por syft desde la imagen (NFR010-04) | assets del GitHub Release | `sbom-buzz.cdx.json.sigstore.json`, attestation SLSA, y attestation SBOM del digest de Buzz |
+| `buzz-image.txt`: la imagen de Buzz fijada (`infra/buzz/PIN`), `imagen@sha256:…` | assets del GitHub Release | `buzz-image.txt.sigstore.json` |
 | `images.txt`: lista `imagen@sha256:…` de las imágenes del release | assets del GitHub Release | `images.txt.sigstore.json` |
-| `SHA256SUMS`: checksums de los cuatro archivos anteriores | assets del GitHub Release | `SHA256SUMS.sigstore.json` |
-| Imágenes `ghcr.io/sedecim-com/nostr-<servicio>:<tag>`: `indexer`, `identity-service`, `policy-engine`, `blob-store`, `managed-signer`, `notification-gateway`, `continuity-vault`, `web`, `tor` | GHCR, fijadas por digest en `images.txt` | firma cosign en el registry, attestation SLSA (y SBOM salvo `tor`) en el registry y en GitHub |
+| `SHA256SUMS`: checksums de los seis archivos anteriores | assets del GitHub Release | `SHA256SUMS.sigstore.json` |
+| Imágenes `ghcr.io/sedecim-com/nostr-<servicio>:<tag>`: `indexer`, `identity-service`, `policy-engine`, `blob-store`, `managed-signer`, `notification-gateway`, `continuity-vault`, `web`, `tor` | GHCR, fijadas por digest en `images.txt` | firma cosign en el registry; attestation SLSA y el SBOM de la propia imagen (syft, NFR010-04), en el registry y en GitHub |
 
 Las firmas son *keyless* (Sigstore): no hay una llave del proyecto que custodiar. El certificado de
 cada firma lo emite Fulcio para la identidad OIDC del workflow, que es exactamente
@@ -22,7 +24,24 @@ registrado en el log público de transparencia (Rekor). Las attestations de prov
 genera `actions/attest-build-provenance` y se consultan con `gh attestation verify`.
 
 El relay Buzz no forma parte del release: se usa la imagen upstream sin modificar, fijada por digest en
-`infra/buzz/PIN` (ADR 0002/0003).
+`infra/buzz/PIN` (ADR 0002/0003). El release no la firma, pero sí publica y atesta su SBOM para ese digest.
+
+### SBOM por imagen (NFR010-04)
+
+Cada imagen lleva el SBOM de lo que contiene: `scripts/image-sbom.sh` lo genera con syft (versión y
+checksum fijados en el script) a partir del archivo OCI que se publica, y `release.yml` lo atesta sobre el digest
+de esa imagen. Antes, `scripts/image-sbom-check.mjs` comprueba que ningún paquete npm instalado en `/app` sea
+solo de desarrollo en `package-lock.json`. La imagen de los servicios se instala con `npm ci --omit=dev` (etapa
+`prod-deps` del `Dockerfile`), y `tsx`, que los ejecuta, es una dependencia. `reproducible-images.yml` hace lo
+mismo en cada PR que toca las imágenes y guarda el SBOM como artefacto:
+
+```bash
+sh scripts/build-image.sh indexer image.tar
+sh scripts/image-sbom.sh oci-archive:image.tar sbom-indexer.cdx.json
+node scripts/image-sbom-check.mjs sbom-indexer.cdx.json      # falla si hay una devDependency en /app
+gh attestation verify oci://ghcr.io/sedecim-com/nostr-indexer@sha256:<digest> --repo sedecim-com/nostr \
+  --predicate-type https://cyclonedx.org/bom                # el SBOM atestado de una imagen publicada
+```
 
 ## Cadena de suministro (OPS-13)
 
@@ -34,7 +53,8 @@ El relay Buzz no forma parte del release: se usa la imagen upstream sin modifica
 - **Herramientas descargadas** en CI (gitleaks, promtool, syft) contrastadas con el sha256 que publica su
   release antes de ejecutarse.
 - **Dependabot** vigila npm, las acciones, los dos Dockerfile (raíz e `infra/tor`) y las imágenes del compose.
-  Buzz queda fuera: se actualiza con `buzz-upstream.yml` y el gate de interoperabilidad (ADR 0003).
+  Buzz queda fuera: se actualiza con `buzz-upstream.yml` y el gate de interoperabilidad (ADR 0003). Tampoco
+  propone versiones mayores de postgres ni de redis: exigen migrar los datos y el mismo cambio en `deploy/k8s`.
 - **Gates:**
   - `npm audit` en el job `test` falla con una vulnerabilidad alta en las dependencias de producción, o
     crítica en cualquiera;
@@ -61,8 +81,11 @@ Hace, en este orden:
 2. `cosign verify-blob` de `SHA256SUMS` contra la identidad exacta del workflow en ese tag.
 3. `sha256sum -c SHA256SUMS` (en macOS `shasum -a 256 -c`).
 4. `cosign verify-blob` de cada archivo con su `.sigstore.json`, y `gh attestation verify` (provenance
-   SLSA, workflow `release.yml` de este repositorio) de `keygen.html`, `keygen.mjs` y `sbom.cdx.json`.
-5. Por cada línea de `images.txt`: `cosign verify imagen@digest` y `gh attestation verify oci://imagen@digest`.
+   SLSA, workflow `release.yml` de este repositorio) de `keygen.html`, `keygen.mjs`, `sbom.cdx.json` y
+   `sbom-buzz.cdx.json`.
+5. Por cada línea de `images.txt`: `cosign verify imagen@digest` y `gh attestation verify oci://imagen@digest`,
+   de la provenance y del SBOM (`--predicate-type https://cyclonedx.org/bom`).
+6. El SBOM atestado de la imagen de Buzz de `buzz-image.txt`.
 
 Los mismos pasos a mano, para un archivo:
 

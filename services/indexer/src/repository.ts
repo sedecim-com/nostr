@@ -75,6 +75,16 @@ export interface EventRepository {
   /** Retention (FR023-08): hard-deletes mirrored events older than `before`; returns how many. */
   purge(q: PurgeQuery): Promise<number>;
   /**
+   * FR023-12: versions of replaceable/addressable events that a newer one superseded, kept (with `keepSuperseded`)
+   * so that a legal hold covers them too. Never part of a canonical read.
+   */
+  superseded(): Promise<Array<{ event: NostrEvent; supersededBy: string }>>;
+  /**
+   * FR023-12: deletes the superseded versions no legal hold covers. `held` are resource ids, matched as a channel
+   * (`h` tag, or the `d` of its NIP-29 state events 39000-39003) and as a workspace (community). Returns how many.
+   */
+  purgeSuperseded(held: string[]): Promise<number>;
+  /**
    * FR014-05: channels whose NIP-29 access lists (39001 admins, 39002 members) signed by one of `authorities`
    * name `reader`. Only the head of each list is stored, so removing a member revokes the access.
    */
@@ -101,6 +111,24 @@ const ACCESS_KINDS = [39001, 39002];
 /** Events of one channel (`h`) or one community created before `before` (unix seconds), minus the exceptions. */
 export type PurgeQuery = { before: number } & ({ h: string; exceptCommunities: string[] } | { community: string; exceptH: string[] });
 
+/** FR023-12: repository options. */
+export interface EventRepositoryOptions {
+  /**
+   * Keep what a newer version of a replaceable/addressable event supersedes (see `superseded`) instead of deleting it:
+   * institutional mode, where a legal hold may cover it. `purgeSuperseded` then deletes what no hold covers.
+   */
+  keepSuperseded?: boolean;
+}
+
+/** NIP-29 group state events (metadata, admins, members, roles): their `d` names the channel. */
+const GROUP_STATE_KINDS = [39000, 39001, 39002, 39003];
+
+/** Whether a superseded version belongs to one of the `held` resources (FR023-12). */
+function heldBy(held: string[], e: NostrEvent, communityId?: string): boolean {
+  const h = getTagValue(e, 'h');
+  return (!!h && held.includes(h)) || (!!communityId && held.includes(communityId)) || (GROUP_STATE_KINDS.includes(e.kind) && held.includes(getTagValue(e, 'd') ?? ''));
+}
+
 function matches(q: EventQuery, m: MirroredEvent): boolean {
   const e = m.event;
   if (!q.includeDeleted && m.deleted) return false;
@@ -118,7 +146,11 @@ export class MemoryEventRepository implements EventRepository {
   private readonly rows = new Map<string, MirroredEvent & { stored: StoredEvent; communityId?: string }>();
   private readonly cursors = new Map<string, number>();
   private readonly moderation = new Map<string, ModerationDeletion & { applied: boolean }>();
-  constructor(private readonly codec: EventCodec = plainCodec) {}
+  private readonly archived = new Map<string, { stored: StoredEvent; event: NostrEvent; communityId?: string; supersededBy: string }>();
+  constructor(
+    private readonly codec: EventCodec = plainCodec,
+    private readonly opts: EventRepositoryOptions = {},
+  ) {}
 
   async upsert(evt: NostrEvent, relay: string, communityId?: string): Promise<boolean> {
     const now = Date.now();
@@ -136,10 +168,18 @@ export class MemoryEventRepository implements EventRepository {
         if (r.deleted) continue;
         const re = this.codec.decode(r.stored, id);
         if (eventAddress(re) !== addr) continue;
-        if (!supersedes(evt, re)) return false;
+        if (!supersedes(evt, re)) {
+          // FR023-12: a version older than the head that arrives after it is kept as superseded too.
+          if (this.opts.keepSuperseded) this.archived.set(evt.id, { stored: this.codec.encode(evt), event: evt, supersededBy: id, ...(communityId ? { communityId } : {}) });
+          return false;
+        }
         older.push(id);
       }
-      older.forEach((id) => this.rows.delete(id));
+      for (const id of older) {
+        const r = this.rows.get(id)!;
+        if (this.opts.keepSuperseded) this.archived.set(id, { stored: r.stored, event: r.event, supersededBy: evt.id, ...(r.communityId ? { communityId: r.communityId } : {}) });
+        this.rows.delete(id);
+      }
     }
     this.rows.set(evt.id, { event: evt, stored: this.codec.encode(evt), firstSeenAt: now, lastSeenAt: now, relays: [relay], sensitivity: classify(evt), deleted: false, ...(communityId ? { communityId } : {}) });
     return true;
@@ -248,6 +288,16 @@ export class MemoryEventRepository implements EventRepository {
     }
     return n;
   }
+
+  async superseded() {
+    return [...this.archived.entries()].map(([id, a]) => ({ event: this.codec.decode(a.stored, id), supersededBy: a.supersededBy }));
+  }
+
+  async purgeSuperseded(held: string[]) {
+    let n = 0;
+    for (const [id, a] of this.archived) if (!heldBy(held, a.event, a.communityId) && this.archived.delete(id)) n++;
+    return n;
+  }
 }
 
 interface PgEventRow {
@@ -263,7 +313,11 @@ interface PgEventRow {
 }
 
 export class PgEventRepository implements EventRepository {
-  constructor(private readonly pool: Pool, private readonly codec: EventCodec = plainCodec) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly codec: EventCodec = plainCodec,
+    private readonly opts: EventRepositoryOptions = {},
+  ) {}
 
   /**
    * Idempotent under concurrent replicas (NFR005-01): the event id is the primary key, writers of the same
@@ -280,16 +334,27 @@ export class PgEventRepository implements EventRepository {
       const seen = await client.query('UPDATE events SET last_seen_at = now() WHERE event_id = $1', [evt.id]);
       let inserted = false;
       if (!seen.rowCount) {
-        let superseded = false;
+        // The head that supersedes `evt`, if one is already stored.
+        let supersededBy: string | undefined;
         if (replaceable) {
           await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [eventAddress(evt)]);
           const heads = await client.query<{ event_id: string; created_at: string }>(
             'SELECT event_id, created_at FROM events WHERE pubkey = $1 AND kind = $2 AND d_tag IS NOT DISTINCT FROM $3 AND NOT deleted_tombstone',
             [evt.pubkey, evt.kind, d],
           );
-          superseded = heads.rows.some((h) => h.event_id !== evt.id && (Number(h.created_at) > evt.created_at || (Number(h.created_at) === evt.created_at && h.event_id < evt.id)));
+          supersededBy = heads.rows.find((h) => h.event_id !== evt.id && (Number(h.created_at) > evt.created_at || (Number(h.created_at) === evt.created_at && h.event_id < evt.id)))?.event_id;
         }
-        if (!superseded) {
+        if (supersededBy !== undefined) {
+          // FR023-12: a version older than the head that arrives after it is kept as superseded too.
+          if (this.opts.keepSuperseded) {
+            const enc = this.codec.encode(evt);
+            await client.query(
+              `INSERT INTO events_superseded (event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, seal_version, community_id, h_tag, d_tag, superseded_by)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (event_id) DO NOTHING`,
+              [evt.id, evt.pubkey, evt.kind, evt.created_at, enc.raw ? JSON.stringify(enc.raw) : null, enc.encrypted ? Buffer.from(enc.encrypted) : null, enc.sealVersion ?? null, communityId ?? null, getTagValue(evt, 'h') ?? null, d, supersededBy],
+            );
+          }
+        } else {
           const enc = this.codec.encode(evt);
           const r = await client.query(
             `INSERT INTO events (event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, seal_version, community_id, h_tag, p_tags, sensitivity_class, d_tag)
@@ -298,6 +363,16 @@ export class PgEventRepository implements EventRepository {
           );
           inserted = r.rowCount === 1;
           if (inserted && replaceable) {
+            // FR023-12: in institutional mode what the new head supersedes is archived first (a legal hold may cover it).
+            if (this.opts.keepSuperseded) {
+              await client.query(
+                `INSERT INTO events_superseded (event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, seal_version, community_id, h_tag, d_tag, superseded_by)
+                 SELECT event_id, pubkey, kind, created_at, raw_event_json, encrypted_payload, seal_version, community_id, h_tag, d_tag, $4 FROM events
+                 WHERE pubkey = $1 AND kind = $2 AND d_tag IS NOT DISTINCT FROM $3 AND event_id <> $4 AND NOT deleted_tombstone
+                 ON CONFLICT (event_id) DO NOTHING`,
+                [evt.pubkey, evt.kind, d, evt.id],
+              );
+            }
             await client.query('DELETE FROM events WHERE pubkey = $1 AND kind = $2 AND d_tag IS NOT DISTINCT FROM $3 AND event_id <> $4 AND NOT deleted_tombstone', [evt.pubkey, evt.kind, d, evt.id]);
           }
         }
@@ -482,6 +557,25 @@ export class PgEventRepository implements EventRepository {
       [h, authorities, targetId ?? null],
     );
     return Number(rows[0]?.hidden ?? 0);
+  }
+
+  async superseded() {
+    const { rows } = await this.pool.query<{ event_id: string; raw_event_json: NostrEvent | null; encrypted_payload: Buffer | null; seal_version: number | null; superseded_by: string }>(
+      'SELECT event_id, raw_event_json, encrypted_payload, seal_version, superseded_by FROM events_superseded ORDER BY created_at, event_id',
+    );
+    return rows.map((r) => ({
+      event: this.codec.decode({ raw: r.raw_event_json, encrypted: r.encrypted_payload ? new Uint8Array(r.encrypted_payload) : null, sealVersion: r.seal_version }, r.event_id),
+      supersededBy: r.superseded_by,
+    }));
+  }
+
+  async purgeSuperseded(held: string[]) {
+    // Index columns only (h, community, kind, d): works on a sealed mirror.
+    const r = await this.pool.query(
+      `DELETE FROM events_superseded WHERE NOT (coalesce(h_tag = ANY($1), false) OR coalesce(community_id = ANY($1), false) OR (kind = ANY($2) AND coalesce(d_tag = ANY($1), false)))`,
+      [held, GROUP_STATE_KINDS],
+    );
+    return r.rowCount ?? 0;
   }
 
   async purge(q: PurgeQuery): Promise<number> {

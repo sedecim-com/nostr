@@ -38,6 +38,16 @@ export interface RevocationPage {
   now: number;
 }
 
+/**
+ * FR023-10: who may publish in a channel (NIP-29, Buzz) or group (Marmot) resource, for the relays (`GET
+ * /v1/relay/grants`). Relays match it against the `h` tag of each event.
+ */
+export interface RelayGrant {
+  resourceId: string;
+  kind: 'channel' | 'group';
+  pubkeys: string[];
+}
+
 /** FR023-06: organisational directory entry (admin-only, never published to relays). */
 export interface DirectoryEntry {
   pubkey: string;
@@ -50,4 +60,19 @@ export interface RetentionPolicy {
   resourceId: string;
   days: number | null;
   legalHold: boolean;
+}
+
+/**
+ * FR023-12: one access decision of `POST /v1/evaluate` (who asked to do what on which resource, and the answer). Kept
+ * apart from the audit, with a retention of its own (ACCESS_LOG_RETENTION_DAYS): the audit records what admins do.
+ */
+export interface AccessLogEntry {
+  /** Monotonic: pass the last one received as `before` to page GET /v1/access-log. */
+  id: number;
+  at: number;
+  pubkey: string;
+  deviceId?: string;
+  resourceId: string;
+  action: string;
+  allow: boolean;
 }

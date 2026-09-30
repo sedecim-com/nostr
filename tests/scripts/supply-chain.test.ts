@@ -54,6 +54,10 @@ describe('supply chain (OPS-13)', () => {
     const cfg = read('.github/dependabot.yml');
     const updates = cfg.split(/^\s+- package-ecosystem: /m).slice(1).map((u) => `${u.split('\n')[0]} ${/directory: (\S+)/.exec(u)?.[1]}`);
     expect(updates).toEqual(expect.arrayContaining(['npm /', 'github-actions /', 'docker /', 'docker /infra/tor', 'docker-compose /']));
+    // Buzz follows buzz-upstream.yml (ADR 0003). Dependabot names images without their registry: an ignore
+    // written as ghcr.io/block/buzz matches nothing.
+    expect(cfg).toMatch(/^\s+- dependency-name: block\/buzz$/m);
+    expect(cfg).not.toMatch(/dependency-name: \S*\.\S+\//);
   });
 
   it('npm audit gates CI, and CodeQL gates the release', () => {

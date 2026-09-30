@@ -94,15 +94,13 @@ tests:
         alertname: RelayAckLatencyDegraded
         exp_alerts: []
 
-  # Failures, stuck outbox and a dead exporter.
+  # Failures and a dead exporter.
   - interval: 1m
     input_series:
       - series: 'nostr_relay_publish_total{job="nostr-metrics",relay="bad.example",region="eu",result="ok"}'
         values: '0+5x40'
       - series: 'nostr_relay_publish_total{job="nostr-metrics",relay="bad.example",region="eu",result="timeout"}'
         values: '0+5x40'
-      - series: 'nostr_outbox_oldest_pending_age_seconds{job="nostr-metrics",service="indexer",instance="indexer:9464"}'
-        values: '0+60x40'
       - series: 'up{job="nostr-metrics",instance="indexer:9464"}'
         values: '0x40'
     promql_expr_test:
@@ -124,21 +122,6 @@ tests:
               summary: "bad.example (eu): 50% de publicaciones fallidas"
               description: "Más del 25 % de las publicaciones al relay no reciben OK=true desde hace 15 min (ver nostr_relay_publish_total por result). Runbook: docs/slo.md#latencia."
               runbook: docs/slo.md
-      # age passes 900 s at minute 15, alert after 10 more minutes
-      - eval_time: 24m
-        alertname: OutboxOldestPendingTooOld
-        exp_alerts: []
-      - eval_time: 30m
-        alertname: OutboxOldestPendingTooOld
-        exp_alerts:
-          - exp_labels:
-              service: indexer
-              severity: ticket
-              slo: ack-latency
-            exp_annotations:
-              summary: "indexer: la operación más antigua del outbox lleva 30m 0s sin replicarse"
-              description: "Hay mensajes que no alcanzan el quorum de relays desde hace más de 15 min (ver nostr_outbox_relay_failures_total por reason). Runbook: docs/slo.md#latencia."
-              runbook: docs/slo.md
       - eval_time: 30m
         alertname: NostrMetricsMissing
         exp_alerts:
@@ -149,5 +132,5 @@ tests:
               slo: ack-latency
             exp_annotations:
               summary: "Exportador de métricas Nostr caído (indexer:9464)"
-              description: "La latencia de ACK y el outbox no se están midiendo; revisar el servicio y METRICS_PORT."
+              description: "La latencia de ACK no se está midiendo; revisar el servicio y METRICS_PORT."
               runbook: docs/slo.md

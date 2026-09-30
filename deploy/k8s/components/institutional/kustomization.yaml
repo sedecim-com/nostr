@@ -1,7 +1,13 @@
 # Institutional mode (docs/institutional.md; compose profile `institutional`). Opt-in: add
-# `components: [../../components/institutional]` to an overlay. Needs RELAY_ALLOWLIST_POLICY_TOKEN and
-# INDEXER_POLICY_ENGINE_TOKEN in acceso-nostr-secrets, both listed in POLICY_SERVICE_TOKENS.
-# - relay-allowlist: FR023-04 allowlist sync (Buzz table + secure-relay gRPC admission).
+# `components: [../../components/institutional]` to an overlay. Needs RELAY_ALLOWLIST_POLICY_TOKEN,
+# INDEXER_POLICY_ENGINE_TOKEN and ROTATION_WORKER_POLICY_TOKEN in acceso-nostr-secrets, all listed in
+# POLICY_SERVICE_TOKENS, plus ROTATION_WORKER_NSEC and ROTATION_STATE_KEY (and ROTATION_MANAGED_SIGNER_TOKEN with the
+# managed-signer component). Optional: BUZZ_MEMBERSHIP_NSEC (FR023-10 NIP-29 membership sync).
+# - relay-allowlist: FR023-04 allowlist sync (Buzz table + secure-relay gRPC admission), FR023-10 admission by `h` with the
+#   publish grants of each registered channel and group, and the NIP-29 membership of the registered Buzz channels.
+# - rotation-worker: FR024-05 group rotations and device revocations (one replica, state on a PVC). Its pubkey goes in
+#   ALLOWLIST_EXTRA_PUBKEYS so that the secure relay admits it; ROTATION_WORKER_RELAYS maps the secure relay's public URL
+#   (web config secureRelays) to the service.
 # - Buzz enforces its pubkey allowlist; the indexer evaluates reads and applies retention (FR023-05/08).
 # - secure-relay config with `[grpc] event_admission_server` (copy of infra/secure-relay/config.institutional.toml;
 #   an overlay that replaces secure-relay-config must add that section itself).
@@ -9,6 +15,7 @@ apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
   - relay-allowlist.yaml
+  - rotation-worker.yaml
 configMapGenerator:
   - name: acceso-nostr-config
     behavior: merge
@@ -18,6 +25,9 @@ configMapGenerator:
       - ALLOWLIST_SYNC_INTERVAL_MS=30000
       - BUZZ_ALLOWLIST_HOSTS=
       - ALLOWLIST_EXTRA_PUBKEYS=
+      - ROTATION_WORKER_RELAYS=ws://localhost:7000=ws://secure-relay:8080
+      - ROTATION_INTERVAL_MS=15000
+      - ROTATION_MANAGED_SIGNER_URL=
   - name: secure-relay-config
     behavior: replace
     files:

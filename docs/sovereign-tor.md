@@ -60,7 +60,7 @@ Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-c
   (también con `sovereign whoami`).
 - Telemetría `none`: cero llamadas externas.
 
-## Tests de fugas con captura de red real (FR020-03, FR022-02)
+## Tests de fugas con captura de red real (FR020-03, FR020-05, FR022-02)
 
 ```bash
 npm ci && sudo apt-get install -y tcpdump     # Linux, root (el script se relanza con sudo)
@@ -75,6 +75,15 @@ Qué hace `scripts/leak-test.sh` (job `leak-tests` en CI):
    obligatorio: `LEAK_REQUIRE_IPV6=1`).
 2. Captura con `tcpdump` todo lo que cruza ese veth mientras el **CLI soberano real** trabaja:
    `persona create`, `channel send`, `channel read`, `history sync`, `persona list`.
+   **Grupos por Tor** (FR020-05), en una captura aparte. Dos personas Tor, cada una con su propio
+   directorio de datos, como dos usuarios, trabajan juntas solo a través del proxy:
+   - **MLS:** key package, `group create`, invitación (Welcome), `group accept`, mensaje y `group read`;
+   - **media del grupo (MIP-04):** `group send-file` cifra y sube a un Blossom `.onion`; la otra persona
+     lo descarga y descifra con `group fetch-file`, y el archivo debe salir idéntico;
+   - **DM NIP-17:** `dm send` a los relays de DM de la otra persona y `dm inbox`;
+   - **worker de rotaciones:** la organización revoca un dispositivo de la otra persona en un
+     policy-engine detrás de su propio `.onion`. `group rotation-worker --once`, con NIP-98, la saca del
+     grupo con un commit MLS y marca la rotación como hecha.
 3. Analiza el pcap (`tests/leak/pcap.ts`, `tests/leak/analyze.ts`, sin dependencias):
    - **Perfil Tor** (`--tor --high-risk`, relay `.onion`): cero paquetes DNS (UDP/TCP 53, DoT 853, mDNS,
      LLMNR), cero HTTPS a resolvers DoH conocidos, cero paquetes IPv6 (salvo ND/MLD del kernel en el
@@ -84,13 +93,22 @@ Qué hace `scripts/leak-test.sh` (job `leak-tests` en CI):
      leída de `persona list`, es decir, de la configuración que guardó el CLI) y el proxy no se usa.
    - Se exige tráfico real (≥ 10 paquetes salientes, `REPLICATED` y el mensaje leído de vuelta): una
      captura vacía no pasa.
+   - **Grupos por Tor:**
+     - la misma política Tor, con cada CONNECT juzgado contra la persona que nombra su usuario SOCKS
+       (`--all-personas`);
+     - los destinos permitidos son sus relays y los `.onion` del Blossom y del policy-engine
+       (`--socks-allow`), lo mismo que el CLI añade a su allowlist para esos comandos;
+     - se exige que cada paso haya hecho su trabajo (mensaje leído, archivo idéntico, DM recibido,
+       `removed`) y que el log SOCKS tenga CONNECT a los tres `.onion` y de las dos personas.
 4. **Controles negativos** (el test puede fallar): comandos deliberadamente filtrantes que el análisis
    debe detectar: resolución por getaddrinfo y por c-ares, conexión a un resolver DoH, TCP directo al relay
    saltándose el proxy, un destino fuera de la allowlist del perfil directo, TCP por IPv6, y el tráfico
    real del perfil directo juzgado con la política Tor.
 
-Elección del lado "Tor": un stub SOCKS5 local (`tests/leak/stub.ts`, sobre `TestSocksServer`) que mapea un
-nombre `.onion` fijo al relay en memoria. Es determinista y no depende del arranque de Tor. La propiedad
+Elección del lado "Tor": un stub SOCKS5 local (`tests/leak/stub.ts`, sobre `TestSocksServer`) que mapea
+nombres `.onion` fijos al relay en memoria, a un servidor Blossom y a un policy-engine. Es determinista y
+no depende del arranque de Tor. El policy-engine se prepara desde el host con un endpoint de control
+(`127.0.0.1`, fuera del namespace y de la captura): hace admin a una persona y revoca un dispositivo. La propiedad
 probada, "el cliente no emite nada salvo hacia el proxy", no depende de lo que haya detrás del proxy; la
 conexión real a Tor se prueba aparte (abajo). Las capturas y veredictos quedan como artefacto de CI.
 
@@ -100,6 +118,10 @@ habría conectado directo. Ahora usa `NetworkGuard.fetchApi()` (Tor/allowlist), 
 
 Tests unitarios del arnés (se ejecutan en `npm test`, sin root): `tests/leak/leak.test.ts`, con capturas
 reales de tcpdump en `tests/leak/fixtures/` y paquetes sintéticos (IPv6, DoH, mDNS...).
+
+El mismo job ejecuta después el **control negativo de ts-mls rc.10** (`scripts/mls-negative-control.sh`,
+FR020-05). Instala la versión vulnerable, exige que la autoprueba MLS falle cerrada y restaura la instalada
+(docs/marmot.md).
 
 ## Perfil `tor` del compose de punta a punta (FR021-02)
 

@@ -47,6 +47,7 @@ Objetivos de RPO/RTO por tier: [`docs/rpo-rto.md`](../rpo-rto.md) (aprobados el 
 | Vault managed | volumen `managed-vault` + KEK | `managed-vault.tgz` si corre el perfil `managed`; la KEK se guarda separada (HSM/KMS) |
 | Onion service | volumen `tor-data` (`relay/hs_ed25519_secret_key`) | `tor-data.tgz` si corre el perfil `tor`: define la dirección .onion |
 | Secure relay del onion | secure-relay-onion (volumen `secure-relay-onion-data`, SQLite) | `secure-relay-onion-data.tgz` si corre el perfil `tor` |
+| Worker de rotaciones (FR024-05) | volumen `rotation-state`: su estado MLS, cifrado con `ROTATION_STATE_KEY` | `rotation-state.tgz` si corre el perfil `institutional`; la clave va en `.env`. Sin el volumen o sin la clave, el worker vuelve a empezar sin grupos |
 | Redis | volumen `redis-data` | No se respalda: cachés y pub/sub de Buzz |
 
 ### Backup

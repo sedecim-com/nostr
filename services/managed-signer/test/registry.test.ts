@@ -98,6 +98,22 @@ function deviceStoreSuite(name: string, open: () => Promise<DeviceStore>) {
       expect(await store.purgeExpiredSessions(at)).toBe(1);
       expect(await store.session('c'.repeat(64))).toBeUndefined();
     });
+
+    it("lists and closes an owner's own live sessions only (FR005-11)", async () => {
+      const store = await open();
+      const at = Date.UTC(2026, 6, 1);
+      const sess = (h: string, owner: string, createdAt: number, expiresAt = at + 1000) => ({ tokenHash: h.repeat(64), deviceId: `dev-${h}`, owner, principal: owner, createdAt, expiresAt });
+      await store.insertSession(sess('e', 'ana', at + 2));
+      await store.insertSession(sess('f', 'ana', at + 1));
+      await store.insertSession(sess('0', 'ana', at, at)); // expired
+      await store.insertSession(sess('1', 'bea', at));
+      expect((await store.sessionsOf('ana', at)).map((x) => x.deviceId)).toEqual(['dev-f', 'dev-e']);
+      // Another owner's session is not closed through this owner.
+      expect(await store.dropSessions('ana', ['1'.repeat(64), 'e'.repeat(64)])).toBe(1);
+      expect(await store.session('1'.repeat(64))).toMatchObject({ owner: 'bea' });
+      expect((await store.sessionsOf('ana', at)).map((x) => x.deviceId)).toEqual(['dev-f']);
+      expect(await store.dropSessions('ana', [])).toBe(0);
+    });
   });
 }
 

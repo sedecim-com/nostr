@@ -5,7 +5,7 @@ Desde OPS-10, **los issues con el label `backlog` son la fuente del backlog**. `
 sincronización los sobrescribe.
 
 Excepción: `meta` de `backlog.json` (sprints, `baseline`, `version`, `source`, prioridades, nombres de los
-requisitos) no sale de los issues. Se edita a mano por PR y la sincronización lo conserva; después, `node scripts/backlog.mjs` regenera
+requisitos, filas del estado del README) no sale de los issues. Se edita a mano por PR y la sincronización lo conserva; después, `node scripts/backlog.mjs` regenera
 `README.md` y `backlog.csv`. Al traer la salida de la rama `backlog-sync` a una PR, primero se trae esa salida y
 después se edita `meta`, para no volver a su valor anterior.
 
@@ -104,6 +104,16 @@ Los nombres de los requisitos están en `meta.requirements`.
 - las hechas por nivel de evidencia: `evidenceState` es el label `evidencia:…` más alto del issue, que `pull` guarda y `seed` vuelve a poner;
 - los sprints abiertos;
 - las P0 abiertas.
+
+**El README** lleva, entre `<!-- status:start … -->` y `<!-- status:end -->`, el estado de cada perfil y
+capacidad por nivel de evidencia (OPS-19), también generado:
+
+- Las filas son `meta.capabilities`. Cada una elige sus tareas por requisito (`FR-017`), por prefijo de ID
+  (`VAULT-*`) o por tarea (`OPS-06`).
+- El nivel de una fila es el más bajo que alcanzan todas sus tareas del programa. Una tarea hecha antes de
+  OPS-17, sin label, cuenta como Merged.
+- Mientras falte alguna tarea, la fila está «En curso».
+- La advertencia de no aptitud para alto riesgo se mantiene mientras ninguna fila tenga auditoría externa.
 
 **Si el job falla en una PR:**
 
