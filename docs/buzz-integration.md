@@ -102,7 +102,7 @@ su despliegue. El CI completo (job `stack` con la membresía NIP-29 de FR023-10,
 | Timestamps | Sin cambios: ±900 s, también para kind 1059 | El adaptador de jitter de 300 s para #4192 sigue siendo necesario |
 | NIP-29 | Sin cambios en 9000/9001/9007 ni en el estado 39000–39003 firmado por el relay | Ninguno para la membresía de FR023-10 ni para el mirror |
 | Arranque y readiness | Falla al arrancar con `BUZZ_OPERATOR_LISTENERS` mal formado o sin Redis en 5 s. `/_readiness` solo dice que el proceso está arriba: Postgres y Redis pasan a `/_status` | No definimos esas variables, y compose espera a Redis. **La sonda de SLO pasa a `/_status`** (`http_buzz_status` en `deploy/monitoring/blackbox/blackbox.yml`, `docs/slo.md`); con `/_readiness` seguiría en verde con Postgres o Redis caídos |
-| Borrado de comunidades | `POST /operator/communities/delete` y un drain automático, apagados sin `RELAY_OPERATOR_*` | Ninguno. Las rutas nuevas (`/operator/communities/delete`, `/operator/listener/pubkeys`, `/query` y `/count` de artefactos) fallan cerradas con nuestra configuración; entran en el inventario de SEC-12 |
+| Borrado de comunidades | `POST /operator/communities/delete` y un drain automático, apagados sin `RELAY_OPERATOR_*` | Ninguno. Las rutas nuevas (`/operator/communities/delete`, `/operator/listener/pubkeys`, `/query` y `/count` de artefactos) fallan cerradas con nuestra configuración; entran en el inventario de SEC-12 ([`docs/security/buzz-attack-surface.md`](security/buzz-attack-surface.md)) |
 
 **Rollback.** Las migraciones 0050–0053 son aditivas y se aplican al arrancar. Con `BUZZ_AUTO_MIGRATE` activo, la imagen
 anterior no arranca sobre una base que ya las tiene: su migrador rechaza migraciones que no conoce. Para volver a

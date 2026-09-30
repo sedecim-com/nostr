@@ -67,7 +67,7 @@ Preguntas concretas para el revisor:
 |---|---|---|
 | Web SaaS (SPA) | `apps/web-saas`, login con Acceso (Cognito) + npub, bóveda en IndexedDB | `https://nostr-stage.ai.acce.so` |
 | Consola de administración | `apps/admin-console`, NIP-98 contra policy-engine e identity-service | servida por el edge de stage |
-| Relay principal (Buzz, upstream fijado por digest) | WebSocket Nostr, NIP-42, `/media` | `wss://nostr-stage-relay.ai.acce.so` |
+| Relay principal (Buzz, upstream fijado por digest) | WebSocket Nostr, NIP-42, `/media`. El edge solo reenvía esas dos; el resto de rutas de Buzz y cómo se comprueba, en [`buzz-attack-surface.md`](buzz-attack-surface.md) (SEC-12) | `wss://nostr-stage-relay.ai.acce.so` |
 | Relay seguro (nostr-rs-relay + admisión nauthz) | Relay institucional con allowlist | `wss://nostr-stage-secure.ai.acce.so` |
 | identity-service | Cuentas, personas, enlaces, bóveda de backups (NIP-98 o token Cognito) | `https://nostr-stage-id.ai.acce.so` |
 | policy-engine | Sujetos, recursos, dispositivos, WebAuthn, auditoría (NIP-98 admin; bearer de servicio) | `https://nostr-stage-policy.ai.acce.so` |
