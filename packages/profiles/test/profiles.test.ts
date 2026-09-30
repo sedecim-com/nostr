@@ -139,10 +139,22 @@ describe('disclosure copy versioning (FR028-02)', () => {
   it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
     const { createHash } = await import('node:crypto');
     const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
-    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3' };
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3', '1.8.0': '7433521db6f41dbc' };
     const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
     expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();
+  });
+});
+
+describe('deleting in channels (FR015-04)', async () => {
+  const { CHANNEL_DELETION_TEXTS } = await import('../src/index');
+
+  it('FR015-04: says which deletion each action publishes and that copies already out are not withdrawn, as reviewed copy', () => {
+    expect(CHANNEL_DELETION_TEXTS.message).toMatch(/kind 9005.*autor del mensaje o un admin del canal/s);
+    expect(CHANNEL_DELETION_TEXTS.reaction).toMatch(/NIP-09 \(kind 5\)/);
+    expect(CHANNEL_DELETION_TEXTS.copies).toMatch(/no retira las copias que ya circularon/);
+    const reviewed = disclosureCatalog();
+    for (const text of Object.values(CHANNEL_DELETION_TEXTS)) expect(reviewed.find((d) => d.statement === text)?.control).toBe('persistence');
   });
 });
 

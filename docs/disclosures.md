@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.7.0** · huella `5744da9a3d86d6a3` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.8.0** · huella `7433521db6f41dbc` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -66,6 +66,9 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | cloudBackup | continuity-vault (deletion) | Borrar quita del servidor los archivos y sus metadatos en el momento; las copias de seguridad del operador pueden conservar los archivos, cifrados, y sus metadatos hasta que caduquen. | — | — | — |
 | cloudBackup | continuity-vault (retention) | Cada archivo se guarda hasta que lo borras o hasta que vence su plazo, contado desde la última vez que se guardó: el operador del vault puede fijar un plazo máximo y tú puedes elegir uno más corto. Al vencer, el servidor borra el archivo y sus metadatos. | — | — | — |
 | cloudBackup | continuity-vault (export) | Puedes exportar el vault en un archivo JSON abierto: tus eventos firmados, que cualquier cliente Nostr puede verificar y publicar, los mensajes de tus grupos seguros y tu estado de entrega. El archivo no va cifrado: los mensajes de grupo quedan en claro, así que guárdalo con cuidado. | — | — | — |
+| persistence | borrado en canales (message) | Borrar un mensaje de canal publica una petición firmada con tu npub (NIP-29, kind 9005). El relay del canal y el mirror la aplican si la firma el autor del mensaje o un admin del canal: dejan de servirlo, y la web lo oculta. | — | — | — |
+| persistence | borrado en canales (copies) | Borrar no retira las copias que ya circularon: quien recibió el mensaje, otros clientes y otros relays pueden conservarlo, y la petición de borrado es un evento público firmado con tu npub. | — | — | — |
+| persistence | borrado en canales (reaction) | Quitar tu reacción publica un borrado NIP-09 (kind 5) de esa reacción: los clientes que lo aplican dejan de contarla, pero quien ya la vio puede conservarla. | — | — | — |
 
 ## Aprobación
 
