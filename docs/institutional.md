@@ -227,7 +227,8 @@ Con `POLICY_ENGINE_URL` y `POLICY_ENGINE_TOKEN` el indexer exige NIP-98 en todas
 - Cabecera opcional `x-policy-device-id`: se evalúa con ese dispositivo (los recursos `confidential`/`secret`
   exigen uno registrado).
 - `/v1/events` y `/v1/search` omiten lo no permitido; `/v1/events/:id` responde 404; `/v1/channels/:h/summary`
-  y `PUT /v1/read-cursor` responden 403; `/v1/unread` omite los canales no permitidos.
+  y `PUT /v1/read-cursor` responden 403; `/v1/unread` y `/v1/unread/recent` (los contadores de la web, FR014-04)
+  omiten los canales no permitidos.
 - Denegación por defecto: un error del engine es un deny.
 
 El filtrado ocurre después del `limit` de la consulta, así que una página puede traer menos resultados.

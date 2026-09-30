@@ -175,6 +175,7 @@ const SERVICES: Record<string, ServiceDoc> = {
       'GET /v1/events/:id': { summary: 'Un evento del mirror por id.' },
       'GET /v1/channels/:h/summary': { summary: 'Resumen de un canal: último mensaje y conteos.' },
       'GET /v1/unread': { summary: 'No leídos por canal de quien firma (FR014-03).' },
+      'GET /v1/unread/recent': { summary: 'Hora de los mensajes más recientes de cada canal que quien firma puede leer, sin los suyos ni los borrados: el cliente cuenta sus no leídos con un cursor que no envía (FR014-04).' },
       'PUT /v1/read-cursor': { summary: 'Marca hasta dónde leyó quien firma en un canal.' },
       'GET /v1/search': { summary: 'Búsqueda en mensajes en claro de los canales que quien firma puede leer (nunca gift wraps).' },
     },

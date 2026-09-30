@@ -184,6 +184,42 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
         await api.close();
       }
     });
+
+    it('FR014-04: recent message times per readable channel, for unread counts whose cursor stays with the client', async () => {
+      const channel = `r-${Math.random().toString(36).slice(2)}`;
+      const closed = `x-${Math.random().toString(36).slice(2)}`;
+      const aliceSk = generateSecretKey();
+      const bobSk = generateSecretKey();
+      const t = Math.floor(Date.now() / 1000);
+      const sign = (sk: Uint8Array, kind: number, created_at: number, h = channel, extra: string[][] = []) => finalizeEvent(toUnsigned({ kind, content: 'x', tags: [['h', h], ...extra], created_at }, getPublicKey(sk)), sk);
+      const deleted = sign(aliceSk, 9, t - 10);
+      for (const e of [sign(aliceSk, 9, t - 50), sign(aliceSk, 9, t - 40), sign(aliceSk, 11, t - 30), sign(aliceSk, 9, t - 20), deleted, sign(bobSk, 9, t - 5), sign(aliceSk, 7, t - 4), sign(aliceSk, 9, t - 3, closed)]) {
+        await indexer.ingest(e, relay.url);
+      }
+      await indexer.ingest(sign(aliceSk, 5, t - 1, channel, [['e', deleted.id]]), relay.url);
+      await indexer.ingest(memberList(channel, [aliceSk, bobSk]), relay.url);
+      await indexer.ingest(memberList(closed, [aliceSk]), relay.url);
+
+      const api = createIndexerApi(repo, { name: 'indexer-test', groups });
+      const base = await api.listen();
+      try {
+        expect((await fetch(`${base}/v1/unread/recent?h=${channel}`)).status).toBe(401);
+        // bob's own message, the reaction and the deleted message are left out, and so is the channel bob is not in
+        const r = await nip98Fetch(bobSk, `${base}/v1/unread/recent?h=${channel},${closed}`);
+        expect(r).toMatchObject({ status: 200, json: { recent: { [channel]: [t - 20, t - 30, t - 40, t - 50] }, limit: 100 } });
+        expect(Object.keys(r.json.recent)).toEqual([channel]);
+        // kinds narrow the message kinds and limit keeps the newest
+        expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?h=${channel}&kinds=9&limit=2`)).json).toEqual({ recent: { [channel]: [t - 20, t - 40] }, limit: 2 });
+        expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?h=${channel}&kinds=1,7`)).json.recent).toEqual({ [channel]: [] });
+        expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?h=${channel}&limit=100000`)).json.limit).toBe(500);
+        // No cursor is asked for: one stored in the mirror (FR014-03) does not change the answer.
+        await nip98Fetch(bobSk, `${base}/v1/read-cursor`, 'PUT', { h: channel, until: t });
+        expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?h=${channel}&kinds=9`)).json.recent[channel]).toEqual([t - 20, t - 40, t - 50]);
+        for (const q of ['kinds=9', 'h=', `h=${channel}&limit=-1`, `h=${channel}&kinds=x`]) expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?${q}`)).status, q).toBe(400);
+      } finally {
+        await api.close();
+      }
+    });
   });
 }
 
