@@ -5,7 +5,7 @@ Desde OPS-10, **los issues con el label `backlog` son la fuente del backlog**. `
 sincronización los sobrescribe.
 
 Excepción: `meta` de `backlog.json` (sprints, `baseline`, `version`, `source`, prioridades, nombres de los
-requisitos, filas del estado del README) no sale de los issues. Se edita a mano por PR y la sincronización lo conserva; después, `node scripts/backlog.mjs` regenera
+requisitos, filas del estado del README, bloqueos externos) no sale de los issues. Se edita a mano por PR y la sincronización lo conserva; después, `node scripts/backlog.mjs` regenera
 `README.md` y `backlog.csv`. Al traer la salida de la rama `backlog-sync` a una PR, primero se trae esa salida y
 después se edita `meta`, para no volver a su valor anterior.
 
@@ -67,6 +67,28 @@ La regla que aplica la sincronización (`pull`):
 - Al aceptarla, si el issue no tiene ningún label `evidencia:…`, le pone `evidencia:merged`.
 - Las tareas que ya estaban hechas antes de esta regla se mantienen. La ejecución resume en un aviso las que
   no citan ningún commit.
+
+## Orden de desbloqueo
+
+`README.md` lleva, generada, la sección «Orden de desbloqueo» (`scripts/backlog-order.mjs`): las tareas abiertas en
+olas según sus dependencias abiertas, para ver qué destraba qué y qué se puede trabajar ya. Sale de `backlog.json` y
+la sincronización la regenera; no hay nada que mantener aparte de los bloqueos externos.
+
+| Columna | Qué es |
+|---|---|
+| Ola | La ola 0 no espera a ninguna tarea abierta; cada ola siguiente espera solo a las anteriores. Un ciclo lo rechaza el validador |
+| Desbloquea | Las tareas abiertas que esperan a esta, directa o indirectamente. Dentro de una ola van primero las que más desbloquean, después por prioridad |
+| Espera a | Sus dependencias que siguen abiertas |
+| Bloqueo | Lo que impide cerrarla aunque el código esté listo (ver abajo), `en PR` si la tarea tiene una PR abierta (`evidencia:in-pr`), o `lista` |
+
+`lista` es una tarea sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código: una
+dependencia parcial con bloqueo externo cuenta como código ya fusionado, así que se puede construir encima.
+
+El bloqueo externo no sale de los issues. Está en `meta.externalBlockers` (id de tarea → tipo), con los tipos y su
+significado en `meta.blockerKinds`: `persona` (alguien aprueba, configura o ejecuta algo), `aws` (cuenta, región o
+stage reales) y `externo` (auditor, asesoría legal, publicación upstream, hardware). Se edita a mano por PR, como el
+resto de `meta`. La entrada de una tarea que ya no está abierta se ignora, así que cerrar una tarea por la
+sincronización no rompe nada; un id que no existe sí lo rechaza el validador.
 
 ## Trazabilidad y tablero de estado (OPS-18)
 

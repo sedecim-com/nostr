@@ -5,6 +5,7 @@
 //   node scripts/backlog.mjs          (validate + render)
 //   node scripts/backlog.mjs --check  (validate only; exits 1 on errors or stale outputs)
 import { readFileSync, writeFileSync } from 'node:fs';
+import { unblockOrder } from './backlog-order.mjs';
 
 const dir = new URL('../docs/backlog/', import.meta.url);
 const { meta, tasks } = JSON.parse(readFileSync(new URL('backlog.json', dir), 'utf8'));
@@ -36,6 +37,12 @@ for (const c of meta.capabilities ?? [])
     const known = /^N?FR-\d{3}$/.test(sel) ? REQUIRED.includes(sel) : sel.endsWith('*') ? tasks.some((t) => t.id.startsWith(sel.slice(0, -1))) : byId.has(sel);
     if (!known) errors.push(`meta.capabilities "${c.name}": ${sel} does not select any requirement or task`);
   }
+// Orden de desbloqueo: what no code change can move (a person, AWS, a third party), kept by hand in meta. The entry of a
+// task that is no longer open is ignored, so closing a task through the synchronization never breaks this check.
+for (const [id, kind] of Object.entries(meta.externalBlockers ?? {})) {
+  if (!byId.has(id)) errors.push(`meta.externalBlockers: unknown task ${id}`);
+  if (!meta.blockerKinds?.[kind]) errors.push(`meta.externalBlockers: ${id} has unknown kind ${kind} (meta.blockerKinds)`);
+}
 for (const t of tasks) {
   for (const d of t.deps) {
     const dep = byId.get(d);
@@ -92,13 +99,25 @@ for (const s of meta.sprints) {
   const ts = tasks.filter((t) => t.sprint === s.id);
   lines.push(`| ${s.id}${s.closed ? ' (cerrado)' : ''} | ${dates(s)} | ${s.phase} | ${s.name} | ${active(ts).length} | ${sum(active(ts))} | ${active(ts).filter((t) => t.priority === 'P0').length} |`);
 }
+const idCell = (t) => (meta.github && t.issue ? `[${t.id}](https://github.com/${meta.github}/issues/${t.issue})` : t.id);
+// Orden de desbloqueo (scripts/backlog-order.mjs): the open tasks in waves, so finishing one wave frees the next.
+const order = unblockOrder(tasks, meta.externalBlockers ?? {});
+const ready = order.filter((r) => r.ready);
+lines.push('', '## Orden de desbloqueo', '');
+lines.push(
+  'Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera a ninguna tarea abierta y cada ola siguiente solo a las anteriores, así que terminar una ola destraba la siguiente. Dentro de una ola van primero las que más trabajo abierto desbloquean, directa o indirectamente, y después por prioridad. «Bloqueo» es lo que impide cerrarla aunque el código esté listo:',
+  '',
+);
+for (const [kind, what] of Object.entries(meta.blockerKinds ?? {})) lines.push(`- **${kind}**: ${what}`);
+lines.push('', `**Listas para trabajar ahora (${ready.length}):** ${ready.map((r) => r.task.id).join(', ') || '—'}. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.`, '');
+lines.push('| Ola | ID | Prio | Tarea | Sprint | SP | Desbloquea | Espera a | Bloqueo |', '|---:|---|---|---|---|---:|---:|---|---|');
+for (const r of order) lines.push(`| ${r.wave} | ${idCell(r.task)} | ${r.task.priority} | ${esc(r.task.title)} | ${r.task.sprint} | ${r.task.sp} | ${r.unlocks || '—'} | ${r.waitsOn.join(', ') || '—'} | ${r.blocker ?? (r.inPr ? 'en PR' : r.ready ? 'lista' : '—')} |`);
 lines.push('', '## Cobertura de requisitos', '');
 lines.push('| Requisito | Tareas | Hechas | Pendientes (sprint) |', '|---|---:|---:|---|');
 for (const [r, ts] of coverage) {
   const pend = active(ts).filter((t) => t.status !== 'Hecho');
   lines.push(`| ${r} | ${ts.length} | ${ts.length - pend.length} | ${pend.map((t) => `${t.id} (${t.sprint})`).join(', ') || '—'} |`);
 }
-const idCell = (t) => (meta.github && t.issue ? `[${t.id}](https://github.com/${meta.github}/issues/${t.issue})` : t.id);
 const row = (t) => `| ${idCell(t)} | ${t.priority} | ${esc(t.title)} | ${esc(t.req)} | ${t.type} | ${t.sp} | ${t.deps.join(', ') || '—'} | ${t.status} | ${esc(t.done)} |`;
 const head = ['| ID | Prio | Tarea | Requisito | Tipo | SP | Depende de | Estado | Criterio de hecho |', '|---|---|---|---|---|---:|---|---|---|'];
 for (const s of meta.sprints.filter((x) => x.id !== 'v0.1')) {
