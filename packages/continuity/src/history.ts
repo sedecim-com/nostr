@@ -257,7 +257,10 @@ export async function archiveHistory(client: ArchiveVaultClient, key: Uint8Array
 /**
  * Downloads and opens every archive of the account. Only what opens with this archive key, is stored under the id
  * its own content implies, carries a valid signature (events) and belongs to `pubkey` (snapshots, group messages)
- * comes back; the rest is counted in `skipped`. A download that fails is an error: retry the restore.
+ * comes back; the rest is counted in `skipped`. `missing` compares the archives the last snapshot counted with the
+ * listing, which listAll() only accepts without repeated entries (IR-2026-10-04): an operator that pads it to hide a
+ * removed archive turns the gap into `skipped` archives, which the restore also reports. A download that fails is an
+ * error: retry the restore.
  */
 export async function restoreHistory(client: ArchiveVaultClient, key: Uint8Array, opts: { pubkey: string; concurrency?: number }): Promise<RestoredHistory> {
   const metas = await client.listAll();

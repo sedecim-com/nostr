@@ -4,7 +4,7 @@
  * does not verify, does not open or belongs to another persona.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { finalizeEvent, generateSecretKey, getPublicKey, toUnsigned, type NostrEvent } from '@sedecim/nostr-core';
+import { finalizeEvent, generateSecretKey, getPublicKey, nip98, toUnsigned, type NostrEvent } from '@sedecim/nostr-core';
 import { ArchiveVaultClient, archiveEvent, archiveHistory, archiveId, belongsOnPersonaRelays, eventLabel, generateArchiveKey, LEDGER_LABEL, restoreHistory, sealArchive, type ArchivedGroupMessage } from '@sedecim/continuity';
 import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '../src/index';
 
@@ -91,6 +91,42 @@ describe('persona history in the Continuity Vault (VAULT-03)', () => {
     const after = await restoreHistory(c, key, { pubkey });
     expect(after.missing).toBe(1);
     expect(after.events.map((e) => e.id)).not.toContain(channel.id);
+  });
+
+  it('a listing that repeats an entry, is padded with other content or does not advance never hides a removed archive silently (IR-2026-10-04)', async () => {
+    const k = generateArchiveKey();
+    const honest = new ArchiveVaultClient({ baseUrl: base, auth: { archiveKey: k } });
+    await archiveHistory(honest, k, { pubkey, events: [channel, reply], ledger }, { now: () => 1_760_000_000_000 });
+    await honest.remove(archiveId(k, eventLabel(reply.id)));
+    expect((await restoreHistory(honest, k, { pubkey })).missing).toBe(1);
+
+    // The operator edits the listing it serves; `page` rewrites each page, `fake` serves an archive of its own.
+    const tampered = (page: (b: { archives: Array<{ id: string }>; next?: string }) => void, fake?: { id: string; envelope: string }): typeof fetch =>
+      async (input, init) => {
+        const url = new URL(String(input));
+        if (fake && url.pathname === `/v1/archives/${fake.id}`) {
+          const archive = { id: fake.id, size: fake.envelope.length, sha256: nip98.payloadHash(fake.envelope), createdAt: 1_760_000_000, updatedAt: 1_760_000_000 };
+          return new Response(JSON.stringify({ archive, envelope: fake.envelope }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        const res = await fetch(input, init);
+        if (url.pathname !== '/v1/archives' || (init?.method ?? 'GET') !== 'GET') return res;
+        const body = (await res.json()) as { archives: Array<{ id: string }>; next?: string };
+        page(body);
+        return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+      };
+    const as = (f: typeof fetch) => new ArchiveVaultClient({ baseUrl: base, auth: { archiveKey: k }, fetch: f });
+
+    // A surviving entry repeated where the removed one was.
+    await expect(restoreHistory(as(tampered((b) => b.archives.push(b.archives[0]!))), k, { pubkey })).rejects.toThrow(/strictly increasing/);
+    // Padded with an archive that is not this account's: it hides the gap from `missing`, but does not open, so the
+    // restore reports it as skipped instead of staying silent.
+    const junkId = 'f'.repeat(64);
+    const junk = { id: junkId, envelope: JSON.stringify(sealArchive(generateArchiveKey(), junkId, '{"type":"event"}')) };
+    const padded = await restoreHistory(as(tampered((b) => b.archives.push({ ...b.archives[0]!, id: junkId }), junk)), k, { pubkey });
+    expect(padded.missing + padded.skipped).toBe(1);
+    expect(padded.skipped).toBe(1);
+    // A next page that does not follow the last archive would loop forever.
+    await expect(restoreHistory(as(tampered((b) => (b.next = '0'.repeat(64)))), k, { pubkey })).rejects.toThrow(/does not follow its last archive/);
   });
 
   it('VAULT-04: one sent event lands on the archive a push would write, and a restore keeps others’ gift wraps off the persona’s relays', async () => {
