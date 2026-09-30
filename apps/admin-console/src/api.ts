@@ -63,6 +63,33 @@ export interface RegistrationCredentialJSON {
   clientExtensionResults: Record<string, unknown>;
 }
 
+/** FR023-11: WebAuthn request options as JSON (binary fields base64url), from /webauthn/assert/options. */
+export interface RequestOptionsJSON {
+  challenge: string;
+  rpId?: string;
+  timeout?: number;
+  userVerification?: UserVerificationRequirement;
+  allowCredentials?: Array<{ type: 'public-key'; id: string; transports?: string[] }>;
+  extensions?: Record<string, unknown>;
+}
+
+/** FR023-11: assertion as JSON (base64url binary fields), as sent to POST /v1/sessions. */
+export interface AssertionCredentialJSON {
+  id: string;
+  rawId: string;
+  type: 'public-key';
+  authenticatorAttachment?: string | null;
+  response: { clientDataJSON: string; authenticatorData: string; signature: string; userHandle: string | null };
+  clientExtensionResults: Record<string, unknown>;
+}
+
+/** FR023-11: a policy session: the device it is bound to and whether a passkey assertion opened it. */
+export interface PolicySession {
+  token: string;
+  deviceId: string;
+  asserted: boolean;
+}
+
 /** Identity-service link as returned by /v1/links/visible/:pubkey. */
 export interface VisibleLink {
   from?: string;
@@ -104,7 +131,10 @@ export async function signedJson<T>(signer: Signer, url: string, method = 'GET',
 
 const enc = encodeURIComponent;
 
-/** Typed client of the policy-engine admin API (every route is NIP-98, admin pubkeys only). */
+/**
+ * Typed client of the policy-engine API, every route NIP-98. Admin routes take an admin pubkey; the device routes of
+ * FR023-11 (own devices, their passkey, sessions) take the key of the devices' owner.
+ */
 export class PolicyAdminApi {
   private readonly base: string;
   constructor(baseUrl: string, private readonly signer: Signer, private readonly f: typeof fetch = (...a) => fetch(...a)) {
@@ -128,6 +158,10 @@ export class PolicyAdminApi {
   revokeDevice = async (id: string, reason?: string) => (await this.call<{ rotations: RotationRequired[] }>('POST', `/v1/devices/${enc(id)}/revoke`, reason ? { reason } : {})).rotations;
   webauthnOptions = (id: string) => this.call<CreationOptionsJSON>('POST', `/v1/devices/${enc(id)}/webauthn/options`);
   webauthnRegister = (id: string, credential: RegistrationCredentialJSON) => this.call<Device>('POST', `/v1/devices/${enc(id)}/webauthn/register`, credential);
+  /** FR023-11: options for an assertion of the passkey of one of the signer's own devices. */
+  assertionOptions = (id: string) => this.call<RequestOptionsJSON>('POST', `/v1/devices/${enc(id)}/webauthn/assert/options`);
+  /** FR023-11: opens a policy session on one of the signer's own devices, with the assertion of its passkey if it has one. */
+  openSession = (deviceId: string, assertion?: AssertionCredentialJSON) => this.call<PolicySession>('POST', '/v1/sessions', { deviceId, ...(assertion ? { assertion } : {}) });
 
   /** Newest first; `before` is the `id` of the oldest entry already shown (exclusive). */
   audit = async (q: { limit: number; before?: number }) => {

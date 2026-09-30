@@ -1,9 +1,10 @@
 import { createHash, createPublicKey, randomBytes, timingSafeEqual, verify, X509Certificate, type JsonWebKey } from 'node:crypto';
 
 /**
- * Minimal WebAuthn registration verification (FR023-07) with node:crypto only: ES256 credentials,
- * attestation formats `packed` (self or x5c) and `none`. The x5c chain is not validated against
- * vendor roots (no FIDO MDS): the signature proves the authenticator produced this credential.
+ * Minimal WebAuthn verification with node:crypto only: registration (FR023-07) of ES256 credentials, attestation
+ * formats `packed` (self or x5c) and `none`, and assertions (FR023-11) signed by a registered credential. The x5c
+ * chain is not validated against vendor roots (no FIDO MDS): the signature proves the authenticator produced this
+ * credential.
  */
 
 /** Strips base64 '=' padding in linear time (a /=+$/ regex backtracks on long runs of '='). */
@@ -98,6 +99,34 @@ export function cborDecode(buf: Uint8Array, offset = 0, depth = 0): { value: Cbo
 const sha256 = (b: Uint8Array | string) => new Uint8Array(createHash('sha256').update(b).digest());
 const eq = (a: Uint8Array, b: Uint8Array) => a.length === b.length && timingSafeEqual(a, b);
 
+type ClientData = { type?: unknown; challenge?: unknown; origin?: unknown; crossOrigin?: unknown };
+
+/**
+ * Parses clientDataJSON and checks what registration and assertion share: the ceremony type, the challenge (constant
+ * time), an allowed origin and no cross-origin iframe. Anything but a JSON object is a WebAuthnError, never a TypeError.
+ */
+function checkClientData(raw: Uint8Array, expected: { type: 'webauthn.create' | 'webauthn.get'; challenge: string; origins: string[] }): void {
+  let clientData: ClientData;
+  try {
+    clientData = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)) as ClientData;
+  } catch {
+    throw new WebAuthnError('invalid clientDataJSON');
+  }
+  if (!clientData || typeof clientData !== 'object' || Array.isArray(clientData)) throw new WebAuthnError('invalid clientDataJSON');
+  if (clientData.type !== expected.type) throw new WebAuthnError(`clientData.type must be ${expected.type}`);
+  if (typeof clientData.challenge !== 'string' || !eq(Buffer.from(clientData.challenge), Buffer.from(expected.challenge))) throw new WebAuthnError('challenge mismatch');
+  if (typeof clientData.origin !== 'string' || !expected.origins.includes(clientData.origin)) throw new WebAuthnError('origin not allowed');
+  if (clientData.crossOrigin) throw new WebAuthnError('cross-origin ceremony not allowed');
+}
+
+/** The credential id of a PublicKeyCredential JSON (`id`, and `rawId` when present), unpadded; WebAuthnError otherwise. */
+function credentialIdOf(cred: { id: unknown; rawId?: unknown }): string {
+  if (typeof cred.id !== 'string' || (cred.rawId !== undefined && typeof cred.rawId !== 'string')) throw new WebAuthnError('invalid credential id');
+  const id = unpad(cred.id);
+  if (cred.rawId !== undefined && unpad(cred.rawId as string) !== id) throw new WebAuthnError('credential id mismatch');
+  return id;
+}
+
 /** COSE EC2 P-256 key (alg -7) → JWK. */
 export function coseToJwk(cose: Cbor): JsonWebKey {
   if (!(cose instanceof Map)) throw new WebAuthnError('invalid COSE key');
@@ -109,6 +138,9 @@ export function coseToJwk(cose: Cbor): JsonWebKey {
   return { kty: 'EC', crv: 'P-256', x: b64u.encode(x), y: b64u.encode(y) };
 }
 
+/** 'required' when WEBAUTHN_REQUIRE_UV asks for a PIN or biometrics, not only presence (FR023-11). */
+export type UserVerification = 'required' | 'preferred';
+
 export interface RegistrationOptionsInput {
   rpId: string;
   rpName: string;
@@ -117,6 +149,7 @@ export interface RegistrationOptionsInput {
   challenge: string;
   excludeCredentials?: string[];
   timeoutMs?: number;
+  userVerification?: UserVerification;
 }
 
 /** PublicKeyCredentialCreationOptions as JSON (binary fields base64url, as in `PublicKeyCredential.parseCreationOptionsFromJSON`). */
@@ -128,8 +161,28 @@ export function creationOptions(i: RegistrationOptionsInput) {
     pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
     timeout: i.timeoutMs ?? 300_000,
     attestation: 'direct',
-    authenticatorSelection: { residentKey: 'discouraged', userVerification: 'preferred' },
+    authenticatorSelection: { residentKey: 'discouraged', userVerification: i.userVerification ?? 'preferred' },
     excludeCredentials: (i.excludeCredentials ?? []).map((id) => ({ type: 'public-key', id })),
+  };
+}
+
+export interface AssertionOptionsInput {
+  rpId: string;
+  challenge: string;
+  /** The credentials that may answer: the one of the device the session is opened on. */
+  allowCredentials: string[];
+  timeoutMs?: number;
+  userVerification?: UserVerification;
+}
+
+/** PublicKeyCredentialRequestOptions as JSON (binary fields base64url, as in `PublicKeyCredential.parseRequestOptionsFromJSON`). */
+export function requestOptions(i: AssertionOptionsInput) {
+  return {
+    challenge: i.challenge,
+    rpId: i.rpId,
+    allowCredentials: i.allowCredentials.map((id) => ({ type: 'public-key', id })),
+    timeout: i.timeoutMs ?? 300_000,
+    userVerification: i.userVerification ?? 'preferred',
   };
 }
 
@@ -155,18 +208,10 @@ export function verifyRegistration(
   cred: RegistrationCredentialJSON,
   expected: { challenge: string; origins: string[]; rpId: string; allowNone?: boolean },
 ): VerifiedRegistration {
-  if (!cred || cred.type !== 'public-key' || typeof cred.id !== 'string' || !cred.response) throw new WebAuthnError('not a public-key credential');
+  if (!cred || typeof cred !== 'object' || cred.type !== 'public-key' || !cred.response || typeof cred.response !== 'object') throw new WebAuthnError('not a public-key credential');
+  const claimedId = credentialIdOf(cred);
   const clientDataRaw = b64u.decode(cred.response.clientDataJSON);
-  let clientData: { type?: string; challenge?: string; origin?: string; crossOrigin?: boolean };
-  try {
-    clientData = JSON.parse(new TextDecoder().decode(clientDataRaw));
-  } catch {
-    throw new WebAuthnError('invalid clientDataJSON');
-  }
-  if (clientData.type !== 'webauthn.create') throw new WebAuthnError('clientData.type must be webauthn.create');
-  if (typeof clientData.challenge !== 'string' || !eq(Buffer.from(clientData.challenge), Buffer.from(expected.challenge))) throw new WebAuthnError('challenge mismatch');
-  if (!clientData.origin || !expected.origins.includes(clientData.origin)) throw new WebAuthnError('origin not allowed');
-  if (clientData.crossOrigin) throw new WebAuthnError('cross-origin registration not allowed');
+  checkClientData(clientDataRaw, { type: 'webauthn.create', challenge: expected.challenge, origins: expected.origins });
 
   const attRaw = b64u.decode(cred.response.attestationObject);
   const attDecoded = cborDecode(attRaw);
@@ -188,7 +233,7 @@ export function verifyRegistration(
   const credentialId = authData.slice(55, 55 + credLen);
   if (credentialId.length !== credLen || credLen === 0) throw new WebAuthnError('truncated credential id');
   const credentialIdB64 = b64u.encode(credentialId);
-  if (credentialIdB64 !== unpad(cred.id) || (cred.rawId !== undefined && unpad(cred.rawId) !== credentialIdB64)) throw new WebAuthnError('credential id mismatch');
+  if (credentialIdB64 !== claimedId) throw new WebAuthnError('credential id mismatch');
   const cose = cborDecode(authData, 55 + credLen);
   if (cose.offset !== authData.length && !(flags & 0x80)) throw new WebAuthnError('trailing authenticator data');
   const publicKey = coseToJwk(cose.value);
@@ -232,4 +277,68 @@ export function verifyRegistration(
     throw new WebAuthnError(`unsupported attestation format: ${String(fmt)}`);
   }
   return { credentialId: credentialIdB64, publicKey, signCount, fmt, userVerified: !!(flags & 0x04) };
+}
+
+export interface AssertionCredentialJSON {
+  id: string;
+  rawId?: string;
+  type: string;
+  response: { clientDataJSON: string; authenticatorData: string; signature: string; userHandle?: string | null };
+}
+
+export interface VerifiedAssertion {
+  signCount: number;
+  userVerified: boolean;
+}
+
+/**
+ * FR023-11: verifies a `navigator.credentials.get()` result against the credential registered on the device: ceremony
+ * `webauthn.get`, challenge, origin, RP id hash, user presence (and verification when required), the credential id and
+ * user handle, and the ES256 signature over `authenticatorData || SHA-256(clientDataJSON)` with the stored public key.
+ * The signature counter is returned, not judged: whether it went up is the repository's atomic check.
+ */
+export function verifyAssertion(
+  cred: AssertionCredentialJSON,
+  expected: { challenge: string; origins: string[]; rpId: string; credentialId: string; publicKey: JsonWebKey; userHandle?: Uint8Array; requireUserVerification?: boolean },
+): VerifiedAssertion {
+  if (!cred || typeof cred !== 'object' || cred.type !== 'public-key' || !cred.response || typeof cred.response !== 'object') throw new WebAuthnError('not a public-key credential');
+  if (credentialIdOf(cred) !== expected.credentialId) throw new WebAuthnError('credential not allowed');
+  const { userHandle } = cred.response;
+  if (userHandle !== undefined && userHandle !== null && expected.userHandle && !eq(b64u.decode(userHandle), expected.userHandle)) throw new WebAuthnError('user handle mismatch');
+  const clientDataRaw = b64u.decode(cred.response.clientDataJSON);
+  checkClientData(clientDataRaw, { type: 'webauthn.get', challenge: expected.challenge, origins: expected.origins });
+
+  const authData = b64u.decode(cred.response.authenticatorData);
+  if (authData.length < 37) throw new WebAuthnError('truncated authenticator data');
+  if (!eq(authData.subarray(0, 32), sha256(expected.rpId))) throw new WebAuthnError('rpIdHash mismatch');
+  const flags = authData[32]!;
+  if (!(flags & 0x01)) throw new WebAuthnError('user presence required');
+  if (expected.requireUserVerification && !(flags & 0x04)) throw new WebAuthnError('user verification required');
+  if (!(flags & 0x08) && flags & 0x10) throw new WebAuthnError('backup state without backup eligibility');
+  // An assertion never carries attested credential data; extensions, when flagged, are one CBOR map up to the end.
+  if (flags & 0x40) throw new WebAuthnError('unexpected attested credential data');
+  if (flags & 0x80) {
+    const ext = cborDecode(authData, 37);
+    if (!(ext.value instanceof Map) || ext.offset !== authData.length) throw new WebAuthnError('invalid authenticator extensions');
+  } else if (authData.length !== 37) throw new WebAuthnError('trailing authenticator data');
+  const signCount = new DataView(authData.buffer, authData.byteOffset, authData.byteLength).getUint32(33);
+
+  const sig = b64u.decode(cred.response.signature);
+  const jwk = expected.publicKey;
+  if (!jwk || jwk.kty !== 'EC' || jwk.crv !== 'P-256') throw new WebAuthnError('stored credential key is not ES256');
+  let key;
+  try {
+    key = createPublicKey({ key: jwk, format: 'jwk' });
+  } catch {
+    throw new WebAuthnError('stored credential key is invalid');
+  }
+  let ok = false;
+  try {
+    // DER-encoded ECDSA; OpenSSL rejects non-canonical encodings and trailing bytes.
+    ok = verify('sha256', Buffer.concat([authData, sha256(clientDataRaw)]), key, sig);
+  } catch {
+    ok = false;
+  }
+  if (!ok) throw new WebAuthnError('assertion signature invalid');
+  return { signCount, userVerified: !!(flags & 0x04) };
 }
