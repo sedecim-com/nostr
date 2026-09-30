@@ -32,23 +32,66 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** IR-2026-10-01: what a service token may call, by the principal it names in POLICY_SERVICE_TOKENS (`token:principal`). */
+export type ServiceScope = 'evaluate' | 'retention' | 'relay' | 'rotations';
+export const SERVICE_SCOPES: readonly ServiceScope[] = ['evaluate', 'retention', 'relay', 'rotations'];
+
+/**
+ * The principals our own services use and what each one needs: the indexer evaluates reads and reads the retention,
+ * the relay-allowlist reads the allowlist and the publish grants, the rotation worker reads rotations and revocations
+ * and closes rotations. Any other principal calls nothing until POLICY_SERVICE_SCOPES names what it may call.
+ */
+export const DEFAULT_SERVICE_SCOPES: Readonly<Record<string, readonly ServiceScope[]>> = {
+  indexer: ['evaluate', 'retention'],
+  'relay-allowlist': ['relay'],
+  'rotation-worker': ['rotations'],
+};
+
+/**
+ * POLICY_SERVICE_SCOPES: `principal=scope+scope,...` (scopes: evaluate, retention, relay, rotations), added to or
+ * replacing the defaults; `principal=` leaves a principal without any.
+ */
+export function parseServiceScopes(v: string | undefined): Record<string, ServiceScope[]> {
+  const out: Record<string, ServiceScope[]> = Object.fromEntries(Object.entries(DEFAULT_SERVICE_SCOPES).map(([p, s]) => [p, [...s]]));
+  for (const entry of (v ?? '').split(',').map((e) => e.trim()).filter(Boolean)) {
+    const [principal, list = '', ...rest] = entry.split('=');
+    if (!principal || rest.length > 0) throw new Error(`POLICY_SERVICE_SCOPES: '${entry}' is not principal=scope+scope`);
+    const scopes = list.split('+').map((x) => x.trim()).filter(Boolean);
+    const unknown = scopes.filter((x) => !SERVICE_SCOPES.includes(x as ServiceScope));
+    if (unknown.length) throw new Error(`POLICY_SERVICE_SCOPES: unknown scope ${unknown.join(', ')} for ${principal} (${SERVICE_SCOPES.join(', ')})`);
+    out[principal.trim()] = scopes as ServiceScope[];
+  }
+  return out;
+}
+
 /**
  * Admin routes are NIP-98 and restricted to configured admin pubkeys; evaluate/allowlist are callable by
- * relays/services (bearer). A few routes accept either (see `adminOrService`). The directory and the
- * audit are never served without admin authentication.
+ * relays/services (bearer), each service only for the scopes of its principal (IR-2026-10-01). A few routes accept
+ * either (see `adminOrService`). The directory and the audit are never served without admin authentication.
  */
-export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { adminPubkeys: string[]; accessLogRetentionDays?: number }) {
+export function createPolicyApi(
+  engine: PolicyEngine,
+  opts: ServiceOptions & { adminPubkeys: string[]; accessLogRetentionDays?: number; serviceScopes?: Record<string, readonly ServiceScope[]> },
+) {
   const svc = new Service(opts);
+  const scopes = opts.serviceScopes ?? DEFAULT_SERVICE_SCOPES;
+  /** A service principal may call a route only with that route's scope: the indexer's token cannot close rotations. */
+  const inScope = (principal: string, scope: ServiceScope) => {
+    if (!scopes[principal]?.includes(scope)) throw new HttpError(403, `service '${principal}' may not call this route (scope ${scope}; see POLICY_SERVICE_SCOPES)`);
+  };
+  /** 'bearer' routes: the authenticated service must hold the scope. */
+  const service = (req: Req, scope: ServiceScope) => inScope(req.principal!, scope);
   const admin = (pubkey?: string) => {
     if (!pubkey || !opts.adminPubkeys.includes(pubkey)) throw new HttpError(403, 'admin only');
     return pubkey;
   };
-  /** 'nip98-or-token' routes: an admin (NIP-98) or a configured service bearer token. Returns the actor. */
-  const adminOrService = (req: Req): string => {
+  /** 'nip98-or-token' routes: an admin (NIP-98) or a configured service bearer token with the scope. Returns the actor. */
+  const adminOrService = (req: Req, scope: ServiceScope): string => {
     if (req.token !== undefined) {
       const principal = lookupToken(opts.bearerTokens, req.token);
       if (!principal) throw new HttpError(401, 'invalid bearer token');
       req.limitPrincipal(`service:${principal}`);
+      inScope(principal, scope);
       return `service:${principal}`;
     }
     return admin(req.pubkey);
@@ -125,23 +168,24 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
   }, 'nip98');
 
   svc.post('/v1/evaluate', async (req) => {
+    service(req, 'evaluate');
     const body = req.json<{ pubkey: string; deviceId?: string; resourceId: string; action: Action }>();
     requireFields(body, ['pubkey', 'resourceId', 'action']);
     return engine.evaluate(body);
   }, 'bearer');
-  svc.get('/v1/relay/allowlist', async () => ({ pubkeys: await engine.relayAllowlist() }), 'bearer');
+  svc.get('/v1/relay/allowlist', async (req) => (service(req, 'relay'), { pubkeys: await engine.relayAllowlist() }), 'bearer');
   // FR023-10: per-resource publish grants for the relays' admission by `h` (relay-allowlist).
-  svc.get('/v1/relay/grants', async () => ({ grants: await engine.relayPublishGrants() }), 'bearer');
+  svc.get('/v1/relay/grants', async (req) => (service(req, 'relay'), { grants: await engine.relayPublishGrants() }), 'bearer');
 
   // FR024-05: the rotation worker reads them with its service token, so its Nostr key need not be a policy admin.
   svc.get('/v1/rotations', async (req) => {
-    adminOrService(req);
+    adminOrService(req, 'rotations');
     const status = req.query.get('status');
     if (status !== null && status !== 'pending' && status !== 'done') throw new HttpError(400, "status must be 'pending' or 'done'");
     return { rotations: await engine.listRotations((status ?? undefined) as Rotation['status'] | undefined) };
   }, 'nip98-or-token');
   svc.post('/v1/rotations/:id/done', async (req) => {
-    const actor = adminOrService(req);
+    const actor = adminOrService(req, 'rotations');
     // Wrapped: a Rotation has a `status` field, which Service would read as the HTTP status.
     return { body: await run(() => engine.markRotationDone(actor, req.params.id!)) };
   }, 'nip98-or-token');
@@ -161,7 +205,7 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
   }, 'nip98');
   // FR024-04: feed of the revocation propagator (an admin, or the rotation worker's service token).
   svc.get('/v1/revocations', async (req) => {
-    adminOrService(req);
+    adminOrService(req, 'rotations');
     return engine.listRevocations({ after: intParam(req, 'after', 0), limit: intParam(req, 'limit', 1) });
   }, 'nip98-or-token');
 
@@ -183,7 +227,7 @@ export function createPolicyApi(engine: PolicyEngine, opts: ServiceOptions & { a
   }, 'nip98');
 
   // Services (the indexer's retention job) read policies with a bearer token; only admins change them.
-  svc.get('/v1/retention', async (req) => (adminOrService(req), { policies: await engine.listRetention(), notice: RETENTION_NOTICE }), 'nip98-or-token');
+  svc.get('/v1/retention', async (req) => (adminOrService(req, 'retention'), { policies: await engine.listRetention(), notice: RETENTION_NOTICE }), 'nip98-or-token');
   svc.put('/v1/retention/:resourceId', async (req) => {
     const actor = admin(req.pubkey);
     const body = req.json<{ days?: unknown; legalHold?: unknown }>();

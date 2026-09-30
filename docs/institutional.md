@@ -38,6 +38,19 @@ append-only. Los tests de Postgres corren con `TEST_DATABASE_URL` (servicio post
 Todas las rutas son JSON. "Admin" = NIP-98 firmado por una pubkey de `POLICY_ADMIN_PUBKEYS`. "Servicio" =
 `Authorization: Bearer <token>` de `POLICY_SERVICE_TOKENS` (`token:principal`, separados por comas).
 
+Cada token de servicio solo llega a las rutas de su principal (IR-2026-10-01), para que el token de un servicio
+expuesto no sirva para lo de otro:
+
+| Principal | Ámbito | Rutas |
+|---|---|---|
+| `indexer` | `evaluate`, `retention` | `POST /v1/evaluate`, `GET /v1/retention` |
+| `relay-allowlist` | `relay` | `GET /v1/relay/allowlist`, `GET /v1/relay/grants` |
+| `rotation-worker` | `rotations` | `GET /v1/rotations`, `POST /v1/rotations/:id/done`, `GET /v1/revocations` |
+
+Otro principal no llega a ninguna hasta que `POLICY_SERVICE_SCOPES` diga cuáles (`principal=ámbito+ámbito`, separados
+por comas; por ejemplo `ops=rotations` para el worker del CLI soberano). Con un principal sin ámbito el engine avisa al
+arrancar, y sus llamadas responden 403.
+
 | Ruta | Auth | Respuesta |
 |---|---|---|
 | `GET /v1/subjects` · `PUT /v1/subjects/:pubkey` · `POST /v1/subjects/:pubkey/revoke` · `POST /v1/subjects/:pubkey/reactivate` | admin | `{subjects}` · `{ok}` · `{rotations}` · `{ok}` (404 si no existe, 409 si no está revocado) |

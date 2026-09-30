@@ -169,7 +169,7 @@ services:
       # test raises it: its lag poller reads ~10 times per second from one address.
       RATE_LIMIT_READ: ${INDEXER_RATE_LIMIT_READ:-}
       # Institutional mode (FR023-05/08): reads evaluated by the policy-engine and retention enforced on the
-      # mirror. Set both (the token must be in POLICY_SERVICE_TOKENS); empty URL keeps it off.
+      # mirror. Set both (the token must be in POLICY_SERVICE_TOKENS as <token>:indexer); empty URL keeps it off.
       POLICY_ENGINE_URL: ${INDEXER_POLICY_ENGINE_URL:-}
       POLICY_ENGINE_TOKEN: ${INDEXER_POLICY_ENGINE_TOKEN:-}
       INDEXER_POLICY_WORKSPACE: ${INDEXER_POLICY_WORKSPACE:-}
@@ -223,6 +223,8 @@ services:
     environment:
       POLICY_ADMIN_PUBKEYS: ${POLICY_ADMIN_PUBKEYS:-}
       POLICY_SERVICE_TOKENS: ${POLICY_SERVICE_TOKENS:-}
+      # IR-2026-10-01: what principals other than indexer, relay-allowlist and rotation-worker may call.
+      POLICY_SERVICE_SCOPES: ${POLICY_SERVICE_SCOPES:-}
       # FR023-03: subjects, devices, sessions, rotations and audit persist in policy_* tables.
       DATABASE_URL: postgres://${POSTGRES_USER:-buzz}:${POSTGRES_PASSWORD}@postgres:5432/${PLATFORM_DB:-sedecim}
       PUBLIC_BASE_URL: ${POLICY_PUBLIC_URL:-http://localhost:8083}

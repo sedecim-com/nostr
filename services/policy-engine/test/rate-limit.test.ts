@@ -11,6 +11,7 @@ describe('policy-engine rate limits', () => {
     name: 'policy-rl',
     adminPubkeys: [getPublicKey(adminSk)],
     bearerTokens: { 'relay-token-1234': 'relay' },
+    serviceScopes: { relay: ['evaluate'] },
     rateLimit: { rules: { read: { perMinute: 60, burst: 2 }, service: { perMinute: 60, burst: 3 } }, now: () => now },
   });
   let base: string;

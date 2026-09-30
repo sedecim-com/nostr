@@ -1,10 +1,15 @@
 import { fileURLToPath } from 'node:url';
 import { createPgPool, migrate, migrateReplayStore, PgReplayStore, rateLimitFromEnv, serveMetrics, type ReplayStore } from '@sedecim/service-kit';
-import { createPolicyApi, DEFAULT_ACCESS_LOG_RETENTION_DAYS, MemoryPolicyRepository, PgPolicyRepository, PolicyEngine, type PolicyRepository } from './index';
+import { createPolicyApi, DEFAULT_ACCESS_LOG_RETENTION_DAYS, MemoryPolicyRepository, parseServiceScopes, PgPolicyRepository, PolicyEngine, type PolicyRepository } from './index';
 
 const env = process.env;
 const admins = (env.POLICY_ADMIN_PUBKEYS ?? '').split(',').filter(Boolean);
 const tokens = Object.fromEntries((env.POLICY_SERVICE_TOKENS ?? '').split(',').filter(Boolean).map((p) => p.split(':') as [string, string]));
+// IR-2026-10-01: each service token only for its principal's scopes (indexer, relay-allowlist and rotation-worker by default).
+const serviceScopes = parseServiceScopes(env.POLICY_SERVICE_SCOPES);
+for (const principal of new Set(Object.values(tokens))) {
+  if (!serviceScopes[principal]?.length) console.warn(`POLICY_SERVICE_TOKENS: principal '${principal}' has no scope: its token is refused everywhere (POLICY_SERVICE_SCOPES)`);
+}
 if (admins.length === 0) console.warn('POLICY_ADMIN_PUBKEYS empty: admin routes will reject every request');
 
 let repo: PolicyRepository;

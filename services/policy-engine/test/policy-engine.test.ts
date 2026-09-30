@@ -27,7 +27,13 @@ function suite(name: string, makeRepo: () => Promise<PolicyRepository>) {
 
     beforeAll(async () => {
       engine = new PolicyEngine(await makeRepo(), Date.now, WEBAUTHN);
-      api = createPolicyApi(engine, { name: 'policy-test', adminPubkeys: [getPublicKey(adminSk)], bearerTokens: { 'relay-token-1234': 'relay' } });
+      // One service principal with every scope, so each route can be exercised with it (scopes themselves: below).
+      api = createPolicyApi(engine, {
+        name: 'policy-test',
+        adminPubkeys: [getPublicKey(adminSk)],
+        bearerTokens: { 'relay-token-1234': 'relay' },
+        serviceScopes: { relay: ['evaluate', 'retention', 'relay', 'rotations'] },
+      });
       base = await api.listen();
     });
     afterAll(() => api.close());
