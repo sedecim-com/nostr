@@ -1,6 +1,19 @@
 import { bytesToHex, hexToBytes, nip19, nip49, generateSecretKey, getPublicKey, npubEncode, selfTestKey, wipe, CUSTODY_FACTS, type Signer } from '@sedecim/nostr-core';
 import { NetworkBlockedError, RelayPool, type WebSocketFactory } from '@sedecim/relay-pool';
-import { formatBunkerUrl, LocalSigner, ManagedSignerClient, Nip07Signer, Nip46Signer, parseBunkerUrl, WEB_NIP46_PERMISSIONS, type AccessTokenProvider, type ManagedKeyInfo, type ManagedSignerConnection } from '@sedecim/signer';
+import {
+  formatBunkerUrl,
+  LocalSigner,
+  ManagedSignerClient,
+  Nip07Signer,
+  Nip46Signer,
+  NitroAttestationError,
+  parseBunkerUrl,
+  WEB_NIP46_PERMISSIONS,
+  type AccessTokenProvider,
+  type EnclaveTrust,
+  type ManagedKeyInfo,
+  type ManagedSignerConnection,
+} from '@sedecim/signer';
 import type { BrowserManagedSession } from './managed-session';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type ContinuitySink, type OutboxRecord } from '@sedecim/delivery-engine';
@@ -370,14 +383,28 @@ export function shortNpub(pubkey: string): string {
 }
 
 /**
+ * FR005-10: the export of a managed key. With `enclave` (the deployment's `managedEnclave`), this browser checks the
+ * enclave's attestation and seals the password to it, so the managed-signer never gets it in clear; if the check fails
+ * nothing is sent. Without it, the password goes to the managed-signer as before.
+ */
+async function exportManaged(client: ManagedSignerClient, password: string, enclave?: EnclaveTrust): Promise<{ ncryptsec: string; challenge: string }> {
+  try {
+    return await client.exportForMigration(password, enclave ? { enclave } : {});
+  } catch (e) {
+    if (e instanceof NitroAttestationError) throw new Error(`no se pudo verificar el enclave de la plataforma (${e.message}): la contraseña no se envió`);
+    throw e;
+  }
+}
+
+/**
  * FR026-03: managed → local migration with verification. The key is exported under a password the user
  * picks, decrypted here, checked against the persona npub, and possession is proven by signing the
  * service's challenge. Only then does the persona switch to local custody; deleting the managed copy is a
  * separate, explicit step.
  */
-export async function migrateManagedToLocal(book: PersonaBook, persona: PersonaRecord, client: ManagedSignerClient, password: string): Promise<{ persona: PersonaRecord; ncryptsec: string }> {
+export async function migrateManagedToLocal(book: PersonaBook, persona: PersonaRecord, client: ManagedSignerClient, password: string, enclave?: EnclaveTrust): Promise<{ persona: PersonaRecord; ncryptsec: string }> {
   if (password.length < 12) throw new Error('la contraseña de exportación debe tener al menos 12 caracteres');
-  const { ncryptsec, challenge } = await client.exportForMigration(password);
+  const { ncryptsec, challenge } = await exportManaged(client, password, enclave);
   const { secretKey } = await nip49.decryptKeyAsync(ncryptsec, password);
   if (getPublicKey(secretKey) !== persona.pubkey) throw new Error('la llave exportada no corresponde a esta persona: migración cancelada');
   if (!selfTestKey(secretKey).ok) throw new Error('la llave exportada no pasó el self-test');
@@ -409,9 +436,9 @@ export async function managedExitBackupJson(persona: PersonaRecord, ncryptsec: s
  * The key is exported under a password the user picks and decrypted here to check it is this persona's, so the file
  * restores the same npub. The key stays managed and signing until the cancellation itself.
  */
-export async function managedCancellationBackup(persona: PersonaRecord, client: ManagedSignerClient, password: string): Promise<string> {
+export async function managedCancellationBackup(persona: PersonaRecord, client: ManagedSignerClient, password: string, enclave?: EnclaveTrust): Promise<string> {
   if (password.length < 12) throw new Error('la contraseña del respaldo debe tener al menos 12 caracteres');
-  const { ncryptsec } = await client.exportForMigration(password);
+  const { ncryptsec } = await exportManaged(client, password, enclave);
   const { secretKey } = await nip49.decryptKeyAsync(ncryptsec, password);
   const ok = getPublicKey(secretKey) === persona.pubkey;
   wipe(secretKey);
