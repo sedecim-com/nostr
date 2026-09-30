@@ -84,7 +84,7 @@ configMapGenerator:
 images:
   - name: buzz
     newName: ghcr.io/block/buzz
-    digest: sha256:56658526d46599299c46a290e02f5dae0bde8b1b5e02c418e3ef7f95fa3a6776
+    digest: sha256:b2cf08fd73d30e63f88832dde50d6f5f0df26e8c3ed63b133371f8ae4247d479
   - name: seaweedfs
     newName: chrislusf/seaweedfs
     digest: sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882
