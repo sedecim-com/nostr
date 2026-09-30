@@ -55,7 +55,8 @@
     "typedoc": "0.28.20",
     "typescript": "5.9.3",
     "vite": "8.3.1",
-    "vitest": "5.0.2"
+    "vitest": "5.0.2",
+    "yaml": "2.9.1"
   },
   "overrides": {
     "ts-mls": "2.0.0-rc.16"

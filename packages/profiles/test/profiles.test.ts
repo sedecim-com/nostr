@@ -139,10 +139,46 @@ describe('disclosure copy versioning (FR028-02)', () => {
   it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
     const { createHash } = await import('node:crypto');
     const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
-    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3' };
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3', '1.8.0': 'ea21f9293106b69d', '1.9.0': 'a144762b252f4f4c' };
     const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
     expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();
+  });
+});
+
+describe('deleting in channels (FR015-04)', async () => {
+  const { CHANNEL_DELETION_TEXTS } = await import('../src/index');
+
+  it('FR015-04: says which deletion each action publishes and that copies already out are not withdrawn, as reviewed copy', () => {
+    expect(CHANNEL_DELETION_TEXTS.message).toMatch(/kind 9005.*autor del mensaje o un admin del canal/s);
+    expect(CHANNEL_DELETION_TEXTS.reaction).toMatch(/NIP-09 \(kind 5\)/);
+    expect(CHANNEL_DELETION_TEXTS.copies).toMatch(/no retira las copias que ya circularon/);
+    const reviewed = disclosureCatalog();
+    for (const text of Object.values(CHANNEL_DELETION_TEXTS)) expect(reviewed.find((d) => d.statement === text)?.control).toBe('persistence');
+  });
+});
+
+describe('channel mirror per profile (FR014-04)', async () => {
+  const { CHANNEL_MIRROR_TEXTS, mirrorMatrix, mirrorPolicy } = await import('../src/index');
+
+  it('FR014-04: convenience and institutional use the mirror; private-resilient, sovereign and Tor never do', () => {
+    expect(Object.fromEntries(mirrorMatrix().map((r) => [r.profile, r.policy.use]))).toEqual({ convenience: true, 'private-resilient': false, institutional: true, sovereign: false, 'sovereign-tor': false });
+    // Derived from the controls, so a customized persona gets what its controls say.
+    expect(mirrorPolicy({ ...preset('convenience'), identity: 'pseudonymous' })).toMatchObject({ use: false, reason: 'pseudonymous' });
+    expect(mirrorPolicy({ ...preset('convenience'), network: 'tor-only' })).toMatchObject({ use: false, reason: 'tor-only' });
+    expect(mirrorPolicy({ ...preset('private-resilient'), identity: 'linked' })).toMatchObject({ use: true });
+    // Tor-only wins over any identity.
+    expect(mirrorPolicy({ ...preset('sovereign-tor'), identity: 'verified' })).toMatchObject({ use: false, reason: 'tor-only' });
+  });
+
+  it('FR014-04: each answer says what the operator sees or why there are no counters, as reviewed copy', () => {
+    expect(mirrorPolicy(preset('convenience')).statement).toMatch(/firmada con tu npub \(NIP-98\).*el texto que buscas/s);
+    expect(mirrorPolicy(preset('sovereign')).statement).toMatch(/no hay contadores de no leídos ni búsqueda/);
+    expect(mirrorPolicy(preset('sovereign-tor')).statement).toMatch(/Tor-only/);
+    expect(CHANNEL_MIRROR_TEXTS.readState).toMatch(/no se envía al mirror/);
+    const reviewed = disclosureCatalog();
+    for (const text of Object.values(CHANNEL_MIRROR_TEXTS)) expect(reviewed.map((d) => d.statement)).toContain(text);
+    expect(reviewed.find((d) => d.statement === CHANNEL_MIRROR_TEXTS.torOnly)?.control).toBe('network');
   });
 });
 

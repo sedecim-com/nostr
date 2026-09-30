@@ -145,6 +145,28 @@ con el estado MLS. No van por el `DeliveryEngine`, porque un evento de grupo no 
 
 Nada adelanta a un commit pendiente. Detalle en `docs/marmot.md` («Sin red: mensajes y commits pendientes»).
 
+## Canales NIP-29: reacciones, hilos y borrado (FR015-04)
+La vista de canales suscribe los mensajes (kind 9) de un canal y, con su propio límite, las reacciones y los borrados
+de alrededor (7, 5 y 9005), y lee la lista de admins (39001) firmada por la llave que firma el 39000 del canal.
+`channelView` (`packages/messaging/src/nip29.ts`) decide qué se muestra a partir de esos eventos, en cualquier orden:
+- una respuesta va en el hilo que dicen sus marcadores NIP-10, leídos como Buzz (`threadOf`);
+- cada reacción cuenta una vez por autor y contenido en el mensaje de su último `e`;
+- un mensaje desaparece con un kind 5 o un 9005 de su autor, o con un 9005 de un admin en el mismo canal; una reacción,
+  con un kind 5 de su autor.
+
+Lo que la web envía (`apps/web-saas/src/lib/channels.ts`) pasa por el outbox como cualquier envío:
+- responder publica un kind 9 en el hilo del padre (`replyMessage`);
+- reaccionar, un kind 7, y quitar la reacción propia, un kind 5 de ella;
+- borrar un mensaje propio o, como admin, uno ajeno, un 9005, después de un diálogo que dice lo que el borrado no hace
+  (`CHANNEL_DELETION_TEXTS`).
+
+Nada nuevo se guarda en el navegador aparte del outbox. Las reglas de Buzz y el gate contra el Buzz fijado están en
+[`buzz-integration.md`](buzz-integration.md) («Reacciones, hilos y borrado en canales»). Pruebas:
+- `packages/messaging/test/channels.test.ts`: la vista y los eventos;
+- `apps/web-saas/test/channel-collab.test.ts`: la web contra un relay de prueba con las reglas de Buzz
+  (`TestRelay` con `groupModeration`);
+- `tests/interop/buzz.interop.test.ts`: contra Buzz, en CI.
+
 ## APIs: anti-replay NIP-98 y límites de tasa
 Aplica a identity-service, policy-engine, indexer, notification-gateway, managed-signer y continuity-vault (todos sobre
 `packages/service-kit`) y a blob-store (servidor propio que usa el mismo limitador). Corrige IR-2026-09-04 e
@@ -299,3 +321,41 @@ Pruebas en `services/indexer/test/membership.test.ts`, en memoria y en Postgres,
 - un relay como Buzz que publica `self`.
 
 `tests/interop/stack.interop.test.ts` lo comprueba contra el Buzz fijado.
+
+## Indexer / mirror: no leídos y búsqueda en la web (FR014-04)
+La vista de canales de la web pide al mirror los contadores de no leídos y la búsqueda: son consultas derivadas por la
+API propia (spec §15.2), y los mensajes siguen llegando por WebSocket desde los relays. Cada consulta va firmada con la
+llave de la persona (NIP-98), así que el indexer aplica sus reglas de siempre: la membresía NIP-29 (FR014-05) y, en
+modo institucional, la política (FR023-05). Un canal que el mirror no responde no tiene contador.
+
+- **Quién la usa.** `mirrorPolicy` (`packages/profiles`) lo decide por los controles de la persona:
+  - con identidad vinculada o verificada (convenience, institutional), sí;
+  - con identidad pseudónima (private-resilient, sovereign), no: cada consulta firmada le daría al operador el registro
+    de qué canales lee la persona y qué busca;
+  - en Tor-only, nunca, igual que los relays.
+
+  La vista de canales lo dice con los textos de `CHANNEL_MIRROR_TEXTS`, que están en el catálogo revisado
+  (`docs/disclosures.md`). Sin `mirror` en `config.json`, la vista no muestra contadores ni búsqueda.
+- **Dónde vive el «leído hasta».** En el vault del navegador, cifrado, en la colección `chanread-<persona>`. Por canal
+  guarda el `created_at` del mensaje más nuevo que la vista mostró; nunca retrocede ni pasa de la hora actual. No se
+  envía: la web pide `GET /v1/unread/recent?h=…&kinds=9` y el mirror devuelve la hora de los mensajes más recientes de
+  cada canal que la persona puede leer (hasta 100, sin los suyos ni los borrados). La web cuenta los posteriores a su
+  cursor y muestra `100+` si toda la lista lo es. La web no usa `PUT /v1/read-cursor` (FR014-03), que sigue para otros
+  clientes. El cursor no se sincroniza entre navegadores: un canal que este navegador nunca contó empieza como leído.
+- **Búsqueda.** `GET /v1/search?q=…&kinds=9`: el operador ve el texto buscado. La web verifica la firma de cada
+  resultado y descarta lo que no sea un mensaje de canal.
+- **Cuándo consulta.** Al abrir la vista y cada 60 s mientras sigue abierta y visible, si la llave está en el navegador
+  o en el managed-signer. Con NIP-07 o NIP-46, solo al pulsar «Actualizar», porque el signer puede pedir aprobar cada
+  firma.
+- **Despliegue.** El indexer responde al origen de la web (`CORS_ORIGINS`: `WEB_ORIGIN` en compose y k8s). `mirror`
+  debe ser su `PUBLIC_BASE_URL`, porque la firma NIP-98 nombra esa URL (`tests/scripts/deploy-manifests.test.ts`).
+
+Además de lo que ya ve el relay, el operador del mirror ve por qué canales pregunta la persona, cuándo, desde qué
+dirección y qué busca. No ve hasta dónde leyó cada canal.
+
+Pruebas:
+- `apps/web-saas/test/mirror.test.ts`: la librería de la web contra el indexer real, con NIP-98, membresía y política;
+  qué llega al mirror y qué queda en el vault;
+- `services/indexer/test/indexer.test.ts`, `membership.test.ts` y `policy.test.ts`: la ruta nueva, en memoria y en
+  Postgres, en claro y sellado;
+- `packages/profiles/test/profiles.test.ts`: la política por perfil.

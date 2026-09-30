@@ -3837,8 +3837,8 @@
     "BUZZ-07"
    ],
    "sprint": "S11",
-   "status": "Pendiente",
-   "evidence": "",
+   "status": "Parcial",
+   "evidence": "Parcial. Commit 9c0390f (PR #402): el host público del relay reenvía solo la raíz (WebSocket y NIP-11) y la media Blossom, en nginx (deploy/k8s/base/files/core-server.conf) y en Caddy (infra/caddy/Caddyfile); las demás rutas de Buzz (operador, git, invitaciones, puente HTTP, moderación, workflows, administración) reciben el 404 del propio edge, también las variantes que solo parecen una ruta permitida. scripts/edge-check.sh ejecuta la config real de nginx en la imagen fijada (job deploy-config de CI). Inventario de las unas 40 rutas de Buzz, de sus puertos, de la configuración que abre o cierra superficie y de lo que sigue alcanzable, con la tabla generada de scripts/buzz-surface-routes.ts: docs/security/buzz-attack-surface.md. Sonda scripts/buzz-surface.ts contra la imagen fijada de Buzz (job stack de CI): ninguna ruta que exija credenciales contesta 2xx o 3xx sin ellas, las apagadas dan 404 y el único 5xx tolerado es el rechazo de las rutas de operador sin RELAY_OPERATOR_API_ORIGIN, que la imagen real contestó con un 500 genérico antes de mirar credenciales. Pruebas: tests/scripts/buzz-surface.test.ts.\n\nFalta, y necesita la cuenta de AWS (NFR001-01): ejecutar la sonda con --relay y --edge contra el Buzz de stage y anotar el resultado en el inventario. Falta también un proxy delante del servicio oculto .onion, que hoy apunta directo al relay, una NetworkPolicy para los puertos 8080 y 9102 del Service de Kubernetes, y leer el router del commit exacto del pin (las rutas se leyeron en buzz@12dbb11).",
    "issue": 258
   },
   {
