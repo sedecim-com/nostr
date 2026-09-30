@@ -3,7 +3,8 @@
 Qué hacer cuando una llave sale de la custodia gestionada (FR026-04): porque su dueño la cancela desde la web, porque
 pide la cancelación por el contacto de privacidad (derecho ARCO, [términos §4](../legal/custodia-managed.md)) o
 porque su cuenta de Acceso se cerró. Las pruebas están en `services/managed-signer/test/managed-signer.test.ts`,
-`services/managed-signer/test/registry.test.ts` (también contra Postgres) y `apps/web-saas/test/managed-exit.test.ts`.
+`services/managed-signer/test/registry.test.ts` (también contra Postgres) y `apps/web-saas/test/managed-exit.test.ts`; con el
+enclave, `apps/web-saas/test/managed-enclave-export.test.ts`.
 
 **Qué pasa con una llave que sale.**
 
@@ -25,7 +26,9 @@ En «Personas», con la persona gestionada abierta, la tarjeta «Cancelar la cus
 1. Pide una contraseña y descarga el respaldo cifrado (NIP-49, `acceso-nostr-key-backup` con la npub y la llave de
    archivo del Continuity Vault). El navegador comprueba que la llave exportada es la de esa persona antes de ofrecerlo.
    Antes pide también la contraseña de Acceso: exportar y cancelar solo se aceptan con un login de los últimos
-   minutos (IR-2026-10-03).
+   minutos (IR-2026-10-03). Si el managed-signer guarda las llaves en el enclave y la web trae `managedEnclave`, el
+   navegador verifica la attestation del enclave y le sella la contraseña del respaldo: el managed-signer no la recibe
+   en claro, y si la verificación falla no se envía nada (FR005-10, [managed-enclave.md](../managed-enclave.md)).
 2. Pide confirmar que guardó el archivo y escribir los últimos 8 caracteres de la npub.
 3. Cancela (`POST /v1/keys/:id/cancel`, con la npub completa como confirmación). La persona sale de ese navegador.
    Con el archivo y la contraseña se puede volver a importar como llave local.

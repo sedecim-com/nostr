@@ -3,9 +3,11 @@
 - **Estado:** prototipo. **Tarea:** FR005-05 (P3), **Parcial**.
 - **Madurez:** Preview. Va apagado en producción, igual que su exportación: el gate de release (OPS-20,
   [`deploy/production-gates.json`](../deploy/production-gates.json)) falla si la configuración de producción usa
-  `MANAGED_SIGNER_BACKEND=enclave`, `ENCLAVE_ALLOW_EXPORT=1` o `enable_enclave_signer = true`. Para salir de
-  Preview hacen falta FR005-05 y FR005-09 verificados en AWS real, y su auditoría. FR005-09 (el enclave exige una prueba
-  del dueño para exportar) ya está en el código y probado sin AWS; ver «Exportar exige la prueba del dueño».
+  `MANAGED_SIGNER_BACKEND=enclave`, `ENCLAVE_ALLOW_EXPORT=1`, `enable_enclave_signer = true` o, en la web,
+  `managedEnclave`. Para salir de Preview hacen falta FR005-05 y FR005-09 verificados en AWS real, y su auditoría.
+  FR005-09 (el enclave exige una prueba del dueño para exportar) y FR005-10 (los secretos de una importación y la
+  contraseña de una exportación llegan sellados hacia el enclave) ya están en el código y probados sin AWS; ver
+  «Exportar exige la prueba del dueño» y «Secretos sellados hacia el enclave».
 - **Criterio:** "Prototipo con attestation verificada; backend general sin llave en claro".
 - **Depende de:** [ADR 0009](adr/0009-custodia-managed-region-y-marco-legal.md) (custodia managed en `us-east-1`,
   KMS + Secrets Manager) y [`docs/disclosures.md`](disclosures.md) (modo `managed-enclave`).
@@ -19,7 +21,9 @@ blobs sellados que no puede descifrar y recibe solo llaves públicas, eventos fi
 
 ```
  cliente ──HTTPS──► managed-signer (backend, pod/host padre)      KMS (us-east-1)
-                     │  registro Postgres + vault (blobs sellados)     ▲
+ (verifica la        │  registro Postgres + vault (blobs sellados)     ▲
+  attestation y      │  retransmite sin abrir los secretos sellados    │
+  sella secretos)    │                                                 │
                      │  EnclaveClient: verifica attestation            │ Decrypt / GenerateDataKey
                      │  (nonce, raíz Nitro, PCR0/1/2[/8])              │ con Recipient = attestation
                      ▼                                                 │ → CiphertextForRecipient
@@ -35,15 +39,23 @@ Código en `services/managed-signer/src/enclave/`:
 | Archivo | Qué hace |
 |---|---|
 | `enclave.ts` | `EnclaveSigner`: programa del enclave. Genera, importa (NIP-49), sella con el dueño, abre, firma, cifra NIP-44 y exporta (FR-026) solo con la prueba del dueño (FR005-09). Ninguna respuesta lleva material de llave. |
+| `sealed-secrets.ts` | Abre, con la RSA efímera del enclave, los secretos que el cliente sella hacia él (FR005-10): formato, AAD, frescura con el reloj del NSM. |
 | `proof.ts` | `PinnedJwksProofVerifier`: verifica dentro del enclave el token de Acceso del dueño (RS256, con las llaves de la user pool fijadas en la imagen) y lee la configuración `ENCLAVE_PROOF_*` (FR005-09). |
 | `protocol.ts` | Protocolo padre ⇄ enclave: tramas de 4 bytes de longitud + JSON. Hay transporte por socket (unix o TCP, puenteado a vsock con socat) y transporte en proceso (tests). |
 | `attestation.ts` | Verificación del documento de attestation: COSE_Sign1/CBOR, cadena de certificados hasta la raíz Nitro fijada, firma ES384, vigencia, frescura, nonce y PCR. |
-| `cbor.ts`, `der.ts`, `cms.ts` | CBOR mínimo, DER mínimo, y CMS EnvelopedData (`CiphertextForRecipient` de KMS). No añaden dependencias. |
+| `cbor.ts`, `der.ts`, `cms.ts` | CBOR mínimo, DER mínimo, y CMS EnvelopedData (`CiphertextForRecipient` de KMS). No añaden dependencias. CBOR y DER viven en `packages/signer/src/enclave/` (sin `node:*`, los usa también el navegador) y aquí se reexportan. |
 | `kms.ts` | KMS con `Recipient` (SDK v3). Rechaza cualquier respuesta con `Plaintext`. |
 | `client.ts` | `EnclaveClient` (lado backend). Verifica la attestation antes de operar y la repite cada 10 min. Comprueba cada evento devuelto: firma válida y pubkey esperada. |
 | `wiring.ts` | `MANAGED_SIGNER_BACKEND=enclave` y el modo simulado. |
 | `simulated.ts` | Enclave **SIMULADO, NO SEGURO**. Ver abajo. |
 | `main.ts` | Punto de entrada de la imagen del enclave (EIF). |
+
+Y en `packages/signer/src/enclave/`, lo que usa el cliente (navegador incluido) para hablar con el enclave (FR005-10):
+
+| Archivo | Qué hace |
+|---|---|
+| `attestation.ts` | `verifyNitroAttestation`: la verificación de attestation sin `node:*`, con las mismas reglas y códigos de error que `attestation.ts` del servicio (ECDSA P-384 de `@noble/curves` vía `verifyEcdsaP384` de `nostr-core`). |
+| `envelope.ts` | Formato del sobre, AAD, `ownerTag`, `sealToEnclave` (WebCrypto) y la lectura estricta que comparten cliente y enclave. |
 
 ### Sellado de una llave
 
@@ -68,7 +80,7 @@ Código en `services/managed-signer/src/enclave/`:
 5. Los tiers no se mezclan. Las llaves creadas con el backend en proceso guardan la nsec (cifrada por el
    vault) y el enclave no las acepta. Pasar una llave existente al tier enclave requiere una migración
    explícita: exportar e importar con `POST /v1/keys/import` (con el `consent_version` que el usuario aceptó, FR005-08), que en el tier enclave se descifra dentro del
-   enclave.
+   enclave; con `sealed_secrets`, sin que el padre vea el `ncryptsec` ni su contraseña (FR005-10).
 
 ### Exportar exige la prueba del dueño (FR005-09)
 
@@ -98,6 +110,76 @@ La rotación de las llaves de firma de la user pool es un cambio de imagen: hay 
 PCR nuevos y su actualización en `enclave_pcr*` (Terraform) y en `MANAGED_SIGNER_ENCLAVE_PCR*`. Mientras tanto los tokens
 firmados con la llave nueva no sirven como prueba y la exportación se niega (falla cerrada); firmar, cifrar y abrir
 blobs no dependen de ello.
+
+### Secretos sellados hacia el enclave (FR005-10)
+
+Con la prueba del dueño el padre ya no exporta solo, pero seguía viendo, en una importación, el `ncryptsec` y su
+contraseña y, en una exportación legítima, la contraseña con la que el enclave cifra la llave (con ella y el `ncryptsec`
+que retransmite, la nsec). Ahora el cliente puede cifrar esos secretos hacia la llave RSA efímera del enclave, y el
+padre solo retransmite una cadena que no puede abrir.
+
+1. **El cliente verifica la attestation él mismo.** Pide `GET /v1/enclave/attestation?nonce=<base64url>` con un nonce
+   aleatorio propio de 32 bytes y comprueba el documento en su lado con `verifyNitroAttestation`: cadena hasta la raíz
+   Nitro G1 fijada por SHA-256, firma ES384, vigencia, frescura (5 min, ±60 s, con su reloj), su nonce exacto y los PCR
+   que fija quien lo usa (`EnclaveTrust`: PCR0, PCR1 y PCR2, y PCR8 si se da; sin los tres primeros no se acepta). Si
+   confiara en la llave que le da el padre, el padre pondría la suya. El padre también comprueba el documento con su
+   política antes de retransmitirlo, pero el cliente no depende de eso.
+2. **El sobre**: `ae1.<ek>.<iv>.<ct>`, en base64url sin relleno y como mucho 4096 caracteres, que se miran antes de
+   descifrar nada. `ek` es RSA-OAEP (SHA-256, MGF1-SHA-256) de una llave AES-256-GCM aleatoria hacia la SPKI del
+   documento; `iv`, 12 bytes; `ct`, el contenido cifrado con su tag de 16 bytes al final. AAD:
+   `acceso-nostr/enclave-envelope/v1|<import o export>|<owner_tag>|<pubkey, o vacío al importar>`. Contenido:
+   `{ncryptsec, password, at}` al importar y `{password, at}` al exportar, donde `at` es el `timestamp` del documento
+   que verificó el cliente. Se sella con WebCrypto (el del navegador, o el de Node ≥ 20).
+3. **El enclave lo abre** con su llave privada RSA, que no sale de él. Reconstruye el AAD desde la petición (al importar,
+   el `owner_tag` del dueño que declara el padre; al exportar, el `ot` del blob y la pubkey de la petición), exige que
+   `at` sea de los últimos 5 minutos (y no más de 60 s en el futuro) según **su reloj**, el del NSM, y aplica las mismas
+   reglas que en claro: logN 18 como mucho al importar, contraseña de exportación de al menos 12 caracteres. Todo fallo
+   al abrir recibe la misma respuesta, un 400 (sellado para otra llave, para otra petición, o alterado). La llave RSA es
+   efímera por arranque: si el enclave reinició, el sobre ya no abre y el error pide una attestation nueva; nunca es un
+   500. Al exportar, el sobre se abre antes de gastar la prueba del dueño: un sobre que falla no le cuesta al usuario
+   otro inicio de sesión. Lo que se puede se borra de memoria; las cadenas (contraseña, `ncryptsec`) quedan en el heap
+   de JavaScript hasta que las recoge el recolector, como las que llegan en claro.
+4. **La API** acepta `sealed_secrets` en `POST /v1/keys/import` en lugar de `ncryptsec` y `password`, y
+   `sealed_password` en `POST /v1/keys/:id/export` en lugar de `password`; nunca los dos ni ninguno (400). El servicio
+   los reenvía tal cual: mira tipo y tamaño y no los registra. Consentimiento, inicio de sesión reciente sin sesión de
+   dispositivo, límites de scrypt y prueba del dueño valen igual en los dos modos. El backend vault responde 400 a los
+   sellados: descifra en su propio proceso, y sellar no protegería nada.
+5. **El cliente y la web.** `ManagedSignerClient.exportForMigration(password, { enclave })` nunca manda la contraseña
+   en claro, y `ManagedSignerClient.importEncrypted(conn, ncryptsec, password, { consentVersion, enclave })` sella la
+   importación; sin `enclave`, los dos se comportan como antes. El dueño del AAD (`<iss>#<sub>`) sale de las claims del
+   token de Acceso, sin verificarlo aquí: lo comprueba el enclave. Si la verificación de la attestation falla, el cliente
+   no envía nada. La web lo hace en la migración a custodia local y en el respaldo antes de cancelar cuando su
+   `config.json` trae `managedEnclave` (ver «Configuración»); sin él, exporta como antes.
+6. **Hacerlo obligatorio.** `ENCLAVE_REQUIRE_SEALED_SECRETS=1` (en la imagen) hace que el enclave rechace con 403 los
+   secretos en claro, y `MANAGED_SIGNER_REQUIRE_SEALED_SECRETS=1` (en el backend, solo con `MANAGED_SIGNER_BACKEND=enclave`)
+   los rechaza con 400 antes de reenviarlos. Con ellos, además, el dueño de una llave **importada** queda atado al
+   cliente: el dueño va en el AAD, así que el padre ya no puede importarla bajo otro. No cierra la creación
+   (`generate`), donde el dueño lo sigue declarando el padre.
+
+Lo que **no** resuelve:
+
+- **Un padre que fabrica su propio sobre.** Cualquiera con la llave pública del enclave, que va en cada attestation,
+  puede sellar. Un padre comprometido que retransmite el token de Acceso de un usuario (dentro de su ventana de 300 s,
+  FR005-09) puede sellar él mismo una contraseña que elija y exportar con ella. Lo cierra una prueba del usuario que el
+  padre no pueda retransmitir (por ejemplo, una firma con passkey sobre un reto del enclave), que todavía no existe.
+- **Un despliegue web hostil.** El HTML y el JavaScript de la web, y los PCR esperados (`managedEnclave`), los sirve el
+  operador: quien los controla puede servir un cliente que mande la contraseña en claro o que espere los PCR de otra
+  imagen. Esto protege frente a un managed-signer comprometido, no frente a quien controla la web.
+- **Nunca se ha probado contra un Nitro real** (FR005-05). El verificador del navegador solo ha visto documentos de la
+  PKI simulada y la autofirma de la raíz real de AWS; falta un documento de un enclave real, con sus certificados y su
+  reloj. En la cadena es más estricto que OpenSSL (rechaza extensiones críticas que no conoce, compara los nombres como
+  DER y solo acepta P-384 con SHA-384): si un certificado real de Nitro no cumpliera algo de eso, la exportación sellada
+  fallaría cerrada hasta corregirlo.
+- **Los PCR esperados son el punto de confianza.** El cliente confía en el enclave cuyos PCR le dan. Si son los de una
+  imagen que nadie revisó o que no se construyó de forma reproducible, sellar hacia ella no protege nada (ver «Cadena de
+  suministro de la EIF»).
+- **`generate` sigue declarando el dueño el padre**, y firmar y cifrar NIP-44 siguen obedeciendo al padre (ver
+  «Riesgos residuales»).
+- **Repetición dentro de la ventana.** `at` limita un sobre capturado a 5 minutos, no a un uso. Una exportación
+  repetida necesita además un token de Acceso sin usar (FR005-09); una importación repetida da la misma llave para el
+  mismo dueño, y el registro la rechaza si ya está gestionada (409).
+- **El reloj del navegador.** El cliente rechaza documentos de más de 5 minutos según su reloj: con la hora muy
+  desviada no puede sellar (falla cerrado, no manda la contraseña en claro).
 
 ### Política KMS (`deploy/terraform/modules/acceso-nostr/enclave.tf`)
 
@@ -131,7 +213,9 @@ launch template.
 | Imagen del enclave modificada (código malicioso) | n/a | KMS deniega | PCR0/1/2 distintos. Probado en `enclave-signer.test.ts` |
 | Enclave en modo debug (consola visible) | n/a | Rechazado | En debug los PCR0-2 valen cero. `verifyAttestation` lo rechaza y KMS no casa los PCR |
 | Backend comprometido pide firmas en nombre del usuario | Puede firmar | **Puede firmar** | **No mitigado**: el enclave obedece al padre. Ver "Riesgos residuales" |
-| Backend comprometido pide exportar una llave (FR-026) | Puede | **No, sin un token del dueño** (FR005-09) | Desactivada por defecto. Activada, el enclave verifica dentro el token de Acceso del dueño (llaves fijadas en la imagen, reloj del NSM, un solo uso) y que la llave es suya. Sigue abierto lo que el padre ve durante una exportación legítima: ver "Riesgos residuales" |
+| Backend comprometido pide exportar una llave (FR-026) | Puede | **No, sin un token del dueño** (FR005-09) | Desactivada por defecto. Activada, el enclave verifica dentro el token de Acceso del dueño (llaves fijadas en la imagen, reloj del NSM, un solo uso) y que la llave es suya. Sigue abierto que el padre retransmita un token del dueño en su ventana: ver "Riesgos residuales" |
+| Backend comprometido lee la contraseña de una exportación legítima, o el `ncryptsec` y la contraseña de una importación | Los ve | **No, si el cliente los sella** (FR005-10) | El cliente verifica él mismo la attestation y los cifra hacia la RSA del enclave; el padre retransmite un sobre que no puede abrir. En claro (sin `enclave` en el cliente) los sigue viendo, salvo que `ENCLAVE_REQUIRE_SEALED_SECRETS` / `MANAGED_SIGNER_REQUIRE_SEALED_SECRETS` lo rechacen. Ver «Secretos sellados hacia el enclave» |
+| Backend comprometido sustituye el documento de attestation (su llave RSA, otra imagen, debug, viejo, otro nonce) | n/a | El cliente no sella nada | Verificación en el cliente: raíz fijada, firma, PCR esperados, nonce propio y frescura. Probado en `enclave-sealed-parent.test.ts` |
 | Canal padre ⇄ enclave manipulado (eventos falsos) | n/a | Detectado | El cliente verifica cada evento: firma, pubkey, kind y contenido |
 | Blob sellado presentado con otra pubkey | n/a | Rechazado | El contexto KMS incluye la pubkey y el enclave compara la pubkey derivada |
 | Administrador de KMS cambia la política | Puede | Puede | **Residual**: `kms:PutKeyPolicy`. Mitigación operativa: rol de break-glass y alarma de CloudTrail sobre `PutKeyPolicy` en esta llave |
@@ -150,13 +234,15 @@ launch template.
     borrar o cerrar sesiones). Es una ventana por usuario y por inicio de sesión, no «cualquier llave en cualquier
     momento». Lo cierra del todo una prueba que el padre no pueda retransmitir: una firma del usuario sobre un reto del
     enclave (passkey o llave de destino), que no existe todavía.
-  - **La contraseña de exportación pasa por el padre.** Con la prueba basta para que el padre no pueda exportar solo,
-    pero en una exportación legítima ve la contraseña y el `ncryptsec`, y con ellos la nsec. Que el cliente la cifre hacia
-    la llave atestada del enclave es FR005-10.
-  - **El dueño de una llave nueva lo dice el padre.** Al crear o importar, el enclave sella el dueño que le pasa el padre;
-    solo las llaves ya selladas quedan fuera de su alcance. Un padre comprometido en el momento de crear una llave
-    podría sellarla para otro dueño. Exigir también la prueba al crear es viable con el token de Acceso, pero no con las
-    sesiones de dispositivo (`MANAGED_SIGNER_REQUIRE_DEVICE_SESSION`), que no llevan token.
+  - **La contraseña de exportación, en claro, pasa por el padre.** Con la prueba basta para que el padre no pueda
+    exportar solo, pero en una exportación legítima en claro ve la contraseña y el `ncryptsec`, y con ellos la nsec. Con
+    un cliente que la sella hacia el enclave (FR005-10: `exportForMigration(password, { enclave })`, y la web con
+    `managedEnclave`) ya no la ve; sin él, sí, salvo que el despliegue exija secretos sellados.
+  - **El dueño de una llave nueva lo dice el padre.** Al crear, el enclave sella el dueño que le pasa el padre; solo las
+    llaves ya selladas quedan fuera de su alcance. Un padre comprometido en el momento de crear una llave podría
+    sellarla para otro dueño. Al importar con secretos sellados (FR005-10) el dueño va en el AAD del sobre y el padre ya
+    no puede cambiarlo; en claro, sí. Exigir también la prueba al crear es viable con el token de Acceso, pero no con
+    las sesiones de dispositivo (`MANAGED_SIGNER_REQUIRE_DEVICE_SESSION`), que no llevan token.
   - **Memoria de tokens.** Se pierde si el enclave se reinicia: dentro de los 300 s siguientes a un reinicio, un token
     usado podría volver a servir.
 - **Política KMS.** Quien pueda ejecutar `PutKeyPolicy` puede quitar las condiciones. Hay que restringir
@@ -198,6 +284,34 @@ Tests en `services/managed-signer/test/`:
   - API con el tier enclave: el token que autentica la exportación viaja al enclave y repetirlo da 401.
   - Configuración: la imagen no arranca con `ENCLAVE_ALLOW_EXPORT=1` sin la pool fijada; el enclave simulado de desarrollo la
     toma de `MANAGED_SIGNER_ENCLAVE_PROOF_*` o se niega a exportar.
+- Secretos sellados (FR005-10):
+  - `enclave-attestation-portable.test.ts`: el verificador portable del navegador frente al de `node:crypto`, sobre una
+    matriz de documentos y mutaciones construidos con `node:crypto` (raíz equivocada o no fijada, raíz sin autofirma,
+    cadena rota, cabundle desordenado o vacío, intermedio que no es CA, CA sin `keyCertSign`, extensiones duplicadas o
+    mal formadas, AKID que no casa, algoritmos distintos dentro y fuera del certificado, firmas y payload alterados,
+    certificados caducados o aún no válidos, llave hoja P-256 o RSA, ES256, SHA256, PCR 0/1/2/8, nonce, documento viejo
+    o del futuro en los límites exactos, debug, sin `public_key`, estructura mal formada...): los dos dan el mismo
+    veredicto y el mismo código, y los mismos campos cuando aceptan. Aparte quedan escritas las diferencias en las que el
+    portable es más estricto (extensión crítica desconocida, bytes tras el DER, nombres comparados como DER, cadena solo
+    P-384). También verifica con su propio código la autofirma de la raíz real de AWS.
+  - `enclave-sealed-secrets.test.ts`: sobre sellado con WebCrypto y con `node:crypto` que abre en el enclave; no abre
+    con otro propósito, otro dueño u otra pubkey, ni tras reiniciar el enclave (otra RSA); cualquier byte cambiado de
+    `ek`, `iv`, `ct` o tag da la misma respuesta; `at` viejo o del futuro; demasiado grande (antes de descifrar), formato
+    y contenido inválidos; tope de logN y contraseña errónea al importar; contraseña corta al exportar, y un sobre que
+    falla no gasta la prueba del dueño; en claro o sellado, nunca los dos ni ninguno; `ENCLAVE_REQUIRE_SEALED_SECRETS`.
+  - `enclave-sealed-api.test.ts`: la ruta de attestation con el nonce del cliente (y sus rechazos), importación y
+    exportación selladas por la API, el dueño del sobre ligado a la llave, las reglas de siempre en los dos modos,
+    `MANAGED_SIGNER_REQUIRE_SEALED_SECRETS` (rechaza antes de llegar al enclave) y el backend vault (404 y 400).
+  - `enclave-sealed-parent.test.ts`: captura lo que ve el padre (cuerpos HTTP, tramas hacia el enclave byte a byte,
+    logs y escrituras al vault) durante una importación y una exportación hechas con el cliente real y no encuentra
+    las contraseñas, el `ncryptsec` importado ni la nsec, en claro, hex o base64; un control comprueba que la misma
+    captura sí ve una contraseña en claro. Un padre que sustituye la attestation (su llave RSA, su PKI, otra imagen,
+    debug, un documento viejo u otro nonce) hace que el cliente se pare antes de enviar nada.
+  - Fuera de esta carpeta: `packages/signer/test/enclave-seal.test.ts` (formato del sobre abierto con `node:crypto`
+    a mano, `EnclaveTrust`, dueño desde el token), `apps/web-saas/test/managed-enclave-export.test.ts` (la web con y sin
+    `managedEnclave`), `packages/nostr-core/test/p384.test.ts` y el fuzz de `tests/fuzz/enclave-parsers.test.ts`, que
+    exige al verificador portable el veredicto del de `node:crypto` en documentos manipulados y que un sobre con
+    cualquier carácter cambiado nunca abra.
 
 Las cadenas de certificados de prueba se generan con `node:crypto` (`buildCertificate`, P-384/ES384). Se
 usan las mismas estructuras que produce Nitro: cabundle raíz → intermedio → hoja.
@@ -221,9 +335,20 @@ Backend (`managed-signer`):
 | `MANAGED_SIGNER_ENCLAVE_ROOT_SHA256` | Sustituye la huella de la raíz fijada (default: AWS Nitro G1) |
 | `MANAGED_SIGNER_ENCLAVE_SIMULATED` | `1` = simulado, NO SEGURO |
 | `MANAGED_SIGNER_ENCLAVE_PROOF_ISSUER`, `_CLIENT_ID`, `_JWKS`, `_MAX_AGE_S` | Solo con el modo simulado: la user pool contra la que el enclave simulado comprueba las pruebas de exportación (`_JWKS` es la ruta de su `jwks.json`). Sin ellas, el simulado rechaza toda exportación, como el real |
+| `MANAGED_SIGNER_REQUIRE_SEALED_SECRETS` | `1`: importaciones y exportaciones solo con secretos sellados hacia el enclave; en claro, 400 antes de reenviarlos (FR005-10). Solo con `MANAGED_SIGNER_BACKEND=enclave` (con el vault el servicio no arranca). Otro valor que no sea `0` o vacío no arranca |
 
 Enclave (EIF): `ENCLAVE_LISTEN`, `ENCLAVE_KMS_KEY_ID` (salida `enclave_signer_kms_alias`),
-`ENCLAVE_KMS_REGION`, `ENCLAVE_KMS_ENDPOINT`, `ENCLAVE_NSM_HELPER` y `ENCLAVE_ALLOW_EXPORT`.
+`ENCLAVE_KMS_REGION`, `ENCLAVE_KMS_ENDPOINT`, `ENCLAVE_NSM_HELPER`, `ENCLAVE_ALLOW_EXPORT` y
+`ENCLAVE_REQUIRE_SEALED_SECRETS` (`1`: el enclave rechaza con 403 los secretos en claro, FR005-10; con otro valor que no
+sea `0` o vacío la imagen no arranca).
+
+Web (`config.json`), FR005-10: `"managedEnclave": { "pcr0": "…", "pcr1": "…", "pcr2": "…", "pcr8": "…" }`, con los PCR de la
+imagen publicada, 96 caracteres hex cada uno (`pcr8` opcional). Salen de `nitro-cli build-enclave` al construir la EIF, o de
+`nitro-cli describe-eif --eif-path signer.eif` sobre la EIF publicada, y son los mismos valores que `enclave_pcr*` en
+Terraform y `MANAGED_SIGNER_ENCLAVE_PCR*`. Con ellos, la web verifica la attestation en el navegador y sella la contraseña
+de exportación; si alguno falta o está mal formado, la app no arranca (falla cerrada). Si el managed-signer no tiene enclave,
+la exportación falla (404 en la attestation) en vez de mandar la contraseña en claro. Mientras el enclave sea Preview, el gate
+de release no deja `managedEnclave` en la configuración de producción.
 
 Con `ENCLAVE_ALLOW_EXPORT=1` (FR005-09) la imagen necesita además la user pool de Acceso cuyos tokens prueban al dueño, y no
 arranca sin ella:
@@ -264,6 +389,11 @@ arranca sin ella:
    procedimiento de rotación de llaves de la pool (imagen nueva, PCR nuevos, Terraform).
 7. **Formato CMS de KMS.** El parser acepta RSAES-OAEP (SHA-256 o SHA-1) y AES-256-CBC, que es lo que
    documenta KMS para `CiphertextForRecipient`. Falta confirmarlo con una respuesta real.
+8. **Secretos sellados con un enclave real (FR005-10).** Verificar documentos de un enclave real con
+   `verifyNitroAttestation` en un navegador y comparar su veredicto con el de `verifyAttestation` (la cadena real, con sus
+   certificados intermedios, extensiones y `pathLen`, y la hora del NSM real); exportar e importar con secretos sellados
+   desde la web con `managedEnclave` y los PCR de la EIF medida, también alrededor de un reinicio del enclave (un sobre
+   sellado antes no abre; uno nuevo, con otra attestation, sí), y con `ENCLAVE_REQUIRE_SEALED_SECRETS=1` en la imagen.
 
 Hasta completar esos pasos, el criterio queda cumplido **solo como prototipo verificado localmente**. Está
 el backend sin llave en claro (forzado por la interfaz `SealedKeyOps` y probado) y la verificación de

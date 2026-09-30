@@ -12,8 +12,8 @@ Versiones exactas en `package.json` de cada workspace y en `package-lock.json` (
 
 | Biblioteca | Versión | Quién la usa | Para qué |
 |---|---|---|---|
-| `@noble/curves` | 2.4.0 (nostr-core); 2.2.0 (marmot-adapter y dentro de marmot-ts) | nostr-core, marmot | secp256k1, BIP-340 Schnorr, ECDH |
-| `@noble/hashes` | 2.4.0 (nostr-core, encrypted-store, continuity, blob-store, metrics, blossom-client, test-relay, marmot-adapter); 2.2.0 (transitiva: marmot-ts y `@noble/curves` 2.2.0) | varios | SHA-256, HMAC, HKDF, scrypt |
+| `@noble/curves` | 2.4.0 (nostr-core); 2.2.0 (marmot-adapter y dentro de marmot-ts) | nostr-core, marmot | secp256k1, BIP-340 Schnorr, ECDH; ECDSA P-384 para verificar la attestation Nitro en el cliente (`verifyEcdsaP384`, FR005-10) |
+| `@noble/hashes` | 2.4.0 (nostr-core, encrypted-store, continuity, blob-store, metrics, blossom-client, test-relay, marmot-adapter); 2.2.0 (transitiva: marmot-ts y `@noble/curves` 2.2.0) | varios | SHA-256, SHA-384, HMAC, HKDF, scrypt |
 | `@noble/ciphers` | 2.4.0 (nostr-core, encrypted-store, identity, indexer, managed-signer, blossom-client); 2.2.0 (marmot) | varios | ChaCha20, XChaCha20-Poly1305, AES-GCM |
 | `@scure/base` | 2.4.0 | nostr-core, blossom-client, marmot-adapter | bech32 (NIP-19/49), base64 |
 | `ts-mls` | 2.0.0-rc.16 (forzada con `overrides` en la raíz) | marmot-adapter, marmot-ts | MLS (RFC 9420) |
@@ -21,7 +21,7 @@ Versiones exactas en `package.json` de cada workspace y en `package-lock.json` (
 | `@hpke/core` / `@hpke/common` | 1.9.0 / 1.10.1 (transitivas de ts-mls) | ts-mls | HPKE (RFC 9180) |
 | `@aws-sdk/client-kms`, `client-secrets-manager` | 3.1141.0 | managed-signer | KMS (envelope, `Recipient` con attestation), Secrets Manager |
 | `node:crypto` (OpenSSL de Node 22) | runtime | servicios | RSA-OAEP, AES-GCM/CBC, ECDSA P-256/P-384, X.509, HMAC, `timingSafeEqual` |
-| WebCrypto (navegador) | runtime | encrypted-store (browser) | AES-GCM 256 no extraíble |
+| WebCrypto (navegador) | runtime | encrypted-store (browser); signer (sellado hacia el enclave, FR005-10, también en Node) | AES-GCM 256 no extraíble; RSA-OAEP-SHA256 + AES-256-GCM del sobre sellado |
 | `nostr-tools` | 2.25.2 | tests; runtime solo en `packages/sync` | Oráculo diferencial de interoperabilidad; NIP-77 (Negentropy) en el cliente soberano |
 
 Observación: conviven dos versiones de `@noble/*` (2.4.0 en nuestro código, 2.2.0 dentro de marmot-ts) y
@@ -146,9 +146,12 @@ export (scrypt) por dueño y en concurrencia por réplica (IR-2026-09-20).
 |---|---|---|
 | RSA efímera por arranque | `services/managed-signer/src/enclave/enclave.ts:125` | RSA-2048, SPKI dentro de cada attestation |
 | Sellado de llaves | `enclave.ts:145` | KMS `GenerateDataKey` con `Recipient` (attestation) → `CiphertextForRecipient` → AES-256-GCM (AAD `acceso-nostr/enclave-key/<pubkey>` y, en los blobs v2, la etiqueta del dueño) |
-| Etiqueta del dueño (FR005-09) | `enclave.ts:83` `ownerTag` | SHA-256 de `acceso-nostr/owner/v1\|<issuer>#<sub>`: va en el contexto de cifrado de KMS (`owner_tag`) y en el AAD; se hashea porque el contexto se escribe en claro en CloudTrail |
+| Etiqueta del dueño (FR005-09) | `packages/signer/src/enclave/envelope.ts` `ownerTag` (reexportada por `enclave.ts`) | SHA-256 de `acceso-nostr/owner/v1\|<issuer>#<sub>` (noble, la misma en el cliente y en el enclave): va en el contexto de cifrado de KMS (`owner_tag`) y en el AAD; se hashea porque el contexto se escribe en claro en CloudTrail |
 | Apertura | `enclave.ts:163` | KMS `Decrypt` con `Recipient`; GCM con tag de 16 B; se comprueba que la llave abierta deriva la pubkey reclamada |
-| Prueba del dueño para exportar (FR005-09) | `enclave/proof.ts` `PinnedJwksProofVerifier`; `enclave.ts:211` `checkExportProof` | JWT RS256 de Cognito (`createVerify('RSA-SHA256')`, algoritmo fijo, llaves RSA ≥ 2048 bits fijadas en la imagen), `iss`, `token_use`, `aud`/`client_id`, `exp`, `iat`, `auth_time` ≤ 300 s contra el reloj del NSM, `jti` de un solo uso (memoria acotada); el dueño del token debe dar la `ot` del blob |
+| Prueba del dueño para exportar (FR005-09) | `enclave/proof.ts` `PinnedJwksProofVerifier`; `enclave.ts` `verifyExportProof` y `consumeProof` | JWT RS256 de Cognito (`createVerify('RSA-SHA256')`, algoritmo fijo, llaves RSA ≥ 2048 bits fijadas en la imagen), `iss`, `token_use`, `aud`/`client_id`, `exp`, `iat`, `auth_time` ≤ 300 s contra el reloj del NSM, `jti` de un solo uso (memoria acotada); el dueño del token debe dar la `ot` del blob |
+| Secretos sellados hacia el enclave (FR005-10): sellado | `packages/signer/src/enclave/envelope.ts` `sealToEnclave` (WebCrypto) | RSA-OAEP con SHA-256 y MGF1-SHA-256 hacia la SPKI RSA ≥ 2048 de una attestation verificada, de una llave AES-256-GCM aleatoria por sobre (IV de 12 B aleatorio, tag de 16 B). AAD `acceso-nostr/enclave-envelope/v1\|<import\|export>\|<owner_tag>\|<pubkey o vacío>`. Contenido JSON con `at` (timestamp de la attestation); sobre de 4096 caracteres como mucho, base64url estricta (canónica, sin relleno) |
+| Secretos sellados: apertura | `enclave/sealed-secrets.ts` `openSealedSecret` | `privateDecrypt` RSA-OAEP (`oaepHash: 'sha256'`) con la RSA efímera del enclave; AES-256-GCM con `authTagLength: 16` y el AAD reconstruido desde la petición; un único mensaje de error para cualquier fallo de apertura (RSA, tamaño de la llave, tag); `at` ≤ 5 min y ≤ 60 s en el futuro contra el reloj del NSM; se ponen a cero la llave AES y los buffers de texto claro, también el parcial que GCM entrega antes de comprobar el tag |
+| Verificación de attestation en el cliente (FR005-10) | `packages/signer/src/enclave/attestation.ts` `verifyNitroAttestation` | Las mismas reglas que la del servicio, sin `node:*`: ECDSA P-384/SHA-384 de `@noble/curves` (`verifyEcdsaP384` en `nostr-core`, alta S aceptada como en OpenSSL; forma DER en X.509 y r‖s en COSE), SHA-256 de noble para la huella de la raíz, X.509 propio (basicConstraints, keyUsage, AKID/SKID, extensiones críticas desconocidas rechazadas, nombres comparados como DER, solo ecdsa-with-SHA384), PCR y nonce en tiempo constante. Probada por diferencial contra la de `node:crypto` |
 | CMS EnvelopedData (RFC 5652) | `enclave/cms.ts:38-68` | RSAES-OAEP (SHA-1/SHA-256 según parámetros) + AES-256-CBC **sin MAC** (formato impuesto por KMS) |
 | Verificación de attestation | `enclave/attestation.ts:130-214` | COSE_Sign1 ES384 (P-384, firma IEEE-P1363), cadena X.509 hasta la raíz Nitro G1 fijada por SHA-256 (línea 26), vigencia, frescura (5 min, ±60 s), nonce en tiempo constante, PCR esperados, rechazo de enclave debug |
 | KMS desde el enclave | `enclave/kms.ts` | SDK v3; TLS terminado dentro del enclave vía vsock-proxy |
@@ -202,7 +205,7 @@ revisión interna (IR-2026-09-14).
 | Content key de backup | Aleatoria 32 B | Envuelta con NIP-49 en el paquete | Restaurar | Una por backup |
 | KEK de `LocalEnvelopeVault` | Operador | Env / HSM | Arranque | Manual (no hay rotación automática) |
 | Data keys de KMS | KMS por secreto | Envueltas (`edk`) junto al ciphertext | Por operación | Con el secreto |
-| RSA del enclave | Por arranque | Solo memoria del enclave | Recibir data keys de KMS | Al reiniciar el enclave |
+| RSA del enclave | Por arranque | Solo memoria del enclave | Recibir data keys de KMS y abrir los secretos que el cliente sella hacia el enclave (FR005-10) | Al reiniciar el enclave: un sobre sellado a la anterior ya no abre |
 | VAPID | Operador (`NOTIFY_VAPID_PRIVATE_KEY`) o efímera | Env | Firmar JWT VAPID | Rotarla obliga a re-suscribir |
 | `MIRROR_AT_REST_KEY` | Operador | Env (Secret de k8s) | Sellar/abrir el espejo | Sin rotación implementada |
 | Tokens bearer de servicio | Operador | Env / Secret | Llamadas entre servicios | Manual |
@@ -228,8 +231,9 @@ Objetivos de mayor valor para el auditor:
 | NIP-44 v2 | `packages/nostr-core/src/nip44.ts` | Implementación propia de la spec | Vectores oficiales en `packages/nostr-core/test/nip44-vectors.test.ts`; `tests/fuzz/nip44.test.ts` (diferencial con nostr-tools) |
 | NIP-49 | `packages/nostr-core/src/nip49.ts` | Formato y KDF | `packages/nostr-core/test/nip49-vectors.test.ts`; `tests/fuzz/nip49.test.ts` |
 | Decodificador CBOR WebAuthn | `services/policy-engine/src/webauthn.ts:22` | Entrada de cualquier cliente autenticado | `tests/fuzz/webauthn.test.ts` |
-| Decodificador/codificador CBOR + COSE_Sign1 | `services/managed-signer/src/enclave/cbor.ts`, `attestation.ts` | Attestation Nitro; entra por el padre | `tests/fuzz/enclave-parsers.test.ts` |
-| Lector/escritor ASN.1 DER | `services/managed-signer/src/enclave/der.ts` | Acepta longitudes BER no mínimas (tolerancia deliberada con KMS) | `tests/fuzz/enclave-parsers.test.ts` |
+| Decodificador/codificador CBOR + COSE_Sign1 | `packages/signer/src/enclave/cbor.ts` (reexportado en `services/managed-signer/src/enclave/cbor.ts`), `attestation.ts` de los dos | Attestation Nitro; entra por el padre, en el servicio y en el navegador (FR005-10) | `tests/fuzz/enclave-parsers.test.ts` |
+| Lector/escritor ASN.1 DER y X.509 del cliente | `packages/signer/src/enclave/der.ts` (reexportado en el servicio), `packages/signer/src/enclave/attestation.ts` | Acepta longitudes BER no mínimas (tolerancia deliberada con KMS); el X.509 propio decide la cadena de la attestation en el navegador | `tests/fuzz/enclave-parsers.test.ts` (diferencial con `node:crypto`) y `services/managed-signer/test/enclave-attestation-portable.test.ts` |
+| Sobre sellado hacia el enclave (FR005-10) | `packages/signer/src/enclave/envelope.ts`, `services/managed-signer/src/enclave/sealed-secrets.ts` | Entra por el padre y se abre dentro del enclave | `tests/fuzz/enclave-parsers.test.ts` |
 | Parser CMS EnvelopedData | `services/managed-signer/src/enclave/cms.ts` | Descifra la data key dentro del enclave | `tests/fuzz/enclave-parsers.test.ts` |
 | Codec protobuf nauthz (gRPC h2c) | `services/policy-engine/src/allowlist-sync.ts:77-150` | Decide la admisión en el relay seguro | `tests/fuzz/nauthz-proto.test.ts` |
 | Web Push RFC 8291/8292 | `services/notification-gateway/src/webpush.ts` | Criptografía propia sobre node:crypto | Vector RFC 8291 (tests) |
@@ -257,6 +261,8 @@ Desviaciones conocidas respecto a lo habitual:
 | NIP-49, NIP-59 | Vectores exportables en JSON (ADR 0004, SEC-07), generados de forma determinista con `@noble` y no con el código que prueban. NIP-49: el vector publicado en la NIP, normalización NFKC, casos válidos con sal y nonce, y cinco inválidos. NIP-59: DM y copia al emisor, y cinco rechazos (destinatario, firma del wrap, kind del seal, suplantación, rumor editado) | `packages/nostr-core/test/vectors/`, `nip49-vectors.test.ts`, `packages/messaging/test/nip59-vectors.test.ts` |
 | Web Push | Ejemplo trabajado de RFC 8291 §5 / Apéndice A | `services/notification-gateway/test/webpush.test.ts` |
 | Attestation Nitro | Raíz G1 fijada por huella; PKI simulada; documentos manipulados, caducados, debug, PCR y nonce distintos | `services/managed-signer/test/enclave-attestation.test.ts` |
+| Attestation Nitro en el cliente (FR005-10) | Diferencial con la verificación de `node:crypto` sobre una matriz de mutaciones (mismo veredicto y código) y autofirma de la raíz real de AWS; ECDSA P-384 frente a firmas de OpenSSL (DER y r‖s, alta S) | `services/managed-signer/test/enclave-attestation-portable.test.ts`, `packages/nostr-core/test/p384.test.ts` |
+| Secretos sellados (FR005-10) | Sobre abierto a mano con `node:crypto` (formato y AAD exactos), manipulaciones de cada parte, AAD, frescura, tamaño; lo que ve el padre durante una importación y una exportación selladas | `packages/signer/test/enclave-seal.test.ts`, `services/managed-signer/test/enclave-sealed-*.test.ts` |
 | Enclave extremo a extremo | Generar, importar, firmar, NIP-44, exportar con KMS simulado | `services/managed-signer/test/enclave-signer.test.ts` |
 | Vault AWS | Unitario con KMS falso; integración con moto en CI | `services/managed-signer/test/aws-vault.test.ts` |
 | WebAuthn | Autenticador de prueba (packed propia y none) | `services/policy-engine/test/webauthn*.ts` |
