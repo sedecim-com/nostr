@@ -740,7 +740,7 @@
    "deps": [],
    "sprint": "S9",
    "status": "Parcial",
-   "evidence": ".github/workflows/release.yml: builds con contents: read; publicación solo desde el entorno `release`. Falta configurar en GitHub el entorno con aprobadores y \"Prevent self-review\" y la regla de tags v* (docs/building.md)",
+   "evidence": ".github/workflows/release.yml: builds con contents: read; publicación solo desde el entorno `release`. Desde el commit f7c4650 (PR #379), el job dod comprueba antes de publicar que ese entorno tiene revisores con «Prevent self-review», sin bypass de admin y solo tags v* (scripts/release-gate.mjs environment): un tag empujado sin esa configuración se detiene antes de crear el entorno sin protección. Falta configurar en GitHub el entorno con aprobadores y \"Prevent self-review\" y la regla de tags v* (docs/building.md)",
    "issue": 59
   },
   {
@@ -3055,7 +3055,7 @@
    ],
    "sprint": "S9",
    "status": "Parcial",
-   "evidence": "Job dod en release.yml (scripts/release-gate.mjs): exige ci.yml completo en el commit del tag, restore-drill exitoso en 72 h, SBOM válido, notas de release y registro de auditoría o waiver aprobado por otra persona (docs/security/audits); publish crea el release como borrador y verify lo publica solo si scripts/verify-release.sh pasa; docs/release-checklist.md. Queda Parcial: SEC-01/SEC-02 y NFR010-02 no están hechos y el gate aún no ha corrido en un release real",
+   "evidence": "Job dod en release.yml (scripts/release-gate.mjs), sobre el commit del tag:\n\n- ci.yml completo, restore-drill con éxito en 72 h, SBOM válido, notas de release y registro de auditoría o waiver aprobado por otra persona (docs/security/audits);\n- CodeQL sin alertas abiertas de severidad alta o crítica (OPS-13);\n- commit f7c4650 (PR #379): ninguna alerta de Dependabot alta o crítica, threat models aprobados para el tag (docs/threat-models/approvals/<tag>.md, con un aprobador distinto de quien publica y la huella SHA-256 de cada documento) y el entorno release protegido (OPS-08). publish crea como pre-release los tags -rc.\n\npublish crea el release como borrador y verify lo publica solo si scripts/verify-release.sh pasa; docs/release-checklist.md.\n\nQueda Parcial: SEC-01/SEC-02, DEC-10 y NFR010-02 no están hechos y el gate aún no ha corrido en un release real",
    "issue": 196
   },
   {
