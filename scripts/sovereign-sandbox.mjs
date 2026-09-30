@@ -49,10 +49,10 @@ export function inspectChecks(container, image, network, secret) {
     check(hc.ReadonlyRootfs === true, 'read-only root filesystem', `ReadonlyRootfs=${hc.ReadonlyRootfs}`),
     check((hc.CapDrop ?? []).includes('ALL') && !(hc.CapAdd ?? []).length && !hc.Privileged, 'no capabilities: CapDrop ALL, no CapAdd, not privileged', `CapDrop=${hc.CapDrop} CapAdd=${hc.CapAdd} Privileged=${hc.Privileged}`),
     check((hc.SecurityOpt ?? []).some((o) => /^no-new-privileges([:=]true)?$/.test(o)), 'no-new-privileges', `SecurityOpt=${hc.SecurityOpt}`),
-    check(!isRoot(user) && !isRoot(image.Config?.User ?? ''), `runs as ${user || 'root'}, not root`, user || 'root'),
+    check(!isRoot(user) && !isRoot(image.Config?.User ?? ''), 'runs as a user other than root', user || 'root'),
     check(hc.Init === true, 'an init process forwards signals to the CLI (init: true)', `Init=${hc.Init}`),
-    check(nets.length === 1 && /_tor-socks$/.test(nets[0] ?? ''), `its only network is ${nets[0] ?? '(none)'}`, nets.join(', ') || 'none'),
-    check(network.Internal === true && /_tor-socks$/.test(network.Name ?? ''), `${network.Name} is internal: no route out`, `Internal=${network.Internal}`),
+    check(nets.length === 1 && /_tor-socks$/.test(nets[0] ?? ''), 'its only network is <project>_tor-socks', nets.join(', ') || 'none'),
+    check(network.Internal === true && /_tor-socks$/.test(network.Name ?? ''), '<project>_tor-socks is internal: no route out', `${network.Name} Internal=${network.Internal}`),
     check(!(hc.Dns ?? []).length && !(hc.DnsSearch ?? []).length && !(hc.DnsOptions ?? []).length && !(hc.ExtraHosts ?? []).length, 'no DNS servers, search domains or extra hosts of its own', JSON.stringify({ Dns: hc.Dns, DnsSearch: hc.DnsSearch, ExtraHosts: hc.ExtraHosts })),
     check(!unexpected.length && tmpfs.length === 1 && tmpfs[0] === '/tmp' && mounts.some((m) => m.Destination === '/data'), 'mounts: its volume at /data, the secrets read-only, /tmp as tmpfs, nothing else', unexpected.map((m) => `${m.Type} ${m.Destination}${m.RW ? ' rw' : ''}`).join(', ') || `tmpfs ${tmpfs.join(', ') || 'none'}`),
     check(env.SOVEREIGN_PASSPHRASE_FILE === PASSPHRASE && env.TOR_SOCKS === 'tor:9050', `SOVEREIGN_PASSPHRASE_FILE=${PASSPHRASE} and TOR_SOCKS=tor:9050`, `SOVEREIGN_PASSPHRASE_FILE=${env.SOVEREIGN_PASSPHRASE_FILE} TOR_SOCKS=${env.TOR_SOCKS}`),
@@ -148,7 +148,7 @@ export async function insideChecks(p = realProbe()) {
   const dirs = ['/app', ...p.list('/app/apps').map((d) => `/app/apps/${d}`), ...packages.map((d) => `/app/packages/${d}`)];
   const local = dirs.flatMap((d) => ['.env', '.data'].map((f) => `${d}/${f}`)).filter((f) => p.exists(f));
   return [
-    check(p.uid !== 0 && p.gid !== 0, `runs as uid ${p.uid} gid ${p.gid}, not root`, `uid ${p.uid} gid ${p.gid}`),
+    check(p.uid !== 0 && p.gid !== 0, 'runs as a user and group other than root', `uid ${p.uid} gid ${p.gid}`),
     check(caps.every(zero), 'no capabilities: CapEff, CapPrm, CapBnd and CapAmb are 0', caps.map((f) => `${f}=${p.status(f)}`).join(' ')),
     check(p.status('NoNewPrivs') === '1', 'no new privileges (NoNewPrivs 1)', p.status('NoNewPrivs')),
     check(p.status('Seccomp') === '2', 'seccomp filter on (Seccomp 2)', p.status('Seccomp')),
