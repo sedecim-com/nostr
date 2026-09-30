@@ -241,7 +241,7 @@ services:
   # Secondary relay for Marmot/MLS groups (kinds 30443/445/10051 are rejected by the pinned Buzz build)
   # and for Sovereign Tor personas via its onion service. NIP-42 required; gift wraps only to recipients.
   secure-relay:
-    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay:0.9.0@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5}
+    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay:0.10.0@sha256:48d54c2d2781577cf3ed2951112f0953dc2c5e7c9d2ea20c64e8c0fa37d16e4d}
     volumes:
       # Institutional mode: ./infra/secure-relay/config.institutional.toml (event admission by relay-allowlist).
       - ${SECURE_RELAY_CONFIG:-./infra/secure-relay/config.toml}:/usr/src/app/config.toml:ro
@@ -445,7 +445,7 @@ services:
   # hostname Tor publishes. Its own data, as Buzz gives the onion host its own community; no host port.
   secure-relay-onion:
     profiles: [tor]
-    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay:0.9.0@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5}
+    image: ${SECURE_RELAY_IMAGE:-scsibug/nostr-rs-relay:0.10.0@sha256:48d54c2d2781577cf3ed2951112f0953dc2c5e7c9d2ea20c64e8c0fa37d16e4d}
     entrypoint: ["/bin/sh", "/usr/local/bin/onion-entrypoint.sh"]
     volumes:
       - ${SECURE_RELAY_CONFIG:-./infra/secure-relay/config.toml}:/etc/secure-relay/config.toml:ro

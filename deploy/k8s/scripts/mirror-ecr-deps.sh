@@ -15,7 +15,7 @@ BUZZ_IMAGE="$(sed -n 's/^BUZZ_IMAGE=//p' "${PIN_FILE}")"
 IMAGES=(
   "${BUZZ_IMAGE}|acceso-nostr-buzz:$(sed -n 's/^BUZZ_COMMIT=//p' "${PIN_FILE}" | cut -c1-12)"
   "chrislusf/seaweedfs@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882|acceso-nostr-seaweedfs:4.47"
-  "scsibug/nostr-rs-relay@sha256:03f54bfbffff80a50db62c9287913bd25a2dec08033b56d2122bc2550363d5c5|acceso-nostr-secure-relay:0.9.0"
+  "scsibug/nostr-rs-relay@sha256:48d54c2d2781577cf3ed2951112f0953dc2c5e7c9d2ea20c64e8c0fa37d16e4d|acceso-nostr-secure-relay:0.10.0"
   "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24|acceso-nostr-postgres:17.11-alpine3.24"
   "redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499|acceso-nostr-redis:7.4.11-alpine3.21"
   "nginx@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2|acceso-nostr-nginx:1.31.6-alpine3.24"

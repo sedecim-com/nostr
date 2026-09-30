@@ -271,7 +271,7 @@ Versión `mip04-v2`, la que implementa marmot-ts 0.5.1 (se usan sus primitivas A
 ## Integración con Buzz: no soportado por el relay fijado
 El Buzz fijado (`infra/buzz/PIN`) tiene una lista cerrada de kinds y responde
 `restricted: unknown event kind` a 30443, 445 y 10051 (`docs/interop/`). Por eso los grupos Marmot
-van por el **relay secundario** del stack (`secure-relay`: nostr-rs-relay 0.9.0 fijado por digest,
+van por el **relay secundario** del stack (`secure-relay`: nostr-rs-relay 0.10.0 fijado por digest,
 NIP-42, gift wraps solo al destinatario; en el perfil `tor`, una instancia propia detrás del onion service,
 ver `docs/sovereign-tor.md`).
 - Ese relay descarta sin avisar los gift wraps (y los DM de kind 4 y 44) de una conexión no autenticada:
@@ -292,10 +292,12 @@ Ruta decidida en ADR 0006: los grupos MLS viven en el `secure-relay`. Parchear B
 añade un allowlist configurable.
 
 ## Interoperabilidad con un relay real
-La suite de conformidad pasa contra **nostr-rs-relay 0.9.0** (el `secure-relay` del stack) con NIP-42
-obligatorio: [`docs/interop/marmot-nostr-rs-relay-0.9.0-report.json`](interop/marmot-nostr-rs-relay-0.9.0-report.json).
-Hallazgos corregidos en el SDK: ese relay no envía `OK` tras un `AUTH` correcto (el pool acepta un AUTH
-silencioso tras `authTimeoutMs`) y confirma antes de persistir (la verificación del key package reintenta).
+La suite de conformidad pasa contra **nostr-rs-relay 0.10.0** (el `secure-relay` del stack) con NIP-42
+obligatorio: el job `stack` de CI la corre en cada PR y en main. El informe inicial, con 0.9.0, está en
+[`docs/interop/marmot-nostr-rs-relay-0.9.0-report.json`](interop/marmot-nostr-rs-relay-0.9.0-report.json).
+Hallazgos corregidos en el SDK: 0.9.0 no envía `OK` tras un `AUTH` correcto (el pool acepta un AUTH
+silencioso tras `authTimeoutMs`; 0.10.0 ya lo confirma) y el relay confirma antes de persistir (la
+verificación del key package reintenta).
 Reproducir: `MARMOT_RELAY_URL=ws://localhost:7000 npm run test:interop`.
 
 ## Interoperabilidad con MDK (FR025-04)
