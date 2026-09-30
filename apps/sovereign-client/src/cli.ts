@@ -90,12 +90,13 @@
  *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer)
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import type { PendingGroupOperation } from '@sedecim/marmot-adapter';
 import { ReuseNotConfirmedError } from '@sedecim/identity';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
+import { checkAttachmentSize } from '@sedecim/blossom-client';
 import { CONTINUITY_VAULT_TEXTS, configMaturity, disclose, MATURITY, MATURITY_LABELS } from '@sedecim/profiles';
 import { SovereignClient } from './app';
 
@@ -341,6 +342,8 @@ async function main() {
       else if (b === 'send-file') {
         const file = opt('--file');
         if (!file) throw new Error('--file PATH required');
+        // FR018-06: the size is checked before the file is read into memory.
+        checkAttachmentSize('group', statSync(file).size);
         const mimeType = opt('--mime') ?? MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
         const servers = opts('--server');
         const ref = await client.groupSendFile(id, gid!, { data: new Uint8Array(readFileSync(file)), filename: basename(file), mimeType, caption: positional().join(' ') }, { ...(servers.length ? { servers } : {}), confirmReuse });

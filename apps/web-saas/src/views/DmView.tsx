@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, List, ListItem, ListItemText, Stack, TextField, Typography } from '@mui/material';
-import { downloadFromServers, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
+import { checkAttachmentSize, downloadFromServers, prepareBlob, UnsanitizableFileError, uploadToServers } from '@sedecim/blossom-client';
 import { fileDigest } from '@sedecim/identity/usage';
 import { getTagValue, normalizePubkey } from '@sedecim/nostr-core';
 import { BUZZ_PINNED_ADAPTER, DirectMessenger, FeatureDisabledError, FILE_MESSAGE_KIND, wrapOptionsFromFlags, type DirectMessage } from '@sedecim/messaging';
@@ -48,6 +48,8 @@ export function DmView() {
       if (blocked) throw new Error(blocked);
       if (!nip17) throw new FeatureDisabledError('nip17');
       const recipient = normalizePubkey(to.trim());
+      // FR018-06: the size is checked before the file is read into memory.
+      if (file) checkAttachmentSize('dm', file.size);
       const bytes = file ? new Uint8Array(await file.arrayBuffer()) : undefined;
       // FR006-07: a recipient or a file another persona of this browser already used waits for an explicit
       // confirmation; nothing is uploaded or sent before it.

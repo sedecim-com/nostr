@@ -4,7 +4,7 @@ import { bytesToHex, getTagValue, normalizePubkey, randomBytes, type NostrEvent,
 import { EncryptedStore, FileBackend } from '@sedecim/encrypted-store';
 import { fileDigest, IdentityManager, ReuseNotConfirmedError, type BackupPackage, type BackupPackageV2, type PersonaConfig, type PersonaUse, type ReuseWarning } from '@sedecim/identity';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
-import { NetworkGuard } from '@sedecim/tor-network';
+import { NetworkGuard, ResponseTooLargeError } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
 import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, OperationMismatchError, outboxContacts, publishDmRelayList, type DirectMessage, type DmInboxOptions, type DmOperation, type InboxOutbox, type InboxPool, type OperationOutbox, type RelayAdapter } from '@sedecim/messaging';
 import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
@@ -30,7 +30,7 @@ import {
   type PendingGroupOperation,
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
-import { downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
+import { AttachmentTooLargeError, checkAttachmentSize, downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, uploadToServers, type HttpClient, type PreparedBlob } from '@sedecim/blossom-client';
 import { ArchiveVaultClient, archiveEvent, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, parseVaultExport, restoreHistory, VAULT_EXPORT_FORMAT, vaultExport, type ArchiveMeta, type ArchiveRetention, type ArchiveUsage, type ArchivedGroupMessage, type HistoryArchiveResult, type MlsSnapshot, type RestoredHistory, type VaultExport } from '@sedecim/continuity';
 
 /** VAULT-03: decrypted group messages this device read or sent, kept because MLS deletes the keys of past epochs. */
@@ -944,7 +944,15 @@ export class SovereignClient {
   private async blobHttp(personaId: string, urls: string[]): Promise<HttpClient> {
     const s = await this.session(personaId);
     const guard = this.guardFor(s.persona, [...s.persona.relays, ...urls]);
-    return (url, init) => guard.fetch(url, init);
+    // FR018-06: a blob over `maxBytes` is cut off while it arrives, and said in the user's words.
+    return async (url, init) => {
+      try {
+        return await guard.fetch(url, init);
+      } catch (err) {
+        if (err instanceof ResponseTooLargeError) throw new AttachmentTooLargeError('download', err.size, err.limit);
+        throw err;
+      }
+    };
   }
 
   /**
@@ -961,6 +969,8 @@ export class SovereignClient {
     file: { data: Uint8Array; filename: string; mimeType: string; caption?: string },
     opts: { servers?: string[]; sanitize?: boolean; confirmReuse?: boolean } = {},
   ): Promise<GroupMediaReference> {
+    // FR018-06: nothing is hashed, asked about or sent for a file over the limit of group media.
+    checkAttachmentSize('group', file.data.length);
     const use = { fileHash: await fileDigest(file.data) };
     await this.allowReuse(personaId, use, opts.confirmReuse);
     const s = await this.session(personaId);
