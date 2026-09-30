@@ -19,9 +19,14 @@ que alguien se acuerde de revisarlo. Cómo se construye y se verifica lo publica
 | 8 | **Verificación** de lo publicado como lo haría un usuario (firmas, checksums, attestations, imágenes de `images.txt`) | `verify` → `scripts/verify-release.sh`; el release se crea como **borrador** en `publish` y `verify` lo hace público solo si todo verifica | la publicación del GitHub Release |
 | 9 | **Configuración de producción** (OPS-20): la custodia gestionada solo con su aprobación legal y los informes de SEC-01 y SEC-02; el enclave y su exportación apagados mientras sean Preview; push apagado sin un disparador seguro en los relays de producción | `dod` → `release-gate.mjs config` sobre [`deploy/production-gates.json`](../deploy/production-gates.json) ([detalle](#funciones-con-gate-en-producción-ops-20)); el job `deploy-config` de CI hace la misma comprobación en cada PR | todo lo que publica |
 | 10 | **CodeQL** (OPS-13): el análisis de `codeql.yml` terminó con éxito en el commit del tag y la rama principal no tiene alertas abiertas de severidad alta o crítica. En las PR, el check «CodeQL» ya falla con una alerta nueva, y `npm audit` en el job `test` falla con una vulnerabilidad alta en las dependencias de producción o crítica en cualquiera | `dod` → `release-gate.mjs codeql` (token con `security-events: read`) | todo lo que publica |
+| 11 | **Dependabot**: la rama principal no tiene alertas abiertas de severidad alta o crítica. En las PR, `dependency-review` ya falla con una dependencia vulnerable | `dod` → `release-gate.mjs dependabot` (token con `vulnerability-alerts: read`; las alertas de Dependabot activadas en *Settings → Advanced Security*) | todo lo que publica |
+| 12 | **Threat models aprobados** (DEC-10): `docs/threat-models/approvals/<tag>.md` con un aprobador distinto de quien publica, la fecha y la huella SHA-256 de cada documento tal como está en el commit; ninguno sigue en «Propuesto» | `dod` → `release-gate.mjs threat-models` ([formato](threat-models/README.md)) | todo lo que publica |
+| 13 | **Entorno `release` protegido** (OPS-08): revisores obligatorios con *Prevent self-review*, sin bypass de administradores y solo desde tags `v*`. Si no existiera, el primer job que publica lo crearía sin protección | `dod` → `release-gate.mjs environment` (token con `actions: read`) | todo lo que publica |
 
 Aprobaciones: `publish-images`, `publish` y `verify` corren en el entorno protegido `release`; cada uno
 espera la aprobación de una persona distinta de quien lanzó el workflow (tres aprobaciones por release).
+
+Un tag con sufijo de pre-release (`vX.Y.Z-rc.N`) se publica como *pre-release*, nunca como el último release.
 
 ## Funciones con gate en producción (OPS-20)
 
@@ -53,7 +58,9 @@ revisa en su PR como cualquier otra decisión de seguridad. En stage sí se prue
    `gh workflow run restore-drill.yml --ref vX.Y.Z` (unos 60 min).
 3. `docs/releases/vX.Y.Z.md` desde la plantilla, revisado en una PR (`npm run lint:claims` lo revisa).
 4. Informe de auditoría o waiver para `vX.Y.Z`, aprobado en su PR por quien figure como aprobador.
-5. Tag anotado: `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`.
+5. Aprobación de los threat models para `vX.Y.Z` (`docs/threat-models/approvals/vX.Y.Z.md`), en una PR que
+   aprueba quien figure como aprobador. `node scripts/release-gate.mjs threat-models --tag vX.Y.Z` dice qué falta.
+6. Tag anotado: `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`.
 
 Si `dod` falla, el mensaje dice qué falta. Corrígelo y vuelve a ejecutar el run (*Re-run failed jobs*) o
 lanza *Actions → release → Run workflow* sobre el tag. Un cambio en el repositorio (notas, waiver) exige un
@@ -71,5 +78,8 @@ nuevo. Un release ya publicado nunca se sobrescribe: `publish` se niega a reempl
 - SEC-01 y SEC-02 no están hechas: hace falta el waiver
   [`docs/security/audits/waivers/v0.1.0.md`](security/audits/waivers/v0.1.0.md) con `Aprobado por` y
   `Fecha` rellenos por alguien distinto de quien sube el tag, en una PR que esa persona apruebe.
+- Threat models: hace falta [`docs/threat-models/approvals/v0.1.0.md`](threat-models/approvals/v0.1.0.md)
+  aprobado por alguien distinto de quien sube el tag (DEC-10, y VAULT-07 para el del vault).
+- El entorno `release` configurado como dice [building.md](building.md) (OPS-08): sin él, `dod` no deja publicar.
 - Notas: [`docs/releases/v0.1.0.md`](releases/v0.1.0.md).
 - Tras publicarlo, cambia a pública la visibilidad de cada paquete `nostr-*` en GHCR (building.md).

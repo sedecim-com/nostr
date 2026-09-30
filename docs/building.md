@@ -290,7 +290,11 @@ que no se pueden versionar en el repositorio:
 - **GHCR**: tras el primer release, en cada paquete `nostr-*` (*Package settings*) cambia la visibilidad a
   pública para que cualquiera pueda descargar y verificar las imágenes sin credenciales.
 
-Los jobs de build solo tienen `contents: read` (y `dod`, además, `actions: read` para consultar las
-ejecuciones de CI). Solo `publish-images` (`packages: write`, `id-token: write`, `attestations: write`),
+El job `dod` comprueba el entorno antes de publicar nada (`node scripts/release-gate.mjs environment`): si
+falta el entorno, los revisores, *Prevent self-review* o la regla de tags `v*`, o si los administradores pueden
+saltárselo, el release se detiene y dice qué falta.
+
+Los jobs de build solo tienen `contents: read` (y `dod`, además, lectura de las ejecuciones de CI y del entorno,
+`actions: read`, y de las alertas de CodeQL y Dependabot, `security-events: read` y `vulnerability-alerts: read`). Solo `publish-images` (`packages: write`, `id-token: write`, `attestations: write`),
 `publish` (`contents: write`, `id-token: write`, `attestations: write`) y `verify` (`contents: write` para
 publicar el borrador, `packages: read`) pueden escribir, y los tres corren en el entorno protegido.

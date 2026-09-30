@@ -7,19 +7,25 @@ import { dirname, join } from 'node:path';
 import {
   MATURITY,
   PRODUCTION_GATES,
+  RELEASE_ENVIRONMENT,
   REQUIRED_AUDITS,
   REQUIRED_CI_JOBS,
+  THREAT_MODELS,
   TRUST_SUBSECTIONS,
   checkAudits,
   checkCi,
   checkCodeql,
   checkConfig,
+  checkDependabot,
+  checkEnvironment,
   checkLegalApproval,
   checkNotes,
   checkNotesFile,
   checkRestore,
   checkSbom,
+  checkThreatModels,
   parseFields,
+  threatModelHashes,
   // @ts-expect-error plain ESM script without types
 } from '../../scripts/release-gate.mjs';
 
@@ -89,6 +95,67 @@ describe('scripts/release-gate.mjs (REL-01 / REL-02)', () => {
     expect(found).toEqual([expect.stringMatching(/^CodeQL: 2 alertas abiertas de severidad alta o crítica.*#18 js\/rule-18 \(src\/f18\.ts\), #19 js\/rule-19/)]);
   });
 
+  /** A failed `gh api` call as execFileSync throws it. */
+  const ghFailure = (stderr: string) => () => {
+    throw Object.assign(new Error('Command failed: gh api'), { stderr });
+  };
+
+  it('Dependabot (REL-01): no open high or critical alert on the default branch', () => {
+    const api = (alerts: unknown[]) => (path: string) => {
+      expect(path).toBe(`repos/${repo}/dependabot/alerts?state=open&severity=high,critical&per_page=100`);
+      return alerts;
+    };
+    const alert = (number: number, severity: string, name = 'pkg') => ({ number, security_advisory: { severity }, dependency: { package: { name } } });
+    expect(checkDependabot({ repo, api: api([]) })).toEqual([]);
+    expect(checkDependabot({ repo, api: api([alert(1, 'medium'), alert(2, 'low')]) })).toEqual([]);
+    const [p] = checkDependabot({ repo, api: api([alert(3, 'high', 'ws'), alert(4, 'critical', 'undici'), alert(5, 'low')]) });
+    expect(p).toMatch(/^Dependabot: 2 alertas abiertas/);
+    expect(p).toContain('#3 ws (high), #4 undici (critical)');
+    // Alerts off (or no permission) block the release instead of passing unchecked.
+    const [off] = checkDependabot({ repo, api: ghFailure('gh: Dependabot alerts are disabled for this repository. (HTTP 403)\n') });
+    expect(off).toContain('no se pudieron leer las alertas (gh: Dependabot alerts are disabled for this repository. (HTTP 403))');
+    expect(off).toContain('vulnerability-alerts: read');
+  });
+
+  describe('release environment (OPS-08)', () => {
+    const configured = {
+      name: 'release',
+      can_admins_bypass: false,
+      protection_rules: [
+        { type: 'required_reviewers', prevent_self_review: true, reviewers: [{ type: 'User', reviewer: { login: 'ana' } }] },
+        { type: 'branch_policy' },
+      ],
+      deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
+    };
+    const api = (env: unknown, policies: unknown[] = [{ name: 'v*', type: 'tag' }]) => (path: string) => {
+      if (path === `repos/${repo}/environments/release`) return env;
+      if (path === `repos/${repo}/environments/release/deployment-branch-policies?per_page=100`) return { total_count: policies.length, branch_policies: policies };
+      throw new Error(`unexpected ${path}`);
+    };
+    const problems = (over: Record<string, unknown>, policies?: unknown[]) => checkEnvironment({ repo, api: api({ ...configured, ...over }, policies) }).join('\n');
+
+    it('passes when it is configured as docs/building.md says', () => {
+      expect(RELEASE_ENVIRONMENT).toBe('release');
+      expect(checkEnvironment({ repo, api: api(configured) })).toEqual([]);
+    });
+
+    it('a missing environment blocks the release: the first publishing job would create it unprotected', () => {
+      const [p] = checkEnvironment({ repo, api: ghFailure('gh: Not Found (HTTP 404)') });
+      expect(p).toContain('no existe o no se puede leer (gh: Not Found (HTTP 404))');
+      expect(p).toContain('sin protección');
+    });
+
+    it('names each missing protection', () => {
+      expect(problems({ protection_rules: [{ type: 'branch_policy' }] })).toMatch(/revisores obligatorios/);
+      expect(problems({ protection_rules: [{ type: 'required_reviewers', prevent_self_review: false, reviewers: [{}] }] })).toMatch(/«Prevent self-review»/);
+      expect(problems({ can_admins_bypass: true })).toMatch(/Allow administrators to bypass/);
+      expect(problems({ deployment_branch_policy: null })).toMatch(/«Selected branches and tags»/);
+      expect(problems({ deployment_branch_policy: { protected_branches: true, custom_branch_policies: false } })).toMatch(/«Selected branches and tags»/);
+      expect(problems({}, [])).toMatch(/la regla de tag v\*/);
+      expect(problems({}, [{ name: 'v*', type: 'tag' }, { name: 'main', type: 'branch' }])).toMatch(/quitar las reglas de rama \(main\)/);
+    });
+  });
+
   it('restore drill: a success on the commit within the window', () => {
     const now = Date.parse('2026-10-01T12:00:00Z');
     const api = (updated_at: string, conclusion = 'success') => fakeApi({ 'restore-drill.yml': [{ id: 9, conclusion, updated_at }] });
@@ -156,6 +223,72 @@ describe('scripts/release-gate.mjs (REL-01 / REL-02)', () => {
       expect(f['auditorías']).toMatch(/SEC-01.*SEC-02/);
       expect(f.motivo.length).toBeGreaterThan(30);
     });
+  });
+
+  describe('threat models (DEC-10)', () => {
+    const tag = 'v1.2.0';
+    const docs = { 'README.md': '# Threat models\n\n- **Estado:** Aprobado (v1.2.0)\n', 'convenience.md': '# convenience\n\nActivos.\n' };
+    const digest = (text: string) => createHash('sha256').update(text).digest('hex');
+    const setup = (record: string | undefined, files: Record<string, string> = docs) => {
+      const dir = mkdtempSync(join(tmpdir(), 'release-gate-tm-'));
+      mkdirSync(join(dir, THREAT_MODELS, 'approvals'), { recursive: true });
+      for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, THREAT_MODELS, name), text);
+      if (record !== undefined) writeFileSync(join(dir, THREAT_MODELS, 'approvals', `${tag}.md`), record);
+      return dir;
+    };
+    const record = (over: Record<string, string> = {}, files: Record<string, string> = docs) => {
+      const hashes = Object.fromEntries(Object.entries(files).map(([name, text]) => [name, digest(text)]));
+      const f = { Tag: tag, 'Aprobado por': '@revisora', Fecha: '2026-10-01', ...hashes, ...over };
+      return `# Aprobación\n\n${Object.entries(f).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n`;
+    };
+    const check = (dir: string, actors = ['autor']) => checkThreatModels({ tag, root: dir, actors }).join('\n');
+
+    it('an approval of the documents as they are, by someone other than the releaser, passes', () => {
+      expect(checkThreatModels({ tag, root: setup(record()), actors: ['autor'] })).toEqual([]);
+    });
+
+    it('nothing on file blocks the release and prints the line of each document to approve', () => {
+      const p = check(setup(undefined));
+      expect(p).toContain(`falta la aprobación ${THREAT_MODELS}/approvals/${tag}.md`);
+      expect(p).toContain(`\n- convenience.md: ${digest(docs['convenience.md'])}`);
+      expect(check(setup(record({ 'Aprobado por': 'PENDIENTE' })))).toMatch(/está pendiente/);
+    });
+
+    it('an edit after the approval, a new document, the releaser as approver or a bad record invalidate it', () => {
+      const edited = { ...docs, 'convenience.md': '# convenience\n\nOtro texto.\n' };
+      expect(check(setup(record(), edited))).toContain(`una huella que coincida con convenience.md. Si ese es el texto aprobado, son estas; si cambió después, hace falta aprobarlo de nuevo:\n- convenience.md: ${digest(edited['convenience.md'])}`);
+      expect(check(setup(record(), { ...docs, 'sovereign.md': '# sovereign\n' }))).toMatch(/una huella que coincida con sovereign\.md/);
+      expect(check(setup(record()), ['Revisora'])).toMatch(/distinto de quien lanza el release \(@revisora\)/);
+      expect(check(setup(record({ 'Aprobado por': 'revisora' })))).toMatch(/@usuario de GitHub/);
+      expect(check(setup(record({ Fecha: 'mañana' })))).toMatch(/fecha de aprobación/);
+      expect(check(setup(record({ Tag: 'v1.1.0' })))).toMatch(/"- Tag: v1\.2\.0"/);
+      expect(check(setup(record({ 'old.md': 'abc' })))).toMatch(/quitar old\.md/);
+    });
+
+    it('a document that still says «Propuesto» blocks it, even with the approval on file', () => {
+      const proposed = { ...docs, 'README.md': '# Threat models\n\n- **Versión:** v0.1 · **Estado:** Propuesto (pendiente de revisión)\n' };
+      expect(check(setup(record({}, proposed), proposed))).toMatch(/README\.md siguen en «Propuesto»/);
+    });
+
+    it('the prepared v0.1.0 record lists every threat model and is only missing the approval', () => {
+      const f = parseFields(readFileSync(join(root, THREAT_MODELS, 'approvals/v0.1.0.md'), 'utf8'));
+      expect(f.tag).toBe('v0.1.0');
+      expect(f['aprobado por']).toBe('PENDIENTE');
+      for (const file of Object.keys(threatModelHashes(root))) expect(f).toHaveProperty(file.toLowerCase());
+      const run = spawnSync(process.execPath, [join(root, 'scripts/release-gate.mjs'), 'threat-models', '--tag', 'v0.1.0'], { cwd: root, encoding: 'utf8' });
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain(`la aprobación ${THREAT_MODELS}/approvals/v0.1.0.md está pendiente`);
+    });
+  });
+
+  it('release.yml gives dod what the gate reads and publishes -rc tags as pre-releases', () => {
+    const wf = readFileSync(join(root, '.github/workflows/release.yml'), 'utf8');
+    const dod = wf.slice(wf.indexOf('\n  dod:\n'), wf.indexOf('\n  publish-images:\n'));
+    for (const permission of ['actions: read', 'security-events: read', 'vulnerability-alerts: read']) expect(dod).toContain(permission);
+    expect(dod).toContain('node scripts/release-gate.mjs all --tag');
+    expect(wf).toContain('case "$TAG" in *-*) prerelease=true ;; *) prerelease=false ;; esac');
+    expect(wf).toContain('gh release create "$TAG" --draft --verify-tag --prerelease="$prerelease"');
+    expect(wf).toContain('gh release edit "$TAG" --notes-file notes.md --prerelease="$prerelease"');
   });
 
   describe('production configuration (OPS-20)', () => {
