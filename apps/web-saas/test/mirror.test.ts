@@ -84,7 +84,7 @@ describe('channels through the mirror in the web (FR014-04)', () => {
       expect(Object.fromEntries(u.searchParams)).toEqual({ h: 'general,ops', kinds: '9', limit: '100' });
       expect(authEvent(r.authorization)).toMatchObject({ kind: 27235, pubkey: me, tags: expect.arrayContaining([['u', r.url], ['method', 'GET']]) });
     }
-    // The mirror keeps no cursor of the persona (its read_cursors, FR014-03, stay empty).
+    // The mirror keeps no cursor of the persona: its own read cursors stay empty.
     expect(await repo.readCursors(me, ['general'])).toEqual({ general: 0 });
   });
 

@@ -212,7 +212,7 @@ function suite(name: string, makeRepo: () => Promise<EventRepository>) {
         expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?h=${channel}&kinds=9&limit=2`)).json).toEqual({ recent: { [channel]: [t - 20, t - 40] }, limit: 2 });
         expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?h=${channel}&kinds=1,7`)).json.recent).toEqual({ [channel]: [] });
         expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?h=${channel}&limit=100000`)).json.limit).toBe(500);
-        // No cursor is asked for: one stored in the mirror (FR014-03) does not change the answer.
+        // No cursor is asked for: one stored in the mirror (PUT /v1/read-cursor) does not change the answer.
         await nip98Fetch(bobSk, `${base}/v1/read-cursor`, 'PUT', { h: channel, until: t });
         expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?h=${channel}&kinds=9`)).json.recent[channel]).toEqual([t - 20, t - 40, t - 50]);
         for (const q of ['kinds=9', 'h=', `h=${channel}&limit=-1`, `h=${channel}&kinds=x`]) expect((await nip98Fetch(bobSk, `${base}/v1/unread/recent?${q}`)).status, q).toBe(400);
