@@ -406,6 +406,7 @@ const publicView = (op: StoredOp): PendingGroupOperation => {
   if (op.failed) v.failed = op.failed;
   if (op.rumor) v.rumorId = op.rumor.id;
   if (op.target) v.target = op.target;
+  if (op.type === 'remove' && op.leafSigs) v.leaves = op.leafSigs.length;
   return v;
 };
 
@@ -1186,6 +1187,9 @@ export class MarmotTsSession implements ExtendedGroupSession {
     const epoch = Number(getEpoch(g.state));
     const delivered = await this.messageOperation(g, rumor);
     const sent: GroupMessage = { groupId: g.idStr, sender: this.pubkey, content, kind: rumor.kind, createdAt: rumor.created_at, rumorId: rumor.id, epoch, senderLeaf: g.state.privatePath.leafIndex, tags, ...(delivered ? {} : { pending: true }) };
+    // Its attachments as a received message carries them: whoever keeps the message keeps what it takes to show them.
+    const media = parseMediaAttachments(tags);
+    if (media.length) sent.media = media;
     await this.opts.onMessage?.(sent);
     return sent;
   }
