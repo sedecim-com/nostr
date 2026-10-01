@@ -30,8 +30,9 @@ export interface Workspace {
   /**
    * FR009-03: the active persona's DM inbox while NIP-17 is on. `background`: it reads as messages arrive (not with
    * NIP-07, whose extension may ask to approve each decryption: then it reads on «Actualizar»).
+   * PANEL-06: `refresh` shows what the inbox holds now (e.g. after the persona deleted one of its messages here).
    */
-  dm: { inbox?: DmInbox<OutboxRecord>; messages: DirectMessage[]; background: boolean };
+  dm: { inbox?: DmInbox<OutboxRecord>; messages: DirectMessage[]; background: boolean; refresh(): void };
   /** How managed personas reach the managed-signer (SaaS with an Acceso session only). */
   managedEnv: ManagedEnv;
   notify(message: string, severity?: 'success' | 'info' | 'warning' | 'error'): void;

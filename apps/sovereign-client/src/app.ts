@@ -1,15 +1,44 @@
 import { join } from 'node:path';
 import WebSocket from 'ws';
-import { bytesToHex, generateSecretKey, getTagValue, hexToBytes, nip19, nip49, normalizePubkey, npubEncode, randomBytes, wipe, type NostrEvent, type Signer } from '@sedecim/nostr-core';
+import { bytesToHex, generateSecretKey, getTagValue, hexToBytes, isExpired, nip19, nip49, normalizePubkey, npubEncode, randomBytes, wipe, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { EncryptedStore, FileBackend } from '@sedecim/encrypted-store';
 import { fileDigest, IdentityManager, MAX_BACKUP_LOG_N, ReuseNotConfirmedError, type BackupPackage, type BackupPackageV2, type PersonaConfig, type PersonaUse, type ReuseWarning } from '@sedecim/identity';
 import { RelayPool, type WebSocketFactory, type WebSocketLike } from '@sedecim/relay-pool';
 import { createNostrConnect, formatBunkerUrl, LocalSigner, Nip46Signer, parseBunkerUrl, SOVEREIGN_NIP46_PERMISSIONS } from '@sedecim/signer';
 import { isOnionHost, NetworkGuard, ResponseTooLargeError } from '@sedecim/tor-network';
 import { DeliveryEngine, type OutboxRecord } from '@sedecim/delivery-engine';
-import { BUZZ_PINNED_ADAPTER, chatMessage, channelFilter, DirectMessenger, DmInbox, dmRouter, joinRequest, OperationMismatchError, outboxContacts, publishDmRelayList, type DirectMessage, type DmInboxOptions, type DmOperation, type InboxOutbox, type InboxPool, type OperationOutbox, type RelayAdapter } from '@sedecim/messaging';
+import {
+  BUZZ_PINNED_ADAPTER,
+  chatMessage,
+  channelFilter,
+  DirectMessenger,
+  DM_KIND,
+  DmInbox,
+  dmRouter,
+  FILE_MESSAGE_KIND,
+  forgetMessageCopies,
+  joinRequest,
+  NotYourMessageError,
+  OperationMismatchError,
+  outboxContacts,
+  publishDmRelayList,
+  purgeExpiredCopies,
+  roundedExpiration,
+  tombstonedWraps,
+  unwrappedExpiration,
+  wrapTombstone,
+  type DirectMessage,
+  type DmCopies,
+  type DmInboxOptions,
+  type DmOperation,
+  type ForgottenCopies,
+  type InboxOutbox,
+  type InboxPool,
+  type OperationOutbox,
+  type RelayAdapter,
+} from '@sedecim/messaging';
 import { FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
-import { continuityPolicy, disclose, preset, receiptPolicy, validateConfig, type ContinuityOption, type SovereigntyConfig } from '@sedecim/profiles';
+import { continuityPolicy, disclose, expirationDays, isMessageExpirationOption, preset, receiptPolicy, resolveMessageExpiration, validateConfig, type ContinuityOption, type ExpirationSource, type MessageExpirationOption, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
 import {
   EncryptedGroupStorage,
@@ -35,10 +64,38 @@ import {
 } from '@sedecim/marmot-adapter';
 import { HttpPolicySource, managedSignerSink, RevocationPropagator, RotationWorker } from '@sedecim/rotation-worker';
 import { AttachmentTooLargeError, checkAttachmentSize, ciphertextUploader, downloadFromServers, fetchServerList, refusesUnsanitized, sanitizeMetadata, selectUploadServers, UnsanitizableFileError, type HttpClient } from '@sedecim/blossom-client';
-import { ArchiveVaultClient, archiveEvent, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, parseVaultExport, restoreHistory, VAULT_EXPORT_FORMAT, vaultExport, type ArchiveMeta, type ArchiveRetention, type ArchiveUsage, type ArchivedGroupMessage, type HistoryArchiveResult, type MlsSnapshot, type RestoredHistory, type VaultExport } from '@sedecim/continuity';
+import {
+  ArchiveVaultClient,
+  archiveEvent,
+  archiveHistory,
+  belongsOnPersonaRelays,
+  forgetDueArchives,
+  ledgerRecords,
+  openArchive,
+  parseVaultExport,
+  restoreHistory,
+  scheduleArchiveExpiry,
+  VAULT_EXPORT_FORMAT,
+  vaultExport,
+  type ArchiveForgetQueue,
+  type ArchiveMeta,
+  type ArchiveRetention,
+  type ArchiveUsage,
+  type ArchivedGroupMessage,
+  type HistoryArchiveResult,
+  type MlsSnapshot,
+  type RestoredHistory,
+  type VaultExport,
+} from '@sedecim/continuity';
 
 /** VAULT-03: decrypted group messages this device read or sent, kept because MLS deletes the keys of past epochs. */
 const GROUP_HISTORY = 'group-history';
+/** PANEL-06: each conversation's own choices (a DM with one contact, by pubkey), next to the persona's settings. */
+const CONVERSATIONS = 'conversations';
+/** PANEL-06: the DMs deleted by their author (messaging's TombstoneStore). */
+const DM_TOMBSTONES = 'dm-deleted';
+/** PANEL-06: the vault archives this device still has to delete (continuity's ArchiveForgetQueue). */
+const VAULT_FORGET = 'vault-forget';
 /** NIP-29 group state (metadata, admins, members, roles), signed by the relay. */
 const CHANNEL_STATE_KINDS = [39000, 39001, 39002, 39003];
 /** The persona's own lists: profile, contacts, relays, DM relays (NIP-17) and Blossom servers. */
@@ -164,8 +221,8 @@ export interface SovereignOptions {
   onConfirmedReuse?: (warnings: ReuseWarning[]) => void;
 }
 
-/** FR009-03: what `watchDms` reports. */
-export type DmWatchHandlers = Pick<DmInboxOptions<OutboxRecord>, 'onMessage' | 'onReceipt'>;
+/** FR009-03: what `watchDms` reports. PANEL-06: also the messages that expire or that their author deletes. */
+export type DmWatchHandlers = Pick<DmInboxOptions<OutboxRecord>, 'onMessage' | 'onReceipt' | 'onRemoved'>;
 
 /**
  * This installation's identity as an MLS device of a persona. Kept in the persona store *outside* the
@@ -235,6 +292,16 @@ interface Session {
   resumed: Promise<unknown>;
   /** VAULT-04: the persona's Continuity Vault policy, as its stored configuration says (the engine reads it here). */
   continuity: { policy: ContinuityOption };
+  /** PANEL-06: the purge of what expired since the last run, started when the persona was opened. */
+  purged: Promise<unknown>;
+}
+
+/** PANEL-06: what a DM purge or deletion removed on this device, and from the vault. */
+export interface DmForgetResult extends ForgottenCopies {
+  /** Vault archives deleted now, and deletions still waiting (no vault in this run, or it did not answer). */
+  vault: number;
+  vaultQueued: number;
+  vaultError?: string;
 }
 
 /**
@@ -553,9 +620,56 @@ export class SovereignClient {
     // FR011-04: what an earlier run left pending (sent without network, cut off) goes out as soon as the
     // persona is opened again, whatever the command. In the background: the command does not wait for it.
     const resumed = engine.resume().catch(() => undefined);
-    const s: Session = { persona, signer, ...(remote ? { remote } : {}), pool, engine, guard, dmDiscovery, dmOutbox, store, resumed, continuity };
+    const s: Session = { persona, signer, ...(remote ? { remote } : {}), pool, engine, guard, dmDiscovery, dmOutbox, store, resumed, continuity, purged: Promise.resolve() };
+    // PANEL-06: what expired while no command ran is forgotten as soon as the persona is opened, whatever the command.
+    s.purged = this.purgeExpiredDms(s).catch(() => undefined);
     this.sessions.set(personaId, s);
     return s;
+  }
+
+  /** PANEL-06: the persona's copies of its DMs on this device: sent operations, outbox and remembered deletions. */
+  private dmCopies(s: Session): DmCopies {
+    return { operations: s.store.collection<DmOperation>('dm-ops'), outbox: s.engine, tombstones: s.store.collection<boolean>(DM_TOMBSTONES) };
+  }
+
+  /**
+   * PANEL-06: deletes from the persona's vault (this client's `vaultUrl`) the archives of these events and of the queued
+   * ones that are due. Without a vault in this run, or if it does not answer, they stay queued for a later run.
+   */
+  private async forgetInVault(s: Session, eventIds: string[], nowSeconds = Math.floor(Date.now() / 1000)): Promise<{ deleted: number; queued: number; next?: number; error?: string }> {
+    const queue: ArchiveForgetQueue = s.store.collection<number>(VAULT_FORGET);
+    const url = this.opts.vaultUrl;
+    if (!url) return forgetDueArchives(undefined, queue, eventIds, nowSeconds);
+    let vault: { client: ArchiveVaultClient; key: Uint8Array };
+    try {
+      vault = await this.vaultClient(s.persona, url);
+    } catch (e) {
+      return { ...(await forgetDueArchives(undefined, queue, eventIds, nowSeconds)), error: (e as Error).message };
+    }
+    try {
+      return await forgetDueArchives(vault, queue, eventIds, nowSeconds);
+    } finally {
+      vault.key.fill(0);
+    }
+  }
+
+  /**
+   * PANEL-06: forgets this device's copies of the DMs that expired (NIP-40): their sent operation and their outbox
+   * records, even if a relay never took them; then their vault archives (forgetInVault). `next`: the soonest
+   * expiration still ahead.
+   */
+  async purgeExpiredDms(s: Session, nowSeconds = Math.floor(Date.now() / 1000), expiredWraps: string[] = []): Promise<DmForgetResult & { next?: number }> {
+    const copies = await purgeExpiredCopies(this.dmCopies(s), nowSeconds);
+    const vault = await this.forgetInVault(s, [...copies.wrapIds, ...expiredWraps], nowSeconds);
+    const next = [copies.next, vault.next].filter((x): x is number => x !== undefined);
+    return { ...copies, vault: vault.deleted, vaultQueued: vault.queued, ...(vault.error ? { vaultError: vault.error } : {}), ...(next.length ? { next: Math.min(...next) } : {}) };
+  }
+
+  /** PANEL-06: forgets this device's copies of messages their author deleted, remembers them gone, and their vault archives. */
+  private async forgetDeleted(s: Session, messages: Array<{ rumorId: string; author: string; wrapIds?: string[] }>): Promise<DmForgetResult> {
+    const forgotten = await forgetMessageCopies(this.dmCopies(s), messages);
+    const vault = await this.forgetInVault(s, forgotten.wrapIds);
+    return { ...forgotten, vault: vault.deleted, vaultQueued: vault.queued, ...(vault.error ? { vaultError: vault.error } : {}) };
   }
 
   /**
@@ -666,17 +780,97 @@ export class SovereignClient {
    * FR011-05: the DM is the operation `opId` (the CLI's --op), stored before its wraps are made. Sent again with the
    * same one, it retries that message: no other rumor, no other event. Another text or recipient under it is refused.
    * FR006-07: a recipient another persona already wrote to needs `confirmReuse` (checked before the persona is opened).
+   * PANEL-06: the wraps carry the NIP-40 expiration of `expire` (the CLI's --expire, for this message only), else the
+   * conversation's, else the persona's; a retry of the operation keeps the one it was first written with.
    */
-  async sendDm(personaId: string, to: string, text: string, opts: { opId?: string; confirmReuse?: boolean } = {}): Promise<OutboxRecord[]> {
+  async sendDm(personaId: string, to: string, text: string, opts: { opId?: string; confirmReuse?: boolean; expire?: MessageExpirationOption } = {}): Promise<OutboxRecord[]> {
     const recipient = normalizePubkey(to);
     await this.allowReuse(personaId, { contact: recipient }, opts.confirmReuse);
     const s = await this.session(personaId);
     await (await this.identities()).recordUsage(personaId, { contact: recipient });
+    const days = expirationDays(opts.expire ?? (await this.conversationExpiration(personaId, recipient)).option);
+    const expiration = days === undefined ? undefined : roundedExpiration(days, Math.floor(Date.now() / 1000));
     // The NIP-17 gate is checked by the CLI before a DM is composed (flags.json of the interop gate).
     const messenger = new DirectMessenger(s.signer, { nip17: true, readReceipts: false }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
     const operations = s.store.collection<DmOperation>('dm-ops');
-    const { deliveries } = await messenger.sendDmOnce(opts.opId ?? bytesToHex(randomBytes(16)), { recipients: [recipient], content: text }, { pool: s.pool, outbox: s.dmOutbox, operations, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, timeoutMs: readTimeoutMs(s.persona), wait: true });
+    const input = { recipients: [recipient], content: text, ...(expiration !== undefined ? { expiration } : {}) };
+    const { deliveries } = await messenger.sendDmOnce(opts.opId ?? bytesToHex(randomBytes(16)), input, { pool: s.pool, outbox: s.dmOutbox, operations, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, timeoutMs: readTimeoutMs(s.persona), wait: true });
     return deliveries.map((d) => d.record);
+  }
+
+  /**
+   * PANEL-06: the persona's own expiration of new DMs, stored with its configuration (as `setContinuity` stores its
+   * policy). It applies to the messages sent after it; a conversation may set its own (setConversationExpiration).
+   */
+  async setMessageExpiration(personaId: string, option: MessageExpirationOption): Promise<SovereigntyConfig> {
+    if (!isMessageExpirationOption(option)) throw new Error(`caducidad desconocida: ${String(option)}`);
+    const mgr = await this.identities();
+    const stored = (await mgr.getConfig(personaId)) ?? this.profileFor(await mgr.get(personaId));
+    const next: SovereigntyConfig = { ...stored, messageExpiration: option };
+    await mgr.saveConfig(personaId, next);
+    return next;
+  }
+
+  /** PANEL-06: the expiration of the next DM to `contact`: the conversation's, else the persona's, else its profile's. */
+  async conversationExpiration(personaId: string, contact: string): Promise<{ option: MessageExpirationOption; source: ExpirationSource; conversation?: MessageExpirationOption }> {
+    const mgr = await this.identities();
+    const persona = await mgr.get(personaId);
+    const stored = await mgr.getConfig(personaId);
+    const store = await this.openStore(join(this.opts.dataDir, 'personas', personaId));
+    const own = (await store.collection<{ expiration?: MessageExpirationOption }>(CONVERSATIONS).get(normalizePubkey(contact)))?.expiration;
+    const levels = { profile: this.profileFor(persona).messageExpiration, persona: stored?.messageExpiration, conversation: own };
+    return { ...resolveMessageExpiration(levels), ...(own ? { conversation: own } : {}) };
+  }
+
+  /** PANEL-06: a conversation's own expiration, or none (undefined: as the persona). Only later messages take it. */
+  async setConversationExpiration(personaId: string, contact: string, option: MessageExpirationOption | undefined): Promise<void> {
+    if (option !== undefined && !isMessageExpirationOption(option)) throw new Error(`caducidad desconocida: ${String(option)}`);
+    await (await this.identities()).get(personaId);
+    const col = (await this.openStore(join(this.opts.dataDir, 'personas', personaId))).collection<{ expiration?: MessageExpirationOption }>(CONVERSATIONS);
+    const key = normalizePubkey(contact);
+    if (option === undefined) await col.delete(key);
+    else await col.put(key, { expiration: option });
+  }
+
+  /** PANEL-06: the shortest expiration the persona uses, its own or a conversation's (to compare with the vault's retention). */
+  async shortestExpiration(personaId: string): Promise<MessageExpirationOption> {
+    const own = (await this.profile(personaId)).messageExpiration;
+    const store = await this.openStore(join(this.opts.dataDir, 'personas', personaId));
+    const chosen = [own, ...(await store.collection<{ expiration?: MessageExpirationOption }>(CONVERSATIONS).all()).map((e) => e.value.expiration)];
+    const days = (o: MessageExpirationOption | undefined) => (o ? (expirationDays(o) ?? Infinity) : Infinity);
+    return chosen.reduce<MessageExpirationOption>((best, o) => (o && days(o) < days(best) ? o : best), 'off');
+  }
+
+  /**
+   * PANEL-06: deletes one of the persona's own DMs, named by its id (or a unique prefix of at least 8 characters): a
+   * kind 5 gift-wrapped to each recipient and to the persona's other devices (NIP-17), as an operation per message, and
+   * this device forgets its copies (sent operation, outbox records, vault archives) and remembers it deleted. The
+   * message is looked up among the DMs this device sent, then among those its DM relays still serve. One somebody else
+   * wrote is refused (NotYourMessageError) before anything is signed or sent.
+   */
+  async deleteDm(personaId: string, id: string): Promise<{ rumorId: string; deliveries: OutboxRecord[] } & DmForgetResult> {
+    const prefix = id.trim().toLowerCase();
+    if (!/^[0-9a-f]{8,64}$/.test(prefix)) throw new Error('--id debe ser el id del mensaje (hex, al menos 8 caracteres)');
+    const s = await this.session(personaId);
+    const pick = <T>(found: T[], idOf: (t: T) => string): T | undefined => {
+      const ids = new Set(found.map(idOf));
+      if (ids.size > 1) throw new Error(`el prefijo ${prefix} no basta: coincide con ${ids.size} mensajes`);
+      return found[0];
+    };
+    const isMessage = (kind: number) => kind === DM_KIND || kind === FILE_MESSAGE_KIND;
+    const sent = pick((await s.store.collection<DmOperation>('dm-ops').all()).filter((e) => e.value.rumor.id.startsWith(prefix) && isMessage(e.value.rumor.kind)), (e) => e.value.rumor.id);
+    let target: { rumor: DmOperation['rumor']; expiration?: number; wrapIds: string[] } | undefined = sent ? { rumor: sent.value.rumor, ...(sent.value.expiration !== undefined ? { expiration: sent.value.expiration } : {}), wrapIds: [] } : undefined;
+    if (!target) {
+      const read = pick((await this.dmInbox(s).sync(readTimeoutMs(s.persona))).filter((m) => m.rumor.id.startsWith(prefix)), (m) => m.rumor.id);
+      if (read) target = { rumor: read.rumor, ...(unwrappedExpiration(read) !== undefined ? { expiration: unwrappedExpiration(read) } : {}), wrapIds: [read.wrap.id] };
+    }
+    if (!target) throw new Error(`no hay ningún mensaje directo con el id ${prefix} en este dispositivo ni en tus relays de DM`);
+    if (target.rumor.pubkey !== s.persona.pubkey) throw new NotYourMessageError(target.rumor.id);
+    const messenger = new DirectMessenger(s.signer, { nip17: true, readReceipts: false }, (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap);
+    const route = { pool: s.pool, outbox: s.dmOutbox, operations: s.store.collection<DmOperation>('dm-ops'), ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, timeoutMs: readTimeoutMs(s.persona), wait: true };
+    const { deliveries } = await messenger.deleteDmOnce(`delete:${target.rumor.id}`, target, route);
+    const forgotten = await this.forgetDeleted(s, [{ rumorId: target.rumor.id, author: s.persona.pubkey, wrapIds: target.wrapIds }]);
+    return { rumorId: target.rumor.id, deliveries: deliveries.map((d) => d.record), ...forgotten };
   }
 
   /** FR017-06: publishes the persona's DM relay list (kind 10050), as the web does when a persona is created. */
@@ -705,10 +899,17 @@ export class SovereignClient {
       discoveryRelays: s.dmDiscovery,
       policy: () => receiptPolicy(this.profileFor(s.persona)),
       sent: s.store.collection<boolean>('receipts'),
+      // PANEL-06: deletions read by any run are remembered, so a deleted message does not come back.
+      tombstones: s.store.collection<boolean>(DM_TOMBSTONES),
       isContact: outboxContacts(s.engine, s.persona.pubkey),
       wrapOptions: (this.opts.relayAdapter ?? BUZZ_PINNED_ADAPTER).wrap,
       timeoutMs: readTimeoutMs(s.persona),
       ...handlers,
+      // PANEL-06: a message its author deleted leaves this device's copies and the vault as well.
+      onRemoved: (gone, reason) => {
+        if (reason === 'deleted') void this.forgetDeleted(s, gone.map((m) => ({ rumorId: m.rumor.id, author: m.sender, wrapIds: [m.wrap.id] }))).catch(() => undefined);
+        handlers.onRemoved?.(gone, reason);
+      },
     });
   }
 
@@ -718,20 +919,43 @@ export class SovereignClient {
     return this.dmInbox(s, handlers).sync(readTimeoutMs(s.persona));
   }
 
-  /** FR009-03: keeps reading the persona's DM relays as messages and receipts arrive. Returns the stop function. */
+  /**
+   * FR009-03: keeps reading the persona's DM relays as messages and receipts arrive. Returns the stop function.
+   * PANEL-06: while it listens, each message is dropped when it expires and this device's copies are purged then.
+   */
   async watchDms(personaId: string, handlers: DmWatchHandlers): Promise<() => void> {
     const s = await this.session(personaId);
     const inbox = this.dmInbox(s, handlers);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const purge = async () => {
+      const gone = inbox.purgeExpired();
+      const r = await this.purgeExpiredDms(s, Math.floor(Date.now() / 1000), gone.map((m) => m.wrap.id)).catch(() => undefined);
+      if (!stopped) schedule(r?.next);
+    };
+    const schedule = (storesNext?: number) => {
+      clearTimeout(timer);
+      const next = [storesNext, inbox.nextExpiration()].filter((x): x is number => x !== undefined);
+      const wait = next.length ? Math.min(...next) * 1000 - Date.now() : 3_600_000;
+      timer = setTimeout(() => void purge(), Math.min(Math.max(wait, 1000), 3_600_000));
+      (timer as { unref?: () => void }).unref?.();
+    };
     await inbox.start();
-    return () => inbox.close();
+    void purge();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      inbox.close();
+    };
   }
 
   /**
    * FR011-04: waits, at most `timeoutMs`, for the retries started when the personas were opened, so that a
-   * short-lived CLI command does not exit in the middle of delivering what an earlier run left pending.
+   * short-lived CLI command does not exit in the middle of delivering what an earlier run left pending. PANEL-06: and
+   * for the purge of what expired.
    */
   async settle(timeoutMs = 20_000): Promise<void> {
-    const pending = [...this.sessions.values()].map((s) => s.resumed.then(() => this.retryGroups(s)));
+    const pending = [...this.sessions.values()].map((s) => Promise.all([s.purged, s.resumed.then(() => this.retryGroups(s))]));
     if (pending.length === 0) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([Promise.all(pending), new Promise<void>((r) => (timer = setTimeout(r, timeoutMs)))]);
@@ -948,12 +1172,16 @@ export class SovereignClient {
     return next;
   }
 
-  /** The profile of a persona with what `setContinuity` stored over the derived one (cloud copy and its policy). */
+  /**
+   * The profile of a persona with what `setContinuity` stored over the derived one (cloud copy and its policy).
+   * PANEL-06: and its expiration of DMs (`setMessageExpiration`), else its profile's default.
+   */
   async profile(personaId: string): Promise<SovereigntyConfig> {
     const mgr = await this.identities();
     const base = this.profileFor(await mgr.get(personaId));
     const stored = await mgr.getConfig(personaId);
-    return { ...base, ...(stored ? { cloudBackup: stored.cloudBackup } : {}), continuity: continuityPolicy(stored ?? {}) };
+    const messageExpiration = resolveMessageExpiration({ profile: base.messageExpiration, persona: stored?.messageExpiration }).option;
+    return { ...base, ...(stored ? { cloudBackup: stored.cloudBackup } : {}), continuity: continuityPolicy(stored ?? {}), messageExpiration };
   }
 
   /**
@@ -961,20 +1189,29 @@ export class SovereignClient {
    * history with empty relays (ADR 0011): every canonical event its relays hold for it (its own activity, its
    * channels with their state, the gift wraps addressed to it), the group messages it read or sent, the delivery
    * ledger and the MLS group state. Events and messages are written once; the ledger and the MLS state replace
-   * their previous copy. The vault only receives sealed envelopes.
+   * their previous copy. The vault only receives sealed envelopes. PANEL-06: expired DMs, and those their author
+   * deleted, are left out and their archives deleted; the expiring ones stored now are queued to leave the vault
+   * when they expire (purgeExpiredDms, in a run with the vault).
    */
   async vaultPush(personaId: string, url: string): Promise<HistoryArchiveResult & { operations: number }> {
     const { client, key, session: s } = await this.vault(personaId, url);
     try {
+      await s.purged;
       const ledger = await s.engine.list();
       const mls = await this.mlsSnapshot(s);
+      const events = await this.canonicalHistory(s);
+      const forget = tombstonedWraps(await s.store.collection<boolean>(DM_TOMBSTONES).all());
       const result = await archiveHistory(client, key, {
         pubkey: s.persona.pubkey,
-        events: await this.canonicalHistory(s),
+        events,
         groupMessages: (await s.store.collection<ArchivedGroupMessage>(GROUP_HISTORY).all()).map((e) => e.value),
         ledger,
         ...(Object.keys(mls).length ? { mls } : {}),
+        forget,
       });
+      const gone = new Set(forget);
+      const now = Math.floor(Date.now() / 1000);
+      await scheduleArchiveExpiry(s.store.collection<number>(VAULT_FORGET), events.filter((e) => !gone.has(e.id) && !isExpired(e, now)));
       return { ...result, operations: ledger.length };
     } finally {
       key.fill(0);
@@ -1022,8 +1259,14 @@ export class SovereignClient {
     }
     let published = 0;
     let rejected = 0;
+    // PANEL-06: expired events stay out (restoreHistory), and so do the wraps of DMs this device knows were deleted:
+    // neither published again nor put back in the outbox.
+    const tombstones = s.store.collection<boolean>(DM_TOMBSTONES);
+    const deleted = async (e?: NostrEvent) => !!e && !!(await tombstones.get(wrapTombstone(e.id)));
+    const kept: NostrEvent[] = [];
+    for (const e of restored.events) if (!(await deleted(e))) kept.push(e);
     // VAULT-04 copies each send, gift wraps for other people included: their place is those people's relays.
-    const own = restored.events.filter((e) => belongsOnPersonaRelays(e, s.persona.pubkey));
+    const own = kept.filter((e) => belongsOnPersonaRelays(e, s.persona.pubkey));
     if (opts.republish ?? true) {
       for (const e of own) {
         if ((await s.pool.publish(e, s.persona.relays)).some((r) => r.ok)) published++;
@@ -1033,14 +1276,14 @@ export class SovereignClient {
     const outbox = s.store.collection<OutboxRecord>('outbox');
     let ledger = 0;
     for (const rec of ledgerRecords<OutboxRecord>(restored.ledger?.outbox ?? [])) {
-      if (await outbox.get(rec.opId)) continue; // never overwrite newer local state
+      if ((await outbox.get(rec.opId)) || (await deleted(rec.event))) continue; // never overwrite newer local state
       await outbox.put(rec.opId, rec);
       ledger++;
     }
     const history = s.store.collection<ArchivedGroupMessage>(GROUP_HISTORY);
     for (const m of restored.groupMessages) await history.put(`${m.groupId}:${m.rumorId}`, m);
     const mls = await this.restoreMls(s, restored.mls?.namespaces);
-    return { archives: restored.archives, skipped: restored.skipped, events: restored.events.length, published, rejected, othersWraps: restored.events.length - own.length, groupMessages: restored.groupMessages.length, ledger, mls, ...(restored.ledger ? { savedAt: restored.ledger.at } : {}), missing: restored.missing };
+    return { archives: restored.archives, skipped: restored.skipped, events: restored.events.length, published, rejected, othersWraps: kept.length - own.length, groupMessages: restored.groupMessages.length, ledger, mls, ...(restored.ledger ? { savedAt: restored.ledger.at } : {}), missing: restored.missing };
   }
 
   private async restoreMls(s: Session, namespaces: MlsSnapshot | undefined): Promise<VaultRestoreResult['mls']> {

@@ -6,6 +6,7 @@ import { receiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
 import type { AccesoUser } from '../lib/acceso';
 import type { DeploymentConfig } from '../lib/config';
 import { custodyLabel, openDmInbox, openPersona, personaConfig, publishDmRelays, shortNpub, type ManagedEnv, type PersonaSession } from '../lib/session';
+import { forgetDeletedDms, purgeExpiredDms } from '../lib/expiration';
 import { BrowserManagedSession } from '../lib/managed-session';
 import type { PersonaBook, PersonaRecord } from '../lib/vault';
 import { sendBlockedReason, WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
@@ -127,6 +128,12 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
         setDmMessages(inbox.list());
         if (live && m.sender !== s.pubkey && tabNow.current !== 'dm') setDmUnseen((n) => n + 1);
       },
+      // PANEL-06: a message deleted by its author (a contact, or this persona elsewhere) leaves the view and this
+      // browser's copies, vault archives included; an expired one leaves the view (the purge below does the rest).
+      onRemoved: (gone, reason) => {
+        setDmMessages(inbox.list());
+        if (reason === 'deleted') void forgetDeletedDms(book.store, current.current ?? s, cfg.continuityVault, gone).catch(() => undefined);
+      },
     });
     setDmInbox(inbox);
     if (s.persona.custody !== 'nip07') void inbox.start().catch(() => undefined);
@@ -136,7 +143,31 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
       setDmMessages([]);
       setDmUnseen(0);
     };
-  }, [pool, nip17, book, flags]);
+  }, [pool, nip17, book, flags, cfg.continuityVault]);
+
+  // PANEL-06: when a message expires (NIP-40) this browser stops showing it and forgets its copies (sent operation,
+  // outbox, vault archives), whether or not its sender is around: at once when the persona opens, then at the next
+  // expiration it knows of (at most an hour apart while the persona stays open).
+  const inboxNext = dmInbox?.nextExpiration();
+  useEffect(() => {
+    const s = current.current;
+    if (!s || s.pool !== pool) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const run = async () => {
+      const expired = dmInbox?.purgeExpired() ?? [];
+      const r = await purgeExpiredDms(book.store, current.current ?? s, cfg.continuityVault, expired.map((m) => m.wrap.id)).catch(() => undefined);
+      if (stopped) return;
+      const next = [r?.next, dmInbox?.nextExpiration()].filter((x): x is number => x !== undefined);
+      const wait = next.length ? Math.min(...next) * 1000 - Date.now() : 3_600_000;
+      timer = setTimeout(() => void run(), Math.min(Math.max(wait, 1000), 3_600_000));
+    };
+    void run();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [pool, dmInbox, inboxNext, book, cfg.continuityVault]);
 
   // FR011-02: resume the outbox as soon as the browser is back online.
   useEffect(() => {
@@ -176,7 +207,7 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
       publishDmRelays: async () => current.current && publishDmRelays(current.current),
       nip17,
       setNip17,
-      dm: { inbox: dmInbox, messages: dmMessages, background: !!dmInbox && session?.persona.custody !== 'nip07' },
+      dm: { inbox: dmInbox, messages: dmMessages, background: !!dmInbox && session?.persona.custody !== 'nip07', refresh: () => dmInbox && setDmMessages(dmInbox.list()) },
       managedEnv,
       notify: (message, severity = 'info') => setToast({ message, severity }),
     }),

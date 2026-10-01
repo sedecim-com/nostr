@@ -7,9 +7,11 @@ import { BUZZ_PINNED_ADAPTER, DirectMessenger, FeatureDisabledError, FILE_MESSAG
 import { blossomServersOf, unsanitizableMessage, uploadTargets } from '../lib/blossom';
 import { cappedQuorumNotice, fileKey, SendOperation } from '../lib/outbox';
 import { authorLabel, lookupDmCorrespondents } from '../lib/profiles';
+import { conversationExpiration, expirationFor } from '../lib/expiration';
 import { AuthorAvatar, AvatarsToggle, useProfiles } from './Profile';
 import { sendBlockedReason, useWorkspace } from '../lib/workspace';
 import { useReuseConfirm } from './ReuseConfirm';
+import { ConversationExpiration, DeleteOwnMessage, messageExpiresText } from './DmConversation';
 
 /** NIP-17 DMs behind the interop-gate flag (FR-017) with client-encrypted attachments (kind 15, FR018-04). */
 export function DmView() {
@@ -67,6 +69,9 @@ export function DmView() {
       const uses = [{ contact: recipient, ...(bytes ? { fileHash: await fileDigest(bytes) } : {}) }];
       if (!(await reuse.confirm(uses))) return;
       const opId = operation.current.for(JSON.stringify([recipient, text, fileKey(file)]));
+      // PANEL-06: the conversation's expiration, else the persona's (NIP-40, rounded up to a UTC day). A retry of this
+      // operation keeps the expiration it was first written with.
+      const expiration = expirationFor((await conversationExpiration(ws.book.store, s.persona, recipient)).option);
       // FR010-02: each wrap goes to the recipient's DM relays (10050), else their NIP-65 read relays, else ours.
       // FR010-03: discovery also asks the deployment's discovery relays; a retry re-resolves the route (engine router).
       // FR011-05: the message is stored before its wraps are made, under the operation id.
@@ -81,11 +86,11 @@ export function DmView() {
         const targets = uploadTargets(ws.cfg, await blossomServersOf(s), true);
         if (targets.length === 0) throw new Error('No hay servidor Blossom para adjuntos cifrados: publica tu lista de servidores o configura el blob-store.');
         const { descriptor: desc } = await uploadToServers(prepared, targets, s.signer);
-        return { recipients: [recipient], url: desc.url, mimeType: prepared.mimeType, sha256: prepared.sha256, originalSha256: prepared.originalSha256, size: prepared.data.length, encryption: prepared.encryption! };
+        return { recipients: [recipient], url: desc.url, mimeType: prepared.mimeType, sha256: prepared.sha256, originalSha256: prepared.originalSha256, size: prepared.data.length, encryption: prepared.encryption!, expiration };
       };
       if (!file) await reuse.record(uses);
       // A retry does not upload the file again: the stored message already points to it.
-      const { deliveries } = file ? await messenger().sendFileOnce(opId, upload, route) : await messenger().sendDmOnce(opId, { recipients: [recipient], content: text }, route);
+      const { deliveries } = file ? await messenger().sendFileOnce(opId, upload, route) : await messenger().sendDmOnce(opId, { recipients: [recipient], content: text, expiration }, route);
       operation.current.done();
       const unrouted = deliveries.find((d) => d.recipient === recipient && d.source !== 'dm-relays');
       const capped = deliveries.map((d) => cappedQuorumNotice(d.record)).find(Boolean);
@@ -124,6 +129,7 @@ export function DmView() {
               {!flags ? 'Sin flags de despliegue (flags.json): NIP-17 queda a criterio de esta sesión.' : flags.nip17.enabled ? `Habilitado por el gate de interoperabilidad contra ${flags.relay} (jitter de gift wrap: ${flags.nip17.timestampJitterSeconds} s).` : `Deshabilitado: el gate de interoperabilidad contra ${flags.relay} no lo aprobó.`}
             </Typography>
             <TextField id="dm-to" label="Destinatario (npub o hex)" value={to} onChange={(e) => setTo(e.target.value)} required />
+            <ConversationExpiration to={to} />
             <TextField id="dm-text" label="Mensaje" multiline minRows={2} value={text} onChange={(e) => setText(e.target.value)} required={!file} />
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Button component="label" variant="outlined">
@@ -159,9 +165,12 @@ export function DmView() {
           <AvatarsToggle pubkeys={messages.map((m) => m.sender)} shown={avatars} onShow={() => setAvatars(true)} />
           <List id="dm-log" aria-live="polite">
             {messages.map((m) => (
-              <ListItem key={m.rumor.id} alignItems="flex-start">
+              <ListItem key={m.rumor.id} alignItems="flex-start" secondaryAction={m.sender === s.pubkey ? <DeleteOwnMessage message={m} /> : undefined}>
                 <AuthorAvatar pubkey={m.sender} show={avatars} />
-                <ListItemText primary={m.kind === FILE_MESSAGE_KIND ? <EncryptedAttachment message={m} /> : m.rumor.content} secondary={`${m.sender === s.pubkey ? 'tú' : authorLabel(s, m.sender)} · ${new Date(m.rumor.created_at * 1000).toLocaleString()}`} />
+                <ListItemText
+                  primary={m.kind === FILE_MESSAGE_KIND ? <EncryptedAttachment message={m} /> : m.rumor.content}
+                  secondary={[m.sender === s.pubkey ? 'tú' : authorLabel(s, m.sender), new Date(m.rumor.created_at * 1000).toLocaleString(), messageExpiresText(m)].filter(Boolean).join(' · ')}
+                />
               </ListItem>
             ))}
           </List>

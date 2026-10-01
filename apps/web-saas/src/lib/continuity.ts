@@ -1,8 +1,10 @@
-import { ArchiveVaultClient, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, restoreHistory, vaultExport, type ArchiveRetention, type ArchiveUsage, type HistoryArchiveResult, type VaultExport } from '@sedecim/continuity';
+import { ArchiveVaultClient, archiveHistory, belongsOnPersonaRelays, ledgerRecords, openArchive, restoreHistory, scheduleArchiveExpiry, vaultExport, type ArchiveRetention, type ArchiveUsage, type HistoryArchiveResult, type VaultExport } from '@sedecim/continuity';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import type { EncryptedStore } from '@sedecim/encrypted-store/browser';
-import { hexToBytes, wipe, type NostrEvent } from '@sedecim/nostr-core';
+import { tombstonedWraps, wrapTombstone } from '@sedecim/messaging';
+import { hexToBytes, isExpired, wipe, type NostrEvent } from '@sedecim/nostr-core';
 import { FilterWindowSync, rebuildHistory } from '@sedecim/sync';
+import { dmTombstones, vaultForgetQueue } from './expiration';
 import { GroupHistory, groupStateSnapshot, restoreGroupState } from './groups';
 import type { PersonaSession } from './session';
 import type { PersonaRecord } from './vault';
@@ -41,19 +43,26 @@ async function canonicalHistory(s: PersonaSession): Promise<NostrEvent[]> {
  * persona's history with empty relays: every canonical event its relays hold for it (its channels with their state,
  * the gift wraps of its DMs in both directions), the group messages it read or sent, the delivery ledger and the MLS
  * group state. Events and messages are written once; the ledger and the MLS state replace their previous copy. The
- * vault only receives sealed envelopes.
+ * vault only receives sealed envelopes. PANEL-06: expired messages, and those their author deleted (dmTombstones), are
+ * left out and their archives deleted; the expiring ones stored now are queued to leave the vault when they expire.
  */
 export function pushVault(url: string, s: PersonaSession, store: EncryptedStore): Promise<HistoryArchiveResult & { operations: number }> {
   return withVault(url, s.persona, async (client, key) => {
     const ledger = await s.engine.list();
     const mls = await groupStateSnapshot(store, s.persona.id);
+    const events = await canonicalHistory(s);
+    const forget = tombstonedWraps(await dmTombstones(store, s.persona.id).all());
     const result = await archiveHistory(client, key, {
       pubkey: s.persona.pubkey,
-      events: await canonicalHistory(s),
+      events,
       groupMessages: await new GroupHistory(store, s.persona.id).archived(),
       ledger,
       ...(Object.keys(mls).length ? { mls } : {}),
+      forget,
     });
+    const gone = new Set(forget);
+    const now = Math.floor(Date.now() / 1000);
+    await scheduleArchiveExpiry(vaultForgetQueue(store, s.persona.id), events.filter((e) => !gone.has(e.id) && !isExpired(e, now)));
     return { ...result, operations: ledger.length };
   });
 }
@@ -81,14 +90,18 @@ export interface VaultRestore {
  * persona's backup), even if every relay lost its events: the verified events go back to the persona's relays (gift
  * wraps sent to other people aside), so channels and DMs read as before; the ledger operations this browser lacks
  * join its outbox; the group messages join its group history; the MLS state is written only if this browser has no
- * groups of the persona.
+ * groups of the persona. PANEL-06: expired messages stay out (restoreHistory), and so do the wraps of messages this
+ * browser knows were deleted: neither published again nor put back in the outbox.
  */
 export async function restoreVault(url: string, s: PersonaSession, store: EncryptedStore): Promise<VaultRestore> {
   const restored = await withVault(url, s.persona, (client, key) => restoreHistory(client, key, { pubkey: s.persona.pubkey }));
+  const tombstones = dmTombstones(store, s.persona.id);
+  const deleted = async (event?: NostrEvent) => !!event && !!(await tombstones.get(wrapTombstone(event.id)));
   let published = 0;
   let rejected = 0;
   let othersWraps = 0;
   for (const e of restored.events) {
+    if (await deleted(e)) continue;
     if (!belongsOnPersonaRelays(e, s.persona.pubkey)) othersWraps++;
     else if ((await s.pool.publish(e, s.persona.relays)).some((r) => r.ok)) published++;
     else rejected++;
@@ -96,7 +109,7 @@ export async function restoreVault(url: string, s: PersonaSession, store: Encryp
   const outbox = store.collection<OutboxRecord>(`outbox-${s.persona.id}`);
   let ledger = 0;
   for (const rec of ledgerRecords<OutboxRecord>(restored.ledger?.outbox ?? [])) {
-    if (await outbox.get(rec.opId)) continue; // never overwrite newer local state
+    if ((await outbox.get(rec.opId)) || (await deleted(rec.event))) continue; // never overwrite newer local state
     await outbox.put(rec.opId, rec);
     ledger++;
   }
