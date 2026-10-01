@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **249 tareas** · 193 hechas · 29 parciales · 21 pendientes · 6 descartadas
-- **188 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **249 tareas** · 195 hechas · 29 parciales · 19 pendientes · 6 descartadas
+- **180 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -42,7 +42,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 - **aws**: faltan la cuenta, la región o el stage reales de AWS
 - **externo**: depende de un tercero: auditor externo, asesoría legal, una publicación upstream o un dispositivo de hardware
 
-**Listas para trabajar ahora (4):** PANEL-06, FR013-05, FR015-05, NFR007-03. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
+**Listas para trabajar ahora (2):** PANEL-06, NFR007-03. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
 
 | Ola | ID | Prio | Tarea | Sprint | SP | Desbloquea | Espera a | Bloqueo |
 |---:|---|---|---|---|---:|---:|---|---|
@@ -64,8 +64,6 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | 0 | [PANEL-06](https://github.com/sedecim-com/nostr/issues/286) | P2 | Expiración de mensajes por perfil (NIP-40) y borrado con aviso | Diferido | 5 | — | — | lista |
 | 0 | [DEC-15](https://github.com/sedecim-com/nostr/issues/273) | P3 | Estructura de repositorios | S10 | 1 | — | — | persona |
 | 0 | [FR004-07](https://github.com/sedecim-com/nostr/issues/301) | P3 | Signer de hardware (opcional en el scope) | Diferido | 5 | — | — | externo |
-| 0 | [FR013-05](https://github.com/sedecim-com/nostr/issues/299) | P3 | Caché local cifrada de eventos y NIP-77 con estado local | Diferido | 5 | — | — | lista |
-| 0 | [FR015-05](https://github.com/sedecim-com/nostr/issues/298) | P3 | Presencia (NIP-38) opt-in por perfil | Diferido | 3 | — | — | lista |
 | 0 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | Diferido | 8 | — | — | persona |
 | 0 | [NFR007-03](https://github.com/sedecim-com/nostr/issues/296) | P3 | Crash reports opt-in con limpieza y exportación manual local | Diferido | 3 | — | — | lista |
 | 1 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) | P0 | Firma de releases y provenance (SLSA/cosign) | S9 | 3 | 10 | OPS-08 | persona |
@@ -421,8 +419,8 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | [OPS-15](https://github.com/sedecim-com/nostr/issues/293) | P2 | Organizaciones y planes en el SaaS | §15.2 | Dev | 8 | DEC-14 | Pendiente | Tenants y organizaciones en identity y policy; planes y cobro según DEC-14 |
 | [PANEL-06](https://github.com/sedecim-com/nostr/issues/286) | P2 | Expiración de mensajes por perfil (NIP-40) y borrado con aviso | §12.2 | Dev | 5 | PANEL-02, VAULT-05 | Pendiente | Expiración configurable por persona y conversación; borrar mensajes propios con el aviso de que las copias replicadas pueden seguir existiendo; coherente con la retención del vault |
 | [FR004-07](https://github.com/sedecim-com/nostr/issues/301) | P3 | Signer de hardware (opcional en el scope) | §8.2 | Dev | 5 | — | Pendiente | Spike con un dispositivo de hardware y decisión documentada |
-| [FR013-05](https://github.com/sedecim-com/nostr/issues/299) | P3 | Caché local cifrada de eventos y NIP-77 con estado local | §7, §12 | Dev | 5 | — | Pendiente | Lectura sin conexión, reanudación por since y NIP-77 con conjunto local (interop con strfry) |
-| [FR015-05](https://github.com/sedecim-com/nostr/issues/298) | P3 | Presencia (NIP-38) opt-in por perfil | §15.1 | Dev | 3 | — | Pendiente | Estado de presencia solo en perfiles que lo permiten |
+| [FR013-05](https://github.com/sedecim-com/nostr/issues/299) | P3 | Caché local cifrada de eventos y NIP-77 con estado local | §7, §12 | Dev | 5 | — | Hecho | Lectura sin conexión, reanudación por since y NIP-77 con conjunto local (interop con strfry) |
+| [FR015-05](https://github.com/sedecim-com/nostr/issues/298) | P3 | Presencia (NIP-38) opt-in por perfil | §15.1 | Dev | 3 | — | Hecho | Estado de presencia solo en perfiles que lo permiten |
 | [FR018-06](https://github.com/sedecim-com/nostr/issues/300) | P3 | Política de tamaño, MIME y antivirus compatible con la confidencialidad | §13.1 | Doc | 2 | — | Hecho | Política documentada y comprobación de tamaño en el cliente |
 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | FR-020, §25 | Dev | 8 | DEC-04 | Pendiente | App desktop (Tauri) que usa el SDK con Tor integrado y el perfil sovereign-tor |
 | [NFR007-02](https://github.com/sedecim-com/nostr/issues/295) | P3 | Tracing con muestreo y redacción según el perfil | §18 | Dev | 3 | NFR007-01 | Hecho | Trazas en los servicios con muestreo y redacción, apagadas en perfiles Tor. Hasta entonces PANEL-05 retira la promesa |
