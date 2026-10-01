@@ -36,3 +36,6 @@ jobs:
       - name: Stop strfry
         if: always()
         run: docker rm -f strfry
+      - name: strfry version
+        if: always()
+        run: docker run --rm "$STRFRY_IMAGE" --version
