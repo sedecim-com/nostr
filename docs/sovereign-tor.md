@@ -62,6 +62,10 @@ Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-c
   persona sin abrir ninguna conexión, tampoco al proxy SOCKS. La caché está activa por defecto;
   `SOVEREIGN_CACHE=off` no guarda nada y `cache clear` la borra ([event-cache.md](event-cache.md)).
 - Telemetría `none`: cero llamadas externas.
+- **Informes de fallo (NFR007-03).** Un fallo del CLI imprime una sola línea en stderr, sin pila ni secretos. Una
+  persona Tor no genera informes de fallo (`off`); con `sovereign persona crash-reports --persona ID manual-export`,
+  `--crash-report ARCHIVO` escribe el informe limpio de un fallo en ese archivo y nada más; guardarlos en el
+  dispositivo (`opt-in`) está bloqueado. Ninguno se envía ([`crash-reports.md`](crash-reports.md)).
 - **Trazas de los servicios (NFR007-02).** Los servicios del stack no trazan salvo que el operador fije
   `TRACE_SAMPLE_RATE`; con `TELEMETRY_LEVEL=none` no pueden, y una petición dirigida a un `.onion` (el vault o el
   blob-store publicados como servicio onion) nunca se traza. Pruebas en `packages/service-kit/test/tracing.test.ts`

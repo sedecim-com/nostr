@@ -7,8 +7,8 @@
 **Configuración:** llave en un signer NIP-46 alcanzado por Tor o cifrada en el dispositivo (la especificación
 pide una llave offline o un signer; el CLI declara la custodia real, FR004-08), **Tor-only sin fallback
 clearnet**, relay `.onion`, identidad pseudónima, persistencia en el dispositivo, **Marmot/MLS** para grupos, archivos cifrados,
-sin telemetría, sin push, sin crash reports, sin previews remotas, sin receipts, sin estado de presencia (NIP-38),
-compartimentación por persona.
+sin telemetría, sin push, sin informes de fallo por defecto (`manual-export` se permite y `opt-in` no, NFR007-03),
+sin previews remotas, sin receipts, sin estado de presencia (NIP-38), compartimentación por persona.
 
 ## Activos
 Anonimato de red de la persona, no vinculación con otras identidades del mismo usuario, contenido de
@@ -33,6 +33,7 @@ las conversaciones, identidad de las fuentes.
 | Compromiso futuro de la llave | Grupos Marmot/MLS con forward secrecy y rotación (PCS) | `packages/marmot-adapter/test` |
 | Expulsado que sigue leyendo | Autoprueba de secreto post-expulsión (falla cerrado con ts-mls vulnerable) | `docs/marmot.md` |
 | Metadatos de push, telemetría o presencia | Validación de configuración: errores bloqueantes si se activan (`TOR_PUSH`, `TOR_TELEMETRY`, `TOR_PRESENCE`: un estado NIP-38 diría cuándo estaba activa la persona, y Tor no lo oculta). El CLI no tiene presencia (FR015-05) | `packages/profiles/test` |
+| Informes de fallo que dejan rastro o salen del dispositivo | `off` por defecto; guardar informes en el dispositivo (`opt-in`) es un error bloqueante en Tor-only, porque dejaría las fechas de los fallos para quien abra el almacén; `manual-export` solo escribe un informe limpio (sin hosts, `.onion`, IPs, llaves ni rutas) en un archivo si se pide con `--crash-report`, y ningún modo usa la red. Un fallo imprime una sola línea en stderr, sin pila ni secretos ([informes de fallo](../crash-reports.md#sovereign-tor-manual-export-sí-opt-in-no)) | `apps/sovereign-client/test/crash-reports.test.ts`, `packages/telemetry-policy/test/crash-report.test.ts`, `packages/profiles/test` (NFR007-03) |
 | Trazas de los servicios que usa la persona (vault, blob-store, policy-engine) | Apagadas por defecto; con `TELEMETRY_LEVEL=none` el servicio no tiene trazador y ninguna variable lo enciende; una petición a un `.onion` nunca se traza; un span nunca lleva IP, pubkey, ids de la ruta ni contenido ([threat model](../threat-model.md#trazas-de-los-servicios-nfr007-02)) | `packages/telemetry-policy/test/tracing.test.ts`, `packages/service-kit/test/tracing.test.ts`, `services/blob-store/test/tracing.test.ts` (NFR007-02) |
 | Custodia declarada mayor que la real | El CLI declara la custodia de la llave real (`local` o `external`), nunca el `offline` del preset; con la llave en el dispositivo avisa (`TOR_DEVICE_KEY`) | `apps/sovereign-client/test/nip46.test.ts`, `packages/profiles/test` |
 | Fuga del tráfico del signer NIP-46 | Solo a los relays del signer, por SOCKS con las credenciales de la persona; sin Tor falla cerrado; onion-only también para el signer; permisos mínimos | `apps/sovereign-client/test/nip46.test.ts`, `packages/signer/test` |
