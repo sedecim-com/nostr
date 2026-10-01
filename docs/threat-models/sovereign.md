@@ -31,6 +31,7 @@ La llave (generada air-gapped), el stack self-hosted, el historial local.
 | Pérdida del dispositivo sin backup | Alto | Por diseño; la validación advierte `LOSS_RISK`; conviene un backup offline |
 | Aún sin release firmado | Medio | `release.yml` firma con cosign keyless, provenance SLSA y SBOM, y `verify-release.sh` lo comprueba; falta publicar el primero (NFR010-02) |
 | Índice del mirror alterable por quien escribe en la base | Bajo | El payload sellado ya no se puede mover a otra fila (SEC-06), pero las columnas de índice van en claro (canal, destinatarios, listas de miembros); el mirror es una caché derivada de los eventos firmados |
+| Un DM caducado o borrado sigue fuera de este dispositivo | Medio | La caducidad (NIP-40) y el borrado (kind 5 en gift wrap) son peticiones: el relay propio la aplica solo si respeta NIP-40, y los contactos con otro cliente o capturas conservan lo que tenían (PANEL-06, [message-expiration.md](../message-expiration.md)) |
 | IP visible para el relay propio y el ISP | Medio | Usar sovereign-tor si importa |
 | Host del VPS comprometido | Medio | Canales en claro en el relay; usar Marmot |
 

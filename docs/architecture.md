@@ -31,7 +31,7 @@ firmados; las bases de datos son índices derivados.
 | `delivery-engine` | Máquina de estados DRAFT→…→READ, outbox persistente, quorum, reintentos idempotentes, reconciliación, y la copia en el Continuity Vault como pista propia (`CONTINUITY_BACKED_UP`, VAULT-04) |
 | `encrypted-store` | Store local cifrado (XChaCha20-Poly1305, nombres HMAC), backends memoria/archivo atómico/IndexedDB; `Vault` con contraseña o llave del dispositivo (ADR 0007) |
 | `identity` | Personas, compartimentos, vínculos con consentimiento, backup/restore NIP-49; vínculo público opcional firmado por ambas personas ([`public-link.md`](public-link.md)) |
-| `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación, DMs como operaciones de envío (FR011-05) |
+| `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación, DMs como operaciones de envío (FR011-05); caducidad de DMs (NIP-40) y borrado de los propios (PANEL-06, [`message-expiration.md`](message-expiration.md)) |
 | `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad; los flujos que comparten el CLI y la web (dispositivos, propuestas y adjuntos MIP-04, FR025-14) |
 | `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash; lista de servidores del usuario (BUD-03, kind 10063) con subida al principal y descarga con alternativas; subida en espejo del cifrado de los archivos de grupo (`ciphertextUploader`) |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
@@ -175,6 +175,21 @@ Nada nuevo se guarda en el navegador aparte del outbox. Las reglas de Buzz y el 
 - `apps/web-saas/test/channel-collab.test.ts`: la web contra un relay de prueba con las reglas de Buzz
   (`TestRelay` con `groupModeration`);
 - `tests/interop/buzz.interop.test.ts`: contra Buzz, en CI.
+
+## Caducidad y borrado de mensajes directos (PANEL-06)
+Detalle, qué ve cada parte y quién conserva qué: [`message-expiration.md`](message-expiration.md).
+- **Caducidad.** La conversación gana a la persona y la persona al perfil (todos los presets dicen `off`). Cada wrap y
+  cada seal de un mensaje nuevo llevan `expiration` (NIP-40), redondeada hacia arriba a la medianoche UTC para que el
+  relay no sepa la hora de envío. La fecha se fija al crear la operación: cambiar el ajuste no toca lo enviado.
+- **Al leer y al guardar.** `DmInbox` no muestra ni responde lo caducado, aunque el relay lo sirva. La web (al abrir la
+  persona y en cada caducidad) y el CLI (en cada orden) borran sus copias locales: operación enviada, registros del
+  outbox (`DeliveryEngine.forget`) y archivos del vault, o los encolan si el vault no responde. `rebuildHistory` y
+  `restoreHistory` dejan fuera lo caducado.
+- **Borrado.** Un kind 5 en gift wrap (NIP-17) a los destinatarios y a la propia persona, solo de mensajes propios, con
+  el aviso de las copias antes de confirmar. El cliente que lo recibe solo lo aplica si lo firma el autor, y guarda
+  una lápida para que el mensaje no vuelva.
+- **Petición, no garantía.** Relays sin NIP-40, clientes de contactos que no cooperan, capturas y copias de seguridad del
+  operador del vault conservan lo que tenían.
 
 ## APIs: anti-replay NIP-98 y límites de tasa
 Aplica a identity-service, policy-engine, indexer, notification-gateway, managed-signer y continuity-vault (todos sobre

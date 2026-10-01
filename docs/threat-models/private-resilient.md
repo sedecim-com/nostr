@@ -34,6 +34,7 @@ adjuntos cifrados.
 | Signer remoto malicioso | Medio | Mitigado con permisos mínimos: la web pide solo los kinds que firma y los lista antes de conectar (FR004-04, FR004-06) |
 | Push opaco: revela tiempos de actividad | Medio | El servicio push del navegador ve cuándo hay actividad |
 | Sin forward secrecy en DMs | Medio | Usar Marmot en conversaciones sensibles |
+| Un DM caducado o borrado sigue fuera de este dispositivo | Medio | La caducidad (NIP-40) y el borrado (kind 5 en gift wrap) son peticiones: relays sin NIP-40, clientes de contactos que no cooperan y capturas conservan lo que tenían. En el vault, lo que el cliente no llega a borrar dura hasta el plazo de la cuenta, y en las copias de seguridad del operador hasta su retención; el cliente avisa si ese plazo es mayor que la caducidad (PANEL-06, [message-expiration.md](../message-expiration.md)) |
 | Pérdida del historial si todos los relays lo pierden | Bajo | El Continuity Vault (ADR 0011) guarda sellado el historial (canales, DMs, mensajes de grupo, estado MLS y ledger) y un dispositivo limpio con el backup lo recupera con relays vacíos (VAULT-03). Con la política del perfil, `required-for-resilient`, ningún envío sale hacia los relays sin su copia en el vault (VAULT-04). Quedan dos cosas. Una persona creada antes de VAULT-04 no copia hasta que se elige la política. Si el vault está caído, los envíos esperan. ([threat model del vault](continuity-vault.md)) |
 
 ## Supuestos

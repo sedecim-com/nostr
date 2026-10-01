@@ -182,6 +182,8 @@ npm run sovereign -- vault restore --persona <id> --vault URL   # lo recupera y 
 npm run sovereign -- persona continuity --persona <id> best-effort --vault URL   # copia cada envío (o required-for-resilient)
 npm run sovereign -- group history --persona <id>   # mensajes de grupo leídos, enviados o restaurados
 npm run sovereign -- dm send --persona <id> --to NPUB "hola"  # a los relays de DM (10050) del destinatario, como la web
+npm run sovereign -- dm send --persona <id> --to NPUB --expire 7d "hola"   # pide caducar (NIP-40): una petición, no una garantía
+npm run sovereign -- dm delete --persona <id> --id ID --yes   # borra un DM propio; sin --yes, solo el aviso (docs/message-expiration.md)
 npm run sovereign -- dm watch --persona <id>    # DMs y acuses según llegan a tus relays de DM (Ctrl-C para salir)
 npm run sovereign -- persona create --label Fuente --relay ws://<onion>.onion --onion-only   # solo Tor y .onion
 npm run sovereign -- persona import --key-file llave.txt --npub npub1… --label Fuente --relay ws://<onion>.onion --tor   # nsec o ncryptsec: custodia local
