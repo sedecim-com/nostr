@@ -332,7 +332,7 @@ jobs:
       - name: Start strfry
         run: |
           docker run --rm "$STRFRY_IMAGE" --version
-          docker run -d --name strfry -p 127.0.0.1:7777:7777 "$STRFRY_IMAGE" --set=relay.bind=0.0.0.0 relay
+          docker run -d --name strfry -p 127.0.0.1:7777:7777 "$STRFRY_IMAGE" --set=relay.bind=0.0.0.0 --set=relay.nofiles=0 relay
           for i in $(seq 1 30); do
             curl -fsS --max-time 2 -H 'Accept: application/nostr+json' http://127.0.0.1:7777/ > /dev/null && exit 0
             sleep 1
