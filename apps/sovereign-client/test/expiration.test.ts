@@ -213,7 +213,7 @@ describe('sovereign CLI: expiration and deletion of DMs (PANEL-06)', () => {
       const deleted = await cli(env, 'dm', 'delete', '--persona', id, '--id', prefix!, '--yes');
       expect(deleted.status, deleted.stderr).toBe(0);
       expect(deleted.stderr).toMatch(/aviso: Borrar no retira las copias que ya circularon/);
-      expect(deleted.stdout).toMatch(new RegExp(`petición de borrado de ${prefix}`));
+      expect(deleted.stdout).toContain(`petición de borrado de ${prefix}`);
       expect(deleted.stdout).toMatch(/1 mensaje\(s\) enviado\(s\) y 2 registro\(s\) de entrega olvidados/);
       const deletion = relay.received.filter((e) => e.kind === 1059).slice(2);
       expect(deletion).toHaveLength(2);
