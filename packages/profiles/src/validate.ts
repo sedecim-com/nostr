@@ -9,7 +9,8 @@ const BANNED_CLAIMS = [
   /untraceable/i,
   // PANEL-06: deleting or expiring a message is a request that relays and contacts may ignore, never a guarantee.
   /borrado garantizado/i,
-  /(borra|elimina|desaparece)\S* de todas partes/i,
+  // Bounded: an unbounded `\S*` is polynomial on a long run of these words (CodeQL js/polynomial-redos).
+  /(borra|elimina|desaparece)\S{0,24} de todas partes/i,
   /guaranteed deletion/i,
 ];
 

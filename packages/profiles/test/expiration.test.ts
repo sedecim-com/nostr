@@ -80,4 +80,12 @@ describe('message expiration settings (PANEL-06)', () => {
     for (const claim of ['Borrado garantizado de tus mensajes', 'El mensaje se borra de todas partes', 'desaparece de todas partes al caducar', 'Guaranteed deletion']) expect(() => assertNoAbsoluteClaims(claim)).toThrow();
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();
   });
+
+  it('PANEL-06: the claim lint runs in linear time on a long run of the words it looks for (CodeQL js/polynomial-redos)', () => {
+    const started = Date.now();
+    for (const word of ['borra', 'elimina', 'desaparece']) expect(() => assertNoAbsoluteClaims(word.repeat(30_000))).not.toThrow();
+    expect(Date.now() - started).toBeLessThan(1500);
+    // The bound leaves the real phrasings caught: a verb with an ending, then "de todas partes".
+    expect(() => assertNoAbsoluteClaims('Se borrará de todas partes')).toThrow();
+  });
 });
