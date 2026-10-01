@@ -32,15 +32,15 @@ eventos efímeros.
 3. La caché no añade texto en claro que los relays no tengan ya: los canales NIP-29 ya los leen el relay y los
    miembros.
 
-Cada lectura sin conexión abre los wraps con la llave del dispositivo.
+`dm inbox --offline` abre los wraps con la llave del dispositivo cada vez que se ejecuta.
 
 ## Formato en disco
 
 Dos colecciones del almacén cifrado de la persona (el mismo mecanismo que su outbox y su llave):
 
-- **`evcache`:** los eventos, repartidos en 64 cubos por el primer byte del id.
-- **`evcache-meta`:** qué relays sirvieron cada evento, los cursores, el suelo de expulsión y los registros de
-  borrado.
+- **`evcache`:** los eventos, cada uno con los relays que lo sirvieron, repartidos en 64 cubos por el primer byte
+  del id.
+- **`evcache-meta`:** la lista de relays, los cursores, el suelo de expulsión y los registros de borrado.
 
 Cifrado: XChaCha20-Poly1305 con la llave que sale de la passphrase (scrypt). Los nombres de entrada son HMAC.
 En el CLI viven en el directorio de la persona (`personas/<id>`): un archivo por entrada, con escritura atómica.
@@ -92,8 +92,8 @@ Una llave equivocada no lee nada: la caché no se abre y no se toca ningún arch
   - NIP-77 reconcilió y cada lote de ids terminó con EOSE;
   - o cada página REQ terminó con EOSE.
 
-  Un timeout, un CLOSED, una conexión caída o una sesión NIP-77 abortada lo dejan donde estaba. Lo que llegó
-  antes del corte sí se guarda.
+  Si ninguna estrategia termina (un timeout, un CLOSED, una conexión caída, una sesión NIP-77 abortada sin un REQ
+  que la complete), el cursor queda donde estaba. Lo que llegó antes del corte sí se guarda.
 - **Varios relays:** cada uno con su cursor.
 - **Reloj adelantado:** un cursor por delante de la hora actual más el solape (escrito con el reloj adelantado) no
   se usa. Esa sincronización pide todo y, si termina, lo reemplaza.
@@ -198,9 +198,9 @@ contenedor) puede coincidir con uno vivo de este.
 
 ## Qué ve cada parte
 
-- **Relays:** las mismas consultas que antes. El `since` revela, aproximadamente, cuándo sincronizó este
-  dispositivo por última vez (el relay ya ve cuándo se conecta). En NIP-77 solo recibe ids que ese mismo relay
-  sirvió antes.
+- **Relays:** las mismas consultas que antes, con un `since` que sale del cursor. Ese `since` revela,
+  aproximadamente, cuándo sincronizó este dispositivo por última vez (el relay ya ve cuándo se conecta). En NIP-77
+  solo recibe ids que ese mismo relay sirvió antes.
 - **Nadie fuera del dispositivo:** la caché no sale de él.
 - **Quien tenga el disco:** ver «Formato en disco».
 
