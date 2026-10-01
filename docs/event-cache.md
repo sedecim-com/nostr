@@ -183,7 +183,9 @@ Los demás procesos la leen, pero no la escriben:
 - `history sync` reconstruye como con la caché apagada, y lo avisa;
 - `cache clear` se niega.
 
-El candado de un proceso que ya no existe (matado, caído) lo toma el siguiente. Un cliente lo suelta al cerrar.
+El candado de un proceso que ya no existe (matado, caído) lo toma el siguiente. Un cliente lo suelta al cerrar. El
+aviso y el error dicen qué archivo borrar si ningún otro proceso la usa: el pid de otro espacio de procesos (otro
+contenedor) puede coincidir con uno vivo de este.
 
 ## Borrado
 

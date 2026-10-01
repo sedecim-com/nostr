@@ -348,7 +348,7 @@ async function main() {
       for (const [g, events] of Object.entries(r.channels)) console.log(`canal ${g}: ${events.length} eventos`);
       console.log(`DMs: ${r.dms.length}; outbox: ${r.outbox.map((o) => o.state).join(', ') || 'vacío'}`);
       if (r.cache) console.log(`caché local: ${r.cache.events} eventos (${Math.ceil(r.cache.bytes / 1024)} KB)`);
-      if (r.cacheInUse) console.error('aviso: otro proceso del CLI está escribiendo la caché de esta persona: esta sincronización no la ha usado ni actualizado');
+      if (r.cacheInUse) console.error(`aviso: otro proceso del CLI está escribiendo la caché de esta persona: esta sincronización no la ha usado ni actualizado (si no hay ningún otro proceso, borra ${client.cacheLockPath(need())})`);
     } else if (a === 'cache' && b === 'status') {
       const { stats, cursors } = await client.cacheStatus(need());
       console.log(`caché local: ${stats.events} eventos (${Math.ceil(stats.bytes / 1024)} KB)${stats.oldest !== undefined ? `, del ${iso(stats.oldest)} al ${iso(stats.newest!)}` : ''}`);

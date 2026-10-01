@@ -360,9 +360,14 @@ export class SovereignClient {
     return cache;
   }
 
+  /** FR013-05: the file that says which process writes the persona's event cache. */
+  cacheLockPath(personaId: string): string {
+    return join(this.opts.dataDir, 'personas', personaId, CACHE_LOCK);
+  }
+
   /** FR013-05: takes the persona's cache lock for this client, unless another live process holds it. */
   private async lockCache(personaId: string): Promise<boolean> {
-    const lock = join(this.opts.dataDir, 'personas', personaId, CACHE_LOCK);
+    const lock = this.cacheLockPath(personaId);
     if (this.cacheLocks.has(lock)) return true;
     await this.personaStore(personaId); // an unknown persona fails here; a known one has its directory now
     if (!(await takeCacheLock(lock, this))) return false;
@@ -394,7 +399,7 @@ export class SovereignClient {
    */
   async clearCache(personaId: string): Promise<void> {
     const store = await this.personaStore(personaId);
-    if (!(await this.lockCache(personaId))) throw new Error('otro proceso del CLI está escribiendo la caché de esta persona: repite cuando termine');
+    if (!(await this.lockCache(personaId))) throw new Error(`otro proceso del CLI está escribiendo la caché de esta persona: repite cuando termine (si no hay ningún otro proceso, borra ${this.cacheLockPath(personaId)})`);
     const open = this.caches.get(personaId);
     this.caches.delete(personaId);
     await open?.then((c) => c.clear(), () => undefined);
