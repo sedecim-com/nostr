@@ -79,6 +79,7 @@ Antes de v1.0 nada es GA: falta la revisión externa (SEC-01 y SEC-02). La web, 
 | Custodia gestionada básica | Función | Early release | Espera la aprobación legal (DEC-12) y la validación en AWS; el gate de release no la deja en producción. | GA opcional, con la aprobación legal y KMS y Secrets Manager reales. |
 | Custodia en Nitro Enclave | Función | Preview | Prototipo: la attestation solo se verificó en local, y va apagada en producción. | Preview: EIF, PCR, attestation y KMS reales más auditoría. |
 | Notificaciones push | Función | Experimental | Con Buzz y el secure relay, el gateway no puede ver la actividad sin leer DMs, así que no se ofrecen. | Experimental, detrás de un flag. |
+| Estado de presencia (NIP-38) | Función | Experimental | Solo en la web y apagado salvo que la persona lo active. No está probado contra el Buzz fijado: el gate de interoperabilidad registra si acepta el kind 30315, sin exigirlo. | Fuera del programa de v1.0: sigue Experimental. |
 <!-- maturity:end -->
 
 Trazabilidad FR/NFR → tareas → tests y tablero de estado, generados desde los issues y el código (CI comprueba que toda la evidencia citada exista): [docs/requirements-traceability.md](docs/requirements-traceability.md) · [docs/status.md](docs/status.md).

@@ -3,7 +3,9 @@ import type { SovereigntyConfig } from './types';
 /**
  * Reference configuration matrix (spec Appendix B). Crash reports are 'off' everywhere: they do not exist yet
  * (NFR007-03), and a preset must not promise them (PANEL-05). VAULT-04: private-resilient holds each send until
- * its copy is in the Continuity Vault; the sovereign profiles keep everything on the device.
+ * its copy is in the Continuity Vault; the sovereign profiles keep everything on the device. FR015-05: presence (NIP-38)
+ * is 'off' everywhere too: a status is metadata, so only the user turns it on, where the profile allows it
+ * (presencePolicy).
  *
  * Custody is the profile's reference, not a persona's: the sovereign profiles say 'offline' because spec §14 keeps
  * their key offline or in a signer. A client declares the custody of the persona's real key instead, never a promise
@@ -23,6 +25,7 @@ export const PRESETS = {
     cloudBackup: 'ciphertext-user-key',
     continuity: 'best-effort',
     crashReports: 'off',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: true,
     deliveryReceipts: true,
@@ -42,6 +45,7 @@ export const PRESETS = {
     cloudBackup: 'ciphertext-user-key',
     continuity: 'required-for-resilient',
     crashReports: 'off',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: true,
@@ -61,6 +65,7 @@ export const PRESETS = {
     cloudBackup: 'operator-managed',
     continuity: 'best-effort',
     crashReports: 'off',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: true,
@@ -80,6 +85,7 @@ export const PRESETS = {
     cloudBackup: 'off',
     continuity: 'off',
     crashReports: 'off',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: false,
@@ -99,6 +105,7 @@ export const PRESETS = {
     cloudBackup: 'off',
     continuity: 'off',
     crashReports: 'off',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: false,

@@ -217,6 +217,63 @@ describe('channel mirror per profile (FR014-04)', async () => {
   });
 });
 
+describe('presence per profile (FR015-05)', async () => {
+  const { PRESENCE_TEXTS, presenceMatrix, presenceOption, presencePolicy } = await import('../src/index');
+  const codes = (c: SovereigntyConfig, platform: 'web' | 'cli' = 'web') => validateConfig(c, platform).map((i) => `${i.severity}:${i.code}`);
+
+  it('FR015-05: no preset turns presence on, and a configuration stored before it has none, which is off', () => {
+    for (const name of Object.keys(PRESETS) as PresetName[]) expect(preset(name).presence, name).toBe('off');
+    const { presence: _dropped, ...older } = preset('convenience');
+    expect(presenceOption(older)).toBe('off');
+    expect(presencePolicy(older)).toMatchObject({ use: false, reason: 'off' });
+    for (const name of Object.keys(PRESETS) as PresetName[]) expect(presencePolicy(preset(name)).use, name).toBe(false);
+  });
+
+  it('FR015-05: once turned on, convenience, private-resilient and sovereign allow it; institutional and sovereign-tor never', () => {
+    expect(Object.fromEntries(presenceMatrix().map((r) => [r.profile, r.policy.use ? 'allowed' : r.policy.reason]))).toEqual({
+      convenience: 'allowed',
+      'private-resilient': 'allowed',
+      institutional: 'organization',
+      sovereign: 'allowed',
+      'sovereign-tor': 'tor-only',
+    });
+    // Derived from the controls, so a customized persona gets what its controls say: Tor-only wins over any identity.
+    expect(presencePolicy({ ...preset('sovereign-tor'), identity: 'linked', presence: 'status' })).toMatchObject({ use: false, reason: 'tor-only' });
+    expect(presencePolicy({ ...preset('convenience'), identity: 'verified', presence: 'status' })).toMatchObject({ use: false, reason: 'organization' });
+  });
+
+  it('FR015-05: turning it on is blocking in Tor-only and with a verified identity, a warning for a pseudonymous persona, and nothing more for a linked one', () => {
+    const on = (name: PresetName) => ({ ...preset(name), presence: 'status' as const });
+    expect(codes(on('sovereign-tor'), 'cli')).toContain('error:TOR_PRESENCE');
+    expect(isValid(on('sovereign-tor'), 'cli')).toBe(false);
+    expect(isValid(preset('sovereign-tor'), 'cli')).toBe(true);
+    expect(codes(on('institutional'))).toContain('error:PRESENCE_ORGANIZATION');
+    expect(isValid(on('institutional'), 'web')).toBe(false);
+    for (const name of ['private-resilient', 'sovereign'] as const) {
+      expect(codes(on(name)), name).toContain('warning:PRESENCE_PSEUDONYMOUS');
+      expect(isValid(on(name), 'web'), name).toBe(true);
+    }
+    expect(codes(on('convenience')).filter((c) => c.includes('PRESENCE'))).toEqual([]);
+    expect(isValid(on('convenience'), 'web')).toBe(true);
+    // Off, nothing is said about presence in any profile.
+    for (const name of Object.keys(PRESETS) as PresetName[]) expect(codes(preset(name), 'cli').filter((c) => c.includes('PRESENCE')), name).toEqual([]);
+    const tor = validateConfig(on('sovereign-tor'), 'cli').find((i) => i.code === 'TOR_PRESENCE')!;
+    expect(tor).toMatchObject({ controls: ['presence', 'network'], message: PRESENCE_TEXTS.torOnly });
+  });
+
+  it('FR015-05: the panel says what each option publishes and asks, and every presence text is reviewed copy', () => {
+    const say = (presence: SovereigntyConfig['presence']) => disclose({ ...preset('convenience'), presence }).find((d) => d.control === 'presence')!;
+    expect(say('off')).toMatchObject({ improves: ['privacidad-operador'], statement: expect.stringMatching(/no publica ni pide estados \(NIP-38, kind 30315\)/) });
+    expect(say('status')).toMatchObject({ sacrifices: ['privacidad-operador'], statement: expect.stringMatching(/caduca como mucho a las 24 horas.*en la misma consulta que sus perfiles/s) });
+    const reviewed = disclosureCatalog().filter((d) => d.control === 'presence' && d.option.startsWith('estado ('));
+    expect(reviewed.map((d) => d.statement)).toEqual(Object.values(PRESENCE_TEXTS));
+    expect(PRESENCE_TEXTS.what).toMatch(/ni «en línea», ni «escribiendo», ni la última vez que te conectaste/);
+    expect(PRESENCE_TEXTS.clear).toMatch(/caduca en una hora.*las copias que otros ya guardaron no desaparecen/s);
+    expect(PRESENCE_TEXTS.others).toMatch(/ninguna consulta aparte pide el estado de otra persona/);
+    for (const text of Object.values(PRESENCE_TEXTS)) expect(() => assertNoAbsoluteClaims(text)).not.toThrow();
+  });
+});
+
 describe('notification model per profile (ADR 0010, DEC-08)', async () => {
   const { NOTIFICATION_MODES, OPAQUE_PUSH_PAYLOAD, notificationMatrix, notificationPolicy, nextPushDelayMs } = await import('../src/index');
 

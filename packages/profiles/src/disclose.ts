@@ -1,6 +1,7 @@
 import type { Dimension, Disclosure, SovereigntyConfig } from './types';
 import { PRESETS } from './presets';
 import { CHANNEL_MIRROR_TEXTS } from './mirror';
+import { PRESENCE_TEXTS } from './presence';
 
 type Entry = Omit<Disclosure, 'control' | 'option'>;
 const d = (statement: string, improves: Dimension[], sacrifices: Dimension[], trustAssumptions: string[] = []): Entry => ({ statement, improves, sacrifices, trustAssumptions });
@@ -67,6 +68,15 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
     off: d('Sin informes de fallo: esta versión no los genera.', ['privacidad-operador'], [], []),
     'manual-export': d('Informes de fallo exportables a mano: todavía no existen; esta versión no genera ninguno.', [], [], []),
     'opt-in': d('Informes de fallo opt-in: todavía no existen; esta versión no envía ninguno.', [], [], []),
+  },
+  presence: {
+    off: d('Sin estado de presencia: esta persona no publica ni pide estados (NIP-38, kind 30315).', ['privacidad-operador'], [], []),
+    status: d(
+      'Estado de presencia activado: cuando escribes un estado, se publica firmado con tu npub en los relays de esta persona y caduca como mucho a las 24 horas; quien pueda leer esos relays ve lo que dice y cuándo lo publicaste. Los estados de otras personas se piden en la misma consulta que sus perfiles.',
+      [],
+      ['privacidad-operador'],
+      ['Los relays de esta persona y quien pueda leerlos.'],
+    ),
   },
 };
 
@@ -168,6 +178,8 @@ export function disclosureCatalog(): Disclosure[] {
   for (const [key, statement] of Object.entries(SECURE_GROUP_TEXTS)) out.push({ control: 'messaging', option: `marmot en la web (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   // FR014-04: listed under the control that decides whether the web asks the mirror (see mirrorPolicy).
   for (const [key, statement] of Object.entries(CHANNEL_MIRROR_TEXTS)) out.push({ control: key === 'torOnly' ? 'network' : 'identity', option: `mirror de canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+  // FR015-05: what the status card, the panel and validateConfig say about presence.
+  for (const [key, statement] of Object.entries(PRESENCE_TEXTS)) out.push({ control: 'presence', option: `estado (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   return out;
 }
 
