@@ -83,7 +83,10 @@ describe('expiration and deletion of DMs in the web (PANEL-06)', () => {
     await setConversationExpiration(book.store, p, contact, '90d');
     const raw = [...backend.data.entries()].map(([k, v]) => k + new TextDecoder().decode(v)).join('\n');
     expect(raw).not.toContain(contact);
-    expect(raw).not.toContain('90d');
+    // In clear the choice would be a JSON `{"expiration":"90d"}`; a bare `90d` is no test: it turns up by chance in the
+    // hex names of the sealed entries (and failed this check one run in a few dozen).
+    expect(raw).not.toContain('"expiration"');
+    expect(raw).not.toContain('"90d"');
   });
 
   it('PANEL-06: a DM of a conversation with an expiration carries it, and at expiry the browser forgets its copies and their vault archives', async () => {
