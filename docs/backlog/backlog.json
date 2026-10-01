@@ -4427,9 +4427,10 @@
     "FR021-02"
    ],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 291
+   "status": "Hecho",
+   "evidence": "Commit 4442b05 (PR #417): el CLI soberano es el servicio sovereign del perfil tor de docker-compose.yml: `docker compose run --rm sovereign …` lo ejecuta en un contenedor de un solo uso con TOR_SOCKS=tor:9050 (ejecutar el servicio activa su perfil). Su única red es interna y solo la comparte con tor, sin puertos publicados, sin capacidades, con no-new-privileges, proceso init y raíz de solo lectura; escribe en el volumen sovereign-data y en un tmpfs. La passphrase de sus almacenes y la contraseña de backup llegan como secretos en fichero de solo lectura (SOVEREIGN_PASSPHRASE_FILE, que lee el CLI de apps/sovereign-client/src/cli.ts y que manda sobre SOVEREIGN_PASSPHRASE), nunca como variables del contenedor ni de la imagen. La imagen (target sovereign del Dockerfile, con .dockerignore excluyendo cualquier .env y .data) lleva solo el cierre de producción del CLI. scripts/backup.sh no copia sovereign-data (decisión escrita allí y en docs/runbooks/restore.md): el respaldo de cada persona es su backup export. Documentado paso a paso en docs/sovereign-tor.md y enlazado desde README.md. Pruebas: tests/scripts/sovereign-service.test.ts (sin Docker: modelo de compose y Dockerfile, CLI con el entorno del servicio, selección de ficheros de la imagen, imports declarados y controles negativos de cada comprobación) y el job tor-profile de CI (scripts/tor-profile-check.sh con scripts/sovereign-sandbox.mjs): publica y relee por tor:9050 en el .onion del secure relay, comprueba el contenedor con docker inspect y desde dentro (solo resuelve tor, sin ruta a IPs públicas, usuario no root, sin capacidades, raíz de solo lectura), saca un backup cifrado del contenedor y lo restaura, y con tor parado el envío queda en el outbox con «No enviado: red de privacidad no disponible». Límites declarados: la passphrase vive en un fichero en claro en el disco del host, la memoria compartida del contenedor sigue siendo escribible y la imagen sovereign aún no entra en el pipeline de release ni en el SBOM reproducible.",
+   "issue": 291,
+   "evidenceState": "merged"
   },
   {
    "id": "DEC-14",
@@ -4570,9 +4571,10 @@
    "sp": 2,
    "deps": [],
    "sprint": "Diferido",
-   "status": "Pendiente",
-   "evidence": "",
-   "issue": 300
+   "status": "Hecho",
+   "evidence": "Commit 69daf5a (PR #414): la política está documentada en docs/attachments.md (tamaño, tipo y antivirus) y el tamaño se comprueba en el cliente antes de leer el archivo. Los límites por destino están en packages/blossom-client/src/policy.ts (MB decimales): 25 MB un adjunto de mensaje directo y la media de un grupo seguro, 10 MB una imagen de canal y 1 MB un avatar, más bajos que los topes de los servidores. La web mide File.size antes de leer el archivo (apps/web-saas/src/views/DmView.tsx, apps/web-saas/src/views/ChannelsView.tsx, apps/web-saas/src/views/Profile.tsx y apps/web-saas/src/lib/profiles.ts) y el CLI mide el archivo ya abierto (apps/sovereign-client/src/cli.ts); prepareBlob y groupSendFile (apps/sovereign-client/src/app.ts) lo vuelven a comprobar para cualquier llamada que no lo haya hecho. Al descargar, el cliente no abre un blob de más de 26 MB: fetch y NetworkGuard.fetch (packages/tor-network/src/guard.ts) dejan de leer en cuanto lo saben y cualquier otro transporte lo comprueba antes de calcular el hash (packages/blossom-client/src/client.ts). El mensaje dice cuánto pesa el archivo y cuánto se permite. El documento dice sin rodeos que el producto no analiza malware (en mensajes directos y grupos el archivo llega cifrado y el servidor no lo puede leer) y qué sí limita el daño. Pruebas: packages/blossom-client/test/policy.test.ts, packages/tor-network/test/fetch-limit.test.ts, apps/sovereign-client/test/attachments.test.ts y apps/web-saas/test/profile.test.ts. Límites declarados: la media de grupo de la web llega con FR025-14 y debe llamar a la misma comprobación, y el valor real de los topes de Buzz en el pin fijado lo fija el operador (los números del documento son los de una versión anterior que se pudo leer).",
+   "issue": 300,
+   "evidenceState": "merged"
   },
   {
    "id": "FR004-07",

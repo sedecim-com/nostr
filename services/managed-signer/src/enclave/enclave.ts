@@ -1,13 +1,14 @@
 import { spawn } from 'node:child_process';
-import { createCipheriv, createDecipheriv, createHash, generateKeyPairSync, randomBytes, type KeyObject } from 'node:crypto';
+import { createCipheriv, createDecipheriv, generateKeyPairSync, randomBytes, type KeyObject } from 'node:crypto';
 import { generateSecretKey, getPublicKey, isHex, nip49, selfTestKey, wipe, type EventTemplate } from '@sedecim/nostr-core';
-import { LocalSigner } from '@sedecim/signer';
+import { LocalSigner, ownerTag } from '@sedecim/signer';
 import { decodeCoseSign1 } from './attestation';
 import { decodeCbor } from './cbor';
 import { decryptEnvelopedData } from './cms';
 import type { EnclaveKms } from './kms';
-import { UserProofError, type UserProofVerifier } from './proof';
+import { UserProofError, type UserProofVerifier, type VerifiedProof } from './proof';
 import type { AwsCredentials, EnclaveRequest, EnclaveResponse, RequestHandler } from './protocol';
+import { openSealedSecret, SealedSecretError } from './sealed-secrets';
 
 /** Nitro Secure Module: produces attestation documents signed by the Nitro hypervisor. */
 export interface Nsm {
@@ -61,6 +62,11 @@ export interface EnclaveSignerOptions {
   proof?: UserProofVerifier;
   /** How many accepted proofs the enclave remembers at once (default 10000); when full, it refuses rather than forget one. */
   maxRememberedProofs?: number;
+  /**
+   * FR005-10 (ENCLAVE_REQUIRE_SEALED_SECRETS=1): import secrets and export passwords only sealed by the client to this
+   * enclave's attested key; in clear (what the parent can read) they are refused with 403.
+   */
+  requireSealedSecrets?: boolean;
 }
 
 /** A request the enclave turns down for what it is, not for a failure of its own: the parent relays the status. */
@@ -77,11 +83,13 @@ const unb64 = (s: string) => new Uint8Array(Buffer.from(s, 'base64'));
 const context = (pubkey: string, ot?: string) => ({ app: 'acceso-nostr', purpose: 'enclave-key', pubkey, ...(ot ? { owner_tag: ot } : {}) });
 const aad = (pubkey: string, ot?: string) => Buffer.from(`acceso-nostr/enclave-key/${pubkey}${ot ? `/${ot}` : ''}`);
 /**
- * What binds a sealed key to its owner. A hash, not the owner: the encryption context is written in clear to CloudTrail,
- * which already sees the pubkey, and must not also name the Acceso account behind it.
+ * What binds a sealed key to its owner (SHA-256 of `acceso-nostr/owner/v1|<owner>`). A hash, not the owner: the
+ * encryption context is written in clear to CloudTrail, which already sees the pubkey, and must not also name the Acceso
+ * account behind it. Shared with the client, which binds a sealed secret to the same tag (FR005-10).
  */
-export const ownerTag = (owner: string) => createHash('sha256').update(`acceso-nostr/owner/v1|${owner}`).digest('hex');
+export { ownerTag };
 const OWNER_MAX = 512;
+const SEALED_ONLY = 'this enclave only takes secrets sealed to its attested key (ENCLAVE_REQUIRE_SEALED_SECRETS): seal them in the client';
 const OWNER_TAG = /^[0-9a-f]{64}$/;
 /** Proofs accepted and not yet expired; bounded, and full means refuse (never forget a token that could be replayed). */
 const DEFAULT_REMEMBERED_PROOFS = 10_000;
@@ -206,9 +214,9 @@ export class EnclaveSigner implements RequestHandler {
   /**
    * FR005-09: the export proof. The owner's Acceso token is verified here, against keys pinned in the image and the
    * enclave's own clock, and has to be that of the owner the key was sealed for. Nothing the parent can relay or
-   * fabricate passes: a token of another user, an expired or stale sign-in, or one that was already used.
+   * fabricate passes: a token of another user, an expired or stale sign-in, or one that was already used (consumeProof).
    */
-  private async checkExportProof(token: unknown, sealed: Sealed): Promise<void> {
+  private async verifyExportProof(token: unknown, sealed: Sealed): Promise<{ proof: VerifiedProof; nowMs: number }> {
     const verifier = this.opts.proof;
     if (!verifier) throw new EnclaveRefusal(403, 'export needs a proof of the key owner and this enclave has no verifier configured');
     if (typeof token !== 'string' || !token) throw new EnclaveRefusal(401, 'export needs the owner\'s Acceso token as proof');
@@ -223,12 +231,45 @@ export class EnclaveSigner implements RequestHandler {
     // A v1 blob names no owner: nothing ties it to whoever holds a valid token, so it cannot leave.
     if (sealed.v !== 2 || !sealed.ot) throw new EnclaveRefusal(403, 'this sealed key has no owner binding: it cannot be exported');
     if (sealed.ot !== ownerTag(proof.owner)) throw new EnclaveRefusal(403, 'the proof is not from the owner of this key');
-    // Consumed here, after the checks that can fail for reasons of the request, and before anything that touches KMS.
+    return { proof, nowMs };
+  }
+
+  /** Consumed after the checks that can fail for reasons of the request, and before anything that touches KMS. */
+  private consumeProof(proof: VerifiedProof, nowMs: number): void {
     const nowS = Math.floor(nowMs / 1000);
     for (const [jti, exp] of this.usedProofs) if (exp <= nowS) this.usedProofs.delete(jti);
     if (this.usedProofs.has(proof.jti)) throw new EnclaveRefusal(401, 'proof: this token was already used: sign in again');
     if (this.usedProofs.size >= (this.opts.maxRememberedProofs ?? DEFAULT_REMEMBERED_PROOFS)) throw new EnclaveRefusal(403, 'proof: too many proofs in flight, try again later');
     this.usedProofs.set(proof.jti, proof.expiresAt);
+  }
+
+  /**
+   * FR005-10: a secret the client sealed to this enclave's RSA key (after verifying its attestation), for this purpose,
+   * owner tag and pubkey, and recent by this enclave's clock. Any failure is the caller's (400), never an enclave error.
+   */
+  private openSealed(envelope: unknown, purpose: 'import', ot: string, pubkey: string, nowMs: number): { ncryptsec: string; password: string };
+  private openSealed(envelope: unknown, purpose: 'export', ot: string, pubkey: string, nowMs: number): { password: string };
+  private openSealed(envelope: unknown, purpose: 'import' | 'export', ot: string, pubkey: string, nowMs: number): { password: string; ncryptsec?: string } {
+    try {
+      return openSealedSecret(this.rsa.privateKey, envelope, purpose, ot, pubkey, nowMs);
+    } catch (err) {
+      if (err instanceof SealedSecretError) throw new EnclaveRefusal(400, err.message);
+      throw err;
+    }
+  }
+
+  /** FR005-10: the import secrets, in clear (unless refused by configuration) or sealed to this enclave for `owner`. */
+  private async importSecrets(req: Extract<EnclaveRequest, { op: 'import' }>, owner: string): Promise<{ ncryptsec: unknown; password: unknown }> {
+    const sealed = req.sealedSecrets !== undefined;
+    const clear = req.ncryptsec !== undefined || req.password !== undefined;
+    if (sealed && clear) throw new EnclaveRefusal(400, 'import takes ncryptsec and password, or sealedSecrets, not both');
+    if (!sealed) {
+      if (!clear) throw new EnclaveRefusal(400, 'import needs ncryptsec and password, or sealedSecrets');
+      if (this.opts.requireSealedSecrets) throw new EnclaveRefusal(403, SEALED_ONLY);
+      return { ncryptsec: req.ncryptsec, password: req.password };
+    }
+    // The owner the parent declares is in the AAD: the key is sealed for the owner the client sealed the secrets for.
+    return this.openSealed(req.sealedSecrets, 'import', ownerTag(owner), '', await this.trustedNow());
   }
 
   async handle(req: EnclaveRequest): Promise<EnclaveResponse> {
@@ -246,11 +287,22 @@ export class EnclaveSigner implements RequestHandler {
         }
         case 'import': {
           const owner = checkOwner(req.owner);
+          const { ncryptsec, password } = await this.importSecrets(req, owner);
+          const undecryptable = () => new EnclaveRefusal(400, 'cannot decrypt ncryptsec (wrong password or corrupted payload)');
+          if (typeof ncryptsec !== 'string' || typeof password !== 'string') throw undecryptable();
+          // What the parent checks before scrypt (IR-2026-09-02), checked here too: a sealed ncryptsec never reaches it.
+          let logN: number;
+          try {
+            logN = nip49.ncryptsecLogN(ncryptsec);
+          } catch {
+            throw undecryptable();
+          }
+          if (logN > MAX_IMPORT_LOG_N) throw new EnclaveRefusal(400, `ncryptsec logN ${logN} is above ${MAX_IMPORT_LOG_N}: re-encrypt it with a lower cost to import`);
           let secretKey: Uint8Array;
           try {
-            ({ secretKey } = await nip49.decryptKeyAsync(req.ncryptsec, req.password, { maxLogN: MAX_IMPORT_LOG_N }));
+            ({ secretKey } = await nip49.decryptKeyAsync(ncryptsec, password, { maxLogN: MAX_IMPORT_LOG_N }));
           } catch {
-            throw new EnclaveRefusal(400, 'cannot decrypt ncryptsec (wrong password or corrupted payload)');
+            throw undecryptable();
           }
           return { ok: true, ...(await this.store(secretKey, owner, creds)) };
         }
@@ -267,13 +319,26 @@ export class EnclaveSigner implements RequestHandler {
         }
         case 'export': {
           if (this.opts.allowExport !== true) throw new EnclaveRefusal(403, 'export disabled');
-          if (typeof req.password !== 'string' || req.password.length < 12) throw new EnclaveRefusal(400, 'export password must be at least 12 characters');
+          const sealedPassword = req.sealedPassword !== undefined;
+          if (sealedPassword && req.password !== undefined) throw new EnclaveRefusal(400, 'export takes password or sealedPassword, not both');
+          if (!sealedPassword && this.opts.requireSealedSecrets) throw new EnclaveRefusal(403, SEALED_ONLY);
+          const weak = (p: unknown) => typeof p !== 'string' || p.length < 12;
+          if (!sealedPassword && weak(req.password)) throw new EnclaveRefusal(400, 'export password must be at least 12 characters');
           if (!Number.isInteger(req.logN) || req.logN < 1 || req.logN > 22) throw new EnclaveRefusal(400, 'invalid logN');
           const sealed = parseSealed(req.sealed);
-          await this.checkExportProof(req.proof, sealed);
+          const { proof, nowMs } = await this.verifyExportProof(req.proof, sealed);
+          let password = req.password as string;
+          if (sealedPassword) {
+            if (!isHex(req.pubkey, 32)) throw new Error('invalid pubkey');
+            // FR005-10: sealed for this owner and this key; opened before the proof is spent, so a stale envelope does not
+            // cost the owner a sign-in.
+            password = this.openSealed(req.sealedPassword, 'export', sealed.ot!, req.pubkey, nowMs).password;
+            if (weak(password)) throw new EnclaveRefusal(400, 'export password must be at least 12 characters');
+          }
+          this.consumeProof(proof, nowMs);
           const sk = await this.unseal(sealed, req.pubkey, creds);
           try {
-            return { ok: true, ncryptsec: await nip49.encryptKeyAsync(sk, req.password, req.logN, 0x00) };
+            return { ok: true, ncryptsec: await nip49.encryptKeyAsync(sk, password, req.logN, 0x00) };
           } finally {
             wipe(sk);
           }

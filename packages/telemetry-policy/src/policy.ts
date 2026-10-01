@@ -8,7 +8,7 @@ export interface TelemetryConfig {
   /** Remote endpoints allowed to receive telemetry (none are allowed at level 'none'). */
   endpoints?: string[];
   minimizeIp?: boolean;
-  /** tracing sample rate for 'standard' (0..1) */
+  /** Fraction of traces recorded at level 'standard' (0..1, default 0: off), decided at each root (NFR007-02). */
   traceSampleRate?: number;
 }
 
@@ -57,8 +57,14 @@ export class TelemetryPolicy {
     return this.allowedEndpoints().length > 0;
   }
 
-  shouldTrace(): boolean {
-    return this.config.level === 'standard' && Math.random() < (this.config.traceSampleRate ?? 0.01);
+  /** Traces are only possible at level 'standard' with a sample rate above 0 (NFR007-02); 'minimal' and 'none' never trace. */
+  tracingEnabled(): boolean {
+    return this.config.level === 'standard' && (this.config.traceSampleRate ?? 0) > 0;
+  }
+
+  /** Sampling decision of one trace, taken once at its root (NFR007-02). */
+  shouldTrace(random: () => number = Math.random): boolean {
+    return this.tracingEnabled() && random() < (this.config.traceSampleRate ?? 0);
   }
 }
 

@@ -13,16 +13,20 @@
  *   ENCLAVE_PROOF_JWKS       path, inside the image, of the pool's jwks.json: the signing keys are pinned in the EIF
  *                            and so are part of its measurements (PCR0/PCR2); rotating them means a new image
  *   ENCLAVE_PROOF_MAX_AGE_S  how recent the password sign-in must be (default 300)
+ *   ENCLAVE_REQUIRE_SEALED_SECRETS  1: import secrets and export passwords only sealed by the client to this enclave's
+ *                            attested key (FR005-10); in clear, where the parent can read them, they are refused (403)
  */
 import { EnclaveSigner, ExecNsm } from './enclave';
 import { awsEnclaveKms } from './kms';
 import { exportConfigFromEnv } from './proof';
 import { serveEnclave } from './protocol';
+import { flagFromEnv } from './sealed-secrets';
 
 const env = process.env;
 if (!env.ENCLAVE_KMS_KEY_ID) throw new Error('ENCLAVE_KMS_KEY_ID is required');
 if (!env.ENCLAVE_NSM_HELPER) throw new Error('ENCLAVE_NSM_HELPER is required');
 const { allowExport, proof } = exportConfigFromEnv(env);
+const requireSealedSecrets = flagFromEnv(env, 'ENCLAVE_REQUIRE_SEALED_SECRETS');
 
 const signer = new EnclaveSigner({
   nsm: new ExecNsm(env.ENCLAVE_NSM_HELPER),
@@ -30,6 +34,7 @@ const signer = new EnclaveSigner({
   kmsKeyId: env.ENCLAVE_KMS_KEY_ID,
   allowExport,
   ...(proof ? { proof } : {}),
+  requireSealedSecrets,
 });
 const listen = env.ENCLAVE_LISTEN || '/run/enclave-signer.sock';
 await serveEnclave(signer, /^\d+$/.test(listen) ? { port: Number(listen), host: '127.0.0.1' } : { path: listen });

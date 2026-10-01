@@ -3,6 +3,7 @@ import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Link
 import { disclose, MANAGED_CONSENT_TEXTS, managedConsentVersion, preset } from '@sedecim/profiles';
 import { npubEncode } from '@sedecim/nostr-core';
 import { ManagedSignerClient, ManagedSignerReauthError, type ClosedManagedKey, type ManagedDeviceSession, type ManagedKeyInfo, type ManagedKeyUsage, type ManagedSignerConnection } from '@sedecim/signer';
+import { enclaveTrust } from '../lib/config';
 import { cancelManagedCustody, managedCancellationBackup, managedConnection, managedExitBackupJson, managedLogin, migrateManagedToLocal, shortNpub } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
 import { MaturityChip } from './MaturityChip';
@@ -127,7 +128,8 @@ export function MigrationWizard() {
 
   const exportAndVerify = () =>
     run(async () => {
-      const res = await recent.run((login) => migrateManagedToLocal(ws.book, s.persona, new ManagedSignerClient({ ...login, keyId }), password));
+      // FR005-10: with the deployment's managedEnclave, the export password is sealed to the enclave in this browser.
+      const res = await recent.run((login) => migrateManagedToLocal(ws.book, s.persona, new ManagedSignerClient({ ...login, keyId }), password, enclaveTrust(ws.cfg)));
       setNcryptsec(res.ncryptsec);
       setPassword('');
       setStep(2);
@@ -233,7 +235,7 @@ export function CancelCustody() {
   };
   const saveBackup = () =>
     run(async () => {
-      const json = await recent.run((login) => managedCancellationBackup(s.persona, new ManagedSignerClient({ ...login, keyId }), password));
+      const json = await recent.run((login) => managedCancellationBackup(s.persona, new ManagedSignerClient({ ...login, keyId }), password, enclaveTrust(ws.cfg)));
       setPassword('');
       download(json, 'acceso-nostr-backup-cancelacion.json');
       setDownloaded(true);

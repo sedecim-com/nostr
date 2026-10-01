@@ -1,6 +1,6 @@
-import { CognitoVerifier, rateLimitFromEnv } from '@sedecim/service-kit';
+import { CognitoVerifier, rateLimitFromEnv, tracingFromEnv } from '@sedecim/service-kit';
 import { startMetricsServer } from '@sedecim/metrics/server';
-import { createManagedSignerApi, DEFAULT_AWS_REGION, DEFAULT_RATE_LIMITS, DEFAULT_REAUTH_MAX_AGE_S, DEFAULT_SCRYPT_LIMITS, parseKindLimits, enclaveBackendFromEnv, ManagedSigner } from './index';
+import { createManagedSignerApi, DEFAULT_AWS_REGION, DEFAULT_RATE_LIMITS, DEFAULT_REAUTH_MAX_AGE_S, DEFAULT_SCRYPT_LIMITS, parseKindLimits, enclaveBackendFromEnv, flagFromEnv, ManagedSigner } from './index';
 import { openStorage } from './storage';
 
 const env = process.env;
@@ -60,6 +60,9 @@ if (!(Number.isInteger(reauthMaxAgeSeconds) && reauthMaxAgeSeconds > 0 && reauth
 // Signing backend (FR005-05): in-process (default) or a Nitro Enclave that only returns signatures.
 const enclave = enclaveBackendFromEnv(env);
 if (enclave) await enclave.client.verify();
+// FR005-10: import secrets and export passwords only sealed by the client to the enclave; the vault tier has no enclave.
+const requireSealedSecrets = flagFromEnv(env, 'MANAGED_SIGNER_REQUIRE_SEALED_SECRETS');
+if (requireSealedSecrets && !enclave) throw new Error('MANAGED_SIGNER_REQUIRE_SEALED_SECRETS=1 needs MANAGED_SIGNER_BACKEND=enclave: the vault tier decrypts in this process');
 
 const core = new ManagedSigner(vault, {
   registry,
@@ -69,6 +72,7 @@ const core = new ManagedSigner(vault, {
   rateLimits,
   scryptLimits,
   ...(enclave ? { sealedKeys: enclave.client } : {}),
+  ...(requireSealedSecrets ? { requireSealedSecrets } : {}),
   ...(env.MANAGED_SIGNER_DEVICE_SESSION_TTL_S ? { deviceSessionTtlMs: Number(env.MANAGED_SIGNER_DEVICE_SESSION_TTL_S) * 1000 } : {}),
 });
 const api = createManagedSignerApi(core, {
@@ -80,6 +84,8 @@ const api = createManagedSignerApi(core, {
   reauthMaxAgeSeconds,
   // IR-2026-09-05: per-IP buckets (RATE_LIMIT_* env); the per-key signing limits above stay separate.
   rateLimit: rateLimitFromEnv(env),
+  // NFR007-02: TELEMETRY_LEVEL / TRACE_SAMPLE_RATE / TRACE_EXPORT_URL; off by default.
+  tracing: tracingFromEnv(env),
 });
 if (!Object.keys(revocationTokens).length) api.logger.warn('MANAGED_SIGNER_REVOCATION_TOKENS empty: device revocations cannot be received');
 

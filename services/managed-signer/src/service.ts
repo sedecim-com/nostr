@@ -12,7 +12,7 @@ import {
   type NostrEvent,
   type Signer,
 } from '@sedecim/nostr-core';
-import { LocalSigner } from '@sedecim/signer';
+import { LocalSigner, MAX_ENVELOPE_CHARS } from '@sedecim/signer';
 import type { Vault } from './vault';
 import { EnclaveError, type SealedKeyOps } from './enclave/client';
 import { MemoryKeyRegistry, PubkeyAlreadyManagedError, type KeyExit, type KeyRecord, type KeyRegistry, type UsageRecord } from './registry';
@@ -43,6 +43,16 @@ async function enclaveCall<T>(fn: () => Promise<T>): Promise<T> {
     if (err instanceof EnclaveError && err.status) throw new ManagedSignerError(err.status, err.message);
     throw err;
   }
+}
+
+/** FR005-10: what the vault tier answers to sealed secrets. It decrypts keys in this process: sealing would protect nothing. */
+const SEALED_NEEDS_ENCLAVE = 'sealed secrets need the enclave tier: this managed-signer decrypts keys in its own process, where sealing them to an enclave protects nothing (send them in clear)';
+const CLEAR_REFUSED = 'this managed-signer only takes secrets sealed to its enclave (MANAGED_SIGNER_REQUIRE_SEALED_SECRETS): seal them to the attested enclave key';
+
+/** FR005-10: a sealed secret is relayed as it is; only its type and size are looked at here, never its content. */
+function envelopeField(v: unknown, field: string): string {
+  if (typeof v !== 'string' || v.length === 0 || v.length > MAX_ENVELOPE_CHARS) throw new ManagedSignerError(400, `invalid ${field}: a sealed secret of at most ${MAX_ENVELOPE_CHARS} characters`);
+  return v;
 }
 
 /**
@@ -121,6 +131,11 @@ export interface ManagedSignerOptions {
    * stores sealed blobs this process cannot decrypt.
    */
   sealedKeys?: SealedKeyOps;
+  /**
+   * FR005-10 (MANAGED_SIGNER_REQUIRE_SEALED_SECRETS=1), enclave tier only: import secrets and export passwords only
+   * sealed by the client to the enclave; in clear they are refused (400) before anything reaches the enclave.
+   */
+  requireSealedSecrets?: boolean;
   now?: () => number;
 }
 
@@ -146,6 +161,26 @@ export class ManagedSigner {
     this.metrics = opts.metrics ?? new SignerMetrics();
     if (opts.rateLimits !== false) this.limiter = new SigningRateLimiter(opts.rateLimits ?? DEFAULT_RATE_LIMITS);
     if (opts.scryptLimits !== false) this.scryptGate = new ScryptGate(opts.scryptLimits ?? DEFAULT_SCRYPT_LIMITS, () => this.now());
+    // The vault tier takes secrets only in clear: requiring sealed ones there would refuse every import and export.
+    if (opts.requireSealedSecrets && !opts.sealedKeys) throw new Error('requireSealedSecrets needs the enclave tier (MANAGED_SIGNER_BACKEND=enclave)');
+  }
+
+  /** FR005-10: the enclave, for a sealed secret; 400 in the vault tier. */
+  private sealedTier(): SealedKeyOps {
+    if (!this.opts.sealedKeys) throw new ManagedSignerError(400, SEALED_NEEDS_ENCLAVE);
+    return this.opts.sealedKeys;
+  }
+
+  /** FR005-10: secrets in clear, unless the enclave tier was told to take them only sealed. */
+  private refuseClearSecrets(): void {
+    if (this.opts.sealedKeys && this.opts.requireSealedSecrets) throw new ManagedSignerError(400, CLEAR_REFUSED);
+  }
+
+  /** FR005-10: an attestation document of the enclave for the client's own nonce; 404 without the enclave tier. */
+  async enclaveAttestation(nonce: Uint8Array): Promise<Uint8Array> {
+    const sealed = this.opts.sealedKeys;
+    if (!sealed) throw new ManagedSignerError(404, 'this managed-signer keeps its keys in no enclave');
+    return enclaveCall(() => sealed.attest(nonce));
   }
 
   /** Runs a scrypt operation through the per-owner/global admission (wrong passwords count too). */
@@ -312,6 +347,7 @@ export class ManagedSigner {
 
   /** local -> managed migration (explicit, opt-in). */
   async importEncrypted(owner: string, principal: string, ncryptsec: string, password: string, opts: NewKeyOptions = {}): Promise<KeyRecord> {
+    this.refuseClearSecrets();
     if (typeof ncryptsec !== 'string' || typeof password !== 'string') throw new ManagedSignerError(400, 'ncryptsec and password must be strings');
     let logN: number;
     try {
@@ -335,6 +371,17 @@ export class ManagedSigner {
     } finally {
       wipe(secretKey);
     }
+  }
+
+  /**
+   * FR005-10: the same migration with the ncryptsec and its password sealed by the client to the enclave. This process
+   * relays the envelope as it is: the scrypt cap and a wrong password are checked inside the enclave, and the owner it
+   * names here is bound by the envelope (a different one does not open it).
+   */
+  async importSealed(owner: string, principal: string, sealedSecrets: unknown, opts: NewKeyOptions = {}): Promise<KeyRecord> {
+    const sealed = this.sealedTier();
+    const envelope = envelopeField(sealedSecrets, 'sealed_secrets');
+    return this.persist(await this.scrypt('import', owner, () => enclaveCall(() => sealed.importSealed(owner, envelope))), owner, principal, 'imported', opts);
   }
 
   private async store(sk: Uint8Array, owner: string, principal: string, action: 'created' | 'imported', opts: NewKeyOptions): Promise<KeyRecord> {
@@ -429,18 +476,35 @@ export class ManagedSigner {
    * user must sign with the exported key to prove the migration worked.
    */
   async export(keyId: string, owner: string, principal: string, password: string, logN = 18, proof?: string): Promise<{ ncryptsec: string; challenge: string }> {
+    this.refuseClearSecrets();
     const k = await this.key(keyId, owner);
     if (password.length < 12) throw new ManagedSignerError(400, 'export password must be at least 12 characters');
+    return this.exportKey(k, owner, principal, { password }, logN, proof);
+  }
+
+  /**
+   * FR005-10: the same export with the password sealed by the client to the enclave, which checks it (12 characters at
+   * least) and encrypts the key with it. This process relays the envelope and never holds the password.
+   */
+  async exportSealed(keyId: string, owner: string, principal: string, sealedPassword: unknown, logN = 18, proof?: string): Promise<{ ncryptsec: string; challenge: string }> {
+    this.sealedTier();
+    const envelope = envelopeField(sealedPassword, 'sealed_password');
+    return this.exportKey(await this.key(keyId, owner), owner, principal, { sealedPassword: envelope }, logN, proof);
+  }
+
+  private async exportKey(k: KeyRecord, owner: string, principal: string, secret: { password: string } | { sealedPassword: string }, logN: number, proof?: string): Promise<{ ncryptsec: string; challenge: string }> {
+    const { keyId } = k;
     const sealed = this.opts.sealedKeys;
     // FR005-09: in the enclave tier the owner's Acceso token travels on to the enclave, which verifies it; the parent's own
     // checks (recent sign-in, ownership of the record) are not what lets the key out.
     if (sealed && !proof) throw new ManagedSignerError(401, 'export from the enclave needs the owner\'s Acceso token');
     const ncryptsec = await this.scrypt('export', owner, async () => {
-      const secret = await this.secretOf(k);
+      const material = await this.secretOf(k);
       try {
-        return sealed ? await enclaveCall(() => sealed.exportNcryptsec(secret, k.pubkey, password, logN, proof!)) : await nip49.encryptKeyAsync(secret, password, logN, 0x00);
+        if (!sealed) return await nip49.encryptKeyAsync(material, (secret as { password: string }).password, logN, 0x00);
+        return await enclaveCall(() => ('sealedPassword' in secret ? sealed.exportSealed(material, k.pubkey, secret.sealedPassword, logN, proof!) : sealed.exportNcryptsec(material, k.pubkey, secret.password, logN, proof!)));
       } finally {
-        wipe(secret);
+        wipe(material);
       }
     });
     k.state = 'export-pending';

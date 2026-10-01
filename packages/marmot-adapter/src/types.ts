@@ -74,6 +74,8 @@ export interface PendingGroupOperation {
   rumorId?: string;
   /** add, remove, welcome: whom it is about. */
   target?: string;
+  /** remove: only this many devices (leaves) of `target` go, not the whole persona (`removeDevice`, a rejoin). */
+  leaves?: number;
 }
 
 /** One MLS leaf of the group. */

@@ -2,9 +2,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
 import { nip98 } from '@sedecim/nostr-core';
-import { createLogger, type Logger } from '@sedecim/telemetry-policy';
+import { createLogger, type Logger, type Span, type Tracer } from '@sedecim/telemetry-policy';
 import { MemoryReplayStore, ReplayStoreFullError, type ReplayStore } from './replay';
 import { HttpRateLimiter, logRateLimited, retryAfterSeconds, type HttpRateLimitOptions, type RateClass, type RateScope } from './ratelimit';
+import { createServiceTracer, isOnionHost, type ServiceTracingOptions } from './tracing';
 
 /** 'nip98-or-token': NIP-98, or an `Authorization: Bearer` token handed to the route as `req.token` to verify (e.g. Cognito). */
 export type AuthMode = 'none' | 'nip98' | 'bearer' | 'nip98-optional' | 'nip98-or-token';
@@ -83,6 +84,8 @@ export interface ServiceOptions {
   replayStore?: ReplayStore;
   /** Token buckets by client IP and principal (IR-2026-09-05). Off unless given (mains use rateLimitFromEnv). */
   rateLimit?: HttpRateLimitOptions | HttpRateLimiter | false;
+  /** NFR007-02: a span per request, sampled and redacted (mains use tracingFromEnv). Off unless given, and at telemetry level 'none'. */
+  tracing?: ServiceTracingOptions | Tracer;
 }
 
 export class Service {
@@ -91,12 +94,14 @@ export class Service {
   readonly logger: Logger;
   readonly replayStore: ReplayStore;
   readonly rateLimiter?: HttpRateLimiter;
+  readonly tracer: Tracer;
   baseUrl = '';
 
   constructor(readonly opts: ServiceOptions) {
     this.logger = opts.logger ?? createLogger({ base: { service: opts.name }, minimizeIp: true });
     this.replayStore = opts.replayStore ?? new MemoryReplayStore();
     if (opts.rateLimit) this.rateLimiter = opts.rateLimit instanceof HttpRateLimiter ? opts.rateLimit : new HttpRateLimiter(opts.rateLimit);
+    this.tracer = createServiceTracer(opts.name, opts.tracing, this.logger);
   }
 
   route(method: string, path: string, handler: Handler, auth: AuthMode = 'none', ropts: RouteOptions = {}): this {
@@ -182,13 +187,23 @@ export class Service {
     return { 'access-control-allow-origin': origin, 'access-control-expose-headers': 'retry-after, www-authenticate', vary: 'Origin' };
   }
 
-  async handle(req: IncomingMessage, res: ServerResponse) {
+  /**
+   * NFR007-02: each request is the root of a trace, sampled there. The span only gets the method, the route as
+   * registered (never the path), the status and the duration; a request to a .onion host is never traced.
+   */
+  async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const opts = { kind: 'server' as const, attributes: { 'http.request.method': req.method }, untraced: isOnionHost(req.headers.host) };
+    await this.tracer.withSpan(req.method ?? 'http.server', (span) => this.serve(req, res, span), opts);
+  }
+
+  private async serve(req: IncomingMessage, res: ServerResponse, span: Span) {
     const started = Date.now();
     const url = new URL(req.url ?? '/', 'http://local');
     let status = 500;
     const cors = this.corsHeaders(req);
     if (req.method === 'OPTIONS') {
       status = cors['access-control-allow-origin'] ? 204 : 403;
+      span.setAttribute('http.response.status_code', status);
       res.writeHead(status, { ...cors, 'access-control-allow-methods': 'GET, POST, PUT, DELETE', 'access-control-allow-headers': 'authorization, content-type', 'access-control-max-age': '600' });
       res.end();
       return;
@@ -196,6 +211,7 @@ export class Service {
     try {
       const route = this.routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
       if (!route) throw new HttpError(404, 'not found');
+      span.updateName(`${route.method} ${route.path}`).setAttribute('http.route', route.path);
       const m = route.pattern.exec(url.pathname)!;
       const cls = route.rateClass;
       const ip = this.rateLimiter && cls !== 'none' ? this.rateLimiter.ip(req) : '';
@@ -237,9 +253,11 @@ export class Service {
     } catch (err) {
       status = err instanceof HttpError ? err.status : 500;
       if (status === 500) this.logger.error('unhandled error', { error: (err as Error).message });
+      if (status >= 500) span.recordError(err);
       res.writeHead(status, { 'content-type': 'application/json', ...cors, ...(err instanceof HttpError ? err.headers : {}) });
       res.end(JSON.stringify({ error: err instanceof HttpError ? err.message : 'internal error' }));
     } finally {
+      span.setAttribute('http.response.status_code', status);
       this.logger.debug('request', { method: req.method, path: url.pathname, status, ms: Date.now() - started });
     }
   }
@@ -256,6 +274,7 @@ export class Service {
   async close(): Promise<void> {
     await new Promise<void>((r) => (this.server ? this.server.close(() => r()) : r()));
     await this.replayStore.close?.();
+    await this.tracer.shutdown();
   }
 }
 

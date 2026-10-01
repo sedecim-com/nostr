@@ -43,3 +43,8 @@ paths = ['''packages/nostr-core/test/vectors/(nip(49|59)\.vectors\.json|generate
 description = "Kubernetes secretKeyRef/configMapKeyRef key names (e.g. VAULT_S3_SECRET_KEY): a line holding only an env-style name with underscores, never a value (mixed-case or AWS-style values are still reported)"
 regexTarget = "line"
 regexes = ['''(?-i)^\s*key: [A-Z][A-Z0-9]*(_[A-Z0-9]+)+\s*$''']
+
+[[allowlists]]
+description = "The bkey field of the Buzz relay logs (NFR006-03): the word key makes the generic-api-key rule read its value as a credential (CI found it with the report of scripts/scan-logs.sh: that rule, a line written by the relay service, this field). Only the text of that field: any other key field, and any other finding on the same line, is still reported, and the canary of scripts/scan-logs.sh still checks that no secret value of .env appears in any log"
+regexTarget = "match"
+regexes = ['''^bkey"\s*:\s*"[\w.=-]+"$''']

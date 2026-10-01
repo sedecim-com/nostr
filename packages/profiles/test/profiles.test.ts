@@ -101,6 +101,18 @@ describe('sovereignty profiles', () => {
     expect(PUBLIC_PROFILE_TEXTS.withdraw).toMatch(/las copias que otros ya guardaron no desaparecen/);
   });
 
+  it('what the web secure groups say about devices, rotation, proposals and files is reviewed copy (FR025-14)', async () => {
+    const { SECURE_GROUP_TEXTS } = await import('../src/index');
+    const reviewed = disclosureCatalog().filter((d) => d.control === 'messaging' && d.option.startsWith('marmot en la web'));
+    expect(reviewed.map((d) => d.statement)).toEqual(Object.values(SECURE_GROUP_TEXTS));
+    // Who sees what: the relay only ever gets ciphertext, a Blossom server gets the npub that signs the upload.
+    expect(SECURE_GROUP_TEXTS.devices).toMatch(/key package firmado con tu npub por cada dispositivo/);
+    expect(SECURE_GROUP_TEXTS.media).toMatch(/cada servidor ve tu npub, que firma la subida, tu dirección IP/);
+    expect(SECURE_GROUP_TEXTS.proposals).toMatch(/no pueden enviar mensajes ni archivos/);
+    expect(SECURE_GROUP_TEXTS.rotate).toMatch(/Las propuestas pendientes se descartan/);
+    expect(SECURE_GROUP_TEXTS.addDevices).toMatch(/dispositivo perdido o revocado/);
+  });
+
   it('refuses absolute anonymity claims', () => {
     expect(() => assertNoAbsoluteClaims('Modo 100% anónimo')).toThrow();
   });
@@ -162,7 +174,7 @@ describe('disclosure copy versioning (FR028-02)', () => {
   it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
     const { createHash } = await import('node:crypto');
     const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
-    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3', '1.8.0': 'ea21f9293106b69d', '1.9.0': 'a144762b252f4f4c', '1.10.0': 'c77e72631f7b5747', '1.11.0': '7d98f0e859013455' };
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3', '1.8.0': 'ea21f9293106b69d', '1.9.0': 'a144762b252f4f4c', '1.10.0': 'c77e72631f7b5747', '1.11.0': '7d98f0e859013455', '1.12.0': '834fcc54845c134d' };
     const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
     expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();

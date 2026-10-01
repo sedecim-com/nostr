@@ -9,6 +9,15 @@
 #     through the onion service). Buzz binds each connection to the community of its Host header, so the
 #     onion host gets its own community first (scripts/buzz-provision-community.ts, operator NIP-98). Buzz
 #     does not take DM relay lists (kind 10050), so this DM goes to the sender's relays, the same onion.
+# FR020-06: then the same CLI as the compose service `sovereign`, run as docs/sovereign-tor.md says
+# (`docker compose run --rm sovereign …`, TOR_SOCKS=tor:9050 on the internal network tor-socks, the passphrase and the
+# backup password as secret files):
+#   - what Docker applied to its container and what the container sees from inside (scripts/sovereign-sandbox.mjs):
+#     no published port, non-root, no capabilities, read-only root filesystem, one internal network, no DNS or route
+#     out, no secret in a variable or in the image, and an image with the CLI's production closure only;
+#   - a channel message to the secure-relay .onion through tor:9050, read back;
+#   - an encrypted backup taken out of the container and restored from a file;
+#   - with tor stopped, a send that waits in the outbox with «No enviado: red de privacidad no disponible».
 #
 # Usage: bash scripts/tor-profile-check.sh              (starts relay, secure-relay, secure-relay-onion and tor with --build)
 #        TOR_CHECK_SKIP_UP=1 bash scripts/tor-profile-check.sh   (stack already running)
@@ -31,7 +40,14 @@ COMPOSE=(docker compose --profile tor)
 rm -rf "$OUT"
 mkdir -p "$OUT"
 DATA=$(mktemp -d)
-trap 'rm -rf "$DATA"' EXIT
+PROBE=
+cleanup() {
+  rm -rf "$DATA"
+  if [ -n "$PROBE" ]; then docker rm -f "$PROBE" > /dev/null 2>&1 || true; fi
+}
+trap cleanup EXIT
+# The task a failure belongs to: FR021-02 (the tor profile), then FR020-06 (the CLI as a compose service).
+TASK=FR021-02
 
 for bin in docker curl node; do
   command -v "$bin" > /dev/null || { echo "tor-profile-check: missing $bin" >&2; exit 2; }
@@ -39,7 +55,7 @@ done
 [ -x "$TSX" ] || { echo "tor-profile-check: run npm ci first" >&2; exit 2; }
 
 fail() {
-  echo "FAIL (FR021-02): $*" >&2
+  echo "FAIL ($TASK): $*" >&2
   # The relays behind the onions too: an event that stays QUEUED shows whether it ever reached them.
   local s
   for s in tor secure-relay-onion relay; do
@@ -248,5 +264,83 @@ read_dm "$OUT/buzz.inbox.log" buzz-b "$B" "$DM" ||
 cat "$OUT/buzz.inbox.log"
 echo "ok - relay (Buzz) .onion: DM published and read back by the recipient through Tor"
 
+# --- FR020-06: the CLI as the compose service `sovereign`, run as the docs say: `docker compose run --rm sovereign …`
+# with no --profile flag (running the service turns its profile on). Its stores go to the sovereign-data volume, sealed
+# with the passphrase of a secret file; the backup password is another. Both are readable by the container user (not
+# the runner): mode 644 inside $DATA, which only the runner can enter (mktemp -d), as docs/sovereign-tor.md suggests.
+TASK=FR020-06
+SOV_PASS="$DATA/sovereign-passphrase"
+SOV_BACKUP_PASS="$DATA/sovereign-backup-password"
+printf 'tor-profile-check %s\n' "$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')" > "$SOV_PASS"
+printf 'backup %s\n' "$(od -An -tx1 -N16 /dev/urandom | tr -d ' \n')" > "$SOV_BACKUP_PASS"
+chmod 644 "$SOV_PASS" "$SOV_BACKUP_PASS"
+# sov_compose ARGS...: docker compose with the two secret files; svc [RUN OPTIONS] sovereign ARGS...: one command in it.
+sov_compose() { SOVEREIGN_PASSPHRASE_FILE="$SOV_PASS" SOVEREIGN_BACKUP_PASSWORD_FILE="$SOV_BACKUP_PASS" timeout 180 docker compose "$@"; }
+svc() { sov_compose run --rm -T "$@"; }
+"${COMPOSE[@]}" build sovereign > "$OUT/sovereign.build.log" 2>&1 || fail "could not build the sovereign image (see $OUT/sovereign.build.log)"
+
+# What Docker applied: a container of the service (sleeping), its image and its network, inspected from the host.
+PROBE="sedecim-sovereign-probe-$$"
+sov_compose run -d --name "$PROBE" --entrypoint sleep sovereign 300 > /dev/null 2> "$OUT/sovereign.probe.log" ||
+  fail "could not start a container of the sovereign service (see $OUT/sovereign.probe.log)"
+docker inspect "$PROBE" > "$OUT/sovereign.container.json"
+docker image inspect "$(docker inspect -f '{{.Image}}' "$PROBE")" > "$OUT/sovereign.image.json"
+SOV_NET=$(node -e 'console.log(Object.keys(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))[0].NetworkSettings.Networks)[0] || "none")' "$OUT/sovereign.container.json")
+docker network inspect "$SOV_NET" > "$OUT/sovereign.network.json" 2>&1 || echo '[{}]' > "$OUT/sovereign.network.json"
+docker rm -f "$PROBE" > /dev/null
+PROBE=
+node scripts/sovereign-sandbox.mjs inspect "$OUT/sovereign.container.json" "$OUT/sovereign.image.json" "$OUT/sovereign.network.json" "$SOV_PASS" | tee "$OUT/sovereign.sandbox.log" ||
+  fail "the sovereign container is not configured as docker-compose.yml says: the 'not ok' lines above (inspect output in $OUT/sovereign.*.json)"
+# What it sees from inside: the same checks as the CLI would run into (this script's checker mounted read-only).
+svc -v "$ROOT/scripts/sovereign-sandbox.mjs:/sandbox-check.mjs:ro" --entrypoint node sovereign /sandbox-check.mjs inside > "$OUT/sovereign.inside.log" 2>&1 ||
+  { cat "$OUT/sovereign.inside.log"; fail "from inside, the sovereign container is not what docker-compose.yml and the Dockerfile promise: the 'not ok' lines above"; }
+cat "$OUT/sovereign.inside.log"
+echo "ok - sovereign service: sandbox as configured (inspect) and as seen from inside"
+
+# The CLI through tor:9050: a channel message to the secure-relay .onion, read back.
+svc sovereign persona create --label tor-compose --relay "ws://$SECURE_ONION" --tor --high-risk > "$OUT/sovereign.persona.json" 2> "$OUT/sovereign.persona.log" ||
+  fail "persona create in the sovereign service (see $OUT/sovereign.persona.log)"
+C=$(persona_id "$OUT/sovereign.persona.json")
+[ -n "$C" ] || fail "no persona id from the sovereign service (see $OUT/sovereign.persona.json)"
+CTEXT="sovereign service $(date +%s)"
+svc sovereign channel send --persona "$C" --group tor-check "$CTEXT" > "$OUT/sovereign.send.log" 2>&1 || true
+for _ in 1 2 3 4 5; do
+  if grep -q REPLICATED "$OUT/sovereign.send.log"; then break; fi
+  sleep 10
+  svc sovereign resume --persona "$C" >> "$OUT/sovereign.send.log" 2>&1 || true
+done
+grep -q REPLICATED "$OUT/sovereign.send.log" || fail "the sovereign service could not publish to the secure-relay .onion through tor:9050 (see $OUT/sovereign.send.log)"
+for i in 1 2 3 4 5 6; do
+  svc sovereign channel read --persona "$C" --group tor-check > "$OUT/sovereign.read.log" 2>&1 || true
+  if grep -qF "$CTEXT" "$OUT/sovereign.read.log"; then break; fi
+  sleep $((i * 5))
+done
+grep -qF "$CTEXT" "$OUT/sovereign.read.log" || fail "the message of the sovereign service was not read back through tor:9050 (see $OUT/sovereign.read.log)"
+echo "ok - sovereign service: published to the secure-relay .onion and read back through tor:9050"
+
+# scripts/backup.sh leaves sovereign-data out: the backup of a persona is the CLI's own, encrypted with the backup
+# password. Written to the volume, taken out with cat (so the host file is the runner's), restored from a mounted file
+# into another data directory. The copy stays in $DATA: it is not uploaded with the results.
+svc --entrypoint rm sovereign -rf /data/tor-check-backup.json /data/tor-check-restore > /dev/null 2>&1 || true
+svc sovereign backup export --persona "$C" --out /data/tor-check-backup.json --password-file /run/secrets/sovereign_backup_password > "$OUT/sovereign.backup.log" 2>&1 ||
+  fail "backup export in the sovereign service (see $OUT/sovereign.backup.log)"
+svc --entrypoint cat sovereign /data/tor-check-backup.json > "$DATA/sovereign-backup.json" 2>> "$OUT/sovereign.backup.log" ||
+  fail "could not take the backup out of the sovereign-data volume (see $OUT/sovereign.backup.log)"
+chmod 644 "$DATA/sovereign-backup.json"
+{ grep -q '"format": "sedecim-identity-backup"' "$DATA/sovereign-backup.json" && grep -q '"ncryptsec": "ncryptsec1' "$DATA/sovereign-backup.json"; } ||
+  fail "what came out of the container is not an encrypted identity backup (see $OUT/sovereign.backup.log)"
+svc -e SOVEREIGN_DATA_DIR=/data/tor-check-restore -v "$DATA/sovereign-backup.json:/restore/backup.json:ro" sovereign backup restore /restore/backup.json --password-file /run/secrets/sovereign_backup_password > "$OUT/sovereign.restore.json" 2>> "$OUT/sovereign.backup.log" ||
+  fail "backup restore in the sovereign service (see $OUT/sovereign.backup.log)"
+[ "$(persona_id "$OUT/sovereign.restore.json")" = "$C" ] || fail "the restored backup is not persona $C (see $OUT/sovereign.restore.json)"
+svc --entrypoint rm sovereign -rf /data/tor-check-backup.json /data/tor-check-restore > /dev/null 2>&1 || true
+echo "ok - sovereign service: encrypted backup taken out of the container and restored from a file, passwords from secret files"
+
+# Without tor the service has no way out (tor-socks is internal): the message waits in the outbox.
+"${COMPOSE[@]}" stop tor > /dev/null 2>&1 || fail "could not stop tor"
+svc --no-deps sovereign channel send --persona "$C" --group tor-check "sin tor" > "$OUT/sovereign.no-tor.log" 2>&1 || true
+grep -q 'QUEUED — No enviado: red de privacidad no disponible' "$OUT/sovereign.no-tor.log" ||
+  fail "with tor stopped the sovereign service did not hold the message as «No enviado: red de privacidad no disponible» (see $OUT/sovereign.no-tor.log)"
+echo "ok - sovereign service with tor stopped: nothing sent, the message waits (No enviado: red de privacidad no disponible)"
+
 "${COMPOSE[@]}" logs --no-color --tail 200 tor > "$OUT/tor.log" 2>&1 || true
-echo "FR021-02: tor profile OK (relay and secure-relay onion services reachable and usable by the sovereign CLI)"
+echo "FR021-02, FR020-06: tor profile OK (relay and secure-relay onion services reachable and usable by the sovereign CLI, also as the compose service)"

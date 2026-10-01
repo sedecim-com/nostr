@@ -1,4 +1,4 @@
-import { BlossomClient, prepareBlob, sanitizeMetadata, uploadToServers } from '@sedecim/blossom-client';
+import { BlossomClient, checkAttachmentSize, MAX_ATTACHMENT_BYTES, prepareBlob, sanitizeMetadata, uploadToServers } from '@sedecim/blossom-client';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import { buildProfile, type ProfileCache, type ProfileFields } from '@sedecim/messaging';
 import { bytesToHex, type Signer } from '@sedecim/nostr-core';
@@ -68,7 +68,7 @@ export async function publishProfile(s: PersonaSession, config: SovereigntyConfi
 
 /** Image formats an avatar may have: the ones whose metadata the sanitizer removes (FR019). */
 const AVATAR_TYPES: Record<string, string> = { jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
-export const AVATAR_MAX_BYTES = 1_000_000;
+export const AVATAR_MAX_BYTES = MAX_ATTACHMENT_BYTES.avatar;
 
 /** The image type of an avatar by its bytes (never by what a server or a file name says), or undefined. */
 function avatarType(bytes: Uint8Array): string | undefined {
@@ -87,10 +87,10 @@ function avatarType(bytes: Uint8Array): string | undefined {
 export async function uploadAvatar(s: PersonaSession, cfg: DeploymentConfig, bytes: Uint8Array, config: SovereigntyConfig): Promise<string> {
   const blocked = sendBlockedReason(config);
   if (blocked) throw new Error(blocked);
-  if (bytes.length > AVATAR_MAX_BYTES) throw new Error('El avatar no puede pasar de 1 MB.');
+  checkAttachmentSize('avatar', bytes.length);
   const type = avatarType(bytes);
   if (!type) throw new Error('El avatar debe ser una imagen JPEG, PNG o WebP.');
-  const prepared = prepareBlob(bytes, { sanitize: true, requireSanitizable: true, mimeType: type });
+  const prepared = prepareBlob(bytes, { sanitize: true, requireSanitizable: true, mimeType: type, flow: 'avatar' });
   const targets = uploadTargets(cfg, await blossomServersOf(s), false);
   if (targets.length === 0) throw new Error('No hay servidor de archivos para el avatar: publica tu lista de servidores Blossom o configura el de media.');
   const { descriptor, server } = await uploadToServers(prepared, targets, s.signer);
