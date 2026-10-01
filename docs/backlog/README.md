@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **249 tareas** · 192 hechas · 29 parciales · 22 pendientes · 6 descartadas
-- **193 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **249 tareas** · 193 hechas · 29 parciales · 21 pendientes · 6 descartadas
+- **188 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -42,7 +42,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 - **aws**: faltan la cuenta, la región o el stage reales de AWS
 - **externo**: depende de un tercero: auditor externo, asesoría legal, una publicación upstream o un dispositivo de hardware
 
-**Listas para trabajar ahora (8):** PANEL-06, FR013-05, FR015-05, FR020-02, NFR007-03, OPS-16, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
+**Listas para trabajar ahora (7):** PANEL-06, FR013-05, FR015-05, FR020-02, NFR007-03, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
 
 | Ola | ID | Prio | Tarea | Sprint | SP | Desbloquea | Espera a | Bloqueo |
 |---:|---|---|---|---|---:|---:|---|---|
@@ -68,7 +68,6 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | 0 | [FR015-05](https://github.com/sedecim-com/nostr/issues/298) | P3 | Presencia (NIP-38) opt-in por perfil | Diferido | 3 | — | — | lista |
 | 0 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | Diferido | 8 | — | — | lista |
 | 0 | [NFR007-03](https://github.com/sedecim-com/nostr/issues/296) | P3 | Crash reports opt-in con limpieza y exportación manual local | Diferido | 3 | — | — | lista |
-| 0 | [OPS-16](https://github.com/sedecim-com/nostr/issues/294) | P3 | Webhooks y eventos para integraciones empresariales | Diferido | 5 | — | — | lista |
 | 1 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) | P0 | Firma de releases y provenance (SLSA/cosign) | S9 | 3 | 10 | OPS-08 | persona |
 | 1 | [FR005-13](https://github.com/sedecim-com/nostr/issues/255) | P0 | KMS y Secrets Manager validados en la cuenta y región reales | S11 | 3 | 7 | NFR001-01 | aws |
 | 1 | [NFR001-03](https://github.com/sedecim-com/nostr/issues/172) | P0 | Postgres de alta disponibilidad y backups gestionados | S10 | 3 | 6 | NFR001-01 | aws |
@@ -428,7 +427,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | FR-020, §25 | Dev | 8 | DEC-04 | Pendiente | App desktop (Tauri) que usa el SDK con Tor integrado y el perfil sovereign-tor |
 | [NFR007-02](https://github.com/sedecim-com/nostr/issues/295) | P3 | Tracing con muestreo y redacción según el perfil | §18 | Dev | 3 | NFR007-01 | Hecho | Trazas en los servicios con muestreo y redacción, apagadas en perfiles Tor. Hasta entonces PANEL-05 retira la promesa |
 | [NFR007-03](https://github.com/sedecim-com/nostr/issues/296) | P3 | Crash reports opt-in con limpieza y exportación manual local | §18, FR-028 | Dev | 3 | NFR007-01 | Pendiente | Implementados según el perfil. Hasta entonces PANEL-05 retira la promesa |
-| [OPS-16](https://github.com/sedecim-com/nostr/issues/294) | P3 | Webhooks y eventos para integraciones empresariales | §15.2, §17.2 | Dev | 5 | — | Pendiente | El policy-engine emite eventos firmados (sustituye el sondeo de la auditoría); webhooks con reintentos |
+| [OPS-16](https://github.com/sedecim-com/nostr/issues/294) | P3 | Webhooks y eventos para integraciones empresariales | §15.2, §17.2 | Dev | 5 | — | Hecho | El policy-engine emite eventos firmados (sustituye el sondeo de la auditoría); webhooks con reintentos |
 
 ## Entregado en v0.1 — 50 tareas
 
