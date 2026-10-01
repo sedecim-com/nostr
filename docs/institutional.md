@@ -51,7 +51,8 @@ expuesto no sirva para lo de otro:
 
 Otro principal no llega a ninguna hasta que `POLICY_SERVICE_SCOPES` diga cuáles (`principal=ámbito+ámbito`, separados
 por comas; por ejemplo `ops=rotations` para el worker del CLI soberano). Con un principal sin ámbito el engine avisa al
-arrancar, y sus llamadas responden 403.
+arrancar, y sus llamadas responden 403. El ámbito `events` (leer los eventos firmados, OPS-16) no lo tiene ningún
+principal por defecto: una integración lo recibe así, por ejemplo `siem=events`.
 
 | Ruta | Auth | Respuesta |
 |---|---|---|
@@ -69,6 +70,10 @@ arrancar, y sus llamadas responden 403.
 | `GET /v1/revocations?after=&limit=` | admin o servicio | `{revocations, latest, now}`: revocaciones de dispositivo (`{cursor, at, deviceId, reason}`, más antigua primero) con `cursor` mayor que `after`; `latest` = cursor de la última (FR024-04) |
 | `GET /v1/audit?limit=&before=` | admin | `{audit}`, más nuevo primero; `before` = `id` de la última entrada recibida |
 | `GET /v1/access-log?limit=&before=&resource=` | admin | `{access, retentionDays}`: decisiones de acceso, más nueva primero; `before` como en la auditoría; `resource` filtra por recurso (FR023-12) |
+| `GET /v1/events?after=&limit=` | admin, o servicio con el ámbito `events` | `{events, next}`: eventos firmados con `seq` mayor que `after`, más antiguo primero; `next` = el siguiente `after` (OPS-16) |
+| `GET /v1/events/keys` | ninguna | `{issuer, current, keys}`: las llaves públicas Ed25519 (JWKS) que verifican los eventos (OPS-16) |
+| `GET /v1/webhooks` · `POST /v1/webhooks` `{url, types?}` · `DELETE /v1/webhooks/:id` · `POST /v1/webhooks/:id/enable` | admin | `{webhooks}` · `{webhook, secret}`: el secreto, solo aquí; 400 si el destino no vale, 409 si ya hay `POLICY_WEBHOOKS_MAX` · `{ok}` · `{webhook}` (OPS-16) |
+| `GET /v1/webhooks/:id/deliveries?limit=&before=` | admin | `{deliveries}`: registro de entregas, más nueva primero (OPS-16) |
 | `GET /v1/directory` · `PUT /v1/directory/:pubkey` · `DELETE /v1/directory/:pubkey` | admin | `{entries}` · entrada · `{ok}` |
 | `GET /v1/retention` | admin o servicio | `{policies, notice}` |
 | `PUT /v1/retention/:resourceId` `{days: number\|null, legalHold: boolean}` | admin | `{policy, notice}`; 409 si el recurso es un grupo MLS (FR023-12) |
@@ -487,3 +492,223 @@ Pruebas:
   muestra como tal y el worker recibe la invitación.
 - CI, job `stack`: el perfil `institutional` levanta el worker contra el relay seguro, el policy-engine y el
   managed-signer reales, y `scripts/wait-stack.sh` espera a que su primer ciclo termine sin errores.
+
+## Eventos firmados y webhooks (OPS-16)
+
+Para llevar la auditoría a otros sistemas (un SIEM, un gestor de incidencias) ya no hace falta sondear `GET /v1/audit`,
+que pagina de la entrada más nueva a la más antigua y no tiene un cursor estable. El engine emite cada entrada de la
+auditoría como un **evento firmado**, que se lee desde un cursor o llega por **webhook**.
+
+**Activación.** Solo con `POLICY_EVENTS_SIGNING_KEY_FILE`, la ruta de un fichero con la llave privada Ed25519: PKCS#8
+PEM, como la escribe `openssl genpkey -algorithm ed25519`, o su semilla de 32 bytes en hex. No hay llave por defecto.
+
+- Sin la variable, eventos y webhooks quedan apagados: el log lo dice al arrancar y sus rutas responden 404.
+- Con ella, el servicio no arranca si el fichero no se puede leer, está vacío o no tiene una llave Ed25519
+  (`eventsConfigFromEnv`, lo primero que ejecuta `main.ts`). Tampoco sin emisor (`POLICY_EVENTS_ISSUER`, por defecto
+  `PUBLIC_BASE_URL`) ni con la llave actual en `POLICY_EVENTS_REVOKED_KIDS`.
+- Los webhooks necesitan además `POLICY_WEBHOOK_SECRETS_KEY_FILE` (32 bytes en hex). Sin ella el cursor funciona y las
+  rutas de webhooks responden 404.
+- Los eventos empiezan al activarlos. Las entradas anteriores, y las escritas con los eventos apagados, solo están en la
+  auditoría.
+
+### El evento
+
+Cada entrada de la auditoría escrita con los eventos activos se guarda también como evento, en la misma transacción:
+
+```json
+{"created_at":1727700000000,"data":{"actor":"<pubkey del admin>","audit_id":42,"details":{"reason":"robado"},"target":"<id del dispositivo>"},"id":"<uuid>","issuer":"https://policy.example.org","kid":"<huella de la llave>","seq":17,"sig":"<firma>","type":"device.revoke"}
+```
+
+- `type` es la acción de la entrada (`device.revoke`, `subject.upsert`…) y `created_at`, su hora en ms.
+- `data` es la entrada tal como la guarda la auditoría (`GET /v1/audit`), nunca más.
+- `seq` es la posición en el flujo; `id`, un UUID que sirve de clave de idempotencia; `issuer`, quién lo emite.
+- `sig` es la firma Ed25519 (base64url) del JSON canónico (RFC 8785) del evento sin `sig`, y `kid` la huella RFC 7638
+  de la llave pública que firmó. La firma cubre también `issuer` y `kid`.
+
+Se firma al emitirse y se guarda firmado, en `policy_events`, append-only como la auditoría: la firma sigue valiendo
+aunque después cambie la llave.
+
+**Qué no lleva.** Lo que la auditoría no guarda:
+
+- las decisiones de acceso, que van al registro de accesos (FR023-12);
+- la apertura de una sesión (FR023-11). Sí cada aserción rechazada (`session.assert`, con su motivo);
+- desafíos, credenciales, firmas WebAuthn o tokens. Además, el evento quita a cualquier profundidad los nombres de esa
+  lista (`FORBIDDEN_EVENT_KEYS`), por si una entrada futura los trajera.
+
+Los tipos son las acciones de la auditoría más las de los webhooks: `webhook.create`, `webhook.delete`,
+`webhook.enable` y `webhook.disable` (esta con `policy-engine` como actor). La auditoría de un webhook guarda el host
+del destino, nunca la URL, que puede llevar un token.
+
+**Verificar.** `GET /v1/events/keys`, sin autenticación, da `{issuer, current, keys}`: un JWKS con las llaves públicas.
+Quien consume:
+
+1. fija el `issuer` esperado y rechaza cualquier otro;
+2. busca en `keys` la llave con el `kid` del evento (si no está, recarga la lista una vez);
+3. quita `sig`, serializa el resto en JSON canónico (RFC 8785) y verifica la firma Ed25519.
+
+`verifyPolicyEvent` (`services/policy-engine/src/events.ts`) es una implementación de referencia.
+
+**Leer por cursor.** `GET /v1/events?after=<seq>&limit=<n>` (hasta 1000) da `{events, next}`, del más antiguo al más
+nuevo; el siguiente `after` es `next`. Lo leen un admin o un token con el ámbito `events`. Un cursor no se salta ningún
+evento: los escritores toman un advisory lock de Postgres antes de sacar su `seq` y lo sueltan al confirmar, así que
+confirman en orden de `seq`. Puede haber huecos (una transacción que se deshizo), nunca uno que se llene después.
+
+### Webhooks
+
+Los gestiona un admin:
+
+- `POST /v1/webhooks` `{url, types?}`. `types` son tipos de evento; sin ellos, todos. Responde `{webhook, secret}`:
+  **el secreto solo aparece en esta respuesta**. Una suscripción a todos los tipos recibe primero su propio
+  `webhook.create`.
+- `GET /v1/webhooks` las lista, sin secreto. `DELETE /v1/webhooks/:id` borra la suscripción y sus entregas.
+- Como mucho `POLICY_WEBHOOKS_MAX` suscripciones (10), contando las de todas las réplicas.
+
+**El secreto no se guarda.** Para firmar cada entrega el servidor necesita el secreto, así que guardarlo con hash, como
+los tokens de sesión, no sirve. Cifrado, dejaría en la base y en sus backups un texto que se abre con la llave. Se
+deriva: `HMAC-SHA256(POLICY_WEBHOOK_SECRETS_KEY, id ‖ sal)`, con una sal aleatoria por suscripción, y la base solo
+guarda la sal. Una copia de la base o de un backup no da ningún secreto sin esa llave, que vive en un secreto aparte.
+Rotar la llave cambia todos los secretos a la vez ([runbook](runbooks/webhooks.md)).
+
+**Cada entrega** es un `POST` cuyo cuerpo es el evento tal como se firmó, con estas cabeceras:
+
+- `x-sedecim-signature: t=<segundos unix>,v1=<hex>`: HMAC-SHA256 de `t.cuerpo` con el secreto de la suscripción;
+- `idempotency-key`: el `id` del evento;
+- `content-type: application/json`.
+
+Quien recibe compara la firma en tiempo constante y descarta una entrega cuyo `t` esté a más de 300 s de su reloj: una
+entrega capturada no se puede repetir más tarde. Dentro de esa ventana, y con los reintentos, un evento puede llegar
+más de una vez: se deduplica por `idempotency-key`. `verifyWebhookSignature` es una implementación de referencia.
+
+**Reintentos.** Una entrega vale con una respuesta 2xx. Todo lo demás es un fallo: un 3xx (una redirección no se
+sigue), un 4xx o 5xx, un error de DNS, de conexión o de TLS, una conexión que se cierra o pasar del límite de tiempo.
+
+- El siguiente intento espera entre la mitad y el total de un tramo que empieza en 30 s y se dobla hasta 6 h.
+- Tras `POLICY_WEBHOOK_MAX_ATTEMPTS` intentos (10) la entrega falla del todo. El evento sigue en el cursor.
+- Tras `POLICY_WEBHOOK_DISABLE_AFTER` intentos fallidos seguidos (15), sumando todas sus entregas, la suscripción se
+  desactiva: sus entregas pendientes fallan (`subscription_disabled`), no recibe eventos nuevos y el engine lo audita
+  (`webhook.disable`). Una entrega que vale pone la cuenta a cero.
+- `POST /v1/webhooks/:id/enable` la reactiva desde el evento siguiente. Lo intermedio se lee por el cursor.
+- Cada petición tiene `POLICY_WEBHOOK_TIMEOUT_MS` (10 s), resolución DNS incluida. Un destino lento ocupa un hueco
+  hasta su límite y no frena a los demás.
+- Un evento de más de 64 KiB falla sin reintentos; se lee por el cursor.
+
+**Varias réplicas y caídas.** Cada réplica busca entregas cada `POLICY_WEBHOOK_INTERVAL_MS` (2 s). Una entrega se
+reclama con `FOR UPDATE SKIP LOCKED` y un plazo (el límite de tiempo más 30 s), así que dos réplicas nunca la envían a la
+vez. Si el proceso muere a mitad, el plazo caduca y otra réplica la reintenta: al menos una vez. Si aquel era su último
+intento, falla con `lease_expired`. Las entregas van en paralelo y sin un orden garantizado: el orden es el de `seq`.
+
+**Registro de entregas.** `GET /v1/webhooks/:id/deliveries` da el estado, los intentos, el código HTTP y la clase del
+último error (`http_5xx`, `timeout`, `connection_closed`, `redirect`, `blocked_destination`…). No guarda el cuerpo ni las
+cabeceras de la respuesta. Las entregas terminadas se borran a los
+`POLICY_WEBHOOK_DELIVERY_RETENTION_DAYS` días (30).
+
+### Destinos (SSRF)
+
+Un webhook es una petición que el servidor hace a una URL que escribe un admin. Al darla de alta y antes de cada
+entrega se comprueba:
+
+- Solo `https`, sin credenciales en la URL ni fragmento, hasta 2048 caracteres.
+- Que el host no sea un nombre interno: sin punto, `localhost`, `.local`, `.internal`, `.onion`, `.home.arpa`…
+- El nombre se resuelve una vez, como nombre absoluto (sin los dominios de búsqueda del pod o del host), y se rechaza si
+  **alguna** de sus direcciones no es pública: loopback, redes privadas, CGNAT, link-local (con 169.254.169.254, los
+  metadatos de AWS, GCP y Azure), las reservadas de IANA, multicast, las ULA de IPv6 (con fd00:ec2::254) y las formas de
+  IPv6 que llevan una IPv4 dentro (mapeada, NAT64, 6to4, Teredo).
+- La conexión va a la dirección ya comprobada, sin volver a resolver, así que un DNS que cambia de respuesta
+  (rebinding) no sirve. Con https, `node:https` verifica el certificado para el nombre (`servername`); eso no lo prueba
+  un test de aquí (ver «Sin probar aquí»).
+- Las redirecciones no se siguen.
+
+`POLICY_WEBHOOKS_ALLOW_PRIVATE=true` quita esas comprobaciones y permite `http`: es para pruebas y desarrollo con un
+receptor local. Por defecto vale `false`. `release-gate config` la rechaza en cualquier manifiesto de producción
+(`deploy/production-gates.json`, `testOnly`), y un test comprueba que ningún manifiesto la activa, tampoco el de stage.
+
+### Configuración
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `POLICY_EVENTS_SIGNING_KEY_FILE` | vacía: apagado | Fichero con la llave Ed25519 que firma los eventos |
+| `POLICY_EVENTS_ISSUER` | `PUBLIC_BASE_URL` | Emisor que nombra cada evento; quien verifica lo fija |
+| `POLICY_EVENTS_REVOKED_KIDS` | vacía | `kid` que ya no se publican: una llave comprometida |
+| `POLICY_WEBHOOK_SECRETS_KEY_FILE` | vacía: sin webhooks | Fichero con 32 bytes en hex de los que se derivan los secretos |
+| `POLICY_WEBHOOKS_MAX` | 10 | Suscripciones de la organización |
+| `POLICY_WEBHOOK_MAX_ATTEMPTS` | 10 | Intentos por entrega |
+| `POLICY_WEBHOOK_DISABLE_AFTER` | 15 | Intentos fallidos seguidos que desactivan una suscripción |
+| `POLICY_WEBHOOK_TIMEOUT_MS` | 10000 | Límite de cada petición |
+| `POLICY_WEBHOOK_INTERVAL_MS` | 2000 | Cada cuánto busca entregas cada réplica |
+| `POLICY_WEBHOOK_DELIVERY_RETENTION_DAYS` | 30 | Días que se guardan las entregas terminadas |
+| `POLICY_WEBHOOKS_ALLOW_PRIVATE` | `false` | Solo pruebas: destinos locales y privados, también por `http` |
+
+**Kubernetes.** Las llaves van en `acceso-nostr-secrets`, como `POLICY_EVENTS_SIGNING_KEY` y
+`POLICY_WEBHOOK_SECRETS_KEY` (`generate-secret.sh` las copia de Secrets Manager si existen). El policy-engine las monta
+como ficheros en `/run/secrets/policy-engine/`, un volumen opcional legible solo por el grupo del servicio. Para
+activarlo, el overlay pone en `acceso-nostr-config`
+`POLICY_EVENTS_SIGNING_KEY_FILE=/run/secrets/policy-engine/events-signing-key` y
+`POLICY_WEBHOOK_SECRETS_KEY_FILE=/run/secrets/policy-engine/webhook-secrets-key`. Ningún manifiesto lleva el valor de
+una llave.
+
+**Compose.** Las variables están en `.env`, vacías. Las llaves se montan como secretos de compose, por ejemplo con un
+`docker-compose.override.yml`:
+
+```yaml
+services:
+  policy-engine:
+    environment:
+      POLICY_EVENTS_SIGNING_KEY_FILE: /run/secrets/policy_events_signing_key
+      POLICY_WEBHOOK_SECRETS_KEY_FILE: /run/secrets/policy_webhook_secrets_key
+    secrets: [policy_events_signing_key, policy_webhook_secrets_key]
+secrets:
+  policy_events_signing_key:
+    file: ./.data/policy-events-signing-key
+  policy_webhook_secrets_key:
+    file: ./.data/policy-webhook-secrets-key
+```
+
+Sin Swarm, compose monta cada fichero con el dueño y los permisos que tiene en el host: el usuario del contenedor
+tiene que poder leerlo. CI no ejecuta este ejemplo.
+
+### Qué ve cada parte
+
+- **El destino de un webhook**, que elige la organización y puede estar fuera de ella: los eventos de sus tipos, que
+  llevan lo mismo que la auditoría. Qué admin hizo qué y cuándo, sobre qué persona, dispositivo o recurso, con los
+  detalles: roles, motivo de una revocación, cada aserción rechazada con quién la intentó y por qué. También la
+  dirección IP de salida del policy-engine. Para darle menos, se filtra por `types`.
+- **La red y el DNS del camino**: con https, el host de destino (SNI), el tamaño y la hora de cada entrega, que delatan
+  cuándo hay actividad de administración. El resolvedor ve el nombre.
+- **Quien lee el cursor con un token `events`**: lo mismo que la auditoría. Ese token no sirve para nada más.
+- **El operador, y quien tenga la base**: los eventos (lo mismo que la auditoría), las URL completas de las suscripciones
+  y el registro de entregas. No los secretos: sin `POLICY_WEBHOOK_SECRETS_KEY` no se derivan.
+- **Nadie** recibe contenido de mensajes, decisiones de acceso, aperturas de sesión, material WebAuthn ni tokens.
+
+Pruebas:
+
+- `services/policy-engine/test/events.test.ts`, en memoria y Postgres: el JSON canónico, la llave (PEM o semilla,
+  `kid` RFC 7638), la verificación y sus rechazos (firma manipulada, `kid` desconocido, evento de otra organización), la
+  configuración (apagado sin llave, no arranca con una llave mala), un evento por entrada y nunca más que ella, el
+  cursor y quién lo lee, la rotación y la revocación de llaves, y la lista de nombres prohibidos tras registrar una
+  passkey, abrir una sesión y rechazar dos aserciones. Sobre Postgres, seis escritores concurrentes y un lector por
+  cursor que no pierde ni repite ningún evento, y la tabla append-only.
+- `services/policy-engine/test/webhooks.test.ts`, en memoria y Postgres, contra servidores HTTP reales en 127.0.0.1 y con
+  reloj inyectable: la firma y su ventana, `idempotency-key`, reintentos, tope de intentos, desactivación y
+  reactivación, un 500, un destino que no responde y uno que cierra la conexión, redirecciones, eventos grandes, un
+  despachador que muere con un reclamo, el secreto que solo sale en el alta, el límite de suscripciones y cada clase de
+  destino rechazada, con el rebinding simulado por un resolvedor inyectable. Sobre Postgres, dos réplicas que no
+  reclaman la misma entrega y altas concurrentes que no pasan del límite.
+- `tests/scripts/release-gate.test.ts` y `tests/scripts/deploy-manifests.test.ts`: la variable de pruebas nunca en
+  producción, y las llaves solo desde el Secret.
+
+**Sin probar aquí**, se verifica en un despliegue real: la entrega por https a un destino real (la ruta TLS es la de
+`node:https`), la resolución DNS real (los tests inyectan el resolvedor) y el montaje de las llaves en un clúster o en
+compose. El stack de CI no activa los eventos.
+
+**Riesgo residual:**
+
+- Al menos una vez: un receptor que no deduplica por `idempotency-key` puede procesar un evento dos veces.
+- Una suscripción desactivada no recibe lo que pasó mientras tanto: hay que leerlo por el cursor.
+- La guarda conoce los rangos reservados de IANA. Si la red del clúster usa direcciones públicas, no las reconoce como
+  internas: conviene además una NetworkPolicy de salida para el policy-engine.
+- El registro de entregas da la clase del error de conexión, así que quien da de alta un webhook sabe si un puerto de
+  un host público responde. Solo lo hace un admin, y el alta queda en la auditoría.
+- Cada aserción rechazada es un evento: quien tenga la llave Nostr de una persona puede provocar entregas a las
+  suscripciones de `session.assert`, dentro de los límites de peticiones del engine (IR-2026-09-05).
+- Los plazos de los reclamos usan el reloj de cada réplica: con relojes muy desfasados (más que el margen de 30 s) una
+  entrega puede enviarse dos veces, algo que el receptor ya debe tolerar.

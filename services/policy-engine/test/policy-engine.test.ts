@@ -773,7 +773,7 @@ if (PG) {
       await pool.query("INSERT INTO policy_devices (id, owner_pubkey, trust, registered_at) VALUES ('d1', $1, 'registered', 1000)", [owner]);
       await pool.query("INSERT INTO policy_sessions (token_hash, pubkey, device_id, created_at) VALUES ($1, $2, 'd1', 2000)", [createHash('sha256').update(token).digest('hex'), owner]);
       await pool.query("INSERT INTO policy_webauthn_challenges (device_id, challenge, expires_at) VALUES ('d1', 'pending-before-004', $1)", [Date.now() + 60_000]);
-      expect(await migrate(pool, MIGRATIONS, 'policy-engine')).toEqual(['004_session_assertions.sql']);
+      expect((await migrate(pool, MIGRATIONS, 'policy-engine'))[0]).toBe('004_session_assertions.sql');
 
       const engine = new PolicyEngine(new PgPolicyRepository(pool), Date.now, WEBAUTHN);
       expect(await engine.sessionValid(token)).toBe(true);

@@ -238,6 +238,12 @@ services:
       SESSION_REQUIRE_ASSERTION: ${SESSION_REQUIRE_ASSERTION:-false}
       # FR023-12: days the access decisions are kept (resources under legal hold excepted).
       ACCESS_LOG_RETENTION_DAYS: ${POLICY_ACCESS_LOG_RETENTION_DAYS:-90}
+      # OPS-16: signed events and webhooks, off while the key file is empty. The keys are files mounted into the container
+      # (docs/institutional.md, «Eventos firmados y webhooks»), never values in .env. ALLOW_PRIVATE is for tests only.
+      POLICY_EVENTS_SIGNING_KEY_FILE: ${POLICY_EVENTS_SIGNING_KEY_FILE:-}
+      POLICY_EVENTS_ISSUER: ${POLICY_EVENTS_ISSUER:-}
+      POLICY_WEBHOOK_SECRETS_KEY_FILE: ${POLICY_WEBHOOK_SECRETS_KEY_FILE:-}
+      POLICY_WEBHOOKS_ALLOW_PRIVATE: ${POLICY_WEBHOOKS_ALLOW_PRIVATE:-false}
       PORT: "8083"
     ports: ["${POLICY_PORT:-8083}:8083"]
     depends_on:
