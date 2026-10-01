@@ -20,6 +20,37 @@ export function redactString(s: string): string {
   return out;
 }
 
+/** Secrets that free text (an error message) can carry, beyond SECRET_PATTERNS. */
+const FREE_TEXT_PATTERNS: Array<[RegExp, string | ((m: string) => string)]> = [
+  // URL credentials and query strings: a token or a password travels there.
+  [/\b([a-z][a-z0-9+.-]{1,20}:\/\/)[^\s/@"'<>]*@/gi, '$1'],
+  [/\b([a-z][a-z0-9+.-]{1,20}:\/\/[^\s?#"'<>]*)[?#][^\s"'<>]*/gi, '$1?[…]'],
+  [/\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g, '[token]'],
+  // 64 hex characters or more: a secret key, a pubkey, an event id or a signature.
+  [/[0-9a-f]{64,}/gi, '[hex]'],
+  [/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])/g, (m) => (/\d/.test(m) && /[A-Z]/.test(m) && /[a-z]/.test(m) ? '[token]' : m)],
+  [/\b(access_token|refresh_token|id_token|token|secret|password|passphrase|passwd|pwd|api[_-]?key|auth)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&)]+)/gi, '$1$2[…]'],
+  [/\b(set-cookie|cookie)(\s*:\s*)[^\n]+/gi, '$1$2[…]'],
+  // The user name of a home directory (Linux, macOS, Windows).
+  [/(\/(?:var\/)?home\/|\/Users\/)[^/\s"'<>]+/g, '$1<usuario>'],
+  [/\b([A-Za-z]:[\\/]Users[\\/])[^\\/\s"'<>]+/g, '$1<usuario>'],
+];
+
+/**
+ * NFR007-03: secrets in free text meant for the person's own terminal (the fatal error line of the CLI): the patterns
+ * of `redactString`, URL credentials and query strings, keys and ids of 64 hex characters, JWT and long tokens,
+ * `token=`-like pairs, cookies and the user name of a home directory (`home`, when given, becomes `~`). Host names,
+ * .onion addresses and the rest of a path stay: they say what failed. Crash reports, which the person may take out of
+ * the device, go through the stricter `cleanCrashText`.
+ */
+export function redactFreeText(s: string, opts: { home?: string } = {}): string {
+  let out = redactString(s);
+  const home = opts.home?.replace(/[\\/]+$/, '');
+  if (home && home.length > 1) out = out.replace(new RegExp(`${home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'g'), '~');
+  for (const [re, rep] of FREE_TEXT_PATTERNS) out = out.replace(re, rep as string);
+  return out;
+}
+
 export function redact<T>(value: T, opts: RedactOptions = {}, depth = 0): T {
   if (depth > 8) return '[TRUNCATED]' as T;
   if (typeof value === 'string') return redactString(value) as T;
