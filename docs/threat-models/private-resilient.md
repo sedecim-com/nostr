@@ -2,7 +2,8 @@
 
 **Configuración:** signer externo (NIP-46/NIP-07), varios relays con quorum 2, identidad pseudónima,
 persistencia replicada, NIP-17, archivos cifrados en el cliente, telemetría mínima, push de solo aviso (privacy-push, ADR 0010),
-backup solo en ciphertext, confirmaciones de entrega activadas y de lectura desactivadas.
+backup solo en ciphertext, confirmaciones de entrega activadas y de lectura desactivadas, sin informes de fallo
+(`off`, NFR007-03).
 
 ## Activos
 Llave custodiada por el signer, disponibilidad de los mensajes, anonimato relativo de la persona,

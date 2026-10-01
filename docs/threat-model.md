@@ -213,3 +213,32 @@ nombre clearnet de un servicio con trazas activas se muestrea como cualquiera; c
 `.onion`, que no se trazan. Una ruta o un nombre de span que el código construyera con datos solo pasarían si
 tuvieran forma de palabras en minúsculas (sin hex ni cuatro dígitos seguidos, sin `@`, `:`, `?` ni `=`, y sin puntos
 en una ruta): las rutas de los servicios son plantillas fijas.
+
+## Informes de fallo (NFR007-03)
+
+Detalle en [`crash-reports.md`](crash-reports.md). Implementación en `packages/telemetry-policy/src/crash-report.ts`,
+`apps/web-saas/src/lib/crash.ts`, `apps/web-saas/src/views/CrashReports.tsx` y `apps/sovereign-client/src/crash.ts`;
+pruebas en `packages/telemetry-policy/test/crash-report.test.ts`, `apps/web-saas/test/crash.test.ts`,
+`apps/sovereign-client/test/crash-reports.test.ts` y `packages/profiles/test/profiles.test.ts`.
+
+**Cuándo existen.** Según el control `crashReports` de la persona activa: con `off` no se captura nada, ni en memoria;
+con `manual-export`, el informe del último fallo queda en memoria (la web) o se escribe en un archivo si se pide con
+`--crash-report` (el CLI); con `opt-in`, además, cada informe se guarda cifrado en el almacén local. Ningún perfil
+de referencia trae `opt-in`, y Tor-only lo rechaza. Ningún modo hace una petición de red.
+
+**Qué se guarda.** Un informe es una lista cerrada de campos (la versión de la app, el preset, el sistema y el
+navegador o Node por familia y versión mayor, el origen del fallo y el error con su clase, su mensaje limpio, sus
+frames y sus causas). El mensaje pierde llaves, entidades NIP-19, URLs, hosts, `.onion`, IPs, rutas, tokens, correos
+y el texto entre comillas; la pila se queda en `paquete/archivo:línea:columna`. No hay ids de persona ni de grupo,
+pubkeys, user agent ni hora en el informe. En `opt-in`, el almacén guarda además cuándo se produjo cada uno y cuántas
+veces, para la retención (20 informes, 30 días), y no lo exporta.
+
+**Qué ve cada parte.** El operador, los relays y cualquier servidor: nada nuevo, porque no se envía nada. Quien abra
+el almacén local (con la contraseña o la llave del dispositivo): los informes guardados y sus fechas. Quien reciba un
+archivo exportado: lo que la persona vio en la vista previa o en el archivo.
+
+**Riesgo residual.** Palabras normales sin comillas (por ejemplo, un error construido con el texto de un mensaje) y
+nombres de host internos sin dominio no se reconocen por su forma: por eso la persona ve el informe entero antes de
+guardarlo y nada sale solo. La línea de error del CLI en la terminal conserva hosts, `.onion` y rutas fuera del
+directorio personal (sin secretos ni IPs), como el resto de su salida (FR021-03). El borrado quita la entrada del
+almacén; el sistema de archivos o IndexedDB pueden conservar esos bytes cifrados hasta reutilizarlos.

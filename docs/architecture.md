@@ -35,7 +35,7 @@ firmados; las bases de datos son índices derivados.
 | `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad; los flujos que comparten el CLI y la web (dispositivos, propuestas y adjuntos MIP-04, FR025-14) |
 | `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash; lista de servidores del usuario (BUD-03, kind 10063) con subida al principal y descarga con alternativas; subida en espejo del cifrado de los archivos de grupo (`ciphertextUploader`) |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
-| `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none y trazador de los servicios: muestreo en la raíz, atributos acotados, log y OTLP opcional ([`slo.md`](slo.md#trazas-nfr007-02)) |
+| `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none y trazador de los servicios: muestreo en la raíz, atributos acotados, log y OTLP opcional ([`slo.md`](slo.md#trazas-nfr007-02)); informes de fallo de los clientes con lista cerrada de campos, que nunca se envían ([`crash-reports.md`](crash-reports.md)) |
 | `metrics` | Exportador Prometheus (latencia de ACK por relay y región, outbox) que respeta el nivel de telemetría del perfil ([`slo.md`](slo.md#latencia)) |
 | `profiles` | Configuración del panel, presets (Apéndice B), validación, disclosures y matriz de notificaciones push (ADR 0010) |
 | `policy-client` | Evaluador RBAC/ABAC + device trust |
@@ -243,6 +243,11 @@ firma por llave y por kind (`MANAGED_SIGNER_RATE_*`, FR005-06) siguen igual y so
 solo atributos acotados: método, ruta como plantilla, estado, clase del error y operación de base de datos. Van al
 log del servicio y, con `TRACE_EXPORT_URL`, al colector OTLP del operador. Con `TELEMETRY_LEVEL=none` no existen, y
 una petición a un `.onion` nunca se traza. Detalle en [`slo.md`](slo.md#trazas-nfr007-02).
+
+**Informes de fallo (NFR007-03).** La web y el CLI preparan un informe limpio de un fallo según el `crashReports` de
+la persona (`off`, `manual-export` u `opt-in`) y nunca lo envían: la persona lo ve y lo guarda en un archivo, y con
+`opt-in` se guarda cifrado en el almacén local (como mucho 20 informes y 30 días). Un fallo del CLI imprime una sola
+línea sin pila ni secretos. Detalle en [`crash-reports.md`](crash-reports.md).
 
 **Edge.** En Kubernetes, `deploy/k8s/base/files/edge-nginx.conf` resuelve la IP real (`set_real_ip_from`
 rangos privados + `real_ip_recursive`), aplica `limit_req`/`limit_conn` por host y reenvía esa IP como único
