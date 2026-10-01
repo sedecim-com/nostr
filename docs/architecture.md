@@ -31,13 +31,13 @@ firmados; las bases de datos son índices derivados.
 | `delivery-engine` | Máquina de estados DRAFT→…→READ, outbox persistente, quorum, reintentos idempotentes, reconciliación, y la copia en el Continuity Vault como pista propia (`CONTINUITY_BACKED_UP`, VAULT-04) |
 | `encrypted-store` | Store local cifrado (XChaCha20-Poly1305, nombres HMAC), backends memoria/archivo atómico/IndexedDB; `Vault` con contraseña o llave del dispositivo (ADR 0007) |
 | `identity` | Personas, compartimentos, vínculos con consentimiento, backup/restore NIP-49; vínculo público opcional firmado por ambas personas ([`public-link.md`](public-link.md)) |
-| `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación, DMs como operaciones de envío (FR011-05) |
+| `messaging` | NIP-29, NIP-17/NIP-59, receipts (provisionales), feature flags, propiedades por tipo de conversación, DMs como operaciones de envío (FR011-05), estado NIP-38 (FR015-05) |
 | `marmot-adapter` | `GroupCryptoProvider`/`GroupSession`, proveedor marmot-ts (MLS), almacenamiento MLS cifrado, autoprueba de secreto post-expulsión, conformidad; los flujos que comparten el CLI y la web (dispositivos, propuestas y adjuntos MIP-04, FR025-14) |
 | `blossom-client` | Saneamiento EXIF, cifrado AES-GCM compatible con kind 15, BUD-01/02, verificación de hash; lista de servidores del usuario (BUD-03, kind 10063) con subida al principal y descarga con alternativas; subida en espejo del cifrado de los archivos de grupo (`ciphertextUploader`) |
 | `tor-network` | `NetworkGuard`: direct / tor-only, onion-only, allowlist, aislamiento de circuitos, fail closed |
 | `telemetry-policy` | Redacción de secretos, niveles standard/minimal/none y trazador de los servicios: muestreo en la raíz, atributos acotados, log y OTLP opcional ([`slo.md`](slo.md#trazas-nfr007-02)) |
 | `metrics` | Exportador Prometheus (latencia de ACK por relay y región, outbox) que respeta el nivel de telemetría del perfil ([`slo.md`](slo.md#latencia)) |
-| `profiles` | Configuración del panel, presets (Apéndice B), validación, disclosures y matriz de notificaciones push (ADR 0010) |
+| `profiles` | Configuración del panel, presets (Apéndice B), validación, disclosures, matriz de notificaciones push (ADR 0010) y política de presencia (FR015-05) |
 | `policy-client` | Evaluador RBAC/ABAC + device trust |
 | `qr` | Codificador QR propio (ISO/IEC 18004, modo byte) sin dependencias ni red, salida SVG (generador offline, `nostrconnect` en la web) |
 | `rotation-worker` | Worker de revocación (FR-024): rotación MLS pendiente del policy-engine y propagación de revocaciones al managed-signer. Corre como servicio `services/rotation-worker` (FR024-05, compose perfil `institutional` y k8s) o desde el CLI (`sovereign group rotation-worker`) |
@@ -175,6 +175,24 @@ Nada nuevo se guarda en el navegador aparte del outbox. Las reglas de Buzz y el 
 - `apps/web-saas/test/channel-collab.test.ts`: la web contra un relay de prueba con las reglas de Buzz
   (`TestRelay` con `groupModeration`);
 - `tests/interop/buzz.interop.test.ts`: contra Buzz, en CI.
+
+## Estado de presencia NIP-38 por perfil (FR015-05)
+Un estado (kind 30315) es metadato público firmado con la npub: está apagado en todos los presets y la persona lo
+enciende en el panel (`presence`), donde su perfil lo permite. `presencePolicy` (`packages/profiles`) lo deriva de los
+controles: nunca en Tor-only ni con identidad verificada por una organización (`validateConfig` lo bloquea), y con un
+aviso si la persona es pseudónima.
+
+- **Qué sale**: solo el texto que la persona escribe y confirma, en la ranura `general`, con una expiración NIP-40 de 24 h
+  como mucho y sin etiquetas que lo enlacen con otras personas o lugares (`buildStatus` y `statusTemplateProblem`, en
+  `packages/messaging/src/presence.ts`), por el outbox, los relays y la conexión de esa persona
+  (`apps/web-saas/src/lib/presence.ts`). Borrar publica un estado vacío que caduca en una hora.
+- **Qué se lee**: los estados de otras personas viajan en el mismo REQ que los perfiles que la web ya busca
+  (`ProfileCache` con `StatusCache` como compañero), nunca en una consulta propia ni en una suscripción con la lista de
+  contactos. Viven en memoria, por persona.
+- **Sin presencia**, la web no publica ni pide nada de kind 30315 (`apps/web-saas/test/presence.test.ts`, contra el relay
+  de pruebas).
+
+Decisiones, qué ve cada parte y la compatibilidad con Buzz (sin probar contra la imagen fijada): [`presence.md`](presence.md).
 
 ## APIs: anti-replay NIP-98 y límites de tasa
 Aplica a identity-service, policy-engine, indexer, notification-gateway, managed-signer y continuity-vault (todos sobre

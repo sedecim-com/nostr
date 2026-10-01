@@ -118,6 +118,15 @@ owner. Exige lo que la web necesita (respuestas, reacción leída por `#h`, los 
 servirse y el rechazo del miembro) y guarda todo en `interop-report.json` → `nip29Collaboration`. Corre en el job
 `stack` de CI y en cada sync de `buzz-upstream`; en `docs/interop/` aún no hay un informe con ese campo.
 
+## Estado de presencia, kind 30315 (FR015-05)
+Con lo que hay en este repositorio no se puede saber si el Buzz fijado acepta el estado NIP-38 que publica la web:
+Buzz rechaza los kinds que no conoce (`restricted: unknown event kind`) y ningún informe de `docs/interop/` prueba un 30315.
+En el código del relay en `b0d6fb8` (fuera de este repositorio; el pin es posterior), `required_scope_for_kind` admite
+`KIND_USER_STATUS` con el scope `UsersWrite`. **Gate.** `tests/interop/buzz.interop.test.ts` («FR015-05: …») publica un
+estado y su borrado como los construye la web, los lee desde otro cliente y lo guarda en `interop-report.json` →
+`userStatus`, sin exigirlo: la presencia es opt-in y Experimental mientras tanto. Si Buzz aplica la expiración NIP-40
+tampoco se sabe. Detalle y decisiones en [presence.md](presence.md#compatibilidad-con-los-relays).
+
 ## Revisión del pin 8519db1 (2026-09-30, ADR 0003)
 De `b0d6fb8` a `8519db1`: 22 commits upstream. Se revisaron los del relay (`crates/buzz-relay`, `buzz-db`, `buzz-media`) y
 su despliegue. El CI completo (job `stack` con la membresía NIP-29 de FR023-10, `tor-profile` con el DM por el
