@@ -1,4 +1,4 @@
-# Temporary probe (FR013-05): what the pinned strfry image contains, to write its CI job. Removed before merging.
+# Temporary (FR013-05): runs only the strfry job of ci.yml while it is being written. Removed before merging.
 name: strfry-probe
 on:
   push:
@@ -6,16 +6,33 @@ on:
 permissions:
   contents: read
 jobs:
-  probe:
+  strfry-interop:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      STRFRY_IMAGE: ghcr.io/hoytech/strfry:latest@sha256:36f1886d185a88ca57c66ebe52e6e9e8428dac2486eea0a5d50ff934f18b60c3
     steps:
-      - name: Inspect the pinned strfry image
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Start strfry
         run: |
-          IMG=ghcr.io/hoytech/strfry@sha256:36f1886d185a88ca57c66ebe52e6e9e8428dac2486eea0a5d50ff934f18b60c3
-          docker pull "$IMG" | tail -2
-          docker image inspect "$IMG" --format 'entrypoint={{json .Config.Entrypoint}} cmd={{json .Config.Cmd}} workdir={{.Config.WorkingDir}} user={{.Config.User}} exposed={{json .Config.ExposedPorts}} created={{.Created}}'
-          docker image inspect "$IMG" --format 'labels={{json .Config.Labels}}'
-          docker run --rm --entrypoint sh "$IMG" -c 'ls -la /app /etc/strfry* 2>&1 | head -30; echo ---conf---; (cat /etc/strfry.conf || cat /app/strfry.conf) 2>&1 | head -160'
-          echo ---help---
-          docker run --rm "$IMG" --help 2>&1 | head -30 || true
+          docker run --rm "$STRFRY_IMAGE" --version
+          docker run -d --name strfry -p 127.0.0.1:7777:7777 "$STRFRY_IMAGE" --set=relay.bind=0.0.0.0 relay
+          for i in $(seq 1 30); do
+            curl -fsS --max-time 2 -H 'Accept: application/nostr+json' http://127.0.0.1:7777/ > /dev/null && exit 0
+            sleep 1
+          done
+          docker logs strfry
+          exit 1
+      - name: NIP-77 with the cached set against strfry (FR013-05)
+        run: STRFRY_URL=ws://127.0.0.1:7777 npx vitest run tests/interop/strfry-negentropy.interop.test.ts
+      - name: strfry log
+        if: always()
+        run: docker logs strfry 2>&1 | tail -n 60
+      - name: Stop strfry
+        if: always()
+        run: docker rm -f strfry

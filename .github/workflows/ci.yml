@@ -314,6 +314,40 @@ jobs:
         if: always()
         run: docker compose --profile tor down -v
 
+  # FR013-05: the NIP-77 client and the event cache against a real strfry. The project publishes only the tag `latest`
+  # (an image created on 2026-09-04), so the image is pinned by digest; the strfry version it runs is printed in the log.
+  strfry-interop:
+    if: ${{ !inputs.stack_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      STRFRY_IMAGE: ghcr.io/hoytech/strfry:latest@sha256:36f1886d185a88ca57c66ebe52e6e9e8428dac2486eea0a5d50ff934f18b60c3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Start strfry
+        run: |
+          docker run --rm "$STRFRY_IMAGE" --version
+          docker run -d --name strfry -p 127.0.0.1:7777:7777 "$STRFRY_IMAGE" --set=relay.bind=0.0.0.0 relay
+          for i in $(seq 1 30); do
+            curl -fsS --max-time 2 -H 'Accept: application/nostr+json' http://127.0.0.1:7777/ > /dev/null && exit 0
+            sleep 1
+          done
+          docker logs strfry
+          exit 1
+      - name: NIP-77 with the cached set against strfry (FR013-05)
+        run: STRFRY_URL=ws://127.0.0.1:7777 npx vitest run tests/interop/strfry-negentropy.interop.test.ts
+      - name: strfry log
+        if: always()
+        run: docker logs strfry 2>&1 | tail -n 60
+      - name: Stop strfry
+        if: always()
+        run: docker rm -f strfry
+
   # OPS-01 / FR-014 / FR-017 / FR-018: build every image, start the whole stack and run the interop gate
   # against the pinned Buzz relay, the secure relay (Marmot), the mirror and the blob store.
   stack:
