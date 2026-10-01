@@ -13,6 +13,11 @@ export type CloudBackupOption = 'off' | 'ciphertext-user-key' | 'operator-manage
  */
 export type ContinuityOption = 'off' | 'best-effort' | 'required-for-resilient';
 export type CrashReportsOption = 'off' | 'manual-export' | 'opt-in';
+/**
+ * FR015-05: NIP-38 user status (kind 30315). `status`: the persona publishes the statuses its user writes and reads
+ * those of the keys whose profiles it already looks up. Off in every preset; presencePolicy says which profiles allow it.
+ */
+export type PresenceOption = 'off' | 'status';
 /** How the local vault is unlocked (ADR 0007). */
 export type LocalProtectionOption = 'passphrase' | 'device';
 export type Platform = 'web' | 'desktop' | 'mobile' | 'cli';
@@ -31,6 +36,8 @@ export interface SovereigntyConfig {
   /** VAULT-04: configurations stored before it have none, which means `off` (see `continuityPolicy`). */
   continuity: ContinuityOption;
   crashReports: CrashReportsOption;
+  /** FR015-05: configurations stored before it have none, which means `off` (see `presenceOption`). */
+  presence: PresenceOption;
   /** 'device': unlock without a passphrase in this browser/device; only for the convenience profile. */
   localProtection: LocalProtectionOption;
   remotePreviews: boolean;

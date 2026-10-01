@@ -17,8 +17,8 @@ import {
 import type { BrowserManagedSession } from './managed-session';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type ContinuitySink, type OutboxRecord } from '@sedecim/delivery-engine';
-import { DmInbox, dmRouter, outboxContacts, ProfileCache, publishDmRelayList, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
-import { continuityPolicy, preset, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
+import { DmInbox, dmRouter, outboxContacts, ProfileCache, publishDmRelayList, StatusCache, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
+import { continuityPolicy, preset, presenceOption, presencePolicy, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
 import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
 
@@ -39,6 +39,11 @@ export interface PersonaSession {
   dmOperations: DmOperationStore;
   /** FR006-04: the public profiles this persona looked up, in memory and only for this persona (spec §14.1). */
   profiles: ProfileCache;
+  /**
+   * FR015-05: the NIP-38 statuses this persona learned, in memory and only for this persona. While its presence is on
+   * (presencePolicy) the profile lookups bring them in the same request; while it is off nothing asks for them.
+   */
+  statuses: StatusCache;
   /** Whether this persona wrote to a key (its outbox): looking such a contact up tells its relays nothing new. */
   isContact(pubkey: string): Promise<boolean>;
   close(): void;
@@ -81,10 +86,11 @@ export function realCustody(custody: PersonaCustody): SovereigntyConfig['custody
 
 /**
  * The panel configuration of a persona with its real custody (older personas stored the preset's). VAULT-04: a
- * configuration stored before the Continuity Vault policy existed has none, which is `off`.
+ * configuration stored before the Continuity Vault policy existed has none, which is `off`; FR015-05: the same for
+ * presence.
  */
 export function personaConfig(p: PersonaRecord): SovereigntyConfig {
-  return { ...p.config, continuity: continuityPolicy(p.config), custody: realCustody(p.custody) };
+  return { ...p.config, continuity: continuityPolicy(p.config), presence: presenceOption(p.config), custody: realCustody(p.custody) };
 }
 
 const newId = () => bytesToHex(crypto.getRandomValues(new Uint8Array(8)));
@@ -309,6 +315,8 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
   // FR011-02: a relay coming back resumes pending deliveries (the window 'online' event does too).
   const offReconnect = pool.onReconnect(() => void engine.resume());
   const pubkey = await signer.getPublicKey();
+  // FR015-05: statuses ride on the profile lookups only while the persona's presence is on, as the panel leaves it.
+  const statuses = new StatusCache();
   return {
     persona,
     signer,
@@ -317,7 +325,8 @@ export async function openPersona(book: PersonaBook, persona: PersonaRecord, man
     engine,
     dmDiscovery,
     dmOperations: book.store.collection<DmOperation>(`dm-ops-${persona.id}`),
-    profiles: new ProfileCache(pool),
+    profiles: new ProfileCache(pool, { companion: () => (presencePolicy(config()).use ? statuses : undefined) }),
+    statuses,
     isContact: outboxContacts(engine, pubkey),
     close: () => {
       offReconnect();

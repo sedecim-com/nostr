@@ -9,7 +9,7 @@ import WebSocket from 'ws';
 import { generateSecretKey, getTagValue } from '@sedecim/nostr-core';
 import { LocalSigner } from '@sedecim/signer';
 import { RelayPool, type WebSocketLike } from '@sedecim/relay-pool';
-import { chatMessage, createGroup, createDirectMessage, deleteEvent, deletion, dmInboxFilter, joinRequest, nip17GateDecision, openDirectMessage, parseGroupMetadata, reaction, replyMessage } from '@sedecim/messaging';
+import { buildStatus, buildStatusClear, chatMessage, createGroup, createDirectMessage, deleteEvent, deletion, dmInboxFilter, joinRequest, nip17GateDecision, openDirectMessage, parseGroupMetadata, reaction, replyMessage, statusFilter } from '@sedecim/messaging';
 import { BlossomClient, prepareBlob } from '@sedecim/blossom-client';
 import { EncryptedStore, MemoryBackend } from '@sedecim/encrypted-store';
 import { tinyPng } from '@sedecim/test-relay';
@@ -182,6 +182,25 @@ describe.skipIf(!URL_)('Buzz interop gate', () => {
     const res = await pa.publishTo(await alice.signEvent({ kind: 10050, content: '', tags: [['relay', URL_!]] }), URL_!);
     report.dmRelayList = { ok: res.ok, message: res.message };
     expect(res.ok || res.message.length > 0, 'a rejection says why').toBe(true);
+  });
+  // FR015-05: a NIP-38 status and its clearing, built as the web builds them, against the pinned Buzz. Recorded, not
+  // required: presence is opt-in and Experimental until this shows the pinned image takes and serves it (docs/presence.md).
+  it('FR015-05: records whether the relay takes and serves a NIP-38 status (kind 30315) as the web publishes it', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const status = await alice.signEvent(buildStatus('interop', 3600, now));
+    const published = await pa.publishTo(status, URL_!);
+    const read = async () => (await pb.query([URL_!], [statusFilter([status.pubkey])], 5000)).map((e) => e.id);
+    const served = (await read()).includes(status.id);
+    const clear = await alice.signEvent(buildStatusClear(now + 1));
+    const cleared = await pa.publishTo(clear, URL_!);
+    const after = await read();
+    report.userStatus = {
+      publish: { ok: published.ok, message: published.message },
+      served,
+      clear: { ok: cleared.ok, message: cleared.message },
+      servedAfterClear: { status: after.includes(status.id), clear: after.includes(clear.id) },
+    };
+    expect(published.ok || published.message.length > 0, 'a rejection says why').toBe(true);
   });
 });
 
