@@ -55,7 +55,7 @@ Cada fila tiene el nivel de evidencia más bajo que alcanzan todas sus tareas de
 | Grupos Marmot/MLS | Capacidad | Merged | 9 de 9 | FR025-08 (Diferido) |
 | Continuity Vault | Capacidad | En curso | 6 de 7 | VAULT-07 (S10) |
 | Adjuntos Blossom sin metadatos | Capacidad | Merged | 8 de 8 | — |
-| Panel de soberanía, madurez y disclosures | Capacidad | En curso | 5 de 7 | FR028-02 (S13), VAULT-07 (S10), NFR007-03 (Diferido) |
+| Panel de soberanía, madurez y disclosures | Capacidad | En curso | 5 de 7 | FR028-02 (S13), VAULT-07 (S10) |
 | Notificaciones push | Capacidad | Merged | 2 de 2 | DEC-13 (Diferido) |
 | Sin telemetría ni secretos en los logs | Capacidad | Merged | 7 de 7 | — |
 | Releases firmados, SBOM e imágenes reproducibles | Capacidad | En curso | 3 de 5 | FR003-06 (S9), NFR010-02 (S9) |
