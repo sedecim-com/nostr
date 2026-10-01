@@ -13,7 +13,9 @@ import {
   BUZZ_PINNED_ADAPTER,
   chatMessage,
   channelFilter,
+  deletedMessageIds,
   DirectMessenger,
+  DM_DELETION_KIND,
   DM_KIND,
   DmInbox,
   dmInboxFilter,
@@ -21,6 +23,7 @@ import {
   FILE_MESSAGE_KIND,
   forgetMessageCopies,
   GIFT_WRAP_KIND,
+  isUnwrappedExpired,
   joinRequest,
   NotYourMessageError,
   openDirectMessage,
@@ -29,6 +32,7 @@ import {
   publishDmRelayList,
   purgeExpiredCopies,
   roundedExpiration,
+  rumorTombstone,
   tombstonedWraps,
   unwrappedExpiration,
   wrapTombstone,
@@ -808,15 +812,69 @@ export class SovereignClient {
   async purgeExpiredDms(s: Session, nowSeconds = Math.floor(Date.now() / 1000), expiredWraps: string[] = []): Promise<DmForgetResult & { next?: number }> {
     const copies = await purgeExpiredCopies(this.dmCopies(s), nowSeconds);
     const vault = await this.forgetInVault(s, [...copies.wrapIds, ...expiredWraps], nowSeconds, { remember: false });
+    // The event cache already leaves out what expired; if this process writes it, it also leaves the disk now.
+    await this.cacheInUse(s.persona.id, (cache) => cache.prune());
     const next = [copies.next, vault.next].filter((x): x is number => x !== undefined);
     return { ...copies, vault: vault.deleted, vaultQueued: vault.queued, ...(vault.error ? { vaultError: vault.error } : {}), ...(next.length ? { next: Math.min(...next) } : {}) };
   }
 
-  /** PANEL-06: forgets this device's copies of messages their author deleted, remembers them gone, and their vault archives. */
+  /**
+   * PANEL-06: forgets this device's copies of messages their author deleted, remembers them gone, and their vault
+   * archives; their gift wraps leave the event cache (FR013-05), which cannot read the deletion inside a gift wrap.
+   */
   private async forgetDeleted(s: Session, messages: Array<{ rumorId: string; author: string; wrapIds?: string[] }>): Promise<DmForgetResult> {
     const forgotten = await forgetMessageCopies(this.dmCopies(s), messages);
     const vault = await this.forgetInVault(s, forgotten.wrapIds);
+    await this.forgetInCache(s.persona.id, forgotten.wrapIds);
     return { ...forgotten, vault: vault.deleted, vaultQueued: vault.queued, ...(vault.error ? { vaultError: vault.error } : {}) };
+  }
+
+  /**
+   * PANEL-06: these gift wraps leave the persona's event cache, which refuses them if a relay serves them again. Not if
+   * another process writes the cache now: the offline read checks the deletions anyway, and the next `history sync` of
+   * this device forgets them (forgetDeletedInCache).
+   */
+  private async forgetInCache(personaId: string, wrapIds: string[]): Promise<void> {
+    if (!wrapIds.length) return;
+    try {
+      await (await this.cacheForWriting(personaId)).cache?.forget(wrapIds);
+    } catch {
+      /* the cache is a copy: `cache clear` starts it again */
+    }
+  }
+
+  /** PANEL-06: the gift wraps of every DM this device knows deleted leave the event cache (a sync may bring them back). */
+  private async forgetDeletedInCache(s: Session, cache: EventCache): Promise<void> {
+    const wraps = tombstonedWraps(await s.store.collection<boolean>(DM_TOMBSTONES).all());
+    if (wraps.length) await cache.forget(wraps);
+  }
+
+  /**
+   * PANEL-06: a rebuilt history without the DMs their author deleted. A deletion among its DMs counts as the inbox counts
+   * it, only for the messages of its own sender, and is applied here too (forgetDeleted); one this device already knew
+   * is in its tombstones. Their gift wraps leave `wraps` as well, so neither an export nor the vault carries them.
+   */
+  private async withoutDeleted(s: Session, history: RebuiltHistory): Promise<RebuiltHistory> {
+    const known = new Set((await s.store.collection<boolean>(DM_TOMBSTONES).all()).map((e) => e.id));
+    const named = new Set(history.dms.filter((m) => m.rumor.kind === DM_DELETION_KIND).flatMap((m) => deletedMessageIds(m.rumor).map((id) => rumorTombstone(id, m.sender))));
+    const fresh = history.dms.filter((m) => named.has(rumorTombstone(m.rumor.id, m.sender)) && !known.has(rumorTombstone(m.rumor.id, m.sender)));
+    if (fresh.length) await this.forgetDeleted(s, fresh.map((m) => ({ rumorId: m.rumor.id, author: m.sender, wrapIds: [m.wrap.id] })));
+    for (const m of fresh) known.add(rumorTombstone(m.rumor.id, m.sender)).add(wrapTombstone(m.wrap.id));
+    const gone = (m: DirectMessage) => known.has(rumorTombstone(m.rumor.id, m.sender)) || known.has(wrapTombstone(m.wrap.id));
+    const goneWraps = new Set(history.dms.filter(gone).map((m) => m.wrap.id));
+    return { ...history, dms: history.dms.filter((m) => !gone(m)), wraps: history.wraps.filter((w) => !goneWraps.has(w.id) && !known.has(wrapTombstone(w.id))) };
+  }
+
+  /** PANEL-06: runs `fn` on the persona's event cache only if this process already has it open for writing. */
+  private async cacheInUse(personaId: string, fn: (cache: EventCache) => Promise<unknown>): Promise<void> {
+    const open = this.caches.get(personaId);
+    if (!open || !this.cacheLocks.has(this.cacheLockPath(personaId))) return;
+    try {
+      const cache = await open;
+      if (cache) await fn(cache);
+    } catch {
+      /* the cache is a copy */
+    }
   }
 
   /**
@@ -861,7 +919,7 @@ export class SovereignClient {
       negentropy,
       new FilterWindowSync(s.pool, { since: since ?? 0, windowSeconds: since === undefined ? Math.floor(Date.now() / 1000) + 1 : 7 * 24 * 3600, pageLimit: 500, ...(cache ? { requireEose: true, timeoutMs } : {}) }),
     ];
-    const history = await rebuildHistory({
+    const rebuilt = await rebuildHistory({
       relays: s.persona.relays,
       pubkey: s.persona.pubkey,
       since: opts.since,
@@ -870,6 +928,9 @@ export class SovereignClient {
       signer: s.signer,
       ...(cache ? { cache: { store: cache, mode: opts.full ? ('full' as const) : ('resume' as const) } } : {}),
     });
+    // PANEL-06: what its author deleted stays out of the result, of an export and of the event cache.
+    const history = await this.withoutDeleted(s, rebuilt);
+    if (cache) await this.forgetDeletedInCache(s, cache).catch(() => undefined);
     const reconciler = new DeliveryEngine({ store: s.store.collection<OutboxRecord>('outbox'), publisher: s.pool, lookup: seenLookup(history.seenOn) });
     await reconciler.reconcile();
     const strategies = Object.fromEntries(Object.entries(history.reports.dms.perRelay).map(([relay, r]) => [relay, r.strategy]));
@@ -1116,13 +1177,18 @@ export class SovereignClient {
   async inbox(personaId: string, handlers: DmWatchHandlers = {}, opts: { offline?: boolean } = {}): Promise<DirectMessage[]> {
     if (opts.offline) return this.cachedDms(personaId);
     const s = await this.session(personaId);
-    return this.dmInbox(s, handlers).sync(readTimeoutMs(s.persona));
+    const messages = await this.dmInbox(s, handlers).sync(readTimeoutMs(s.persona));
+    // PANEL-06: the wraps of messages that came already deleted (their deletion read first) leave the event cache too.
+    await this.cacheInUse(personaId, (cache) => this.forgetDeletedInCache(s, cache));
+    return messages;
   }
 
   /**
    * FR013-05: the DMs among the gift wraps of the persona's event cache, opened on this device with its key, without
    * opening the persona: no connection, no wait, no receipt sent or applied. A persona whose key lives in a NIP-46 signer
-   * cannot open them offline: only the signer, over the network, can.
+   * cannot open them offline: only the signer, over the network, can. PANEL-06: as the online inbox, without what
+   * expired (also by its seal) and without what its author deleted: a deletion remembered here, or one among the cached
+   * wraps.
    */
   private async cachedDms(personaId: string): Promise<DirectMessage[]> {
     const mgr = await this.identities();
@@ -1130,7 +1196,10 @@ export class SovereignClient {
     if (persona.custody === 'external') throw new Error('sin conexión no se pueden abrir los DMs de esta persona: su llave está en un signer NIP-46, al que solo se llega por la red');
     const cache = await this.requireCache(personaId);
     const signer = await mgr.unlock(personaId, this.opts.passphrase);
+    const tombstones = (await this.personaStore(personaId)).collection<boolean>(DM_TOMBSTONES);
+    const now = Math.floor(Date.now() / 1000);
     const dms = new Map<string, DirectMessage>();
+    const deletions = new Set<string>();
     for (const wrap of cache.query(dmInboxFilter(persona.pubkey))) {
       let m: DirectMessage;
       try {
@@ -1138,10 +1207,19 @@ export class SovereignClient {
       } catch {
         continue; // not for this persona, or damaged: history sync skips them too
       }
+      if (isUnwrappedExpired(m, now)) continue;
+      // A deletion counts only for the messages of its own sender (NIP-17), as online.
+      if (m.rumor.kind === DM_DELETION_KIND) for (const id of deletedMessageIds(m.rumor)) deletions.add(rumorTombstone(id, m.sender));
       // As the online inbox: messages and files, not receipts.
-      if ((m.rumor.kind === DM_KIND || m.rumor.kind === FILE_MESSAGE_KIND) && !dms.has(m.rumor.id)) dms.set(m.rumor.id, m);
+      else if ((m.rumor.kind === DM_KIND || m.rumor.kind === FILE_MESSAGE_KIND) && !dms.has(m.rumor.id)) dms.set(m.rumor.id, m);
     }
-    return [...dms.values()].sort((a, b) => a.rumor.created_at - b.rumor.created_at || (a.rumor.id < b.rumor.id ? -1 : 1));
+    const shown: DirectMessage[] = [];
+    for (const m of dms.values()) {
+      const key = rumorTombstone(m.rumor.id, m.sender);
+      if (deletions.has(key) || (await tombstones.get(key)) || (await tombstones.get(wrapTombstone(m.wrap.id)))) continue;
+      shown.push(m);
+    }
+    return shown.sort((a, b) => a.rumor.created_at - b.rumor.created_at || (a.rumor.id < b.rumor.id ? -1 : 1));
   }
 
   /**

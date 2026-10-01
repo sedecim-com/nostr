@@ -72,13 +72,21 @@ Una llave equivocada no lee nada: la caché no se abre y no se toca ningún arch
 
 ## Reglas que aplica
 
-- **NIP-40.** No guarda ni devuelve eventos con `expiration` vencida. Los que vencen después se quitan.
+- **NIP-40.** No guarda ni devuelve eventos con `expiration` vencida. Los que vencen después se quitan: una lectura
+  ya no los devuelve, y salen del disco con la siguiente escritura (`history sync`, o `channel read` y `dm inbox` con
+  conexión). PANEL-06: si el proceso ya tiene la caché abierta para escribir, la purga de lo caducado la limpia
+  también en disco (`EventCache.prune`).
 - **NIP-09.** Un kind 5 borra los eventos de su mismo autor que nombra con `e`, también los que lleguen después:
   el registro dura mientras el kind 5 siga en la caché. No aplica las coordenadas `a`.
 - **NIP-29.** Un 9005 borra los eventos de su mismo canal (`h`) que nombra. La caché sigue al relay del grupo,
   que es quien decide quién puede borrar: Buzz solo acepta el 9005 del autor o de un admin del canal. Un relay
   que no aplique NIP-29 podría hacer que la caché oculte mensajes que ese relay sigue sirviendo.
 - **Reemplazables y direccionables:** guarda solo la versión más nueva.
+- **Borrado de mensajes directos (PANEL-06).** La petición de borrado de un DM va dentro de un gift wrap, y la caché
+  no la puede leer. Cuando el cliente aplica una (la suya o la de un contacto, al leer los DMs), la caché olvida los
+  wraps de ese mensaje: los borra y los rechaza si un relay los vuelve a servir. Ese registro dura hasta
+  `cache clear`. Si otro proceso escribe la caché en ese momento, lo hace la siguiente `history sync`; mientras
+  tanto, `dm inbox --offline` tampoco lo muestra. Ver [`message-expiration.md`](message-expiration.md).
 - Límite: si un relay conserva eventos expirados o borrados, NIP-77 los vuelve a pedir en cada sincronización y
   la caché los rechaza cada vez.
 
@@ -172,7 +180,9 @@ verificada, la prueba es opt-in.
 No abren la persona: ninguna conexión (tampoco al proxy de Tor), ninguna consulta NIP-11, ningún reintento del
 outbox y ningún acuse. Los DMs se abren con la llave del dispositivo. Si la llave está en un signer NIP-46, la
 orden falla, porque solo el signer puede abrirlos, y está en la red. Cualquier otra orden con `--offline` falla
-antes de abrir nada: nunca se ignora.
+antes de abrir nada: nunca se ignora. PANEL-06: `dm inbox --offline` deja fuera, como con conexión, lo caducado
+(también por la fecha del seal) y lo que su autor borró (una petición de borrado guardada en la caché o recordada
+por la persona).
 
 Qué llena la caché: `history sync`, y `channel read` y `dm inbox` con conexión. `dm watch` no la llena.
 

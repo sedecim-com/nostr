@@ -14,6 +14,7 @@ import { ArchiveVaultClient, archiveId, eventLabel } from '@sedecim/continuity';
 import { createContinuityVaultApi, MemoryArchiveRepository, MemoryObjectStore } from '@sedecim/continuity-vault';
 import { NotYourMessageError, roundedExpiration } from '@sedecim/messaging';
 import { eventExpiration, generateSecretKey, getPublicKey, getTagValue } from '@sedecim/nostr-core';
+import type { EventCache } from '@sedecim/sync';
 import { createLogger } from '@sedecim/telemetry-policy';
 import { TestRelay } from '@sedecim/test-relay';
 import { SovereignClient } from '../src/index';
@@ -36,11 +37,13 @@ describe('sovereign client: expiration and deletion of DMs (PANEL-06)', () => {
   const relay = new TestRelay({ requireAuth: true, pGatedKinds: [1059] });
   const vault = createContinuityVaultApi(new MemoryArchiveRepository(), new MemoryObjectStore(), { name: 'vault-cli-expiration', logger: createLogger({ write: () => {} }) });
   let vaultUrl: string;
+  let dataDir: string;
   let client: SovereignClient;
   beforeAll(async () => {
     await relay.start();
     vaultUrl = await vault.listen();
-    client = new SovereignClient({ dataDir: await mkdtemp(join(tmpdir(), 'sovereign-expiration-')), passphrase: 'pass', scryptLogN: 4, retry: { baseMs: 20, maxMs: 50 }, vaultUrl });
+    dataDir = await mkdtemp(join(tmpdir(), 'sovereign-expiration-'));
+    client = new SovereignClient({ dataDir, passphrase: 'pass', scryptLogN: 4, retry: { baseMs: 20, maxMs: 50 }, vaultUrl });
   });
   afterAll(async () => {
     client.close();
@@ -122,6 +125,41 @@ describe('sovereign client: expiration and deletion of DMs (PANEL-06)', () => {
     const before = relay.received.length;
     await expect(client.deleteDm(alice.id, theirs[0]!.groupId!)).rejects.toBeInstanceOf(NotYourMessageError);
     expect(relay.received.length).toBe(before);
+  });
+
+  it('PANEL-06: the event cache: a deleted DM leaves it and stays out when a relay serves it again; dm inbox --offline shows neither the deleted nor the expired', async () => {
+    const alice = await client.createPersona({ label: 'Alice caché', relays: [relay.url] });
+    const bob = await client.createPersona({ label: 'Bob caché', relays: [relay.url] });
+    await client.sendDm(alice.id, bob.pubkey, 'se queda');
+    const regret = await client.sendDm(alice.id, bob.pubkey, 'lo borraré');
+    const fleeting = await client.sendDm(alice.id, bob.pubkey, 'efímero', { expire: '1d' });
+    const at = eventExpiration(fleeting[0]!.event!)!;
+    const bobWrap = regret.find((r) => r.meta?.recipient === bob.pubkey)!.event!;
+    const cacheOf = async (id: string) => (await (client as unknown as { eventCache(id: string): Promise<EventCache | undefined> }).eventCache(id))!;
+    const offline = async (c: SovereignClient) => (await c.inbox(bob.id, {}, { offline: true })).map((m) => m.rumor.content).sort();
+    // Bob reads online: the gift wraps stay in his event cache, and he reads them offline too.
+    expect((await client.inbox(bob.id)).map((m) => m.rumor.content).sort()).toEqual(['efímero', 'lo borraré', 'se queda']);
+    expect((await cacheOf(bob.id)).has(bobWrap.id)).toBe(true);
+    expect(await offline(client)).toEqual(['efímero', 'lo borraré', 'se queda']);
+
+    await client.deleteDm(alice.id, regret[0]!.groupId!);
+    // Bob's next read applies the deletion, whichever arrives first, and his cache forgets that wrap.
+    expect((await client.inbox(bob.id)).map((m) => m.rumor.content).sort()).toEqual(['efímero', 'se queda']);
+    expect((await cacheOf(bob.id)).has(bobWrap.id)).toBe(false);
+    expect(await offline(client)).toEqual(['efímero', 'se queda']);
+    // The relay still serves it: a history sync brings it again, and neither its result nor the cache keeps it.
+    const synced = await client.syncHistory(bob.id);
+    expect(synced.dms.map((m) => m.rumor.content)).not.toContain('lo borraré');
+    expect(synced.history.wraps.map((w) => w.id)).not.toContain(bobWrap.id);
+    expect((await cacheOf(bob.id)).has(bobWrap.id)).toBe(false);
+
+    // Once its expiration passes (a cache clock past it), dm inbox --offline does not show the expiring message.
+    const later = new SovereignClient({ dataDir, passphrase: 'pass', scryptLogN: 4, eventCache: { now: () => at } });
+    try {
+      expect(await offline(later)).toEqual(['se queda']);
+    } finally {
+      later.close();
+    }
   });
 });
 

@@ -66,6 +66,10 @@ mensajes nuevos: los enviados conservan la caducidad que tenían, o ninguna.
   un gift wrap también por la de su seal. Así `history sync`, `history export` y el push al vault no lo llevan.
   Restaurar desde el vault (`restoreHistory`) ignora eventos y operaciones del ledger caducados, y la exportación del
   vault también.
+- **Caché de eventos del CLI** ([`event-cache.md`](event-cache.md), FR013-05). Guarda los gift wraps cifrados y ya no
+  devuelve uno caducado. Del disco sale con la siguiente escritura de la caché (`history sync`, o `dm inbox` y
+  `channel read` con conexión), o en la purga si el proceso ya la tiene abierta para escribir (`EventCache.prune`).
+  `dm inbox --offline` tampoco muestra un mensaje caducado por la fecha de su seal.
 
 ## Borrar un mensaje propio
 
@@ -81,7 +85,8 @@ mensajes nuevos: los enviados conservan la caducidad que tenían, o ninguna.
   qué hace este dispositivo y que las copias replicadas pueden seguir existiendo. El texto de las copias empieza igual
   que el de borrar en un canal (FR015-04): «Borrar no retira las copias que ya circularon».
 - **Lo que borra este dispositivo.** Quita el mensaje de la conversación, borra su operación y sus registros del outbox
-  y borra sus archivos del vault (abajo). Además deja una lápida en el almacén cifrado de la persona (`dmdel-<persona>`
+  y borra sus archivos del vault (abajo). En el CLI, la caché de eventos olvida sus wraps (`EventCache.forget`): los
+  borra y no los vuelve a guardar si un relay los sirve. `history sync` y `history export` tampoco los incluyen. Además deja una lápida en el almacén cifrado de la persona (`dmdel-<persona>`
   en la web, `dm-deleted` en el CLI): el id del mensaje con su autor y los ids de sus wraps. Así un relay que lo siga
   sirviendo no lo devuelve, llegue antes la petición o el mensaje, y un push al vault no vuelve a subirlo. Las lápidas
   no llevan contenido.
@@ -134,7 +139,7 @@ borrado dura hasta el siguiente push, que lo reemplaza, o hasta el plazo del vau
 | Operador del vault | Peticiones de borrado de archivos: cuándo y cuántas, no de qué | Lo mismo |
 | Contacto | La fecha (en el seal); su cliente decide si la respeta | Qué mensaje pediste borrar y cuándo; su cliente decide |
 | Tus otros dispositivos | La copia propia con la misma fecha | La petición, que este cliente aplica |
-| Quien abra el almacén local | Nada nuevo: lo caducado ya no está | Las lápidas (ids de mensajes, autores y wraps) y la cola de borrados del vault (ids) |
+| Quien abra el almacén local | La cola de borrados del vault (ids y fechas de lo que espera borrarse) y, hasta su siguiente escritura, los wraps caducados que la caché del CLI aún tenga en disco | Las lápidas (ids de mensajes, autores y wraps), la cola de borrados del vault (ids) y, en la caché del CLI, los ids de los wraps olvidados |
 
 ## Petición y garantía
 
@@ -160,6 +165,7 @@ Lo que depende de otros:
 |---|---|---|
 | La conversación en este dispositivo | Fuera (al caducar o al abrir la persona) | Fuera en el momento |
 | Mensaje enviado (`dm-ops`) y su entrega (outbox) | Se borran | Se borran |
+| Caché de eventos del CLI (wraps cifrados) | Fuera de las lecturas; del disco, en la siguiente escritura | Se olvidan sus wraps (si otro proceso escribe la caché, en la siguiente `history sync`) |
 | Acuses enviados (`receipts-*`, solo ids) | Quedan los ids | Quedan los ids |
 | Lápidas | — | Quedan los ids |
 | Archivos del vault que el cliente conoce | Se borran (o se encolan) | Se borran (o se encolan) |
@@ -207,7 +213,8 @@ Lo que depende de otros:
   - un borrado ajeno se rechaza o se ignora.
 - `packages/delivery-engine/test/forget.test.ts`: `forget` con una ronda en curso.
 - `packages/sync/test/expiration.test.ts`: la reconstrucción del historial deja fuera lo caducado (por el wrap, por el
-  seal y en canales) con el relay de pruebas, que lo sigue sirviendo, y control negativo.
+  seal y en canales) con el relay de pruebas, que lo sigue sirviendo; la caché olvida los wraps borrados y saca del
+  disco lo caducado (`forget`, `prune`); controles negativos.
 - `services/continuity-vault/test/expiration.test.ts`: push, restauración y cola de borrados contra el vault de pruebas,
   y que la cola no crece con los mensajes que nunca llegaron al vault.
 - `apps/web-saas/test/expiration.test.ts`:
@@ -216,4 +223,5 @@ Lo que depende de otros:
   - el aviso antes de confirmar y el borrado aplicado por el contacto;
   - un borrado ajeno se rechaza.
 - `apps/sovereign-client/test/expiration.test.ts`: API del CLI y procesos reales (`persona expiration`,
-  `dm expiration`, `dm send --expire`, `dm delete` con y sin `--yes`).
+  `dm expiration`, `dm send --expire`, `dm delete` con y sin `--yes`), y la caché de eventos: el wrap borrado sale y
+  no vuelve con `history sync`, y `dm inbox --offline` no muestra lo borrado ni lo caducado.
