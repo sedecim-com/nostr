@@ -4,7 +4,9 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readdir, readFile } from 'node:fs/promises';
+import { once } from 'node:events';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -113,8 +115,12 @@ describe('sovereign client event cache (FR013-05)', () => {
     const inbox = await cli(dir, ['dm', 'inbox', '--persona', alice.id, '--offline']);
     expect(inbox.status, inbox.stderr).toBe(0);
     expect(inbox.stdout).toContain('DM para Alice');
+    // --offline is never ignored: a command that needs the network refuses it before doing anything.
+    const sync = await cli(dir, ['history', 'sync', '--persona', alice.id, '--offline']);
+    expect(sync.status).toBe(1);
+    expect(sync.stderr).toMatch(/--offline solo existe para channel read y dm inbox/);
     expect(network()).toEqual(before);
-  }, 60_000);
+  }, 90_000);
 
   it('an online dm inbox keeps the gift wraps it reads, which dm inbox --offline opens later (FR013-05)', async () => {
     const [bob] = await (await bobDevice.identities()).list();
@@ -176,7 +182,8 @@ describe('sovereign client event cache (FR013-05)', () => {
 
     const outbox = (await device.outbox(alice.id)).length;
     await device.clearCache(alice.id);
-    expect((await readdir(personaDir)).filter((f) => f.startsWith('evcache'))).toEqual([]);
+    // What is left is this client's lock: a file with its pid, gone when the client closes.
+    expect((await readdir(personaDir)).filter((f) => f.startsWith('evcache'))).toEqual(['evcache.lock']);
     expect((await device.cacheStatus(alice.id)).stats.events).toBe(0);
     expect((await device.cacheStatus(alice.id)).cursors).toEqual([]);
     expect(await device.readChannel(alice.id, 'general', 50, { offline: true })).toEqual([]);
@@ -187,6 +194,48 @@ describe('sovereign client event cache (FR013-05)', () => {
     await device.syncHistory(alice.id);
     const asked = r2.reqFilters.slice(reqs).flat().filter((f) => f['#h']?.includes('general'));
     expect(Math.min(...asked.map((f) => f.since ?? 0))).toBe(0);
+  });
+
+  it('while another live process writes a persona cache this one reads it, but neither writes nor syncs through it (FR013-05)', async () => {
+    const lockDir = await mkdtemp(join(tmpdir(), 'sovereign-cache-lock-'));
+    const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
+    const first = new SovereignClient(opts(lockDir));
+    try {
+      const p = await first.createPersona({ label: 'Compartida', relays: [r2.url] });
+      await first.sendChannel(p.id, 'general', 'antes del candado');
+      first.close();
+      const lock = join(lockDir, 'personas', p.id, 'evcache.lock');
+      await writeFile(lock, String(holder.pid));
+      const second = new SovereignClient(opts(lockDir));
+      try {
+        expect((await second.readChannel(p.id, 'general')).map((e) => e.content)).toContain('antes del candado');
+        expect((await second.cacheStatus(p.id)).stats.events).toBe(0);
+        const r = await second.syncHistory(p.id);
+        expect(r).toMatchObject({ cacheInUse: true });
+        expect(r.cache).toBeUndefined();
+        expect(r.channels['general']!.map((e) => e.content)).toContain('antes del candado');
+        await expect(second.clearCache(p.id)).rejects.toThrow(/otro proceso/);
+      } finally {
+        second.close();
+      }
+      expect(await readFile(lock, 'utf8')).toBe(String(holder.pid));
+
+      // The holder dies (kill -9): its lock is left over, and the next client takes it and writes the cache.
+      holder.kill('SIGKILL');
+      await once(holder, 'exit');
+      const third = new SovereignClient(opts(lockDir));
+      try {
+        await third.readChannel(p.id, 'general');
+        expect((await third.cacheStatus(p.id)).stats.events).toBeGreaterThan(0);
+        expect(await readFile(lock, 'utf8')).toBe(String(process.pid));
+      } finally {
+        third.close();
+      }
+      expect(existsSync(lock)).toBe(false);
+    } finally {
+      holder.kill('SIGKILL');
+      first.close();
+    }
   });
 
   it('history export asks the relays for everything, whatever the cache limits keep (FR013-05)', async () => {

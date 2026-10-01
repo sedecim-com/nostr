@@ -47,8 +47,8 @@ En el CLI viven en el directorio de la persona (`personas/<id>`): un archivo por
 Los índices por kind, autor y created_at se construyen en memoria al abrir la caché; no se escriben.
 
 **Una copia del disco sin la passphrase** muestra como mucho 65 archivos de tamaño variable y sus fechas de
-modificación, es decir, el volumen aproximado de la caché y cuándo cambió. No muestra ids, autores, canales,
-relays ni cuántos eventos hay.
+modificación, es decir, el volumen aproximado de la caché y cuándo cambió. Mientras un proceso del CLI la escribe,
+también `evcache.lock`, con el pid de ese proceso. No muestra ids, autores, canales, relays ni cuántos eventos hay.
 
 **Con la passphrase** se lee todo lo guardado:
 - los mensajes de canal;
@@ -169,9 +169,19 @@ verificada, la prueba es opt-in.
 
 No abren la persona: ninguna conexión (tampoco al proxy de Tor), ninguna consulta NIP-11, ningún reintento del
 outbox y ningún acuse. Los DMs se abren con la llave del dispositivo. Si la llave está en un signer NIP-46, la
-orden falla, porque solo el signer puede abrirlos, y está en la red.
+orden falla, porque solo el signer puede abrirlos, y está en la red. Cualquier otra orden con `--offline` falla
+antes de abrir nada: nunca se ignora.
 
 Qué llena la caché: `history sync`, y `channel read` y `dm inbox` con conexión. `dm watch` no la llena.
+
+**Un solo proceso escribe a la vez.** Cada proceso tiene la caché en memoria y reescribe enteros los cubos que
+cambia, así que solo la escribe el que tiene `evcache.lock` en el directorio de la persona (un archivo con su pid).
+Los demás procesos la leen, pero no la escriben:
+- `channel read` y `dm inbox` no guardan lo que leen;
+- `history sync` reconstruye como con la caché apagada, y lo avisa;
+- `cache clear` se niega.
+
+El candado de un proceso que ya no existe (matado, caído) lo toma el siguiente. Un cliente lo suelta al cerrar.
 
 ## Borrado
 

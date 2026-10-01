@@ -231,6 +231,10 @@ async function main() {
     for (const m of MATURITY) console.log(`${MATURITY_LABELS[m.level].padEnd(14)} ${m.name}: ${m.why} En v1.0: ${m.atV1}`);
     return;
   }
+  // FR013-05: --offline is never ignored. Any other command uses the network, so it stops before opening anything.
+  if (offline && !((argv[0] === 'channel' && argv[1] === 'read') || (argv[0] === 'dm' && argv[1] === 'inbox'))) {
+    throw new Error('--offline solo existe para channel read y dm inbox: esta orden usa la red, y no se ha hecho nada');
+  }
   const passphrase = storePassphrase();
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
   const needsDm = argv[0] === 'dm' && argv[1] === 'send';
@@ -344,6 +348,7 @@ async function main() {
       for (const [g, events] of Object.entries(r.channels)) console.log(`canal ${g}: ${events.length} eventos`);
       console.log(`DMs: ${r.dms.length}; outbox: ${r.outbox.map((o) => o.state).join(', ') || 'vacío'}`);
       if (r.cache) console.log(`caché local: ${r.cache.events} eventos (${Math.ceil(r.cache.bytes / 1024)} KB)`);
+      if (r.cacheInUse) console.error('aviso: otro proceso del CLI está escribiendo la caché de esta persona: esta sincronización no la ha usado ni actualizado');
     } else if (a === 'cache' && b === 'status') {
       const { stats, cursors } = await client.cacheStatus(need());
       console.log(`caché local: ${stats.events} eventos (${Math.ceil(stats.bytes / 1024)} KB)${stats.oldest !== undefined ? `, del ${iso(stats.oldest)} al ${iso(stats.newest!)}` : ''}`);

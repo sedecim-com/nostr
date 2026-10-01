@@ -1,3 +1,5 @@
+import { rmSync } from 'node:fs';
+import { link, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { bytesToHex, generateSecretKey, getTagValue, hexToBytes, nip19, nip49, normalizePubkey, npubEncode, randomBytes, wipe, type NostrEvent, type Signer } from '@sedecim/nostr-core';
@@ -52,6 +54,57 @@ const RESTORED_MLS_OWNER = 'vault-restore';
 const readTimeoutMs = (persona: Pick<PersonaConfig, 'network'>) => (persona.network === 'tor-only' ? 30_000 : 10_000);
 /** FR004-08: how long a request to a NIP-46 signer waits for its answer; over Tor, with the margin of a slow circuit too. */
 const signerTimeoutMs = (persona: Pick<PersonaConfig, 'network'>) => (persona.network === 'tor-only' ? 60_000 : 30_000);
+
+/**
+ * FR013-05: a process keeps a persona's event cache in memory and rewrites whole buckets of it, so one process at a time
+ * writes it: the one whose pid is in `evcache.lock`, in the persona's directory. The others still read it. The lock
+ * files this process holds, with the client that holds each.
+ */
+const CACHE_LOCK = 'evcache.lock';
+const cacheLockOwners = new Map<string, object>();
+
+const processAlive = (pid: number) => {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+};
+
+/**
+ * Takes a cache lock for `owner`. The file appears with its pid already written (a hard link of a finished temp file),
+ * so no other process ever reads it half-written. A lock left by a process that is gone (killed, crashed) is taken over.
+ */
+async function takeCacheLock(path: string, owner: object): Promise<boolean> {
+  const current = cacheLockOwners.get(path);
+  if (current) return current === owner;
+  cacheLockOwners.set(path, owner); // claimed at once: another client of this process sees it while the file is made
+  const tmp = `${path}.${process.pid}.${bytesToHex(randomBytes(6))}`;
+  try {
+    await writeFile(tmp, String(process.pid), { mode: 0o600, flag: 'wx' });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await link(tmp, path);
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        const pid = Number((await readFile(path, 'utf8').catch(() => '')).trim());
+        // Another live process writes this cache. Our own pid with no client of ours holding it is left over from before.
+        if (pid !== process.pid && processAlive(pid)) break;
+        await rm(path, { force: true });
+      }
+    }
+    cacheLockOwners.delete(path);
+    return false;
+  } catch (err) {
+    cacheLockOwners.delete(path);
+    throw err;
+  } finally {
+    await rm(tmp, { force: true });
+  }
+}
 
 /** VAULT-05: a vault export is one JSON document of its own format; anything else is read as JSONL. */
 function isVaultExport(text: string): boolean {
@@ -214,8 +267,10 @@ export interface HistorySyncResult {
   /** strategy that completed per relay (e.g. nip77-negentropy or req-window) */
   strategies: Record<string, string>;
   history: RebuiltHistory;
-  /** FR013-05: the persona's event cache after this sync (absent when the client has it off) */
+  /** FR013-05: the persona's event cache after this sync (absent when the client has it off, or another process writes it) */
   cache?: CacheStats;
+  /** FR013-05: another process was writing the persona's event cache, so this sync neither used nor updated it */
+  cacheInUse?: boolean;
 }
 
 /** FR004-08: a NIP-46 signer with the pool and the guard its requests go through. */
@@ -257,6 +312,8 @@ export class SovereignClient {
   private readonly stores = new Map<string, Promise<EncryptedStore>>();
   /** FR013-05: each persona's event cache, opened (read and decrypted) once per client. */
   private readonly caches = new Map<string, Promise<EventCache>>();
+  /** FR013-05: the cache lock files this client holds; close() releases them. */
+  private readonly cacheLocks = new Set<string>();
 
   constructor(private readonly opts: SovereignOptions) {}
 
@@ -303,6 +360,28 @@ export class SovereignClient {
     return cache;
   }
 
+  /** FR013-05: takes the persona's cache lock for this client, unless another live process holds it. */
+  private async lockCache(personaId: string): Promise<boolean> {
+    const lock = join(this.opts.dataDir, 'personas', personaId, CACHE_LOCK);
+    if (this.cacheLocks.has(lock)) return true;
+    await this.personaStore(personaId); // an unknown persona fails here; a known one has its directory now
+    if (!(await takeCacheLock(lock, this))) return false;
+    this.cacheLocks.add(lock);
+    this.caches.delete(personaId); // what was read before the lock may be older than what is on disk now
+    return true;
+  }
+
+  /**
+   * FR013-05: the persona's event cache when this client may write it: the cache is on and no other live process holds
+   * its lock (`busy` then: it can still be read, not written).
+   */
+  private async cacheForWriting(personaId: string): Promise<{ cache?: EventCache; busy?: true }> {
+    if (this.opts.eventCache === false) return {};
+    if (!(await this.lockCache(personaId))) return { busy: true };
+    const cache = await this.eventCache(personaId);
+    return cache ? { cache } : {};
+  }
+
   /** FR013-05: what the persona's event cache holds, and its cursors (per relay and filter, when its last complete sync began). */
   async cacheStatus(personaId: string): Promise<{ stats: CacheStats; cursors: CacheCursor[] }> {
     const cache = await this.requireCache(personaId);
@@ -315,6 +394,7 @@ export class SovereignClient {
    */
   async clearCache(personaId: string): Promise<void> {
     const store = await this.personaStore(personaId);
+    if (!(await this.lockCache(personaId))) throw new Error('otro proceso del CLI está escribiendo la caché de esta persona: repite cuando termine');
     const open = this.caches.get(personaId);
     this.caches.delete(personaId);
     await open?.then((c) => c.clear(), () => undefined);
@@ -641,14 +721,17 @@ export class SovereignClient {
     const s = await this.session(personaId);
     // FR011-04: reconcile after the retry of what was pending (started when the persona opened), not during it.
     await s.resumed;
-    const cache = await this.eventCache(personaId);
+    // While another process writes the cache, this sync rebuilds as if it were off and leaves it alone.
+    const { cache, busy } = await this.cacheForWriting(personaId);
     // The NIP-11 lookup of NIP-77 support goes through the guard (Tor/allowlist), never the global fetch. With the cache,
-    // every page and batch must end with the relay's EOSE, or that relay's cursor does not move.
-    const negentropy = new NegentropySync(s.pool, { fetch: s.guard.fetchApi(), ...(cache ? { local: (relay, f) => cache.localSet(f, relay), known: (id) => cache.get(id), requireEose: true } : {}) });
+    // every page and batch must end with the relay's EOSE, or that relay's cursor does not move: each one may then wait
+    // as long as any read of the persona (OPS-21: longer over Tor).
+    const timeoutMs = readTimeoutMs(s.persona);
+    const negentropy = new NegentropySync(s.pool, { fetch: s.guard.fetchApi(), ...(cache ? { local: (relay, f) => cache.localSet(f, relay), known: (id) => cache.get(id), requireEose: true, timeoutMs } : {}) });
     // Full rebuild: one paginated window; incremental (a `since`, or a relay resuming from its cursor): weekly windows.
     const strategiesFrom = (since?: number) => [
       negentropy,
-      new FilterWindowSync(s.pool, { since: since ?? 0, windowSeconds: since === undefined ? Math.floor(Date.now() / 1000) + 1 : 7 * 24 * 3600, pageLimit: 500, requireEose: !!cache }),
+      new FilterWindowSync(s.pool, { since: since ?? 0, windowSeconds: since === undefined ? Math.floor(Date.now() / 1000) + 1 : 7 * 24 * 3600, pageLimit: 500, ...(cache ? { requireEose: true, timeoutMs } : {}) }),
     ];
     const history = await rebuildHistory({
       relays: s.persona.relays,
@@ -662,7 +745,7 @@ export class SovereignClient {
     const reconciler = new DeliveryEngine({ store: s.store.collection<OutboxRecord>('outbox'), publisher: s.pool, lookup: seenLookup(history.seenOn) });
     await reconciler.reconcile();
     const strategies = Object.fromEntries(Object.entries(history.reports.dms.perRelay).map(([relay, r]) => [relay, r.strategy]));
-    return { channels: history.channels, dms: history.dms, outbox: await s.engine.list(), strategies, history, ...(cache ? { cache: cache.stats() } : {}) };
+    return { channels: history.channels, dms: history.dms, outbox: await s.engine.list(), strategies, history, ...(cache ? { cache: cache.stats() } : {}), ...(busy ? { cacheInUse: true } : {}) };
   }
 
   /**
@@ -738,11 +821,14 @@ export class SovereignClient {
     return events;
   }
 
-  /** FR013-05: keeps what an online read brought in the event cache. A cache that fails never fails the read. */
+  /**
+   * FR013-05: keeps what an online read brought in the event cache, unless another process is writing it. A cache that
+   * fails never fails the read.
+   */
   private async keep(personaId: string, events: NostrEvent[]): Promise<void> {
     if (events.length === 0) return;
     try {
-      await (await this.eventCache(personaId))?.put(events);
+      await (await this.cacheForWriting(personaId)).cache?.put(events);
     } catch {
       /* the cache is a copy: `cache clear` starts it again */
     }
@@ -1416,6 +1502,12 @@ export class SovereignClient {
   close() {
     for (const s of this.sessions.values()) this.closeSession(s);
     this.sessions.clear();
+    // FR013-05: the cache locks of this client go with it.
+    for (const lock of this.cacheLocks) {
+      if (cacheLockOwners.get(lock) === this) cacheLockOwners.delete(lock);
+      rmSync(lock, { force: true });
+    }
+    this.cacheLocks.clear();
   }
 
   private closeSession(s: Session): void {
