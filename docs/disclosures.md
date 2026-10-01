@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.12.0** · huella `834fcc54845c134d` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.13.0** · huella `006cf92ed7dab94f` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -46,6 +46,11 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | crashReports | off | Sin informes de fallo: esta versión no los genera. | privacidad-operador | — | — |
 | crashReports | manual-export | Informes de fallo exportables a mano: todavía no existen; esta versión no genera ninguno. | — | — | — |
 | crashReports | opt-in | Informes de fallo opt-in: todavía no existen; esta versión no envía ninguno. | — | — | — |
+| messageExpiration | off | Sin caducidad: los mensajes directos nuevos no piden caducar, y los relays, tus contactos y tus copias los conservan como cualquier otro mensaje. Una conversación puede tener su propia caducidad. | — | — | — |
+| messageExpiration | 1d | Los mensajes directos nuevos piden caducar a los 1 día (NIP-40), redondeado hacia arriba a la medianoche (UTC). Al caducar, este cliente deja de mostrarlos y borra las copias que guarda de ellos; los relays que no respetan NIP-40 y los contactos que no cooperan pueden conservarlos. | — | recuperabilidad | Relays que respeten NIP-40 y clientes de tus contactos que respeten la caducidad. |
+| messageExpiration | 7d | Los mensajes directos nuevos piden caducar a los 7 días (NIP-40), redondeado hacia arriba a la medianoche (UTC). Al caducar, este cliente deja de mostrarlos y borra las copias que guarda de ellos; los relays que no respetan NIP-40 y los contactos que no cooperan pueden conservarlos. | — | recuperabilidad | Relays que respeten NIP-40 y clientes de tus contactos que respeten la caducidad. |
+| messageExpiration | 30d | Los mensajes directos nuevos piden caducar a los 30 días (NIP-40), redondeado hacia arriba a la medianoche (UTC). Al caducar, este cliente deja de mostrarlos y borra las copias que guarda de ellos; los relays que no respetan NIP-40 y los contactos que no cooperan pueden conservarlos. | — | recuperabilidad | Relays que respeten NIP-40 y clientes de tus contactos que respeten la caducidad. |
+| messageExpiration | 90d | Los mensajes directos nuevos piden caducar a los 90 días (NIP-40), redondeado hacia arriba a la medianoche (UTC). Al caducar, este cliente deja de mostrarlos y borra las copias que guarda de ellos; los relays que no respetan NIP-40 y los contactos que no cooperan pueden conservarlos. | — | recuperabilidad | Relays que respeten NIP-40 y clientes de tus contactos que respeten la caducidad. |
 | remotePreviews | true | Las previews remotas se cargan automáticamente: el servidor de origen ve tu IP. | — | privacidad-operador | — |
 | remotePreviews | false | Previews remotas bloqueadas: ningún enlace se carga sin tu acción. | privacidad-operador | — | — |
 | deliveryReceipts | true | Confirmaciones de entrega activadas (cifradas con gift wrap): tus contactos saben cuándo recibe tu dispositivo sus mensajes. | — | privacidad-operador | — |
@@ -91,6 +96,14 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | identity | mirror de canales (scope) | El mirror solo responde por los canales en los que el relay te lista como miembro y, en una organización, por los que su política te deja leer. La búsqueda cubre sus mensajes en claro, nunca los mensajes directos ni los grupos seguros, y puede no llegar a todo el historial. | — | — | — |
 | identity | mirror de canales (pseudonymous) | Esta persona es pseudónima: la web no consulta el mirror del operador, así que no hay contadores de no leídos ni búsqueda de canales. Cada consulta iría firmada con tu npub y le diría al operador qué canales lees y qué buscas. | — | — | — |
 | network | mirror de canales (torOnly) | En Tor-only la web no conecta con el mirror del operador, igual que con los relays: no hay contadores de no leídos ni búsqueda de canales. | — | — | — |
+| messageExpiration | caducidad (request) | La caducidad es una petición (NIP-40): los relays que la respetan dejan de servir el mensaje al caducar, aunque pueden seguir guardándolo, y los que no la respetan lo siguen sirviendo. El cliente de tu contacto puede no respetarla, y tu contacto pudo guardar el mensaje o hacer una captura antes. | — | — | — |
+| messageExpiration | caducidad (relay) | Cada mensaje cifrado lleva a la vista su fecha de caducidad, redondeada hacia arriba a la medianoche (UTC): el relay la ve, no el contenido. Los mensajes con el mismo plazo enviados el mismo día (UTC) llevan la misma fecha, y un mensaje puede durar hasta un día más de lo elegido. | — | — | — |
+| messageExpiration | caducidad (local) | Al caducar, este cliente deja de mostrar el mensaje y borra lo que guarda de él: el mensaje enviado, su entrega (outbox) y las copias del Continuity Vault que conoce, si llega al vault. No espera a tu contacto; si el dispositivo está apagado, lo hace al volver a abrir la persona. | — | — | — |
+| messageExpiration | caducidad (past) | Cambiar la caducidad solo afecta a los mensajes nuevos: los ya enviados conservan la que tenían, o ninguna si no la tenían. | — | — | — |
+| messageExpiration | caducidad (vault) | Las copias del Continuity Vault no caducan con el mensaje: este cliente borra las que conoce cuando caduca o lo borras, y la siguiente copia del historial ya no lo incluye. Las demás vencen con el plazo del vault, y las copias de seguridad de su operador, con la retención de esas copias. | — | — | — |
+| persistence | borrado en mensajes directos (request) | Borrar un mensaje tuyo envía una petición de borrado, cifrada como un mensaje más (NIP-17), a cada destinatario y a tus otros dispositivos. Solo puedes borrar los mensajes que escribiste tú. | — | — | — |
+| persistence | borrado en mensajes directos (local) | Este dispositivo lo quita en el momento de la conversación, del mensaje enviado y de su entrega (outbox), y borra las copias del Continuity Vault que conoce: ahora o, si el vault no responde, más adelante. | — | — | — |
+| persistence | borrado en mensajes directos (copies) | Borrar no retira las copias que ya circularon: las copias replicadas pueden seguir existiendo. Los relays guardan el mensaje cifrado, el cliente de tu contacto puede no aplicar la petición, y tu contacto pudo guardarlo o hacer una captura antes. | — | — | — |
 
 ## Aprobación
 

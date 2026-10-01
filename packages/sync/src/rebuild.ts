@@ -2,10 +2,12 @@
  * FR013-03: rebuild a persona's history on a clean device (after restoring its backup): NIP-29 channels
  * (known + discovered from our own events and the NIP-51 kind 10009 list), NIP-17 DMs (gift wraps,
  * with the 2-day NIP-59 widening) and the relay evidence needed to reconcile the restored outbox.
+ * PANEL-06: what expired (NIP-40) is left out, even when a relay still serves it: the gift wraps by their own tag, the
+ * DMs also by their seal's; so the history export and the vault push never carry it.
  */
-import { getTagValues, type Filter, type NostrEvent, type Signer } from '@sedecim/nostr-core';
+import { getTagValues, isExpired, type Filter, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { normalizeRelayUrl } from '@sedecim/relay-pool';
-import { NIP29, channelFilter, dmInboxFilter, openDirectMessage, type DirectMessage } from '@sedecim/messaging';
+import { NIP29, channelFilter, dmInboxFilter, isUnwrappedExpired, openDirectMessage, type DirectMessage } from '@sedecim/messaging';
 import { sortEvents, syncHistory, type SyncReport, type SyncStrategy } from './index';
 
 /** NIP-51 "simple groups" list (NIP-29 memberships). */
@@ -47,6 +49,8 @@ export interface RebuildOptions {
   since?: number;
   /** Persona signer: when given, gift wraps are opened into DMs. */
   signer?: Signer;
+  /** PANEL-06: the clock (ms) against which NIP-40 expirations are read. */
+  now?: () => number;
 }
 
 export interface RebuiltHistory {
@@ -57,6 +61,8 @@ export interface RebuiltHistory {
   dms: DirectMessage[];
   /** wraps that could not be opened (not for us / malformed) */
   undecryptable: number;
+  /** PANEL-06: events a relay still served after their NIP-40 expiration, left out of everything above */
+  expired: number;
   /** our own channel activity and group list */
   own: NostrEvent[];
   seenOn: Map<string, Set<string>>;
@@ -83,22 +89,33 @@ export async function rebuildHistory(opts: RebuildOptions): Promise<RebuiltHisto
   // Channel discovery looks at our whole activity, not just the window: joining is older than `since`.
   const ownAll = opts.since === undefined ? ownReport : await syncHistory(opts.relays, ownActivityFilter(opts.pubkey), opts.strategies);
   const channelIds = [...new Set([...(opts.channels ?? []), ...discoverChannels(ownAll.events)])].sort();
+  // PANEL-06: NIP-40 asks clients to ignore what expired, which a relay that does not honour it keeps serving.
+  const nowSeconds = Math.floor((opts.now ?? Date.now)() / 1000);
+  let expired = 0;
+  const current = (events: NostrEvent[]) => {
+    const kept = events.filter((e) => !isExpired(e, nowSeconds));
+    expired += events.length - kept.length;
+    return kept;
+  };
   const channels: RebuiltHistory['channels'] = {};
   const channelReports: Record<string, SyncReport> = {};
   for (const id of channelIds) {
     const r = await syncHistory(opts.relays, channelFilter(id, opts.since), opts.strategies);
-    channels[id] = r.events;
+    channels[id] = current(r.events);
     channelReports[id] = r;
     mergeSeen(seenOn, r.seenOn);
   }
 
+  const wraps = current(dmReport.events);
   const dms = new Map<string, DirectMessage>();
   let undecryptable = 0;
   if (opts.signer) {
-    for (const w of dmReport.events) {
+    for (const w of wraps) {
       try {
         const m = await openDirectMessage(opts.signer, w);
-        if (!dms.has(m.rumor.id)) dms.set(m.rumor.id, m);
+        // The seal may carry an expiration the wrap does not show.
+        if (isUnwrappedExpired(m, nowSeconds)) expired++;
+        else if (!dms.has(m.rumor.id)) dms.set(m.rumor.id, m);
       } catch {
         undecryptable++;
       }
@@ -106,10 +123,11 @@ export async function rebuildHistory(opts: RebuildOptions): Promise<RebuiltHisto
   }
   return {
     channels,
-    wraps: dmReport.events,
+    wraps,
     dms: [...dms.values()].sort((a, b) => a.rumor.created_at - b.rumor.created_at || (a.rumor.id < b.rumor.id ? -1 : 1)),
     undecryptable,
-    own: sortEvents([...ownReport.events]),
+    expired,
+    own: sortEvents(current([...ownReport.events])),
     seenOn,
     reports: { own: ownReport, dms: dmReport, channels: channelReports },
   };

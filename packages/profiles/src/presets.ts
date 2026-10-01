@@ -9,6 +9,9 @@ import type { SovereigntyConfig } from './types';
  * their key offline or in a signer. A client declares the custody of the persona's real key instead, never a promise
  * above it (PANEL-05, FR004-08): the sovereign CLI declares 'local' for a key sealed on the device (created there or
  * imported) and 'external' for a NIP-46 signer; validateConfig warns when a Tor-only key is on the device.
+ *
+ * PANEL-06: no profile turns on the expiration of direct messages. It deletes history on this device and in the vault,
+ * and whether relays and contacts honour it is out of the client's hands: the persona or the conversation chooses it.
  */
 export const PRESETS = {
   convenience: {
@@ -29,6 +32,7 @@ export const PRESETS = {
     readReceipts: false,
     quorum: 1,
     stripFileMetadata: true,
+    messageExpiration: 'off',
   },
   'private-resilient': {
     custody: 'external',
@@ -48,6 +52,7 @@ export const PRESETS = {
     readReceipts: false,
     quorum: 2,
     stripFileMetadata: true,
+    messageExpiration: 'off',
   },
   institutional: {
     custody: 'managed',
@@ -67,6 +72,7 @@ export const PRESETS = {
     readReceipts: false,
     quorum: 1,
     stripFileMetadata: true,
+    messageExpiration: 'off',
   },
   sovereign: {
     custody: 'offline',
@@ -86,6 +92,7 @@ export const PRESETS = {
     readReceipts: false,
     quorum: 1,
     stripFileMetadata: true,
+    messageExpiration: 'off',
   },
   'sovereign-tor': {
     custody: 'offline',
@@ -105,6 +112,7 @@ export const PRESETS = {
     readReceipts: false,
     quorum: 1,
     stripFileMetadata: true,
+    messageExpiration: 'off',
   },
 } as const satisfies Record<string, SovereigntyConfig>;
 

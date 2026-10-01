@@ -1,9 +1,18 @@
 import type { Dimension, Disclosure, SovereigntyConfig } from './types';
 import { PRESETS } from './presets';
 import { CHANNEL_MIRROR_TEXTS } from './mirror';
+import { DM_DELETION_TEXTS, MESSAGE_EXPIRATION_TEXTS } from './expiration';
 
 type Entry = Omit<Disclosure, 'control' | 'option'>;
 const d = (statement: string, improves: Dimension[], sacrifices: Dimension[], trustAssumptions: string[] = []): Entry => ({ statement, improves, sacrifices, trustAssumptions });
+/** PANEL-06: an expiration of direct messages of `days` (NIP-40): a request that relays and contacts may ignore. */
+const expiring = (days: string): Entry =>
+  d(
+    `Los mensajes directos nuevos piden caducar a los ${days} (NIP-40), redondeado hacia arriba a la medianoche (UTC). Al caducar, este cliente deja de mostrarlos y borra las copias que guarda de ellos; los relays que no respetan NIP-40 y los contactos que no cooperan pueden conservarlos.`,
+    [],
+    ['recuperabilidad'],
+    ['Relays que respeten NIP-40 y clientes de tus contactos que respeten la caducidad.'],
+  );
 
 const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
   custody: {
@@ -68,13 +77,20 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
     'manual-export': d('Informes de fallo exportables a mano: todavía no existen; esta versión no genera ninguno.', [], [], []),
     'opt-in': d('Informes de fallo opt-in: todavía no existen; esta versión no envía ninguno.', [], [], []),
   },
+  messageExpiration: {
+    off: d('Sin caducidad: los mensajes directos nuevos no piden caducar, y los relays, tus contactos y tus copias los conservan como cualquier otro mensaje. Una conversación puede tener su propia caducidad.', [], [], []),
+    '1d': expiring('1 día'),
+    '7d': expiring('7 días'),
+    '30d': expiring('30 días'),
+    '90d': expiring('90 días'),
+  },
 };
 
 /**
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.12.0';
+export const DISCLOSURE_VERSION = '1.13.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.
@@ -168,6 +184,10 @@ export function disclosureCatalog(): Disclosure[] {
   for (const [key, statement] of Object.entries(SECURE_GROUP_TEXTS)) out.push({ control: 'messaging', option: `marmot en la web (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   // FR014-04: listed under the control that decides whether the web asks the mirror (see mirrorPolicy).
   for (const [key, statement] of Object.entries(CHANNEL_MIRROR_TEXTS)) out.push({ control: key === 'torOnly' ? 'network' : 'identity', option: `mirror de canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+
+  // PANEL-06: the expiration of direct messages, and the deletion of one's own next to the deletion in channels.
+  for (const [key, statement] of Object.entries(MESSAGE_EXPIRATION_TEXTS)) out.push({ control: 'messageExpiration', option: `caducidad (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+  for (const [key, statement] of Object.entries(DM_DELETION_TEXTS)) out.push({ control: 'persistence', option: `borrado en mensajes directos (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   return out;
 }
 

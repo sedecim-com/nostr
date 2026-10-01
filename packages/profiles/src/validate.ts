@@ -1,8 +1,18 @@
 import type { Platform, SovereigntyConfig, ValidationContext, ValidationIssue } from './types';
+import { vaultExpirationNotice } from './expiration';
 
-const BANNED_CLAIMS = [/100\s*%\s*an[oó]nim/i, /totalmente an[oó]nim/i, /imposible de rastrear/i, /untraceable/i];
+const BANNED_CLAIMS = [
+  /100\s*%\s*an[oó]nim/i,
+  /totalmente an[oó]nim/i,
+  /imposible de rastrear/i,
+  /untraceable/i,
+  // PANEL-06: deleting or expiring a message is a request that relays and contacts may ignore, never a guarantee.
+  /borrado garantizado/i,
+  /(borra|elimina|desaparece)\S* de todas partes/i,
+  /guaranteed deletion/i,
+];
 
-/** Rejects absolute anonymity marketing claims in any UI copy (spec §2.2 "Privacidad explicable"). */
+/** Rejects absolute anonymity (and guaranteed deletion) claims in any UI copy (spec §2.2 "Privacidad explicable"). */
 export function assertNoAbsoluteClaims(text: string): void {
   for (const re of BANNED_CLAIMS) if (re.test(text)) throw new Error(`absolute privacy claim not allowed: "${text}"`);
 }
@@ -57,6 +67,9 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
       else warn('CONTINUITY_NO_VAULT', 'No hay Continuity Vault configurado: los envíos salen, pero sin copia en el vault.', ['continuity']);
     }
   }
+  // PANEL-06: the vault keeps its copies with its own retention, which may outlast the expiration of the messages.
+  const outlives = c.messageExpiration ? vaultExpirationNotice(c.messageExpiration, { cloudBackup: c.cloudBackup, continuityVault: ctx.continuityVault, retentionDays: ctx.vaultRetentionDays }) : undefined;
+  if (outlives) warn('EXPIRATION_VAULT', outlives, ['messageExpiration', 'cloudBackup']);
   return issues;
 }
 

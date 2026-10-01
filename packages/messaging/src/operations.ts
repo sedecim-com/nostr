@@ -14,6 +14,11 @@ export interface DmOperation {
   createdAt: number;
   /** When every target's wrap was in the outbox. */
   queuedAt?: number;
+  /**
+   * PANEL-06: the NIP-40 expiration its wraps carry, fixed when the operation is created: a retry keeps it, and a later
+   * change of the conversation's expiration does not touch a message already written.
+   */
+  expiration?: number;
 }
 
 /** Where the operations are kept: the persona's encrypted local store (a Collection of @sedecim/encrypted-store). */

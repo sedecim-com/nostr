@@ -12,9 +12,13 @@
  *   copy is from and whether archives went missing since (expired by the retention, deleted, or lost).
  *
  * Labels never reach the vault: `archiveId` turns them into opaque ids with the archive key.
+ *
+ * PANEL-06: an event whose NIP-40 expiration passed is never archived nor restored, and a push deletes its archive
+ * if the vault still holds it; so does a push for the events the caller names as deleted (`forget`). The format of the
+ * archives does not change: they are deleted by id.
  */
-import { verifyEvent, type NostrEvent } from '@sedecim/nostr-core';
-import type { ArchiveVaultClient } from './client';
+import { eventExpiration, isExpired, verifyEvent, type NostrEvent } from '@sedecim/nostr-core';
+import { ArchiveVaultError, type ArchiveVaultClient } from './client';
 import { archiveId, openArchiveText, sealArchive } from './seal';
 
 export const LEDGER_LABEL = 'ledger';
@@ -48,14 +52,21 @@ export interface HistoryArchiveInput {
   /** Delivery ledger: the outbox records. */
   ledger?: unknown[];
   mls?: MlsSnapshot;
+  /** PANEL-06: ids of events deleted by their author (e.g. the wraps of a deleted DM): never archived, and removed. */
+  forget?: string[];
 }
 
 export interface HistoryArchiveResult {
-  /** `kept`: already in the vault (event archives never change). `invalid`: bad signature, not archived. */
-  events: { uploaded: number; kept: number; invalid: number };
+  /**
+   * `kept`: already in the vault (event archives never change). `invalid`: bad signature, not archived. PANEL-06:
+   * `expired`: its NIP-40 expiration passed, not archived.
+   */
+  events: { uploaded: number; kept: number; invalid: number; expired: number };
   groupMessages: { uploaded: number; kept: number };
   /** Snapshots written in this push (`ledger`, `mls`). */
   snapshots: string[];
+  /** PANEL-06: archives of expired or deleted events this push removed from the vault. */
+  forgotten: number;
 }
 
 export interface RestoredHistory {
@@ -71,6 +82,8 @@ export interface RestoredHistory {
   skipped: number;
   /** Archives the latest snapshot counted that the vault no longer lists: expired (VAULT-05), deleted, or lost. */
   missing: number;
+  /** PANEL-06: events (and ledger operations) left out because their NIP-40 expiration passed. */
+  expired: number;
 }
 
 type Snapshot = { pubkey: string; at: number; archives?: number };
@@ -92,6 +105,77 @@ export async function archiveEvent(client: ArchiveVaultClient, key: Uint8Array, 
   const id = archiveId(key, eventLabel(event.id));
   const payload: Payload = { type: 'event', version: 1, event };
   await client.put(id, sealArchive(key, id, JSON.stringify(payload)));
+}
+
+/**
+ * PANEL-06: deletes the `event:<id>` archives of these events (e.g. the wraps of a message that expired or that its
+ * author deleted), one request each. One the vault does not hold is skipped. Returns how many it deleted.
+ */
+export async function forgetArchivedEvents(client: ArchiveVaultClient, key: Uint8Array, eventIds: string[]): Promise<number> {
+  let deleted = 0;
+  for (const eventId of new Set(eventIds)) {
+    try {
+      const removed = await client.remove(archiveId(key, eventLabel(eventId)));
+      deleted += removed;
+    } catch (e) {
+      if (!(e instanceof ArchiveVaultError && e.status === 404)) throw e;
+    }
+  }
+  return deleted;
+}
+
+/**
+ * PANEL-06: the archives this device still has to delete from the vault, in the persona's encrypted store (a
+ * Collection): by event id, the unix second from which the deletion is due (the event's NIP-40 expiration; 0: now).
+ */
+export interface ArchiveForgetQueue {
+  all(): Promise<Array<{ id: string; value: number }>>;
+  put(eventId: string, due: number): Promise<void>;
+  delete(eventId: string): Promise<void>;
+}
+
+/**
+ * PANEL-06: remembers the expiring events a push stored in the vault, so that their archives are deleted when they
+ * expire, even if by then no relay serves them any more (and the next push cannot see them).
+ */
+export async function scheduleArchiveExpiry(queue: ArchiveForgetQueue, events: NostrEvent[]): Promise<void> {
+  for (const e of events) {
+    const at = eventExpiration(e);
+    if (at !== undefined) await queue.put(e.id, at);
+  }
+}
+
+/**
+ * PANEL-06: deletes from the vault the archives of `eventIds` and of every queued event due at `nowSeconds`. What the
+ * vault confirms leaves the queue; when it does not answer, all of them stay queued as due now, for the next run.
+ * Without a vault at hand (`client` undefined), `eventIds` are only queued. `next`: the soonest deletion still ahead.
+ */
+export async function forgetDueArchives(
+  vault: { client: ArchiveVaultClient; key: Uint8Array } | undefined,
+  queue: ArchiveForgetQueue,
+  eventIds: string[],
+  nowSeconds: number,
+): Promise<{ deleted: number; queued: number; next?: number; error?: string }> {
+  const entries = await queue.all();
+  const due = new Set([...eventIds, ...entries.filter((e) => e.value <= nowSeconds).map((e) => e.id)]);
+  const ahead = entries.filter((e) => e.value > nowSeconds && !due.has(e.id));
+  const next = ahead.length ? Math.min(...ahead.map((e) => e.value)) : undefined;
+  const requeue = async () => {
+    for (const id of due) await queue.put(id, 0);
+  };
+  if (!due.size) return { deleted: 0, queued: ahead.length, ...(next !== undefined ? { next } : {}) };
+  if (!vault) {
+    await requeue();
+    return { deleted: 0, queued: ahead.length + due.size, ...(next !== undefined ? { next } : {}) };
+  }
+  try {
+    const deleted = await forgetArchivedEvents(vault.client, vault.key, [...due]);
+    for (const id of due) await queue.delete(id);
+    return { deleted, queued: ahead.length, ...(next !== undefined ? { next } : {}) };
+  } catch (e) {
+    await requeue();
+    return { deleted: 0, queued: ahead.length + due.size, ...(next !== undefined ? { next } : {}), error: (e as Error).message };
+  }
 }
 
 /**
@@ -198,13 +282,23 @@ function isMlsSnapshot(s: unknown): s is MlsSnapshot {
   return Object.entries(s).every(([ns, entries]) => NAMESPACE.test(ns) && Array.isArray(entries) && entries.every((e) => !!e && typeof (e as { id?: unknown }).id === 'string'));
 }
 
+/** PANEL-06: the signed event a ledger entry carries (an outbox record, or a `{ id, value }` store entry of the CLI). */
+function ledgerEvent(entry: unknown): NostrEvent | undefined {
+  const rec = entry && typeof entry === 'object' && 'value' in entry ? (entry as { value: unknown }).value : entry;
+  const event = (rec as { event?: unknown } | null | undefined)?.event as NostrEvent | undefined;
+  return event && typeof event === 'object' && Array.isArray(event.tags) ? event : undefined;
+}
+
 /**
  * Seals and uploads the persona's history. Event and group-message archives are written once (a retry or the
  * next push skips what the vault already holds); the ledger and MLS snapshots replace their previous copy.
+ * PANEL-06: expired events (NIP-40) and those in `input.forget` are not uploaded, and their archives are deleted.
  */
 export async function archiveHistory(client: ArchiveVaultClient, key: Uint8Array, input: HistoryArchiveInput, opts: { concurrency?: number; now?: () => number } = {}): Promise<HistoryArchiveResult> {
   const present = new Set((await client.listAll()).map((a) => a.id));
-  const result: HistoryArchiveResult = { events: { uploaded: 0, kept: 0, invalid: 0 }, groupMessages: { uploaded: 0, kept: 0 }, snapshots: [] };
+  const result: HistoryArchiveResult = { events: { uploaded: 0, kept: 0, invalid: 0, expired: 0 }, groupMessages: { uploaded: 0, kept: 0 }, snapshots: [], forgotten: 0 };
+  const at = (opts.now ?? Date.now)();
+  const nowSeconds = Math.floor(at / 1000);
   const jobs: Array<() => Promise<void>> = [];
   const held = new Set(present);
   const put = (label: string, payload: Payload, done: () => void) => {
@@ -215,6 +309,8 @@ export async function archiveHistory(client: ArchiveVaultClient, key: Uint8Array
       done();
     });
   };
+  const forget = new Set(input.forget ?? []);
+  const drop = new Set([...forget].map((eventId) => archiveId(key, eventLabel(eventId))).filter((id) => present.has(id)));
 
   const seenEvents = new Set<string>();
   for (const event of input.events) {
@@ -224,8 +320,27 @@ export async function archiveHistory(client: ArchiveVaultClient, key: Uint8Array
       result.events.invalid++;
       continue;
     }
-    if (present.has(archiveId(key, eventLabel(event.id)))) result.events.kept++;
+    const id = archiveId(key, eventLabel(event.id));
+    if (forget.has(event.id)) continue;
+    if (isExpired(event, nowSeconds)) {
+      result.events.expired++;
+      if (present.has(id)) drop.add(id);
+      continue;
+    }
+    if (present.has(id)) result.events.kept++;
     else put(eventLabel(event.id), { type: 'event', version: 1, event }, () => result.events.uploaded++);
+  }
+  for (const id of drop) {
+    jobs.push(async () => {
+      try {
+        // Read after the await: jobs run concurrently, and `+= await` would add to a stale count.
+        const removed = await client.remove(id);
+        result.forgotten += removed;
+      } catch (e) {
+        if (!(e instanceof ArchiveVaultError && e.status === 404)) throw e;
+      }
+      held.delete(id);
+    });
   }
 
   const seenMessages = new Set<string>();
@@ -238,13 +353,17 @@ export async function archiveHistory(client: ArchiveVaultClient, key: Uint8Array
   }
   await runLimited(jobs, opts.concurrency ?? 4);
 
-  const at = (opts.now ?? Date.now)();
   // What the account holds once this push ends, snapshots included.
   if (input.ledger) held.add(archiveId(key, LEDGER_LABEL));
   if (input.mls) held.add(archiveId(key, MLS_LABEL));
   const snapshot: Snapshot = { pubkey: input.pubkey, at, archives: held.size };
   const snapshots: Array<[string, Payload]> = [];
-  if (input.ledger) snapshots.push([LEDGER_LABEL, { type: 'ledger', version: 1, ...snapshot, outbox: input.ledger }]);
+  // PANEL-06: the operations of expired or deleted events stay out of the ledger too.
+  const current = (entry: unknown) => {
+    const event = ledgerEvent(entry);
+    return !event || (!forget.has(event.id) && !isExpired(event, nowSeconds));
+  };
+  if (input.ledger) snapshots.push([LEDGER_LABEL, { type: 'ledger', version: 1, ...snapshot, outbox: input.ledger.filter(current) }]);
   if (input.mls) snapshots.push([MLS_LABEL, { type: 'mls', version: 1, ...snapshot, namespaces: input.mls }]);
   for (const [label, payload] of snapshots) {
     const id = archiveId(key, label);
@@ -260,13 +379,14 @@ export async function archiveHistory(client: ArchiveVaultClient, key: Uint8Array
  * comes back; the rest is counted in `skipped`. `missing` compares the archives the last snapshot counted with the
  * listing, which listAll() only accepts without repeated entries (IR-2026-10-04): an operator that pads it to hide a
  * removed archive turns the gap into `skipped` archives, which the restore also reports. A download that fails is an
- * error: retry the restore.
+ * error: retry the restore. PANEL-06: an event, or a ledger operation, whose NIP-40 expiration passed stays out.
  */
-export async function restoreHistory(client: ArchiveVaultClient, key: Uint8Array, opts: { pubkey: string; concurrency?: number }): Promise<RestoredHistory> {
+export async function restoreHistory(client: ArchiveVaultClient, key: Uint8Array, opts: { pubkey: string; concurrency?: number; now?: () => number }): Promise<RestoredHistory> {
   const metas = await client.listAll();
   const events = new Map<string, NostrEvent>();
   const messages = new Map<string, ArchivedGroupMessage>();
-  const out: RestoredHistory = { events: [], groupMessages: [], archives: metas.length, skipped: 0, missing: 0 };
+  const out: RestoredHistory = { events: [], groupMessages: [], archives: metas.length, skipped: 0, missing: 0, expired: 0 };
+  const nowSeconds = Math.floor((opts.now ?? Date.now)() / 1000);
   let counted = 0;
   const snapshotOk = (p: Snapshot) => p.pubkey === opts.pubkey && Number.isSafeInteger(p.at) && (p.archives === undefined || Number.isSafeInteger(p.archives));
   const accept = (p: Payload, id: string): boolean => {
@@ -297,12 +417,20 @@ export async function restoreHistory(client: ArchiveVaultClient, key: Uint8Array
         out.skipped++;
         return;
       }
-      if (p.type === 'event') events.set(p.event.id, p.event);
-      else if (p.type === 'group-message') messages.set(groupMessageLabel(p.message.groupId, p.message.rumorId), p.message);
+      if (p.type === 'event') {
+        if (isExpired(p.event, nowSeconds)) out.expired++;
+        else events.set(p.event.id, p.event);
+      } else if (p.type === 'group-message') messages.set(groupMessageLabel(p.message.groupId, p.message.rumorId), p.message);
       else {
         counted = Math.max(counted, p.archives ?? 0);
-        if (p.type === 'ledger') out.ledger = { at: p.at, outbox: p.outbox };
-        else out.mls = { at: p.at, namespaces: p.namespaces };
+        if (p.type === 'ledger') {
+          const outbox = p.outbox.filter((e) => {
+            const event = ledgerEvent(e);
+            return !event || !isExpired(event, nowSeconds);
+          });
+          out.expired += p.outbox.length - outbox.length;
+          out.ledger = { at: p.at, outbox };
+        } else out.mls = { at: p.at, namespaces: p.namespaces };
       }
     }),
     opts.concurrency ?? 4,
