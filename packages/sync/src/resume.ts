@@ -66,7 +66,11 @@ export async function syncWithCache(o: CachedSyncOptions): Promise<CachedSyncRep
     await Promise.all(
       o.relays.map(async (relay) => {
         const started = now();
-        const cursor = resume ? o.cache.cursor(relay, identity) : undefined;
+        const stored = o.cache.cursor(relay, identity);
+        // A cursor ahead of now (the clock was ahead when it was written) would skip everything until then: not used,
+        // and replaced once this sync completes.
+        const ahead = stored !== undefined && stored > started + overlap;
+        const cursor = resume && !ahead ? stored : undefined;
         let filter = o.filter(o.since ?? (cursor !== undefined ? cursor - overlap : undefined));
         // Below the floor the limits drop events anyway: asking for them again would only churn the cache.
         if (resume && o.cache.floor > (filter.since ?? 0)) filter = { ...filter, since: o.cache.floor };
@@ -77,7 +81,7 @@ export async function syncWithCache(o: CachedSyncOptions): Promise<CachedSyncRep
         await o.cache.put(report.events, { relay });
         const result = report.perRelay[relay]!;
         const complete = result.strategy !== 'none';
-        const after = complete && o.since === undefined ? await o.cache.advanceCursor(relay, identity, started) : o.cache.cursor(relay, identity);
+        const after = complete && o.since === undefined ? await o.cache.advanceCursor(relay, identity, started, { reset: ahead }) : o.cache.cursor(relay, identity);
         perRelay[relay] = { ...result, ...(filter.since !== undefined ? { since: filter.since } : {}), ...(after !== undefined ? { cursor: after } : {}), advanced: complete && o.since === undefined };
       }),
     );

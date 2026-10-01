@@ -95,6 +95,8 @@ Una llave equivocada no lee nada: la caché no se abre y no se toca ningún arch
   Un timeout, un CLOSED, una conexión caída o una sesión NIP-77 abortada lo dejan donde estaba. Lo que llegó
   antes del corte sí se guarda.
 - **Varios relays:** cada uno con su cursor.
+- **Reloj adelantado:** un cursor por delante de la hora actual más el solape (escrito con el reloj adelantado) no
+  se usa. Esa sincronización pide todo y, si termina, lo reemplaza.
 - **Actividad propia:** se sincroniza siempre entera (con NIP-77 solo baja lo que falta), porque de ella salen
   los canales de la persona.
 - Límite: un evento que llega al relay más de 10 minutos después de su created_at no entra en la ventana de una

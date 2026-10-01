@@ -143,6 +143,24 @@ describe('encrypted event cache (FR013-05)', () => {
     expect(cache.query({ kinds: [10009] }).map((e) => e.id)).toEqual([v3.id]);
   });
 
+  it('applies its rules to what it finds on disk: a replaced version or a deleted event left by someone else goes (FR013-05)', async () => {
+    const store = memoryStore();
+    const v1 = sign(alice, 10009, base + 1, '', [['group', 'a']]);
+    const v2 = sign(alice, 10009, base + 2, '', [['group', 'b']]);
+    const target = chat(alice, 3, 'borrado');
+    const deletion = sign(alice, 5, base + 4, '', [['e', target.id]]);
+    await (await EventCache.open(store)).put([deletion]);
+    // Written by another client into one entry: both versions, and the event that the deletion names.
+    await store.collection<Array<{ e: NostrEvent }>>('evcache').put('zz', [{ e: v1 }, { e: v2 }, { e: target }]);
+    const reopened = await EventCache.open(store);
+    expect(reopened.query({ kinds: [10009] }).map((e) => e.id)).toEqual([v2.id]);
+    expect(reopened.has(target.id)).toBe(false);
+    // The next write leaves them out of the storage too.
+    await reopened.put([]);
+    expect((await store.collection<Array<{ e: NostrEvent }>>('evcache').all()).flatMap((b) => b.value.map((s) => s.e.id)).sort()).toEqual([v2.id, deletion.id].sort());
+    expect((await EventCache.open(store)).size).toBe(2);
+  });
+
   it('keeps one cursor per relay and filter that never moves back, and clear() forgets everything (FR013-05)', async () => {
     const store = memoryStore();
     await store.collection<string>('outbox').put('op', 'otra colección');

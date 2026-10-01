@@ -185,8 +185,19 @@ export class EventCache {
         // Rewritten where it belongs on the next write (a bucket layout change, or a copy left in the wrong entry).
         if (bucketOf(e.id) !== bucket) this.dirty.add(bucket).add(bucketOf(e.id));
         const held = this.entries.get(e.id);
-        if (held) for (const r of stored.r ?? []) held.relays.add(r);
-        else this.insert(e, new Set(stored.r ?? []));
+        if (held) {
+          for (const r of stored.r ?? []) held.relays.add(r);
+          continue;
+        }
+        // What the rules no longer keep (a replaced version, a deleted event) leaves with the next write.
+        const addr = addressOf(e);
+        const head = addr ? this.entries.get(this.heads.get(addr) ?? '') : undefined;
+        if (this.meta.tombstones[e.id]?.some(([, scope]) => appliesTo(scope, e)) || (head && !supersedes(e, head.event))) {
+          this.dirty.add(bucket);
+          continue;
+        }
+        if (head) this.remove(head.event.id);
+        this.insert(e, new Set(stored.r ?? []));
       }
     }
     // Limits lowered since the last write, or events expired meanwhile: applied in memory, written with the next change.
@@ -311,13 +322,13 @@ export class EventCache {
   }
 
   /**
-   * Moves the cursor of `filter` on `relay` to `at` (never backwards). The events already put are written first, so a
-   * cursor never runs ahead of what it covers.
+   * Moves the cursor of `filter` on `relay` to `at`: never backwards, unless `reset` (a cursor left ahead by a clock that
+   * was). The events already put are written first, so a cursor never runs ahead of what it covers.
    */
-  advanceCursor(relay: string, filter: Filter, at: number): Promise<number> {
+  advanceCursor(relay: string, filter: Filter, at: number, opts: { reset?: boolean } = {}): Promise<number> {
     return this.serial(async () => {
       const key = `${this.relayIndex(relay)} ${filterKey(filter)}`;
-      const next = Math.max(this.meta.cursors[key] ?? Number.NEGATIVE_INFINITY, Math.floor(at));
+      const next = opts.reset ? Math.floor(at) : Math.max(this.meta.cursors[key] ?? Number.NEGATIVE_INFINITY, Math.floor(at));
       if (this.meta.cursors[key] !== next) {
         this.meta.cursors[key] = next;
         this.metaDirty = true;

@@ -140,6 +140,17 @@ describe('resumed sync over the encrypted cache (FR013-05)', () => {
     expect(cache.has(late.id)).toBe(true);
   });
 
+  it('a cursor left ahead by a clock that was ahead is not used, and the next complete sync replaces it (FR013-05)', async () => {
+    const { events, filter } = author(6);
+    events.forEach((e) => plain.inject(e));
+    const cache = await newCache();
+    await cache.advanceCursor(plain.url, filter(), nowSec() + 7 * 24 * 3600);
+    const r = await syncWithCache({ cache, relays: [plain.url], filter, strategies: both(negentropy(cache)) });
+    expect(r.perRelay[plain.url]!.since).toBeUndefined();
+    expect(r.events).toHaveLength(6);
+    expect(cache.cursor(plain.url, filter())).toBeLessThanOrEqual(nowSec());
+  });
+
   it('gift wraps resume two more days back, so a wrap backdated by NIP-59 after the last sync is not lost (FR013-05)', async () => {
     const buzzLike = new TestRelay({ requireAuth: true, pGatedKinds: [1059] });
     await buzzLike.start();
