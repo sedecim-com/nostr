@@ -7,6 +7,7 @@
 import { nip77 } from 'nostr-tools';
 import type { Filter, NostrEvent } from '@sedecim/nostr-core';
 import type { RelayConnection, RelayPool } from '@sedecim/relay-pool';
+import { queryUntilEose } from './eose';
 import type { SyncStrategy } from './index';
 
 export class NegentropyError extends Error {
@@ -26,11 +27,23 @@ export interface NegentropyStats {
   rounds: number;
   /** events received through the REQ `ids` batches */
   fetched: number;
+  /** needed ids that `known` already held (e.g. from another relay): not fetched again */
+  reused: number;
 }
 
 export interface NegentropySyncOptions {
-  /** Ids already stored locally for this relay/filter; only the difference is transferred. */
+  /**
+   * Ids already stored locally for this relay/filter; only the difference is transferred. They are described to the
+   * relay (fingerprints, and the ids themselves in small ranges): FR013-05 passes only what that same relay served.
+   */
   local?: (relay: string, filter: Filter) => Iterable<{ id: string; created_at: number }> | Promise<Iterable<{ id: string; created_at: number }>>;
+  /** FR013-05: events already held locally; a needed id found here is reported without being downloaded again. */
+  known?: (id: string) => NostrEvent | undefined;
+  /**
+   * FR013-05: fail unless every REQ that fetches the missing events ends with the relay's EOSE (a timeout or a CLOSED
+   * then makes the next strategy run). Off by default: a cut batch counts as done, as before.
+   */
+  requireEose?: boolean;
   /**
    * How to decide support: 'nip11' trusts `supported_nips`, 'probe' sends a NEG-OPEN that matches nothing,
    * 'auto' (default) accepts a NIP-11 claim and otherwise probes (many relays omit 77 from NIP-11).
@@ -118,18 +131,32 @@ export class NegentropySync implements SyncStrategy {
     const { limit: _limit, ...negFilter } = filter; // NIP-77 reconciles the whole matching set
     const res = await this.session(relay, negFilter, storage);
     if (res.have.length) this.opts.onRelayMissing?.(relay, res.have);
-    const stats: NegentropyStats = { need: res.need.length, have: res.have.length, rounds: res.rounds, fetched: 0 };
+    const stats: NegentropyStats = { need: res.need.length, have: res.have.length, rounds: res.rounds, fetched: 0, reused: 0 };
     this.stats.set(relay, stats);
+    // The relay has these: an event held locally (e.g. from another relay) is reported as seen here, not downloaded again.
+    const missing: string[] = [];
+    for (const id of res.need) {
+      const held = this.opts.known?.(id);
+      if (held && held.id === id) {
+        stats.reused++;
+        onEvent(held);
+      } else missing.push(id);
+    }
     const batch = this.opts.batchSize ?? 100;
-    for (let i = 0; i < res.need.length; i += batch) {
-      const ids = res.need.slice(i, i + batch);
-      // Keep the original constraints next to `ids`: relays gate some kinds (e.g. 1059 needs #p).
-      const events = await this.pool.query([relay], [{ ...negFilter, ids }], this.opts.timeoutMs ?? 10_000);
-      for (const e of events) {
-        if (!ids.includes(e.id)) continue;
+    const timeoutMs = this.opts.timeoutMs ?? 10_000;
+    for (let i = 0; i < missing.length; i += batch) {
+      const ids = new Set(missing.slice(i, i + batch));
+      const take = (e: NostrEvent) => {
+        if (!ids.has(e.id)) return;
+        ids.delete(e.id);
         stats.fetched++;
         onEvent(e);
-      }
+      };
+      // Keep the original constraints next to `ids`: relays gate some kinds (e.g. 1059 needs #p).
+      const f = { ...negFilter, ids: [...ids] };
+      // Strict batches hand over each event as it arrives: a batch cut half way still keeps what came.
+      if (this.opts.requireEose) await queryUntilEose(this.pool, relay, [f], timeoutMs, take);
+      else (await this.pool.query([relay], [f], timeoutMs)).forEach(take);
     }
   }
 
@@ -150,8 +177,9 @@ export class NegentropySync implements SyncStrategy {
   private exchange(conn: RelayConnection, relay: string, filter: Filter, storage: InstanceType<typeof nip77.NegentropyStorageVector>): Promise<SessionResult> {
     const neg = new nip77.Negentropy(storage, this.opts.frameSizeLimit);
     const subId = `neg${++sessionCounter}`;
-    const need: string[] = [];
-    const have: string[] = [];
+    // With a frame size limit (either side) a difference can be reported more than once (Negentropy spec): count it once.
+    const need = new Set<string>();
+    const have = new Set<string>();
     let rounds = 0;
     const timeoutMs = this.opts.timeoutMs ?? 10_000;
     return new Promise<SessionResult>((resolve, reject) => {
@@ -166,7 +194,7 @@ export class NegentropySync implements SyncStrategy {
         if (err) {
           void conn.sendMessage(['NEG-CLOSE', subId]).catch(() => undefined);
           reject(err);
-        } else resolve({ need, have, rounds });
+        } else resolve({ need: [...need], have: [...have], rounds });
       };
       const off = conn.onRawMessage((msg) => {
         const [type, id, payload] = msg as [string, unknown, unknown];
@@ -180,7 +208,7 @@ export class NegentropySync implements SyncStrategy {
         if (type !== 'NEG-MSG' || typeof payload !== 'string') return;
         rounds++;
         try {
-          const next = neg.reconcile(payload, (x) => have.push(x), (x) => need.push(x));
+          const next = neg.reconcile(payload, (x) => have.add(x), (x) => need.add(x));
           if (next === null) {
             void conn.sendMessage(['NEG-CLOSE', subId]).catch(() => undefined);
             finish();
