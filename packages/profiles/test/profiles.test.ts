@@ -50,11 +50,10 @@ describe('sovereignty profiles', () => {
     expect(validateConfig(direct, 'web', { relays: 3 }).filter((i) => i.code.startsWith('QUORUM'))).toEqual([]);
   });
 
-  it('tells only what this version does (PANEL-05): no audit claimed, no crash reports or tracing promised', () => {
+  it('tells only what this version does (PANEL-05): no audit claimed, no tracing promised', () => {
     const all = disclosureCatalog();
     expect(all.flatMap((d) => [d.statement, ...d.trustAssumptions]).join(' ')).not.toMatch(/auditada/);
-    for (const d of all.filter((x) => x.control === 'crashReports' || x.control === 'telemetry')) expect(d.statement).toMatch(/no (los genera|genera|envía|se emite)/);
-    for (const name of Object.keys(PRESETS) as PresetName[]) expect(preset(name).crashReports).toBe('off');
+    for (const d of all.filter((x) => x.control === 'telemetry')) expect(d.statement).toMatch(/no (los genera|genera|envía|se emite)/);
     const metadata = (on: boolean) => disclose({ ...preset('convenience'), stripFileMetadata: on }).find((d) => d.control === 'stripFileMetadata')!;
     expect(metadata(true)).toMatchObject({ improves: ['privacidad-operador'], statement: expect.stringMatching(/HEIC, TIFF\/RAW\) se rechazan/) });
     expect(metadata(false)).toMatchObject({ sacrifices: ['privacidad-operador'], statement: expect.stringMatching(/dónde y con qué dispositivo/) });
@@ -151,6 +150,38 @@ describe('Continuity Vault policy (VAULT-04)', () => {
     expect(say('required-for-resilient').statement).toMatch(/queda retenido/);
     expect(say('required-for-resilient').sacrifices).toContain('soberania');
     expect(say('off').sacrifices).toContain('recuperabilidad');
+  });
+});
+
+describe('crash reports per profile (NFR007-03)', async () => {
+  const { CRASH_RETENTION } = await import('@sedecim/telemetry-policy/crash-report');
+  type Mode = SovereigntyConfig['crashReports'];
+
+  it('NFR007-03: manual-export where Appendix B has manual-export or opt-in, off in private-resilient and sovereign-tor, and no preset keeps reports on the device', () => {
+    expect(Object.fromEntries(Object.entries(PRESETS).map(([n, c]) => [n, c.crashReports]))).toEqual({ convenience: 'manual-export', 'private-resilient': 'off', institutional: 'manual-export', sovereign: 'manual-export', 'sovereign-tor': 'off' });
+  });
+
+  it('NFR007-03: Tor-only allows manual-export and refuses opt-in, a record of failures kept on the device; elsewhere opt-in is the person’s choice', () => {
+    const crashIssues = (c: SovereigntyConfig, platform: 'cli' | 'web') => validateConfig(c, platform).filter((i) => i.controls.includes('crashReports'));
+    const tor = (crashReports: Mode) => crashIssues({ ...preset('sovereign-tor'), crashReports }, 'cli');
+    expect(tor('off')).toEqual([]);
+    expect(tor('manual-export')).toEqual([]);
+    expect(tor('opt-in')).toEqual([expect.objectContaining({ severity: 'error', code: 'TOR_CRASH_REPORTS' })]);
+    expect(tor('opt-in')[0]!.message).toMatch(/elige off o manual-export, que solo escribe un informe limpio en un archivo si lo pides con --crash-report/);
+    expect(isValid({ ...preset('sovereign-tor'), crashReports: 'manual-export' }, 'cli')).toBe(true);
+    for (const name of ['convenience', 'private-resilient', 'institutional', 'sovereign'] as const) expect(crashIssues({ ...preset(name), crashReports: 'opt-in' }, name === 'sovereign' ? 'cli' : 'web')).toEqual([]);
+  });
+
+  it('NFR007-03: each option says what the code does: nothing is sent, the last failure is not stored, the store keeps reports within its retention', () => {
+    const say = (crashReports: Mode) => disclose({ ...preset('convenience'), crashReports }).find((d) => d.control === 'crashReports')!;
+    expect(say('off').statement).toMatch(/no guarda ni recuerda nada del fallo/);
+    expect(say('manual-export').statement).toMatch(/sin guardarlo en el dispositivo ni enviarlo\. Puedes verlo entero y guardarlo en un archivo/);
+    expect(say('manual-export').statement).toMatch(/en el CLI, repitiendo el comando con --crash-report/);
+    expect(say('opt-in').statement).toMatch(new RegExp(`cifrado en el almacén local de este dispositivo, como máximo ${CRASH_RETENTION.maxReports} informes y ${CRASH_RETENTION.maxAgeDays} días cada uno`));
+    expect(say('opt-in').statement).toMatch(/Nada se envía: lo que sale del dispositivo lo sacas tú\. Ningún perfil lo enciende por defecto\./);
+    // No option sends anything to an operator, so none moves a dimension of the panel.
+    for (const mode of ['off', 'manual-export', 'opt-in'] as const) expect([say(mode).improves, say(mode).sacrifices]).toEqual([[], []]);
+    expect(disclosureCatalog().filter((d) => d.control === 'crashReports').map((d) => d.statement).join(' ')).not.toMatch(/todavía no existen|no genera ninguno/);
   });
 });
 

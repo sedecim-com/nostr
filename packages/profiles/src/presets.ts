@@ -1,8 +1,10 @@
 import type { SovereigntyConfig } from './types';
 
 /**
- * Reference configuration matrix (spec Appendix B). Crash reports are 'off' everywhere: they do not exist yet
- * (NFR007-03), and a preset must not promise them (PANEL-05). VAULT-04: private-resilient holds each send until
+ * Reference configuration matrix (spec Appendix B). Crash reports (NFR007-03, docs/crash-reports.md) never leave the
+ * device by themselves: 'manual-export' (the last failure, not stored, saved in a file only by hand) where Appendix B
+ * has 'manual-export' or 'opt-in', and 'off' in private-resilient and sovereign-tor. No preset picks 'opt-in', which
+ * keeps reports in the device's store: only the person turns it on. VAULT-04: private-resilient holds each send until
  * its copy is in the Continuity Vault; the sovereign profiles keep everything on the device.
  *
  * Custody is the profile's reference, not a persona's: the sovereign profiles say 'offline' because spec §14 keeps
@@ -22,7 +24,7 @@ export const PRESETS = {
     notifications: 'push',
     cloudBackup: 'ciphertext-user-key',
     continuity: 'best-effort',
-    crashReports: 'off',
+    crashReports: 'manual-export',
     localProtection: 'passphrase',
     remotePreviews: true,
     deliveryReceipts: true,
@@ -60,7 +62,7 @@ export const PRESETS = {
     notifications: 'push',
     cloudBackup: 'operator-managed',
     continuity: 'best-effort',
-    crashReports: 'off',
+    crashReports: 'manual-export',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: true,
@@ -79,7 +81,7 @@ export const PRESETS = {
     notifications: 'none',
     cloudBackup: 'off',
     continuity: 'off',
-    crashReports: 'off',
+    crashReports: 'manual-export',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: false,

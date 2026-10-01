@@ -1,7 +1,7 @@
 # Textos de disclosure del panel de soberanía
 
 > Generado por `npx tsx scripts/disclosures.ts` desde `packages/profiles` (no editar a mano).
-> Versión **1.12.0** · huella `834fcc54845c134d` · estado: **pendiente de aprobación legal y UX** (FR028-02).
+> Versión **1.12.0** · huella `a502508a38301293` · estado: **pendiente de aprobación legal y UX** (FR028-02).
 
 Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la revisión. Las afirmaciones absolutas
 ("100 % anónimo", "imposible de rastrear") están prohibidas por `assertNoAbsoluteClaims`.
@@ -43,9 +43,9 @@ Cambiar cualquier texto exige subir `DISCLOSURE_VERSION` y volver a pasar la rev
 | continuity | required-for-resilient | Ningún evento sale hacia los relays hasta que su copia cifrada está en el Continuity Vault: si el vault no responde, el envío queda retenido hasta que responda. El operador del vault ve cuándo envías y cuántos eventos, no su contenido. | recuperabilidad | privacidad-operador, soberania | Operador del vault (ve la cuenta, el tamaño y la hora de cada copia, y su disponibilidad decide cuándo sale cada envío). |
 | localProtection | passphrase | El almacén local se abre con tu contraseña (scrypt): sin ella, nadie con acceso a este dispositivo puede leer tus llaves. | soberania, privacidad-operador | recuperabilidad | Fortaleza de tu contraseña local. |
 | localProtection | device | Desbloqueo sin contraseña con una llave del dispositivo (WebCrypto, no exportable): cualquiera con acceso a este perfil del navegador puede abrir tus llaves. | — | soberania, privacidad-operador | Seguridad física y de la sesión de este dispositivo. |
-| crashReports | off | Sin informes de fallo: esta versión no los genera. | privacidad-operador | — | — |
-| crashReports | manual-export | Informes de fallo exportables a mano: todavía no existen; esta versión no genera ninguno. | — | — | — |
-| crashReports | opt-in | Informes de fallo opt-in: todavía no existen; esta versión no envía ninguno. | — | — | — |
+| crashReports | off | Sin informes de fallo: si la app falla, no guarda ni recuerda nada del fallo. | — | — | — |
+| crashReports | manual-export | Informes de fallo a mano: si la app falla, prepara el informe del último fallo, limpio de llaves, URLs, IPs y rutas, sin guardarlo en el dispositivo ni enviarlo. Puedes verlo entero y guardarlo en un archivo para compartirlo tú: en la web, desde el panel de soberanía mientras sigue abierta; en el CLI, repitiendo el comando con --crash-report. | — | — | — |
+| crashReports | opt-in | Informes de fallo guardados: si la app falla, el informe, limpio de llaves, URLs, IPs y rutas, se guarda cifrado en el almacén local de este dispositivo, como máximo 20 informes y 30 días cada uno; puedes verlos, guardarlos en un archivo y borrarlos. Nada se envía: lo que sale del dispositivo lo sacas tú. Ningún perfil lo enciende por defecto. | — | — | La protección del almacén local de este dispositivo. |
 | remotePreviews | true | Las previews remotas se cargan automáticamente: el servidor de origen ve tu IP. | — | privacidad-operador | — |
 | remotePreviews | false | Previews remotas bloqueadas: ningún enlace se carga sin tu acción. | privacidad-operador | — | — |
 | deliveryReceipts | true | Confirmaciones de entrega activadas (cifradas con gift wrap): tus contactos saben cuándo recibe tu dispositivo sus mensajes. | — | privacidad-operador | — |

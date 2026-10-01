@@ -63,10 +63,21 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
     passphrase: d('El almacén local se abre con tu contraseña (scrypt): sin ella, nadie con acceso a este dispositivo puede leer tus llaves.', ['soberania', 'privacidad-operador'], ['recuperabilidad'], ['Fortaleza de tu contraseña local.']),
     device: d('Desbloqueo sin contraseña con una llave del dispositivo (WebCrypto, no exportable): cualquiera con acceso a este perfil del navegador puede abrir tus llaves.', [], ['soberania', 'privacidad-operador'], ['Seguridad física y de la sesión de este dispositivo.']),
   },
+  // NFR007-03 (docs/crash-reports.md): no mode sends anything, so none moves a dimension of the panel.
   crashReports: {
-    off: d('Sin informes de fallo: esta versión no los genera.', ['privacidad-operador'], [], []),
-    'manual-export': d('Informes de fallo exportables a mano: todavía no existen; esta versión no genera ninguno.', [], [], []),
-    'opt-in': d('Informes de fallo opt-in: todavía no existen; esta versión no envía ninguno.', [], [], []),
+    off: d('Sin informes de fallo: si la app falla, no guarda ni recuerda nada del fallo.', [], [], []),
+    'manual-export': d(
+      'Informes de fallo a mano: si la app falla, prepara el informe del último fallo, limpio de llaves, URLs, IPs y rutas, sin guardarlo en el dispositivo ni enviarlo. Puedes verlo entero y guardarlo en un archivo para compartirlo tú: en la web, desde el panel de soberanía mientras sigue abierta; en el CLI, repitiendo el comando con --crash-report.',
+      [],
+      [],
+      [],
+    ),
+    'opt-in': d(
+      'Informes de fallo guardados: si la app falla, el informe, limpio de llaves, URLs, IPs y rutas, se guarda cifrado en el almacén local de este dispositivo, como máximo 20 informes y 30 días cada uno; puedes verlos, guardarlos en un archivo y borrarlos. Nada se envía: lo que sale del dispositivo lo sacas tú. Ningún perfil lo enciende por defecto.',
+      [],
+      [],
+      ['La protección del almacén local de este dispositivo.'],
+    ),
   },
 };
 
