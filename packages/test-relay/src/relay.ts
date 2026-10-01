@@ -99,6 +99,8 @@ export class TestRelay {
   readonly received: NostrEvent[] = [];
   /** Pubkeys of every NIP-42 AUTH it accepted, in order: who revealed themselves to this relay. */
   readonly authedPubkeys: string[] = [];
+  /** The filters of every REQ it received, in order, served or refused: what clients asked this relay for. */
+  readonly requests: Filter[][] = [];
   /** Number of EVENT messages sent to clients (to measure how much a sync transferred). */
   sentEvents = 0;
   /** NIP-77 messages received from clients, by verb. */
@@ -393,6 +395,7 @@ export class TestRelay {
 
   private onReq(state: ClientState, subId: string, filters: Filter[]) {
     if (typeof subId !== 'string' || filters.length === 0) return this.send(state, ['NOTICE', 'invalid: bad REQ']);
+    this.requests.push(filters);
     if (!this.isAuthorized(state)) return this.send(state, this.opts.authNoticeOnReq ? ['NOTICE', 'auth-required: authenticate before subscribing'] : ['CLOSED', subId, 'auth-required: authenticate first']);
     const denied = this.readDenied(state, filters);
     if (denied) return this.send(state, ['CLOSED', subId, denied]);

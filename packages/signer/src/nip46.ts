@@ -50,6 +50,7 @@ export const KIND_LABELS: Record<number, string> = {
   24242: 'Autorizar subidas de archivos (Blossom)',
   27235: 'Autenticación HTTP en servicios (NIP-98)',
   30078: 'Vínculo público entre tus personas',
+  30315: 'Estado de presencia (NIP-38), si lo activas',
   30443: 'Key packages de grupos seguros (Marmot)',
 };
 
@@ -57,10 +58,11 @@ export const KIND_LABELS: Record<number, string> = {
  * Kinds the Acceso Nostr web signs with the persona key (FR004-06): the public profile (0, only when the user
  * publishes it), seals of DMs and group invitations (13), channels (9, 9007, 9021) with their reactions (7), the
  * removal of one's reaction (5) and deletions (9005), the DM relay list (10050), Blossom (10063, 24242), NIP-42
- * (22242), NIP-98 (27235), public links between personas (30078) and Marmot key packages (30443).
+ * (22242), NIP-98 (27235), public links between personas (30078), the persona's status (30315, FR015-05: only when its
+ * profile allows presence and the user publishes one) and Marmot key packages (30443).
  * apps/web-saas/test/nip46-permissions.test.ts runs every signing path of the web and checks this list both ways.
  */
-export const WEB_SIGNED_KINDS: readonly number[] = [0, 5, 7, 9, 13, 9005, 9007, 9021, 10050, 10063, 22242, 24242, 27235, 30078, 30443];
+export const WEB_SIGNED_KINDS: readonly number[] = [0, 5, 7, 9, 13, 9005, 9007, 9021, 10050, 10063, 22242, 24242, 27235, 30078, 30315, 30443];
 
 /** Minimal permissions for the web client: only the kinds it signs, plus NIP-44 for DMs (spec §8.3). */
 export const WEB_NIP46_PERMISSIONS = ['get_public_key', 'nip44_encrypt', 'nip44_decrypt', ...WEB_SIGNED_KINDS.map((k) => `sign_event:${k}`)];
