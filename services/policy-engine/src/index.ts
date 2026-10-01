@@ -4,3 +4,6 @@ export * from './webauthn';
 export * from './api';
 export * from './allowlist-sync';
 export * from './membership-sync';
+export * from './events';
+export * from './webhooks';
+export * from './config';

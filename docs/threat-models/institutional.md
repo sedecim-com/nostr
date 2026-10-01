@@ -7,7 +7,7 @@ confirmaciones de entrega activadas y de lectura opt-in, sin estado de presencia
 
 ## Activos
 Llaves managed en el vault, información clasificada de las salas, directorio organizacional, registros
-de auditoría, dispositivos registrados.
+de auditoría, dispositivos registrados, la llave que firma los eventos y la de los secretos de webhook (OPS-16).
 
 ## Adversarios relevantes
 | Adversario | Capacidad supuesta |
@@ -17,6 +17,7 @@ de auditoría, dispositivos registrados.
 | Dispositivo robado o perdido | Sesión abierta, sin contraseña del usuario |
 | Ex-empleado | Conserva material de grupos antiguos |
 | Compromiso del backend SaaS | Accede a bases de datos y servicios |
+| Destino de webhook malicioso, o quien controle su DNS | Recibe los eventos de sus tipos; intenta que el policy-engine llegue a otro sitio (SSRF) o repetir entregas |
 
 ## Mitigaciones
 | Riesgo | Mitigación | Evidencia |
@@ -37,6 +38,10 @@ de auditoría, dispositivos registrados.
 | Lectura del mirror fuera de rol | El indexer evalúa cada lectura en el engine; deny por defecto, también ante errores. Los contadores de no leídos y la búsqueda de la web pasan por las mismas lecturas (FR014-04) | `indexer/test/policy.test.ts`, `tests/e2e/institutional-policy.test.ts` (FR023-05), `apps/web-saas/test/mirror.test.ts` |
 | Presencia fuera del control de la organización | Con identidad verificada, activar la presencia es un error bloqueante (`PRESENCE_ORGANIZATION`): la política no la gobierna, y lo que la política no gobierna queda denegado. La web no publica ni pide estados (FR015-05, [presence.md](../presence.md)) | `packages/profiles/test/profiles.test.ts`, `apps/web-saas/test/presence.test.ts` |
 | Dispositivo suplantado | Nivel `attested` solo con registro WebAuthn verificado en servidor | `webauthn.test.ts`, `policy-engine.test.ts` (FR023-07) |
+| Integraciones que sondean la auditoría, o que reciben eventos alterados | Cada entrada de la auditoría se emite como evento firmado con Ed25519 sobre JSON canónico (RFC 8785), con el emisor dentro de lo firmado; las llaves públicas se publican (JWKS), también las anteriores a una rotación salvo las revocadas. El cursor no se salta ni repite eventos con escritores concurrentes. Un evento nunca lleva más que su entrada de auditoría | `events.test.ts` (OPS-16) |
+| SSRF por la URL de un webhook | Solo https, sin credenciales ni redirecciones; el nombre se resuelve una vez y se rechaza si alguna dirección no es pública (loopback, privadas, link-local y metadatos de la nube, ULA, formas con una IPv4 dentro); se conecta a esa dirección sin volver a resolver. Se comprueba al dar de alta y antes de cada entrega. `POLICY_WEBHOOKS_ALLOW_PRIVATE` (pruebas) nunca en un manifiesto de producción | `webhooks.test.ts`, `release-gate.test.ts`, `deploy-manifests.test.ts` (OPS-16) |
+| Filtración del secreto de una suscripción | Solo sale en la respuesta del alta y no se guarda: se deriva con HMAC-SHA256 de una llave aparte y una sal, así que una copia de la base o de un backup no da ninguno | `webhooks.test.ts` (OPS-16) |
+| Entregas repetidas o falsificadas | HMAC-SHA256 de `timestamp.cuerpo` con el secreto de la suscripción y ventana de 300 s en el receptor; el id del evento como `Idempotency-Key`; la firma Ed25519 del evento dentro del cuerpo | `webhooks.test.ts` (OPS-16) |
 | Llave Nostr robada sin el autenticador de la persona | Desde que la persona registra su passkey, cada sesión de política pide una aserción WebAuthn de ella: desafío de un solo uso y con caducidad para ese dispositivo, origen y RP id fijados por configuración, firma con la llave registrada y contador contra autenticadores clonados. Revocar el dispositivo que la tenía no quita el requisito, y otra passkey solo la registra un administrador. Una aserción rechazada no dice por qué, y queda en la auditoría con el motivo | `policy-engine.test.ts`, `webauthn.test.ts`, `tests/fuzz/webauthn.test.ts`, `passkey-session.test.ts`, `admin-console.e2e.ts` (FR023-11) |
 
 ## Riesgos residuales
@@ -54,6 +59,10 @@ de auditoría, dispositivos registrados.
 | La passkey protege sesiones que nadie más comprueba | Medio | Ningún otro servicio exige todavía una sesión de política, y no caducan: `evaluate` confía en el dispositivo que le indica el servicio (`x-policy-device-id` en el indexer). La primera passkey la registra quien tenga la llave Nostr, así que con la llave ya robada el ladrón puede adelantarse; que la registre un administrador lo evita (`docs/institutional.md`, FR023-11) |
 | Estados de presencia publicados desde clientes de terceros | Medio | `relay-allowlist` admite por npub y por la etiqueta `h`, no por kind: un cliente de terceros con una llave del allowlist puede publicar un kind 30315. El bloqueo es de esta web (FR015-05) |
 | Canales NIP-29 legibles por el operador | Medio | Por diseño: usar salas Marmot |
+| Los eventos llevan metadatos de administración a terceros | Medio | El destino de un webhook ve lo que la auditoría: qué admin hizo qué, cuándo y sobre quién, y cada aserción rechazada con quién la intentó. La red y el DNS del camino ven el host de destino y la hora y el tamaño de cada entrega. Quien tenga la base ve además las URL completas de las suscripciones y el registro de entregas, nunca los secretos. Se limita con `types` por suscripción (`docs/institutional.md`, «Qué ve cada parte», OPS-16) |
+| Redes internas con direcciones públicas | Medio | La guarda de destinos de webhook rechaza los rangos reservados de IANA; si la red del clúster usa direcciones públicas, no las reconoce: conviene una NetworkPolicy de salida para el policy-engine (OPS-16) |
+| Llave de firma de eventos comprometida | Medio | Quien la tenga puede falsificar eventos hasta que su `kid` entre en `POLICY_EVENTS_REVOKED_KIDS` y los consumidores recarguen el JWKS (`docs/runbooks/webhooks.md`, OPS-16) |
+| Entrega al menos una vez | Bajo | Un receptor que no deduplica por `Idempotency-Key` puede procesar un evento dos veces (OPS-16) |
 
 ## Supuestos
 KMS/HSM del operador bien configurado (DEC-09). El directorio lo gestiona la organización.

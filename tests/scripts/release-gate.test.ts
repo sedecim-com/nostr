@@ -326,7 +326,7 @@ describe('scripts/release-gate.mjs (REL-01 / REL-02)', () => {
 
     it('the repository passes: the enclave is Preview, push has no safe trigger and managed waits for DEC-12', () => {
       expect(checkConfig({ root })).toEqual([]);
-      expect(Object.keys(registry.features)).toEqual(['managed', 'enclave', 'push']);
+      expect(Object.keys(registry.features)).toEqual(['managed', 'enclave', 'push', 'webhooks-private']);
       expect(registry.features.enclave).toMatchObject({ maturity: 'Preview', settings: { MANAGED_SIGNER_BACKEND: 'enclave', ENCLAVE_ALLOW_EXPORT: '1' } });
       expect(registry.features.push).toMatchObject({ safeTrigger: false, webKeys: ['notificationGateway'] });
       expect(registry.features.managed).toMatchObject({ webKeys: ['managedSigner', 'managedTerms'], auditReports: REQUIRED_AUDITS });
@@ -408,6 +408,24 @@ describe('scripts/release-gate.mjs (REL-01 / REL-02)', () => {
       expect(problems({ 'deploy/k8s/components/notification-gateway/kustomization.yaml': '# add `components: [../../components/notification-gateway]` to an overlay\nkind: Component\n' })).toBe('');
       const safe = withFeature('push', { safeTrigger: true, evidence: 'matriz de ADR 0010: el relay de producción entrega el canario al gateway' });
       expect(problems(saas({ notificationGateway: 'https://push.example.org' }), safe)).toBe('');
+    });
+
+    it('webhooks to private or local destinations are for tests only: never in a production manifest (OPS-16)', () => {
+      expect(registry.features['webhooks-private']).toMatchObject({ settings: { POLICY_WEBHOOKS_ALLOW_PRIVATE: 'true' }, testOnly: expect.stringMatching(/SSRF/) });
+      const on = (files: Record<string, unknown>) => {
+        const p = problems(files);
+        expect(p).toMatch(/webhooks-private \(webhooks del policy-engine hacia destinos privados o locales.*y no puede estarlo: es solo para pruebas y desarrollo: abre los webhooks a loopback/);
+        return p;
+      };
+      expect(on({ 'deploy/k8s/overlays/prod/kustomization.yaml': 'configMapGenerator:\n  - name: acceso-nostr-config\n    literals:\n      - POLICY_WEBHOOKS_ALLOW_PRIVATE=true\n' })).toContain('(POLICY_WEBHOOKS_ALLOW_PRIVATE=true)');
+      expect(on({ 'deploy/k8s/base/policy-engine.yaml': 'env:\n  - name: POLICY_WEBHOOKS_ALLOW_PRIVATE\n    value: "true"\n' })).toContain('deploy/k8s/base/policy-engine.yaml');
+      expect(on({ 'deploy/k8s/components/institutional/config.yaml': 'data:\n  POLICY_WEBHOOKS_ALLOW_PRIVATE: "true"\n' })).toContain('components/institutional/config.yaml');
+      // Off, commented out, or in stage (where tests may use it): not refused.
+      expect(problems({ 'deploy/k8s/overlays/prod/kustomization.yaml': '- POLICY_WEBHOOKS_ALLOW_PRIVATE=false\n# - POLICY_WEBHOOKS_ALLOW_PRIVATE=true\n' })).toBe('');
+      expect(problems({ 'deploy/k8s/overlays/stage/kustomization.yaml': '- POLICY_WEBHOOKS_ALLOW_PRIVATE=true\n' })).toBe('');
+      // No evidence lifts it: only removing testOnly from the registry, a reviewed change.
+      expect(problems({ 'deploy/k8s/overlays/prod/kustomization.yaml': '- POLICY_WEBHOOKS_ALLOW_PRIVATE=true\n' }, withFeature('webhooks-private', { evidence: 'x'.repeat(40) }))).toMatch(/solo para pruebas/);
+      expect(problems({}, withFeature('webhooks-private', { testOnly: 'corto' }))).toMatch(/features\.webhooks-private\.testOnly debe decir por qué es solo para pruebas/);
     });
 
     it('the registry is validated, so a typo cannot hide a feature', () => {
