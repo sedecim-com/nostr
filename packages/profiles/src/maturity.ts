@@ -1,4 +1,5 @@
 import type { PresetName } from './presets';
+import { presenceOption } from './presence';
 import type { SovereigntyConfig } from './types';
 
 /**
@@ -20,7 +21,7 @@ export const MATURITY_LABELS: Record<MaturityLevel, string> = {
 /** Lower is less mature: a configuration is as mature as its least mature part. */
 const RANK: Record<MaturityLevel, number> = { experimental: 0, preview: 1, beta: 2, 'early-release': 3 };
 
-export type MaturityId = PresetName | 'nip17-dms' | 'marmot-groups' | 'continuity-vault' | 'managed-custody' | 'enclave-custody' | 'push';
+export type MaturityId = PresetName | 'nip17-dms' | 'marmot-groups' | 'continuity-vault' | 'managed-custody' | 'enclave-custody' | 'push' | 'presence';
 
 export interface MaturityEntry {
   id: MaturityId;
@@ -73,6 +74,14 @@ export const MATURITY: readonly MaturityEntry[] = [
   },
   { id: 'enclave-custody', kind: 'function', name: 'Custodia en Nitro Enclave', level: 'preview', why: 'Prototipo: la attestation solo se verificó en local, y va apagada en producción.', atV1: 'Preview: EIF, PCR, attestation y KMS reales más auditoría.' },
   { id: 'push', kind: 'function', name: 'Notificaciones push', level: 'experimental', why: 'Con Buzz y el secure relay, el gateway no puede ver la actividad sin leer DMs, así que no se ofrecen.', atV1: 'Experimental, detrás de un flag.' },
+  {
+    id: 'presence',
+    kind: 'function',
+    name: 'Estado de presencia (NIP-38)',
+    level: 'experimental',
+    why: 'Solo en la web y apagado salvo que la persona lo active. No está probado contra el Buzz fijado: el gate de interoperabilidad registra si acepta el kind 30315, sin exigirlo.',
+    atV1: 'Fuera del programa de v1.0: sigue Experimental.',
+  },
 ];
 
 export function maturity(id: MaturityId): MaturityEntry {
@@ -91,8 +100,8 @@ export interface ConfigMaturity {
 /**
  * The maturity of a persona's configuration: the least mature of what it uses. The base is its profile: Tor-only,
  * private-resilient (continuity required before each send), direct (convenience) or the rest (sovereign). Marmot,
- * managed custody, the enclave and the vault add their own. PANEL-07: private-resilient without a vault in the
- * deployment leaves the history on the relays, so it is never above Beta.
+ * managed custody, the enclave, the vault and presence (FR015-05) add their own. PANEL-07: private-resilient without a
+ * vault in the deployment leaves the history on the relays, so it is never above Beta.
  */
 export function configMaturity(config: SovereigntyConfig, ctx: { continuityVault?: boolean } = {}): ConfigMaturity {
   const parts: MaturityEntry[] = [];
@@ -105,6 +114,7 @@ export function configMaturity(config: SovereigntyConfig, ctx: { continuityVault
   if (config.custody === 'managed-enclave') parts.push(maturity('enclave-custody'));
   else if (config.custody === 'managed') parts.push(maturity('managed-custody'));
   if (config.continuity !== 'off' && ctx.continuityVault) parts.push(maturity('continuity-vault'));
+  if (presenceOption(config) !== 'off') parts.push(maturity('presence'));
   parts.sort((a, b) => RANK[a.level] - RANK[b.level]);
   const level = parts[0]!.level;
   return { level, label: MATURITY_LABELS[level], parts };

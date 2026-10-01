@@ -3,7 +3,7 @@
 **Configuración:** custodia managed (**custodial**) o signer, relay privado con NIP-42, identidad
 verificada por el directorio, persistencia replicada, grupos Marmot/MLS para salas sensibles, archivos
 cifrados, telemetría estándar (sin nsec ni plaintext), push opaco, backup gestionado por el operador,
-confirmaciones de entrega activadas y de lectura opt-in.
+confirmaciones de entrega activadas y de lectura opt-in, sin estado de presencia (NIP-38).
 
 ## Activos
 Llaves managed en el vault, información clasificada de las salas, directorio organizacional, registros
@@ -36,6 +36,7 @@ de auditoría, dispositivos registrados, la llave que firma los eventos y la de 
 | Pérdida o manipulación del estado de políticas | Persistencia en Postgres (`policy_*`); auditoría append-only por triggers; tokens de sesión con hash | `policy-engine.test.ts` (FR023-03: reinicio, append-only) |
 | Acceso al relay de un usuario dado de baja | Allowlist NIP-42 sincronizado desde el engine a Buzz (tabla) y al secure-relay (admisión gRPC) | `allowlist-sync.test.ts` (FR023-04) |
 | Lectura del mirror fuera de rol | El indexer evalúa cada lectura en el engine; deny por defecto, también ante errores. Los contadores de no leídos y la búsqueda de la web pasan por las mismas lecturas (FR014-04) | `indexer/test/policy.test.ts`, `tests/e2e/institutional-policy.test.ts` (FR023-05), `apps/web-saas/test/mirror.test.ts` |
+| Presencia fuera del control de la organización | Con identidad verificada, activar la presencia es un error bloqueante (`PRESENCE_ORGANIZATION`): la política no la gobierna, y lo que la política no gobierna queda denegado. La web no publica ni pide estados (FR015-05, [presence.md](../presence.md)) | `packages/profiles/test/profiles.test.ts`, `apps/web-saas/test/presence.test.ts` |
 | Dispositivo suplantado | Nivel `attested` solo con registro WebAuthn verificado en servidor | `webauthn.test.ts`, `policy-engine.test.ts` (FR023-07) |
 | Integraciones que sondean la auditoría, o que reciben eventos alterados | Cada entrada de la auditoría se emite como evento firmado con Ed25519 sobre JSON canónico (RFC 8785), con el emisor dentro de lo firmado; las llaves públicas se publican (JWKS), también las anteriores a una rotación salvo las revocadas. El cursor no se salta ni repite eventos con escritores concurrentes. Un evento nunca lleva más que su entrada de auditoría | `events.test.ts` (OPS-16) |
 | SSRF por la URL de un webhook | Solo https, sin credenciales ni redirecciones; el nombre se resuelve una vez y se rechaza si alguna dirección no es pública (loopback, privadas, link-local y metadatos de la nube, ULA, formas con una IPv4 dentro); se conecta a esa dirección sin volver a resolver. Se comprueba al dar de alta y antes de cada entrega. `POLICY_WEBHOOKS_ALLOW_PRIVATE` (pruebas) nunca en un manifiesto de producción | `webhooks.test.ts`, `release-gate.test.ts`, `deploy-manifests.test.ts` (OPS-16) |
@@ -56,6 +57,7 @@ de auditoría, dispositivos registrados, la llave que firma los eventos y la de 
 | Límites de firma por réplica | Bajo | El token bucket vive en memoria de cada réplica: con N réplicas el límite efectivo es hasta N veces mayor |
 | Administrador malicioso | Medio | Falta separación de funciones; la auditoría es append-only en la base, pero un superusuario de Postgres puede desactivar los triggers |
 | La passkey protege sesiones que nadie más comprueba | Medio | Ningún otro servicio exige todavía una sesión de política, y no caducan: `evaluate` confía en el dispositivo que le indica el servicio (`x-policy-device-id` en el indexer). La primera passkey la registra quien tenga la llave Nostr, así que con la llave ya robada el ladrón puede adelantarse; que la registre un administrador lo evita (`docs/institutional.md`, FR023-11) |
+| Estados de presencia publicados desde clientes de terceros | Medio | `relay-allowlist` admite por npub y por la etiqueta `h`, no por kind: un cliente de terceros con una llave del allowlist puede publicar un kind 30315. El bloqueo es de esta web (FR015-05) |
 | Canales NIP-29 legibles por el operador | Medio | Por diseño: usar salas Marmot |
 | Los eventos llevan metadatos de administración a terceros | Medio | El destino de un webhook ve lo que la auditoría: qué admin hizo qué, cuándo y sobre quién, y cada aserción rechazada con quién la intentó. La red y el DNS del camino ven el host de destino y la hora y el tamaño de cada entrega. Quien tenga la base ve además las URL completas de las suscripciones y el registro de entregas, nunca los secretos. Se limita con `types` por suscripción (`docs/institutional.md`, «Qué ve cada parte», OPS-16) |
 | Redes internas con direcciones públicas | Medio | La guarda de destinos de webhook rechaza los rangos reservados de IANA; si la red del clúster usa direcciones públicas, no las reconoce: conviene una NetworkPolicy de salida para el policy-engine (OPS-16) |

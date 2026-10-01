@@ -17,6 +17,8 @@ const OPTIONS: Record<string, string[]> = {
   cloudBackup: ['off', 'ciphertext-user-key', 'operator-managed'],
   continuity: ['off', 'best-effort', 'required-for-resilient'],
   crashReports: ['off', 'manual-export', 'opt-in'],
+  // FR015-05: off in every preset; validateConfig blocks it in Tor-only and with an identity verified by an organization.
+  presence: ['off', 'status'],
   localProtection: ['passphrase', 'device'],
   // PANEL-06: the persona's expiration of new direct messages; each conversation may set its own (Mensajes directos).
   messageExpiration: [...MESSAGE_EXPIRATION_OPTIONS],

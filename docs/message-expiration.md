@@ -5,7 +5,7 @@ cosas son peticiones a terceros: relays y clientes de los contactos. Lo que este
 que guarda. Este documento dice qué hace cada parte, qué ve cada una y qué es petición y qué es garantía.
 
 Los textos que ve el usuario están en el catálogo revisado (`MESSAGE_EXPIRATION_TEXTS` y `DM_DELETION_TEXTS` en
-`packages/profiles/src/expiration.ts`, [`disclosures.md`](disclosures.md) desde la versión 1.13.0).
+`packages/profiles/src/expiration.ts`, [`disclosures.md`](disclosures.md) desde la versión 1.14.0).
 
 ## Configuración
 

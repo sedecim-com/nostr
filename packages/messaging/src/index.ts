@@ -10,4 +10,5 @@ export * from './dm-relays';
 export * from './inbox';
 export * from './operations';
 export * from './profile';
+export * from './presence';
 export * from './expiration';

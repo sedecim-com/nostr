@@ -121,8 +121,12 @@ export class TestRelay {
   readonly negStats = { open: 0, msg: 0, close: 0 };
   /** Every NIP-77 message received from clients, in order. */
   readonly negLog: NegLogEntry[] = [];
-  /** The filters of every REQ received, in order. */
+  /** The filters of every REQ received, in order, served or refused: what clients asked this relay for. */
   readonly reqFilters: Filter[][] = [];
+  /** Same list as `reqFilters` (FR015-05 reads it by this name). */
+  get requests(): Filter[][] {
+    return this.reqFilters;
+  }
   /** WebSocket connection attempts (refused ones included) and NIP-11 (HTTP) requests since start: any network use shows here. */
   connectionAttempts = 0;
   infoRequests = 0;

@@ -148,29 +148,31 @@ El cliente usa el `frameSizeLimit` por defecto de nostr-tools (60 000 bytes). Un
 hexadecimal, queda por debajo de los 131 072 bytes por fotograma WebSocket que acepta el `strfry.conf` por
 defecto.
 
-## Interoperabilidad con strfry: no probada en CI
+## Interoperabilidad con strfry (job `strfry-interop` de CI)
 
 El relay de pruebas del repositorio responde NIP-77 con su propia implementación
-(`packages/test-relay/src/negentropy.ts`). Eso no prueba la interoperabilidad con strfry.
+(`packages/test-relay/src/negentropy.ts`). Eso no prueba la interoperabilidad con strfry, así que el job
+`strfry-interop` de CI levanta un strfry real y corre contra él `tests/interop/strfry-negentropy.interop.test.ts`.
+La prueba publica 300 eventos de una llave nueva con una etiqueta `t` propia de esa ejecución y comprueba:
 
-`tests/interop/strfry-negentropy.interop.test.ts` corre contra un strfry real solo si `STRFRY_URL` apunta a uno;
-si no, se omite:
+- que el cliente con la caché baja solo lo que le falta (100 de los 300) y que una segunda sincronización no baja nada;
+- que reconcilia con el tamaño de fotograma mínimo y con ids que solo tiene el cliente (200 que strfry no conoce).
+
+La imagen es `ghcr.io/hoytech/strfry`, fijada por digest. El proyecto solo publica la etiqueta `latest`, así que la
+versión se anota aquí y en el comentario del job: strfry 1.1.2-148-g4cd3cf6, construida el 4 de septiembre de 2026
+(el job imprime `strfry --version`). Se arranca con `--set=relay.bind=0.0.0.0`, para que acepte conexiones desde
+fuera del contenedor, y `--set=relay.nofiles=0`, porque el runner no deja subir el límite de ficheros que pide su
+configuración por defecto (sin él, strfry termina al arrancar con «Unable to set NOFILES limit»). Cambiar de versión
+es cambiar el digest, con la versión nueva en el comentario.
+
+Para correr la prueba a mano contra cualquier strfry con `relay.negentropy.enabled = true` (su valor por defecto):
 
 ```bash
 STRFRY_URL=ws://127.0.0.1:7777 npx vitest run tests/interop/strfry-negentropy.interop.test.ts
 ```
 
-Requisitos:
-- strfry con `relay.negentropy.enabled = true` (su valor por defecto), alcanzable desde la máquina de la prueba
-  (`bind` distinto de `127.0.0.1` si corre en un contenedor);
-- que acepte eventos de la última hora de una llave nueva.
-
-La prueba publica 300 eventos con una etiqueta `t` propia de esa ejecución.
-
-No hay job de CI con strfry. La política del repositorio (docs/building.md) exige fijar cada imagen de terceros
-por digest y con su versión en la etiqueta o en un comentario. La imagen que publica el proyecto
-(`ghcr.io/hoytech/strfry`) solo tenía la etiqueta `latest` el 30 de septiembre de 2026. Hasta fijar una versión
-verificada, la prueba es opt-in.
+Sin `STRFRY_URL` la prueba se omite. El strfry tiene que aceptar eventos de la última hora de una llave nueva (el de
+la configuración por defecto lo hace).
 
 ## Lectura sin conexión (CLI)
 

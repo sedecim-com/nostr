@@ -3,7 +3,7 @@
  * avatar, self-asserted by whoever holds the key. Clients show it next to the npub, never instead of it: anyone can
  * claim any name. Profiles are public, replaceable events: the newest one of each key wins.
  */
-import type { EventTemplate, NostrEvent } from '@sedecim/nostr-core';
+import type { EventTemplate, Filter, NostrEvent } from '@sedecim/nostr-core';
 import type { RelayQuery } from './dm-relays';
 
 export const PROFILE_KIND = 0;
@@ -79,9 +79,21 @@ export function parseProfile(evt: NostrEvent): PublicProfile | undefined {
 }
 
 /**
+ * FR015-05: what a profile request may also ask for the same keys, in the same request (their statuses): reading it
+ * sends no other request and names no other key.
+ */
+export interface LookupCompanion {
+  /** The filter added to the request for these keys. */
+  filter(authors: string[]): Filter;
+  /** Every event the request returned (the pool verifies signatures) and the keys it asked for. */
+  receive(events: NostrEvent[], authors: string[]): void;
+}
+
+/**
  * The profiles one persona looked up, in memory (spec §14.1: each persona keeps its own cache). A key is looked up
  * again once `ttlMs` has passed; a failed lookup is not remembered, so it is tried again next time. Only signed kind 0
- * events of the keys asked for are kept (the pool verifies signatures), the newest of each key.
+ * events of the keys asked for are kept (the pool verifies signatures), the newest of each key. `companion` (FR015-05)
+ * is asked at each lookup: while it returns one, the same request carries its filter for the same keys.
  */
 export class ProfileCache {
   private readonly entries = new Map<string, { profile?: PublicProfile; checkedAt: number }>();
@@ -90,14 +102,16 @@ export class ProfileCache {
   private readonly ttlMs: number;
   private readonly timeoutMs: number;
   private readonly now: () => number;
+  private readonly companion: () => LookupCompanion | undefined;
 
   constructor(
     private readonly pool: RelayQuery,
-    opts: { ttlMs?: number; timeoutMs?: number; now?: () => number } = {},
+    opts: { ttlMs?: number; timeoutMs?: number; now?: () => number; companion?: () => LookupCompanion | undefined } = {},
   ) {
     this.ttlMs = opts.ttlMs ?? 10 * 60_000;
     this.timeoutMs = opts.timeoutMs ?? 5000;
     this.now = opts.now ?? Date.now;
+    this.companion = opts.companion ?? (() => undefined);
   }
 
   get(pubkey: string): PublicProfile | undefined {
@@ -135,12 +149,16 @@ export class ProfileCache {
       else if (now - (this.entries.get(pk)?.checkedAt ?? -Infinity) >= this.ttlMs) wanted.push(pk);
     }
     if (relays.length) {
+      const companion = this.companion();
       for (let i = 0; i < wanted.length; i += 100) {
         const chunk = wanted.slice(i, i + 100);
+        const filters: Filter[] = [{ kinds: [PROFILE_KIND], authors: chunk }];
+        if (companion) filters.push(companion.filter(chunk));
         const job = this.pool
-          .query(relays, [{ kinds: [PROFILE_KIND], authors: chunk }], this.timeoutMs)
+          .query(relays, filters, this.timeoutMs)
           .then((events) => {
             for (const e of events) if (e.kind === PROFILE_KIND && chunk.includes(e.pubkey)) this.put(e);
+            companion?.receive(events, chunk);
             const at = this.now();
             for (const pk of chunk) this.entries.set(pk, { ...this.entries.get(pk), checkedAt: at });
           })
