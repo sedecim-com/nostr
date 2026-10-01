@@ -74,6 +74,22 @@ export interface FaultInjection {
   offline: boolean;
   /** Abort NIP-77 sessions with NEG-ERR after answering this many client messages (null = never). */
   negErrorAfterMessages: number | null;
+  /**
+   * After sending this many more EVENT messages, drop every connection and go `offline` (a relay that dies in the
+   * middle of a transfer); null = never. It resets itself once it fires.
+   */
+  cutAfterEvents: number | null;
+  /** Never answer a REQ: no events, no EOSE, no CLOSED (a relay that hangs). */
+  silentReqs: boolean;
+}
+
+/** A NIP-77 message a client sent (FR013-05: to check what a client tells the relay). */
+export interface NegLogEntry {
+  type: 'NEG-OPEN' | 'NEG-MSG' | 'NEG-CLOSE';
+  subId: string;
+  filter?: Filter;
+  /** hex Negentropy message (NEG-OPEN, NEG-MSG) */
+  message?: string;
 }
 
 interface ClientState {
@@ -95,16 +111,27 @@ function threadMarkers(evt: NostrEvent): { root?: string; reply?: string } {
 
 export class TestRelay {
   readonly events = new Map<string, NostrEvent>();
-  readonly faults: FaultInjection = { dropOks: 0, rejectReason: null, okDelayMs: 0, offline: false, negErrorAfterMessages: null };
+  readonly faults: FaultInjection = { dropOks: 0, rejectReason: null, okDelayMs: 0, offline: false, negErrorAfterMessages: null, cutAfterEvents: null, silentReqs: false };
   readonly received: NostrEvent[] = [];
   /** Pubkeys of every NIP-42 AUTH it accepted, in order: who revealed themselves to this relay. */
   readonly authedPubkeys: string[] = [];
-  /** The filters of every REQ it received, in order, served or refused: what clients asked this relay for. */
-  readonly requests: Filter[][] = [];
   /** Number of EVENT messages sent to clients (to measure how much a sync transferred). */
   sentEvents = 0;
   /** NIP-77 messages received from clients, by verb. */
   readonly negStats = { open: 0, msg: 0, close: 0 };
+  /** Every NIP-77 message received from clients, in order. */
+  readonly negLog: NegLogEntry[] = [];
+  /** The filters of every REQ received, in order, served or refused: what clients asked this relay for. */
+  readonly reqFilters: Filter[][] = [];
+  /** Same list as `reqFilters` (FR015-05 reads it by this name). */
+  get requests(): Filter[][] {
+    return this.reqFilters;
+  }
+  /** WebSocket connection attempts (refused ones included) and NIP-11 (HTTP) requests since start: any network use shows here. */
+  connectionAttempts = 0;
+  infoRequests = 0;
+  /** Set while `faults.cutAfterEvents` is cutting: nothing more goes out until the connections are closed. */
+  private cutting = false;
   private readonly heads = new Map<string, string>();
   private readonly deleted = new Set<string>();
   private readonly clients = new Set<ClientState>();
@@ -117,6 +144,7 @@ export class TestRelay {
   async start(): Promise<string> {
     // Plain HTTP answers NIP-11 (relay information document); upgrades go to the WebSocket server.
     this.http = createServer((req, res) => {
+      this.infoRequests++;
       const info = { name: 'sedecim test relay', software: '@sedecim/test-relay', supported_nips: [1, 9, 11, 42, 59, ...(this.opts.supportsNegentropy ? [77] : [])], ...(this.opts.self ? { self: this.opts.self } : {}) };
       res.writeHead(200, { 'content-type': 'application/nostr+json', 'access-control-allow-origin': '*' });
       res.end(JSON.stringify(info));
@@ -163,6 +191,7 @@ export class TestRelay {
   }
 
   private onConnection(ws: WebSocket) {
+    this.connectionAttempts++;
     if (this.faults.offline) {
       ws.terminate();
       return;
@@ -185,9 +214,20 @@ export class TestRelay {
   }
 
   private send(state: ClientState, msg: unknown[]) {
-    if (state.ws.readyState !== state.ws.OPEN) return;
+    if (this.cutting || state.ws.readyState !== state.ws.OPEN) return;
     if (msg[0] === 'EVENT') this.sentEvents++;
     state.ws.send(JSON.stringify(msg));
+    if (msg[0] === 'EVENT' && this.faults.cutAfterEvents !== null && --this.faults.cutAfterEvents <= 0) {
+      // The relay dies right after this event: nothing else (no EOSE) goes out, and it refuses to come back until told.
+      this.faults.cutAfterEvents = null;
+      this.faults.offline = true;
+      this.cutting = true;
+      setImmediate(() => {
+        for (const c of this.clients) c.ws.close(1011, 'cut');
+        this.clients.clear();
+        this.cutting = false;
+      });
+    }
   }
 
   private isAuthorized(state: ClientState): boolean {
@@ -356,6 +396,12 @@ export class TestRelay {
   private onNegentropy(state: ClientState, type: string, rest: unknown[]) {
     const subId = rest[0];
     if (typeof subId !== 'string') return this.send(state, ['NOTICE', `invalid: bad ${type}`]);
+    this.negLog.push({
+      type: type as NegLogEntry['type'],
+      subId,
+      ...(type === 'NEG-OPEN' ? { filter: rest[1] as Filter } : {}),
+      ...(type !== 'NEG-CLOSE' && typeof rest[type === 'NEG-OPEN' ? 2 : 1] === 'string' ? { message: rest[type === 'NEG-OPEN' ? 2 : 1] as string } : {}),
+    });
     if (type === 'NEG-CLOSE') {
       this.negStats.close++;
       state.neg.delete(subId);
@@ -395,7 +441,8 @@ export class TestRelay {
 
   private onReq(state: ClientState, subId: string, filters: Filter[]) {
     if (typeof subId !== 'string' || filters.length === 0) return this.send(state, ['NOTICE', 'invalid: bad REQ']);
-    this.requests.push(filters);
+    this.reqFilters.push(filters);
+    if (this.faults.silentReqs) return;
     if (!this.isAuthorized(state)) return this.send(state, this.opts.authNoticeOnReq ? ['NOTICE', 'auth-required: authenticate before subscribing'] : ['CLOSED', subId, 'auth-required: authenticate first']);
     const denied = this.readDenied(state, filters);
     if (denied) return this.send(state, ['CLOSED', subId, denied]);

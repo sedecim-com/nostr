@@ -5,6 +5,7 @@
  */
 import type { Filter, NostrEvent } from '@sedecim/nostr-core';
 import type { RelayPool } from '@sedecim/relay-pool';
+import { queryUntilEose } from './eose';
 
 export interface SyncStrategy {
   readonly name: string;
@@ -23,6 +24,11 @@ export interface WindowSyncOptions {
   /** page size inside a window; windows that return `pageLimit` events are paginated with `until` */
   pageLimit?: number;
   timeoutMs?: number;
+  /**
+   * FR013-05: fail (so the next strategy runs, or the relay counts as not synced) unless every page ends with the
+   * relay's EOSE. Off by default: a page cut by the timeout or a CLOSED then counts as complete, as before.
+   */
+  requireEose?: boolean;
 }
 
 /** Fallback strategy: walk backwards in time windows with paginated REQs until `since`. */
@@ -41,12 +47,15 @@ export class FilterWindowSync implements SyncStrategy {
     // NIP-59 backdated wraps); otherwise the window walk would silently drop those wraps.
     const since = Math.min(this.opts.since, filter.since ?? this.opts.since);
     let upper = this.opts.until ?? filter.until ?? Math.floor(Date.now() / 1000);
+    const timeoutMs = this.opts.timeoutMs ?? 10_000;
+    // Strict pages hand over each event as it arrives, so what came before a cut is kept even though the page fails.
+    const fetchPage = (f: Filter): Promise<NostrEvent[]> =>
+      this.opts.requireEose ? queryUntilEose(this.pool, relay, [f], timeoutMs, onEvent) : this.pool.query([relay], [f], timeoutMs).then((events) => (events.forEach(onEvent), events));
     while (upper >= since) {
       const lower = Math.max(since, upper - window + 1);
       let pageUntil = upper;
       for (;;) {
-        const page = await this.pool.query([relay], [{ ...filter, since: lower, until: pageUntil, limit }], this.opts.timeoutMs ?? 10_000);
-        page.forEach(onEvent);
+        const page = await fetchPage({ ...filter, since: lower, until: pageUntil, limit });
         if (page.length < limit) break;
         const oldest = Math.min(...page.map((e) => e.created_at));
         if (oldest <= lower || oldest > pageUntil) break;
@@ -131,6 +140,9 @@ export function sortEvents<T extends { created_at: number; id: string }>(events:
   return events.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
+export * from './eose';
 export * from './negentropy';
 export * from './jsonl';
+export * from './cache';
+export * from './resume';
 export * from './rebuild';

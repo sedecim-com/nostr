@@ -58,6 +58,9 @@ Garantías verificadas por tests (`packages/tor-network/test`, `apps/sovereign-c
   los mensajes y la configuración propia (`persona list`) no se tocan.
 - **Antes de cada envío (FR007-05),** el CLI muestra quién envía: identidad, custodia, red y nivel de vínculo
   (también con `sovereign whoami`).
+- **Lectura sin conexión (FR013-05).** `channel read --offline` y `dm inbox --offline` leen la caché cifrada de la
+  persona sin abrir ninguna conexión, tampoco al proxy SOCKS. La caché está activa por defecto;
+  `SOVEREIGN_CACHE=off` no guarda nada y `cache clear` la borra ([event-cache.md](event-cache.md)).
 - Telemetría `none`: cero llamadas externas.
 - **Trazas de los servicios (NFR007-02).** Los servicios del stack no trazan salvo que el operador fije
   `TRACE_SAMPLE_RATE`; con `TELEMETRY_LEVEL=none` no pueden, y una petición dirigida a un `.onion` (el vault o el

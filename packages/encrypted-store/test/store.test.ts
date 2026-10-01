@@ -35,6 +35,22 @@ describe('EncryptedStore', () => {
     for (const f of files) expect((await readFile(join(dir, f))).toString()).not.toContain('"value":42');
   });
 
+  it('clears one collection without decrypting it and leaves the others (FR013-05)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'store-'));
+    const store = await EncryptedStore.open(new FileBackend(dir), 'pw', { logN: 4 });
+    await store.collection<string>('evcache').put('a', 'uno');
+    await store.collection<string>('evcache').put('b', 'dos');
+    await store.collection<string>('evcache-meta').put('meta', 'cursores');
+    await store.collection<string>('outbox').put('op', 'pendiente');
+    // An entry sealed with another key does not open, yet clear() removes it too.
+    await EncryptedStore.withKey(new FileBackend(dir), new Uint8Array(32).fill(9)).collection<string>('evcache').put('c', 'ajeno');
+    await store.collection<string>('evcache').clear();
+    expect(await store.raw.keys('evcache:')).toEqual([]);
+    expect((await readdir(dir)).filter((f) => f.startsWith('evcache__'))).toEqual([]);
+    expect(await store.collection<string>('evcache-meta').get('meta')).toBe('cursores');
+    expect(await store.collection<string>('outbox').get('op')).toBe('pendiente');
+  });
+
   it('isolates collections (ciphertext bound to collection name)', async () => {
     const backend = new MemoryBackend();
     const store = EncryptedStore.withKey(backend, new Uint8Array(32).fill(7));
