@@ -2,13 +2,17 @@
  * FR013-03: rebuild a persona's history on a clean device (after restoring its backup): NIP-29 channels
  * (known + discovered from our own events and the NIP-51 kind 10009 list), NIP-17 DMs (gift wraps,
  * with the 2-day NIP-59 widening) and the relay evidence needed to reconcile the restored outbox.
- * PANEL-06: what expired (NIP-40) is left out, even when a relay still serves it: each event by its own tag and, once
- * opened with the signer, a gift wrap also by its seal's; so the history export and the vault push do not carry it.
+ * FR013-05: with an event cache, each filter resumes per relay from its cursor and the result is what the cache holds.
+ * PANEL-06: what expired (NIP-40) is left out, even when a relay or the cache still holds it: each event by its own tag
+ * and, once opened with the signer, a gift wrap also by its seal's; so the history export and the vault push do not
+ * carry it.
  */
 import { getTagValues, isExpired, type Filter, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { normalizeRelayUrl } from '@sedecim/relay-pool';
 import { NIP29, channelFilter, dmInboxFilter, isUnwrappedExpired, openDirectMessage, type DirectMessage } from '@sedecim/messaging';
+import type { EventCache } from './cache';
 import { sortEvents, syncHistory, type SyncReport, type SyncStrategy } from './index';
+import { syncWithCache } from './resume';
 
 /** NIP-51 "simple groups" list (NIP-29 memberships). */
 export const GROUP_LIST_KIND = 10009;
@@ -38,17 +42,32 @@ export function discoverChannels(own: NostrEvent[]): string[] {
   return [...joined].filter((id) => (lastLeave.get(id) ?? -1) < (lastActivity.get(id) ?? 0)).sort();
 }
 
+export interface RebuildCacheOptions {
+  store: EventCache;
+  /** 'resume' (default): channels and DMs continue per relay from their cursors; 'full': everything the relays hold. */
+  mode?: 'resume' | 'full';
+  overlapSeconds?: number;
+}
+
 export interface RebuildOptions {
   relays: string[];
   pubkey: string;
-  /** Tried in order per relay (e.g. [NegentropySync, FilterWindowSync]). */
-  strategies: SyncStrategy[];
+  /**
+   * Tried in order per relay (e.g. [NegentropySync, FilterWindowSync]). As a function it gets the lower bound the sync
+   * starts from (with a cache, each relay's own), for strategies that need it such as FilterWindowSync.
+   */
+  strategies: SyncStrategy[] | ((since?: number) => SyncStrategy[]);
   /** Channels known from elsewhere (e.g. local config); merged with the discovered ones. */
   channels?: string[];
-  /** Last successful sync (seconds). Undefined rebuilds the full history. */
+  /** Last successful sync (seconds). Undefined rebuilds the full history (with a cache: resumes from its cursors). */
   since?: number;
   /** Persona signer: when given, gift wraps are opened into DMs. */
   signer?: Signer;
+  /**
+   * FR013-05: sync through this event cache. Channels and DMs resume per relay from its cursors; what arrives is kept
+   * there, and each result is what the cache holds for the filter plus what arrived now (docs/event-cache.md).
+   */
+  cache?: RebuildCacheOptions;
   /** PANEL-06: the clock (ms) against which NIP-40 expirations are read. */
   now?: () => number;
 }
@@ -78,16 +97,32 @@ function mergeSeen(into: Map<string, Set<string>>, from: Map<string, Set<string>
 }
 
 export async function rebuildHistory(opts: RebuildOptions): Promise<RebuiltHistory> {
+  const given = opts.strategies;
+  const strategies = typeof given === 'function' ? given : () => given;
+  const cache = opts.cache;
+  /** One filter from every relay: directly, or through the cache, resuming from its cursors when `resumable`. */
+  const sync = (filter: (since?: number) => Filter, resumable: boolean, since = opts.since): Promise<SyncReport> =>
+    cache
+      ? syncWithCache({
+          cache: cache.store,
+          relays: opts.relays,
+          filter,
+          strategies,
+          mode: resumable ? (cache.mode ?? 'resume') : 'full',
+          ...(since !== undefined ? { since } : {}),
+          ...(cache.overlapSeconds !== undefined ? { overlapSeconds: cache.overlapSeconds } : {}),
+        })
+      : syncHistory(opts.relays, filter(since), strategies(since));
+  const own = (since?: number) => ownActivityFilter(opts.pubkey, since);
   const seenOn = new Map<string, Set<string>>();
-  const [ownReport, dmReport] = await Promise.all([
-    syncHistory(opts.relays, ownActivityFilter(opts.pubkey, opts.since), opts.strategies),
-    syncHistory(opts.relays, dmInboxFilter(opts.pubkey, opts.since), opts.strategies),
-  ]);
+  // Channel discovery looks at our whole activity, not just the window: joining is older than `since`. With a cache that
+  // whole activity is a single sync (NIP-77 only fetches what the cache lacks) and the window is cut from it afterwards.
+  const [ownReport, dmReport] = await Promise.all([sync(own, false, cache ? undefined : opts.since), sync((since) => dmInboxFilter(opts.pubkey, since), true)]);
   mergeSeen(seenOn, ownReport.seenOn);
   mergeSeen(seenOn, dmReport.seenOn);
 
-  // Channel discovery looks at our whole activity, not just the window: joining is older than `since`.
-  const ownAll = opts.since === undefined ? ownReport : await syncHistory(opts.relays, ownActivityFilter(opts.pubkey), opts.strategies);
+  const ownAll = opts.since === undefined || cache ? ownReport : await sync(own, false, undefined);
+  const ownEvents = cache && opts.since !== undefined ? ownReport.events.filter((e) => e.created_at >= opts.since!) : ownReport.events;
   const channelIds = [...new Set([...(opts.channels ?? []), ...discoverChannels(ownAll.events)])].sort();
   // PANEL-06: NIP-40 asks clients to ignore what expired, which a relay that does not honour it keeps serving.
   const nowSeconds = Math.floor((opts.now ?? Date.now)() / 1000);
@@ -102,7 +137,7 @@ export async function rebuildHistory(opts: RebuildOptions): Promise<RebuiltHisto
   const channels: RebuiltHistory['channels'] = {};
   const channelReports: Record<string, SyncReport> = {};
   for (const id of channelIds) {
-    const r = await syncHistory(opts.relays, channelFilter(id, opts.since), opts.strategies);
+    const r = await sync((since) => channelFilter(id, since), true);
     channels[id] = current(r.events);
     channelReports[id] = r;
     mergeSeen(seenOn, r.seenOn);
@@ -125,14 +160,14 @@ export async function rebuildHistory(opts: RebuildOptions): Promise<RebuiltHisto
     }
   }
   for (const id of sealExpired) expired.add(id);
-  const own = sortEvents(current([...ownReport.events]));
+  const ownKept = sortEvents(current([...ownEvents]));
   return {
     channels,
     wraps: sealExpired.size ? wraps.filter((w) => !sealExpired.has(w.id)) : wraps,
     dms: [...dms.values()].sort((a, b) => a.rumor.created_at - b.rumor.created_at || (a.rumor.id < b.rumor.id ? -1 : 1)),
     undecryptable,
     expired: expired.size,
-    own,
+    own: ownKept,
     seenOn,
     reports: { own: ownReport, dms: dmReport, channels: channelReports },
   };

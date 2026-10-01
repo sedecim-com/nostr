@@ -24,6 +24,7 @@ La llave (generada air-gapped), el stack self-hosted, el historial local.
 | Imágenes manipuladas | Imágenes fijadas por digest, también las de terceros (OPS-13), y las propias reproducibles bit a bit (NFR010-03); SBOM; gitleaks | `docker-compose.yml`, `tests/scripts/supply-chain.test.ts`, CI |
 | Consultas de la web al mirror | Con identidad pseudónima la web no consulta el mirror (ni contadores de no leídos ni búsqueda de canales), y la vista lo dice (FR014-04) | `apps/web-saas/test/mirror.test.ts`, `packages/profiles/test/profiles.test.ts` |
 | Datos en reposo en el host | Mirror sellado en reposo opcional (`MIRROR_AT_REST_KEY`), cada fila ligada a su `event_id` (SEC-06); vault envelope | `services/indexer/test` |
+| Historial local en el disco del dispositivo | Caché de eventos del CLI sellada con la passphrase: XChaCha20-Poly1305, nombres HMAC y 64 cubos, así que una copia del disco no revela ids, autores, canales ni cuántos eventos hay. Los DMs se guardan como gift wraps, nunca abiertos. `cache clear` la borra y `SOVEREIGN_CACHE=off` no guarda nada ([event-cache.md](../event-cache.md), FR013-05) | `packages/sync/test/cache.test.ts`, `apps/sovereign-client/test/event-cache.test.ts` |
 
 ## Riesgos residuales
 | Riesgo | Nivel | Nota |
@@ -34,6 +35,7 @@ La llave (generada air-gapped), el stack self-hosted, el historial local.
 | Un DM caducado o borrado sigue fuera de este dispositivo | Medio | La caducidad (NIP-40) y el borrado (kind 5 en gift wrap) son peticiones: el relay propio la aplica solo si respeta NIP-40, y los contactos con otro cliente o capturas conservan lo que tenían (PANEL-06, [message-expiration.md](../message-expiration.md)) |
 | IP visible para el relay propio y el ISP | Medio | Usar sovereign-tor si importa |
 | Host del VPS comprometido | Medio | Canales en claro en el relay; usar Marmot |
+| Disco del dispositivo y passphrase en otras manos | Medio | Se lee la caché de eventos: mensajes de canal, metadatos de los gift wraps y cursores de sincronización. Con la llave en el dispositivo, también los DMs; con un signer NIP-46, los DMs no ([event-cache.md](../event-cache.md)) |
 
 ## Supuestos
 El operador mantiene el host actualizado y guarda los secretos de `.env` fuera del servidor.
