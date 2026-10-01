@@ -596,15 +596,20 @@ export class SovereignClient {
       return r;
     };
     // VAULT-04: each sent event is copied to the Continuity Vault as the persona's policy says, through its guard.
+    // PANEL-06: the copy of an expiring one is queued to leave the vault when it expires.
     const continuity = { policy: continuityPolicy((await mgr.getConfig(personaId)) ?? {}) };
     const vaultUrl = this.opts.vaultUrl;
+    const backup = async (url: string, event: NostrEvent) => {
+      await this.archiveSent(persona, url, event);
+      await scheduleArchiveExpiry(store.collection<number>(VAULT_FORGET), [event]);
+    };
     const engine = new DeliveryEngine({
       store: store.collection<OutboxRecord>('outbox'),
       publisher: pool,
       signer,
       retry: this.opts.retry,
       router,
-      continuity: { policy: () => continuity.policy, ...(vaultUrl ? { sink: { backup: (event: NostrEvent) => this.archiveSent(persona, vaultUrl, event) } } : {}) },
+      continuity: { policy: () => continuity.policy, ...(vaultUrl ? { sink: { backup: (event: NostrEvent) => backup(vaultUrl, event) } } : {}) },
     });
     // FR-011: when a relay comes back (after a drop or a failed attempt) the whole outbox is re-driven.
     pool.onReconnect(() => void engine.resume().catch(() => undefined));
@@ -634,20 +639,21 @@ export class SovereignClient {
 
   /**
    * PANEL-06: deletes from the persona's vault (this client's `vaultUrl`) the archives of these events and of the queued
-   * ones that are due. Without a vault in this run, or if it does not answer, they stay queued for a later run.
+   * ones that are due. Without a vault in this run, or if it does not answer, they stay queued for a later run (these
+   * events only with `remember`, see forgetDueArchives).
    */
-  private async forgetInVault(s: Session, eventIds: string[], nowSeconds = Math.floor(Date.now() / 1000)): Promise<{ deleted: number; queued: number; next?: number; error?: string }> {
+  private async forgetInVault(s: Session, eventIds: string[], nowSeconds = Math.floor(Date.now() / 1000), opts: { remember?: boolean } = {}): Promise<{ deleted: number; queued: number; next?: number; error?: string }> {
     const queue: ArchiveForgetQueue = s.store.collection<number>(VAULT_FORGET);
     const url = this.opts.vaultUrl;
-    if (!url) return forgetDueArchives(undefined, queue, eventIds, nowSeconds);
+    if (!url) return forgetDueArchives(undefined, queue, eventIds, nowSeconds, opts);
     let vault: { client: ArchiveVaultClient; key: Uint8Array };
     try {
       vault = await this.vaultClient(s.persona, url);
     } catch (e) {
-      return { ...(await forgetDueArchives(undefined, queue, eventIds, nowSeconds)), error: (e as Error).message };
+      return { ...(await forgetDueArchives(undefined, queue, eventIds, nowSeconds, opts)), error: (e as Error).message };
     }
     try {
-      return await forgetDueArchives(vault, queue, eventIds, nowSeconds);
+      return await forgetDueArchives(vault, queue, eventIds, nowSeconds, opts);
     } finally {
       vault.key.fill(0);
     }
@@ -655,12 +661,12 @@ export class SovereignClient {
 
   /**
    * PANEL-06: forgets this device's copies of the DMs that expired (NIP-40): their sent operation and their outbox
-   * records, even if a relay never took them; then their vault archives (forgetInVault). `next`: the soonest
-   * expiration still ahead.
+   * records, even if a relay never took them; then their vault archives (forgetInVault): those this device stored there
+   * were queued when stored, so the others are only tried with the vault at hand. `next`: the soonest expiration ahead.
    */
   async purgeExpiredDms(s: Session, nowSeconds = Math.floor(Date.now() / 1000), expiredWraps: string[] = []): Promise<DmForgetResult & { next?: number }> {
     const copies = await purgeExpiredCopies(this.dmCopies(s), nowSeconds);
-    const vault = await this.forgetInVault(s, [...copies.wrapIds, ...expiredWraps], nowSeconds);
+    const vault = await this.forgetInVault(s, [...copies.wrapIds, ...expiredWraps], nowSeconds, { remember: false });
     const next = [copies.next, vault.next].filter((x): x is number => x !== undefined);
     return { ...copies, vault: vault.deleted, vaultQueued: vault.queued, ...(vault.error ? { vaultError: vault.error } : {}), ...(next.length ? { next: Math.min(...next) } : {}) };
   }

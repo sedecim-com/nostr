@@ -93,4 +93,24 @@ describe('expired and deleted messages in the Continuity Vault (PANEL-06)', () =
     // Deleting what the vault no longer holds is not an error.
     expect(await forgetDueArchives({ client, key }, queue, [deletedNow.id], T)).toEqual({ deleted: 0, queued: 0 });
   });
+
+  it('PANEL-06: an expired message is only tried with the vault at hand: what the device stored was queued then, so the queue does not grow with every expiry', async () => {
+    const { key, client } = account();
+    const stored = wrap('guardado en el vault', T);
+    const neverStored = wrap('nunca llegó al vault', T);
+    await archiveEvent(client, key, stored);
+    const queue = memoryQueue();
+    await scheduleArchiveExpiry(queue, [stored]);
+
+    // No vault in this run, then one that does not answer: only what was queued stays, due now.
+    expect(await forgetDueArchives(undefined, queue, [stored.id, neverStored.id], T, { remember: false })).toEqual({ deleted: 0, queued: 1 });
+    expect([...queue.entries]).toEqual([[stored.id, 0]]);
+    const down = new ArchiveVaultClient({ baseUrl: base, auth: { archiveKey: key }, fetch: async () => new Response('caído', { status: 503 }) });
+    expect(await forgetDueArchives({ client: down, key }, queue, [neverStored.id], T, { remember: false })).toMatchObject({ deleted: 0, queued: 1 });
+    expect([...queue.entries]).toEqual([[stored.id, 0]]);
+    // The vault answers: the stored copy goes; the other one is tried and is not there.
+    expect(await forgetDueArchives({ client, key }, queue, [neverStored.id], T, { remember: false })).toEqual({ deleted: 1, queued: 0 });
+    expect(await client.listAll()).toEqual([]);
+    expect(queue.entries.size).toBe(0);
+  });
 });

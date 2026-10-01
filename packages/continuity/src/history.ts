@@ -135,8 +135,9 @@ export interface ArchiveForgetQueue {
 }
 
 /**
- * PANEL-06: remembers the expiring events a push stored in the vault, so that their archives are deleted when they
- * expire, even if by then no relay serves them any more (and the next push cannot see them).
+ * PANEL-06: remembers the expiring events this device stores in the vault (a push, or the copy of a send), so that
+ * their archives are deleted when they expire, even if by then no relay serves them any more (and the next push
+ * cannot see them).
  */
 export async function scheduleArchiveExpiry(queue: ArchiveForgetQueue, events: NostrEvent[]): Promise<void> {
   for (const e of events) {
@@ -147,34 +148,41 @@ export async function scheduleArchiveExpiry(queue: ArchiveForgetQueue, events: N
 
 /**
  * PANEL-06: deletes from the vault the archives of `eventIds` and of every queued event due at `nowSeconds`. What the
- * vault confirms leaves the queue; when it does not answer, all of them stay queued as due now, for the next run.
- * Without a vault at hand (`client` undefined), `eventIds` are only queued. `next`: the soonest deletion still ahead.
+ * vault confirms leaves the queue. What it cannot delete now (no vault at hand, `vault` undefined, or one that does not
+ * answer) stays queued as due now, for a later run: the queued events, and `eventIds` too unless `remember` is false.
+ * `remember: false` is for events that may never have reached the vault, as an expired message: whatever of it this
+ * device stored there was queued then (scheduleArchiveExpiry), and the queue does not grow with every message that
+ * expires. `next`: the soonest deletion still ahead.
  */
 export async function forgetDueArchives(
   vault: { client: ArchiveVaultClient; key: Uint8Array } | undefined,
   queue: ArchiveForgetQueue,
   eventIds: string[],
   nowSeconds: number,
+  opts: { remember?: boolean } = {},
 ): Promise<{ deleted: number; queued: number; next?: number; error?: string }> {
+  const remember = opts.remember !== false;
   const entries = await queue.all();
-  const due = new Set([...eventIds, ...entries.filter((e) => e.value <= nowSeconds).map((e) => e.id)]);
+  const inQueue = new Set(entries.map((e) => e.id));
+  const due = new Set([...(vault || remember ? eventIds : []), ...entries.filter((e) => e.value <= nowSeconds).map((e) => e.id)]);
   const ahead = entries.filter((e) => e.value > nowSeconds && !due.has(e.id));
-  const next = ahead.length ? Math.min(...ahead.map((e) => e.value)) : undefined;
+  const later = ahead.length ? { next: Math.min(...ahead.map((e) => e.value)) } : {};
+  const pending = [...due].filter((id) => remember || inQueue.has(id));
   const requeue = async () => {
-    for (const id of due) await queue.put(id, 0);
+    for (const id of pending) await queue.put(id, 0);
   };
-  if (!due.size) return { deleted: 0, queued: ahead.length, ...(next !== undefined ? { next } : {}) };
+  if (!due.size) return { deleted: 0, queued: ahead.length, ...later };
   if (!vault) {
     await requeue();
-    return { deleted: 0, queued: ahead.length + due.size, ...(next !== undefined ? { next } : {}) };
+    return { deleted: 0, queued: ahead.length + pending.length, ...later };
   }
   try {
     const deleted = await forgetArchivedEvents(vault.client, vault.key, [...due]);
-    for (const id of due) await queue.delete(id);
-    return { deleted, queued: ahead.length, ...(next !== undefined ? { next } : {}) };
+    for (const id of due) if (inQueue.has(id)) await queue.delete(id);
+    return { deleted, queued: ahead.length, ...later };
   } catch (e) {
     await requeue();
-    return { deleted: 0, queued: ahead.length + due.size, ...(next !== undefined ? { next } : {}), error: (e as Error).message };
+    return { deleted: 0, queued: ahead.length + pending.length, ...later, error: (e as Error).message };
   }
 }
 

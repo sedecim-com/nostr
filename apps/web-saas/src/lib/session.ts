@@ -19,8 +19,8 @@ import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type ContinuitySink, type OutboxRecord } from '@sedecim/delivery-engine';
 import { DmInbox, dmRouter, outboxContacts, ProfileCache, publishDmRelayList, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
 import { continuityPolicy, preset, PRESETS, resolveMessageExpiration, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
-import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
-import { dmTombstones } from './expiration';
+import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey, scheduleArchiveExpiry } from '@sedecim/continuity';
+import { dmTombstones, vaultForgetQueue } from './expiration';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
 
 /**
@@ -244,7 +244,8 @@ export function managedLogin(managed: ManagedEnv): ManagedSignerConnection {
 
 /**
  * VAULT-04: the Continuity Vault copy of each sent event, sealed in this browser with the persona's archive key (read
- * from the vault record each time, so a key made for an older persona on first use is never made twice).
+ * from the vault record each time, so a key made for an older persona on first use is never made twice). PANEL-06:
+ * the copy of an expiring event is queued to leave the vault when it expires.
  */
 function continuitySink(url: string, book: PersonaBook, personaId: string): ContinuitySink {
   let making: Promise<PersonaRecord> | undefined;
@@ -265,6 +266,7 @@ function continuitySink(url: string, book: PersonaBook, personaId: string): Cont
       } finally {
         wipe(key);
       }
+      await scheduleArchiveExpiry(vaultForgetQueue(book.store, personaId), [event]);
     },
   };
 }

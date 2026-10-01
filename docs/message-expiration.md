@@ -62,9 +62,10 @@ mensajes nuevos: los enviados conservan la caducidad que tenían, o ninguna.
     cada hora);
   - en el CLI, al abrir la persona en cualquier orden, y en `dm watch` mientras escucha;
   - si el dispositivo está apagado, al volver a abrir la persona.
-- **Historial.** `rebuildHistory` (`packages/sync`) deja fuera lo caducado, así que `history sync`, `history export` y
-  el push al vault no lo llevan. Restaurar desde el vault (`restoreHistory`) ignora eventos y operaciones del ledger
-  caducados, y la exportación del vault también.
+- **Historial.** `rebuildHistory` (`packages/sync`) deja fuera lo caducado: cada evento por su etiqueta y, al abrirlo,
+  un gift wrap también por la de su seal. Así `history sync`, `history export` y el push al vault no lo llevan.
+  Restaurar desde el vault (`restoreHistory`) ignora eventos y operaciones del ledger caducados, y la exportación del
+  vault también.
 
 ## Borrar un mensaje propio
 
@@ -99,17 +100,21 @@ mensajes nuevos: los enviados conservan la caducidad que tenían, o ninguna.
 El vault (ADR 0011, VAULT-05) guarda los archivos con su plazo, contado desde la última escritura. Sus archivos no saben
 de caducidades: el formato no cambia y los borrados van por id. La regla:
 
-1. **Al caducar o al borrar**, el cliente borra los archivos `event:<wrap>` que conoce: los de las copias automáticas de
-   cada envío (VAULT-04), los que subió un push (están en la cola, abajo), el del mensaje que tenía en pantalla y, al
-   borrar, el del wrap que leyó. Si el vault no responde, o en esa ejecución no hay vault (el CLI sin `--vault`), quedan
-   en una cola cifrada (`vdel-<persona>` en la web, `vault-forget` en el CLI) y se borran en la siguiente purga que
-   llegue al vault.
-2. **Cada push** deja fuera lo caducado y lo borrado (lápidas) y borra sus archivos si siguen ahí. El snapshot del
-   ledger se reescribe sin sus operaciones. Los mensajes con caducidad que el push sube quedan en la cola con su fecha,
-   para borrarlos al caducar aunque para entonces ningún relay los sirva.
-3. **Al restaurar** se ignoran los eventos y las operaciones caducados, y no se vuelven a publicar ni a poner en el outbox
+1. **Al guardar en el vault** un evento con caducidad (la copia automática de cada envío, VAULT-04, o un push), el
+   cliente lo apunta con su fecha en una cola cifrada (`vdel-<persona>` en la web, `vault-forget` en el CLI). Así lo
+   borra al caducar aunque para entonces ningún relay lo sirva.
+2. **Al caducar**, borra los archivos `event:<wrap>` de la cola que vencen y, si tiene el vault a mano, también los de
+   los wraps caducados que conocía (outbox, pantalla). Si el vault no responde, o en esa ejecución no hay vault (el CLI
+   sin `--vault`), los de la cola siguen en ella y se borran en la siguiente purga que llegue al vault. Un mensaje que
+   nunca llegó al vault no entra en la cola, que no crece con cada caducidad.
+3. **Al borrar**, borra los archivos de los wraps del mensaje que conoce (los del outbox y el que leyó) o, si no puede,
+   los encola. La web no encola nada si el despliegue no tiene vault o la persona no tiene llave de archivo en ese
+   navegador: no puede tener archivos allí.
+4. **Cada push** deja fuera lo caducado y lo borrado (lápidas) y borra sus archivos si siguen ahí. El snapshot del
+   ledger se reescribe sin sus operaciones.
+5. **Al restaurar** se ignoran los eventos y las operaciones caducados, y no se vuelven a publicar ni a poner en el outbox
    los wraps que este dispositivo sabe borrados.
-4. **Aviso.** Cuando el plazo del vault es mayor que la caducidad más corta de la persona o de una conversación, o es
+6. **Aviso.** Cuando el plazo del vault es mayor que la caducidad más corta de la persona o de una conversación, o es
    «hasta que lo borres», el panel, la conversación, la tarjeta del vault y el CLI lo dicen (`vaultExpirationNotice`). Si
    la web no conoce el plazo, lo dice sin cifras. Solo pregunta el plazo al vault cuando el usuario cambia la caducidad
    de una conversación o usa el vault.
@@ -201,7 +206,10 @@ Lo que depende de otros:
     otro dispositivo, en cualquier orden;
   - un borrado ajeno se rechaza o se ignora.
 - `packages/delivery-engine/test/forget.test.ts`: `forget` con una ronda en curso.
-- `services/continuity-vault/test/expiration.test.ts`: push, restauración y cola de borrados contra el vault de pruebas.
+- `packages/sync/test/expiration.test.ts`: la reconstrucción del historial deja fuera lo caducado (por el wrap, por el
+  seal y en canales) con el relay de pruebas, que lo sigue sirviendo, y control negativo.
+- `services/continuity-vault/test/expiration.test.ts`: push, restauración y cola de borrados contra el vault de pruebas,
+  y que la cola no crece con los mensajes que nunca llegaron al vault.
 - `apps/web-saas/test/expiration.test.ts`:
   - ajustes cifrados;
   - purga del almacén, el outbox y el vault;

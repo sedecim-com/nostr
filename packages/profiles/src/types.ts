@@ -48,7 +48,7 @@ export interface SovereigntyConfig {
   stripFileMetadata: boolean;
   /**
    * PANEL-06: the persona's expiration of new direct messages; a conversation may set its own. Configurations stored
-   * before it have none, which means `off` (see `messageExpirationPolicy`).
+   * before it have none: the profile's default applies, `off` in every preset (see `resolveMessageExpiration`).
    */
   messageExpiration: MessageExpirationOption;
 }

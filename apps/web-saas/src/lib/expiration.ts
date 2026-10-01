@@ -82,15 +82,19 @@ function vaultOf(url: string | undefined, persona: PersonaRecord): string | unde
 
 /**
  * Deletes from the persona's vault the archives of these events and of the queued ones that are due; what the vault
- * does not confirm stays queued (vaultForgetQueue) for the next run. Nothing is asked of a vault the persona does not use.
+ * does not confirm stays queued (vaultForgetQueue) for the next run (these events only with `remember`, see
+ * forgetDueArchives). Nothing is asked of a vault the persona does not use, and nothing is queued for a persona that
+ * cannot have archives in this deployment's vault (no vault, or no archive key in this browser).
  */
-export async function forgetInVault(store: EncryptedStore, persona: PersonaRecord, vaultUrl: string | undefined, eventIds: string[], nowMs = Date.now()) {
+export async function forgetInVault(store: EncryptedStore, persona: PersonaRecord, vaultUrl: string | undefined, eventIds: string[], nowMs = Date.now(), opts: { remember?: boolean } = {}) {
+  if (!vaultUrl || !persona.archiveKeyHex) return { deleted: 0, queued: 0 };
   const url = vaultOf(vaultUrl, persona);
   const queue = vaultForgetQueue(store, persona.id);
-  if (!url) return eventIds.length ? forgetDueArchives(undefined, queue, eventIds, Math.floor(nowMs / 1000)) : { deleted: 0, queued: 0 };
-  const key = hexToBytes(persona.archiveKeyHex!);
+  const now = Math.floor(nowMs / 1000);
+  if (!url) return forgetDueArchives(undefined, queue, eventIds, now, opts);
+  const key = hexToBytes(persona.archiveKeyHex);
   try {
-    return await forgetDueArchives({ client: new ArchiveVaultClient({ baseUrl: url, auth: { archiveKey: key } }), key }, queue, eventIds, Math.floor(nowMs / 1000));
+    return await forgetDueArchives({ client: new ArchiveVaultClient({ baseUrl: url, auth: { archiveKey: key } }), key }, queue, eventIds, now, opts);
   } finally {
     wipe(key);
   }
@@ -106,11 +110,12 @@ export interface DmPurge extends ForgottenCopies {
 
 /**
  * PANEL-06: forgets this browser's copies of the messages that expired at `nowMs` (sent operations, outbox records) and
- * deletes their vault archives, with those of `expiredWraps` (e.g. the messages the inbox just dropped).
+ * deletes their vault archives, with those of `expiredWraps` (e.g. the messages the inbox just dropped). What this
+ * browser stored in the vault was queued when stored, so the others are only tried with the vault at hand.
  */
 export async function purgeExpiredDms(store: EncryptedStore, s: Pick<PersonaSession, 'persona' | 'engine'>, vaultUrl: string | undefined, expiredWraps: string[] = [], nowMs = Date.now()): Promise<DmPurge> {
   const copies = await purgeExpiredCopies(dmCopies(store, s), Math.floor(nowMs / 1000));
-  const vault = await forgetInVault(store, s.persona, vaultUrl, [...copies.wrapIds, ...expiredWraps], nowMs);
+  const vault = await forgetInVault(store, s.persona, vaultUrl, [...copies.wrapIds, ...expiredWraps], nowMs, { remember: false });
   const next = [copies.next, vault.next].filter((x): x is number => x !== undefined);
   return { ...copies, vault: vault.deleted, ...(vault.error ? { vaultError: vault.error } : {}), ...(next.length ? { next: Math.min(...next) } : {}) };
 }

@@ -182,9 +182,10 @@ Detalle, qué ve cada parte y quién conserva qué: [`message-expiration.md`](me
   cada seal de un mensaje nuevo llevan `expiration` (NIP-40), redondeada hacia arriba a la medianoche UTC para que el
   relay no sepa la hora de envío. La fecha se fija al crear la operación: cambiar el ajuste no toca lo enviado.
 - **Al leer y al guardar.** `DmInbox` no muestra ni responde lo caducado, aunque el relay lo sirva. La web (al abrir la
-  persona y en cada caducidad) y el CLI (en cada orden) borran sus copias locales: operación enviada, registros del
-  outbox (`DeliveryEngine.forget`) y archivos del vault, o los encolan si el vault no responde. `rebuildHistory` y
-  `restoreHistory` dejan fuera lo caducado.
+  persona y en cada caducidad) y el CLI (en cada orden) borran sus copias locales: operación enviada y registros del
+  outbox (`DeliveryEngine.forget`). Lo que guardan en el vault con caducidad queda en una cola cifrada con su fecha, y
+  se borra al caducar o, si el vault no responde, en la siguiente purga. `rebuildHistory` y `restoreHistory` dejan
+  fuera lo caducado.
 - **Borrado.** Un kind 5 en gift wrap (NIP-17) a los destinatarios y a la propia persona, solo de mensajes propios, con
   el aviso de las copias antes de confirmar. El cliente que lo recibe solo lo aplica si lo firma el autor, y guarda
   una lápida para que el mensaje no vuelva.

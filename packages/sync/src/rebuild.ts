@@ -2,8 +2,8 @@
  * FR013-03: rebuild a persona's history on a clean device (after restoring its backup): NIP-29 channels
  * (known + discovered from our own events and the NIP-51 kind 10009 list), NIP-17 DMs (gift wraps,
  * with the 2-day NIP-59 widening) and the relay evidence needed to reconcile the restored outbox.
- * PANEL-06: what expired (NIP-40) is left out, even when a relay still serves it: the gift wraps by their own tag, the
- * DMs also by their seal's; so the history export and the vault push never carry it.
+ * PANEL-06: what expired (NIP-40) is left out, even when a relay still serves it: each event by its own tag and, once
+ * opened with the signer, a gift wrap also by its seal's; so the history export and the vault push do not carry it.
  */
 import { getTagValues, isExpired, type Filter, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { normalizeRelayUrl } from '@sedecim/relay-pool';
@@ -91,12 +91,14 @@ export async function rebuildHistory(opts: RebuildOptions): Promise<RebuiltHisto
   const channelIds = [...new Set([...(opts.channels ?? []), ...discoverChannels(ownAll.events)])].sort();
   // PANEL-06: NIP-40 asks clients to ignore what expired, which a relay that does not honour it keeps serving.
   const nowSeconds = Math.floor((opts.now ?? Date.now)() / 1000);
-  let expired = 0;
-  const current = (events: NostrEvent[]) => {
-    const kept = events.filter((e) => !isExpired(e, nowSeconds));
-    expired += events.length - kept.length;
-    return kept;
-  };
+  // Each expired event counts once, though it may come in more than one list (e.g. a channel and our own activity).
+  const expired = new Set<string>();
+  const current = (events: NostrEvent[]) =>
+    events.filter((e) => {
+      if (!isExpired(e, nowSeconds)) return true;
+      expired.add(e.id);
+      return false;
+    });
   const channels: RebuiltHistory['channels'] = {};
   const channelReports: Record<string, SyncReport> = {};
   for (const id of channelIds) {
@@ -108,26 +110,29 @@ export async function rebuildHistory(opts: RebuildOptions): Promise<RebuiltHisto
 
   const wraps = current(dmReport.events);
   const dms = new Map<string, DirectMessage>();
+  // The seal may carry an expiration the wrap does not show: such a wrap leaves `wraps` too.
+  const sealExpired = new Set<string>();
   let undecryptable = 0;
   if (opts.signer) {
     for (const w of wraps) {
       try {
         const m = await openDirectMessage(opts.signer, w);
-        // The seal may carry an expiration the wrap does not show.
-        if (isUnwrappedExpired(m, nowSeconds)) expired++;
+        if (isUnwrappedExpired(m, nowSeconds)) sealExpired.add(w.id);
         else if (!dms.has(m.rumor.id)) dms.set(m.rumor.id, m);
       } catch {
         undecryptable++;
       }
     }
   }
+  for (const id of sealExpired) expired.add(id);
+  const own = sortEvents(current([...ownReport.events]));
   return {
     channels,
-    wraps,
+    wraps: sealExpired.size ? wraps.filter((w) => !sealExpired.has(w.id)) : wraps,
     dms: [...dms.values()].sort((a, b) => a.rumor.created_at - b.rumor.created_at || (a.rumor.id < b.rumor.id ? -1 : 1)),
     undecryptable,
-    expired,
-    own: sortEvents(current([...ownReport.events])),
+    expired: expired.size,
+    own,
     seenOn,
     reports: { own: ownReport, dms: dmReport, channels: channelReports },
   };
