@@ -207,7 +207,8 @@ describe('sovereign CLI: expiration and deletion of DMs (PANEL-06)', () => {
       // The persona's own copy shows up in its inbox with its id and its expiration; dm delete --yes takes that id.
       const inbox = await cli(env, 'dm', 'inbox', '--persona', id);
       expect(inbox.status, inbox.stderr).toBe(0);
-      const prefix = new RegExp(`\\(id ([0-9a-f]{16}), caduca ${iso!.replace(/\./g, '\\.')}\\): hasta dentro de un mes`).exec(inbox.stdout)?.[1];
+      const line = inbox.stdout.split('\n').find((l) => l.includes(`, caduca ${iso}): hasta dentro de un mes`));
+      const prefix = /\(id ([0-9a-f]{16}), caduca /.exec(line ?? '')?.[1];
       expect(prefix).toBeDefined();
       const deleted = await cli(env, 'dm', 'delete', '--persona', id, '--id', prefix!, '--yes');
       expect(deleted.status, deleted.stderr).toBe(0);
