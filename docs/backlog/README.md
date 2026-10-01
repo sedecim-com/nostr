@@ -42,7 +42,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 - **aws**: faltan la cuenta, la región o el stage reales de AWS
 - **externo**: depende de un tercero: auditor externo, asesoría legal, una publicación upstream o un dispositivo de hardware
 
-**Listas para trabajar ahora (7):** PANEL-06, FR013-05, FR015-05, FR020-02, NFR007-03, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
+**Listas para trabajar ahora (4):** PANEL-06, FR013-05, FR015-05, NFR007-03. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
 
 | Ola | ID | Prio | Tarea | Sprint | SP | Desbloquea | Espera a | Bloqueo |
 |---:|---|---|---|---|---:|---:|---|---|
@@ -66,7 +66,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | 0 | [FR004-07](https://github.com/sedecim-com/nostr/issues/301) | P3 | Signer de hardware (opcional en el scope) | Diferido | 5 | — | — | externo |
 | 0 | [FR013-05](https://github.com/sedecim-com/nostr/issues/299) | P3 | Caché local cifrada de eventos y NIP-77 con estado local | Diferido | 5 | — | — | lista |
 | 0 | [FR015-05](https://github.com/sedecim-com/nostr/issues/298) | P3 | Presencia (NIP-38) opt-in por perfil | Diferido | 3 | — | — | lista |
-| 0 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | Diferido | 8 | — | — | lista |
+| 0 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | Diferido | 8 | — | — | persona |
 | 0 | [NFR007-03](https://github.com/sedecim-com/nostr/issues/296) | P3 | Crash reports opt-in con limpieza y exportación manual local | Diferido | 3 | — | — | lista |
 | 1 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) | P0 | Firma de releases y provenance (SLSA/cosign) | S9 | 3 | 10 | OPS-08 | persona |
 | 1 | [FR005-13](https://github.com/sedecim-com/nostr/issues/255) | P0 | KMS y Secrets Manager validados en la cuenta y región reales | S11 | 3 | 7 | NFR001-01 | aws |
@@ -74,10 +74,10 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | 1 | [NFR001-02](https://github.com/sedecim-com/nostr/issues/171) | P0 | Monitorización de SLO (99,9 % mensual) y alertas | S10 | 3 | 4 | NFR001-01 | aws |
 | 1 | [SEC-12](https://github.com/sedecim-com/nostr/issues/258) | P0 | Inventario de la superficie de ataque de Buzz desplegado | S11 | 3 | 2 | NFR001-01 | aws |
 | 1 | [NFR005-02](https://github.com/sedecim-com/nostr/issues/180) | P0 | Pruebas de carga del relay y el indexer | S11 | 5 | — | NFR001-01 | aws |
-| 1 | [FR005-09](https://github.com/sedecim-com/nostr/issues/279) | P1 | Exportar desde el enclave exige una prueba del usuario verificada dentro del enclave | Diferido | 5 | — | FR005-05 | lista |
+| 1 | [FR005-09](https://github.com/sedecim-com/nostr/issues/279) | P1 | Exportar desde el enclave exige una prueba del usuario verificada dentro del enclave | Diferido | 5 | — | FR005-05 | aws |
 | 1 | [FR028-02](https://github.com/sedecim-com/nostr/issues/107) | P1 | Revisión legal/UX de los textos de disclosure | S13 | 2 | — | VAULT-07 | externo |
 | 1 | [SEC-10](https://github.com/sedecim-com/nostr/issues/278) | P1 | Revisión criptográfica delta de MLS estable | Diferido | 3 | — | FR025-08 | externo |
-| 1 | [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | Diferido | 3 | — | FR005-05 | lista |
+| 1 | [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | Diferido | 3 | — | FR005-05 | aws |
 | 1 | [OPS-15](https://github.com/sedecim-com/nostr/issues/293) | P2 | Organizaciones y planes en el SaaS | Diferido | 8 | — | DEC-14 | — |
 | 2 | [REL-01](https://github.com/sedecim-com/nostr/issues/196) | P0 | Checklist de Definition of Done automatizado en el pipeline de release | S9 | 3 | 7 | NFR010-02, DEC-10, OPS-08 | persona |
 | 2 | [FR026-04](https://github.com/sedecim-com/nostr/issues/253) | P0 | Salida de la custodia, borrado verificable y derechos ARCO | S11 | 5 | 6 | FR005-13 | aws |

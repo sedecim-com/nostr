@@ -382,7 +382,10 @@
    "FR004-07": "externo",
    "FR003-06": "persona",
    "DEC-13": "persona",
-   "DEC-14": "persona"
+   "DEC-14": "persona",
+   "FR005-09": "aws",
+   "FR005-10": "aws",
+   "FR020-02": "persona"
   }
  },
  "tasks": [
