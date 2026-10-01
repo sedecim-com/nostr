@@ -1,7 +1,7 @@
 /**
- * Opt-in: the NIP-77 client and the event cache against a real strfry. It runs only when STRFRY_URL points at one (a
- * strfry with `relay.negentropy.enabled = true`, the default of its strfry.conf); without it the suite is skipped, and
- * nothing here claims interoperability with strfry (docs/event-cache.md says how to run it).
+ * The NIP-77 client and the event cache against a real strfry. It runs only when STRFRY_URL points at one (a strfry with
+ * `relay.negentropy.enabled = true`, the default of its strfry.conf): the `strfry-interop` job of ci.yml starts a pinned
+ * image and sets it; without it the suite is skipped (docs/event-cache.md says how to run it by hand).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';

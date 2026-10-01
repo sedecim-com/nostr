@@ -314,8 +314,8 @@ jobs:
         if: always()
         run: docker compose --profile tor down -v
 
-  # FR013-05: the NIP-77 client and the event cache against a real strfry. The project publishes only the tag `latest`
-  # (an image created on 2026-09-04), so the image is pinned by digest; the strfry version it runs is printed in the log.
+  # FR013-05: the NIP-77 client and the event cache against a real strfry. The project publishes only the tag `latest`, so
+  # the image is pinned by digest: strfry 1.1.2-148-g4cd3cf6, built on 2026-09-04 (the job prints `strfry --version`).
   strfry-interop:
     if: ${{ !inputs.stack_only }}
     runs-on: ubuntu-latest
