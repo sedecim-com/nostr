@@ -1,0 +1,21 @@
+# Temporary probe (FR013-05): what the pinned strfry image contains, to write its CI job. Removed before merging.
+name: strfry-probe
+on:
+  push:
+    branches: [claude/sweet-carson-c0e50n-strfry-ci]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect the pinned strfry image
+        run: |
+          IMG=ghcr.io/hoytech/strfry@sha256:36f1886d185a88ca57c66ebe52e6e9e8428dac2486eea0a5d50ff934f18b60c3
+          docker pull "$IMG" | tail -2
+          docker image inspect "$IMG" --format 'entrypoint={{json .Config.Entrypoint}} cmd={{json .Config.Cmd}} workdir={{.Config.WorkingDir}} user={{.Config.User}} exposed={{json .Config.ExposedPorts}} created={{.Created}}'
+          docker image inspect "$IMG" --format 'labels={{json .Config.Labels}}'
+          docker run --rm --entrypoint sh "$IMG" -c 'ls -la /app /etc/strfry* 2>&1 | head -30; echo ---conf---; (cat /etc/strfry.conf || cat /app/strfry.conf) 2>&1 | head -160'
+          echo ---help---
+          docker run --rm "$IMG" --help 2>&1 | head -30 || true
