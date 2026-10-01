@@ -35,6 +35,8 @@ las conversaciones, identidad de las fuentes.
 | Metadatos de push o telemetría | Validación de configuración: errores bloqueantes si se activan | `packages/profiles/test` |
 | Custodia declarada mayor que la real | El CLI declara la custodia de la llave real (`local` o `external`), nunca el `offline` del preset; con la llave en el dispositivo avisa (`TOR_DEVICE_KEY`) | `apps/sovereign-client/test/nip46.test.ts`, `packages/profiles/test` |
 | Fuga del tráfico del signer NIP-46 | Solo a los relays del signer, por SOCKS con las credenciales de la persona; sin Tor falla cerrado; onion-only también para el signer; permisos mínimos | `apps/sovereign-client/test/nip46.test.ts`, `packages/signer/test` |
+| Leer sin conexión delata actividad de red | `channel read --offline` y `dm inbox --offline` leen la caché cifrada sin abrir ninguna conexión, tampoco al proxy SOCKS (FR013-05) | `apps/sovereign-client/test/event-cache.test.ts` |
+| Historial local ante la incautación del dispositivo | Caché de eventos sellada con la passphrase: una copia del disco sin ella no revela ids, autores, canales ni cuántos eventos hay. Los DMs se guardan como gift wraps, nunca abiertos. `cache clear` la borra y `SOVEREIGN_CACHE=off` no guarda nada ([event-cache.md](../event-cache.md)) | `packages/sync/test/cache.test.ts`, `apps/sovereign-client/test/event-cache.test.ts` |
 
 ## Riesgos residuales
 | Riesgo | Nivel | Nota |
@@ -44,6 +46,7 @@ las conversaciones, identidad de las fuentes.
 | marmot-ts es alpha y no está auditado | Alto | SEC-01 |
 | DMs NIP-17 sin forward secrecy | Medio | La validación avisa; usar Marmot |
 | Llave en el dispositivo conectado (custodia `local`) | Medio | Quien comprometa el dispositivo y consiga la passphrase firma como la persona; con un signer NIP-46 la llave no está en el dispositivo (FR004-08) |
+| Caché de eventos en el dispositivo | Medio | Con la passphrase se leen los mensajes de canal, los metadatos de los gift wraps y cuándo se sincronizó cada relay, y con custodia `local` también los DMs. La caché está activa por defecto: `SOVEREIGN_CACHE=off` si el dispositivo puede caer en otras manos ([event-cache.md](../event-cache.md)) |
 | El signer NIP-46 ve lo que firma y los DMs que descifra | Medio | Propio de NIP-46: el signer es de confianza; se le piden solo los kinds que firma el CLI |
 | Jitter de gift wrap reducido a ±5 min por Buzz | Medio | Solo aplica si la persona usa el relay de Buzz; el secure-relay acepta el jitter estándar |
 | Estilo de escritura y horarios | Medio | No mitigable técnicamente; formación del usuario |

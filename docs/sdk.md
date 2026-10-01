@@ -29,7 +29,7 @@ con TypeDoc y la sube como artefacto (`sdk-api-reference`).
 | `@sedecim/identity` | Personas, modos de custodia, vínculos explícitos y compartimentación. |
 | `@sedecim/encrypted-store` | Almacenamiento local cifrado (XChaCha20-Poly1305) en memoria, archivo o IndexedDB. |
 | `@sedecim/continuity` | Continuity Vault: sobres de archivo sellados en el cliente (ADR 0011). |
-| `@sedecim/sync` | Reconstrucción de historial: NIP-77 (Negentropy) con REQ por ventanas de respaldo, export/import JSONL. |
+| `@sedecim/sync` | Reconstrucción de historial: NIP-77 (Negentropy) con REQ por ventanas de respaldo, export/import JSONL. Caché local cifrada de eventos con lectura sin conexión, cursores por relay y NIP-77 desde el conjunto local ([event-cache.md](event-cache.md)). |
 | `@sedecim/tor-network` | Política de red: directa o solo Tor, fail-closed y DNS remoto (socks5h). |
 | `@sedecim/profiles` | Perfiles de soberanía, validación de configuración, disclosures y etiquetas de madurez. |
 | `@sedecim/policy-client` | Evaluador RBAC/ABAC con confianza de dispositivo y cliente del policy-engine. |

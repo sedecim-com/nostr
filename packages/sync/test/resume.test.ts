@@ -122,6 +122,24 @@ describe('resumed sync over the encrypted cache (FR013-05)', () => {
     expect(second.events.map((e) => e.id).sort()).toEqual([...events, fresh].map((e) => e.id).sort());
   });
 
+  it('an event that reaches the relay later than the overlap is left out of a resumed sync and comes with a full one (FR013-05)', async () => {
+    const { events, filter, note } = author(5);
+    events.forEach((e) => plain.inject(e));
+    const cache = await newCache();
+    const n = negentropy(cache);
+    const first = await syncWithCache({ cache, relays: [plain.url], filter, strategies: both(n) });
+    const cursor = first.perRelay[plain.url]!.cursor!;
+    // Signed long ago (e.g. offline) and published only now.
+    const late = note(cursor - OVERLAP - 60, 77);
+    plain.inject(late);
+    const resumed = await syncWithCache({ cache, relays: [plain.url], filter, strategies: both(n) });
+    expect(resumed.events.map((e) => e.id)).not.toContain(late.id);
+    const full = await syncWithCache({ cache, relays: [plain.url], filter, strategies: both(n), mode: 'full' });
+    expect(full.perRelay[plain.url]!.since).toBeUndefined();
+    expect(full.events.map((e) => e.id)).toContain(late.id);
+    expect(cache.has(late.id)).toBe(true);
+  });
+
   it('gift wraps resume two more days back, so a wrap backdated by NIP-59 after the last sync is not lost (FR013-05)', async () => {
     const buzzLike = new TestRelay({ requireAuth: true, pGatedKinds: [1059] });
     await buzzLike.start();
