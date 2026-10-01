@@ -1,7 +1,8 @@
-import { getTagValues, type NostrEvent, type Rumor, type Signer } from '@sedecim/nostr-core';
-import { createDirectMessage, directMessageRumor, DM_KIND, fileMessageRumor, openDirectMessage, type DirectMessageInput, type FileMessageInput, type WrappedMessage, type DirectMessage } from './nip17';
+import { getTagValue, getTagValues, type NostrEvent, type Rumor, type Signer } from '@sedecim/nostr-core';
+import { createDirectMessage, directMessageRumor, DM_KIND, FILE_MESSAGE_KIND, fileMessageRumor, openDirectMessage, withExpiration, type DirectMessageInput, type FileMessageInput, type WrappedMessage, type DirectMessage } from './nip17';
 import { wrapRumor, type WrapOptions } from './nip59';
 import { resolveDmRelays, type DmRelayCache, type DmRelaySource, type RelayQuery } from './dm-relays';
+import { DM_DELETION_KIND, dmDeletionRumor, NotYourMessageError } from './expiration';
 import { OperationMismatchError, wrapOpId, type DmOperation, type DmOperationStore } from './operations';
 import { createReceipt, type ReceiptType } from './receipts';
 
@@ -100,22 +101,48 @@ export class DirectMessenger {
    * under the same id is refused (OperationMismatchError): that is a new message, not a retry.
    */
   sendDmOnce<R extends QueuedWrap>(opId: string, input: DirectMessageInput, opts: DmOperationOptions<R>): Promise<{ rumor: Rumor; deliveries: Array<DmDelivery<R>> }> {
-    return this.sendOperation(opId, () => directMessageRumor(this.signer, input), opts, (rumor) => sameMessage(rumor, input));
+    return this.sendOperation(opId, async () => ({ rumor: await directMessageRumor(this.signer, input), expiration: input.expiration }), opts, (rumor) => sameMessage(rumor, input));
   }
 
   /** FR011-05: a file message (kind 15) as a client operation. `input` runs only on the first try: it uploads the file. */
   sendFileOnce<R extends QueuedWrap>(opId: string, input: () => Promise<FileMessageInput>, opts: DmOperationOptions<R>): Promise<{ rumor: Rumor; deliveries: Array<DmDelivery<R>> }> {
-    return this.sendOperation(opId, async () => fileMessageRumor(this.signer, await input()), opts);
+    return this.sendOperation(
+      opId,
+      async () => {
+        const file = await input();
+        return { rumor: await fileMessageRumor(this.signer, file), expiration: file.expiration };
+      },
+      opts,
+    );
   }
 
-  private async sendOperation<R extends QueuedWrap>(opId: string, makeRumor: () => Promise<Rumor>, opts: DmOperationOptions<R>, matches?: (rumor: Rumor) => boolean): Promise<{ rumor: Rumor; deliveries: Array<DmDelivery<R>> }> {
+  /**
+   * PANEL-06 (NIP-17 deletion): asks the recipients of one of the persona's own messages, and the persona's other
+   * devices, to delete it. A kind 5 rumor naming it goes gift-wrapped to each of them like a message, as the client
+   * operation `opId` (a retry sends the same one). A message someone else wrote is refused before anything is signed.
+   * The wraps carry the message's own expiration (`expiration`), if it had one: after it there is nothing to delete.
+   */
+  async deleteDmOnce<R extends QueuedWrap>(opId: string, target: { rumor: Rumor; expiration?: number }, opts: DmOperationOptions<R>): Promise<{ rumor: Rumor; deliveries: Array<DmDelivery<R>> }> {
+    const { rumor } = target;
+    if (rumor.kind !== DM_KIND && rumor.kind !== FILE_MESSAGE_KIND) throw new Error('solo se borran mensajes directos (kind 14 o 15)');
+    if (rumor.pubkey !== (await this.signer.getPublicKey())) throw new NotYourMessageError(rumor.id);
+    const isRetry = (stored: Rumor) => stored.kind === DM_DELETION_KIND && getTagValue(stored, 'e') === rumor.id;
+    return this.sendOperation(opId, async () => ({ rumor: dmDeletionRumor(rumor), expiration: target.expiration }), opts, isRetry);
+  }
+
+  private async sendOperation<R extends QueuedWrap>(
+    opId: string,
+    makeRumor: () => Promise<{ rumor: Rumor; expiration?: number }>,
+    opts: DmOperationOptions<R>,
+    matches?: (rumor: Rumor) => boolean,
+  ): Promise<{ rumor: Rumor; deliveries: Array<DmDelivery<R>> }> {
     if (!this.flags.nip17) throw new FeatureDisabledError('nip17');
     const me = await this.signer.getPublicKey();
     let op = await opts.operations.get(opId);
     if (op && matches && !matches(op.rumor)) throw new OperationMismatchError(opId);
     if (!op) {
-      const rumor = await makeRumor();
-      op = { opId, rumor, targets: [...new Set([...getTagValues(rumor, 'p'), me])], createdAt: Date.now() } satisfies DmOperation;
+      const { rumor, expiration } = await makeRumor();
+      op = { opId, rumor, targets: [...new Set([...getTagValues(rumor, 'p'), me])], createdAt: Date.now(), ...(expiration !== undefined ? { expiration } : {}) } satisfies DmOperation;
       // Stored before any seal or wrap exists: a failed signer or a closed tab leaves this, never half a message.
       await opts.operations.put(opId, op);
     }
@@ -133,7 +160,7 @@ export class DirectMessenger {
         continue;
       }
       const route = target === me ? { relays: opts.ownRelays, source: 'self' as const } : await this.route(target, opts);
-      const event = await wrapRumor(this.signer, op.rumor, target, this.wrapOptions);
+      const event = await wrapRumor(this.signer, op.rumor, target, withExpiration(this.wrapOptions, op.expiration));
       const record = await opts.outbox.submit({ event }, { opId: id, relays: route.relays, groupId: op.rumor.id, meta: { recipient: target, dmRelaySource: route.source }, quorum: opts.quorum, wait: opts.wait });
       deliveries.push({ recipient: target, relays: route.relays, source: route.source, record });
     }
@@ -161,12 +188,13 @@ export class DirectMessenger {
    * FR009-03: a receipt goes where the message's sender reads, like a DM: to the sender's DM relays (kind 10050,
    * else NIP-65 read relays, else `fallback`), never only to ours. The record keeps `meta.recipient` and
    * `meta.dmRelaySource`, so a retry resolves the route again (FR010-03), and `meta.receipt`. Read receipts also
-   * need the `readReceipts` flag (opt-in, ADR 0005).
+   * need the `readReceipts` flag (opt-in, ADR 0005). PANEL-06: the receipt of a disappearing message asks to expire
+   * with it (`expiration`, the message's).
    */
-  async receipt<R>(to: string, rumorId: string, type: ReceiptType, opts: DmSendOptions<R>): Promise<DmDelivery<R>> {
+  async receipt<R>(to: string, rumorId: string, type: ReceiptType, opts: DmSendOptions<R>, expiration?: number): Promise<DmDelivery<R>> {
     if (!this.flags.nip17) throw new FeatureDisabledError('nip17');
     if (type === 'read' && !this.flags.readReceipts) throw new FeatureDisabledError('readReceipts');
-    const { rumor, event } = await createReceipt(this.signer, to, rumorId, type, this.wrapOptions);
+    const { rumor, event } = await createReceipt(this.signer, to, rumorId, type, withExpiration(this.wrapOptions, expiration));
     const route = await this.route(to, opts);
     const record = await opts.outbox.submit(
       { event },

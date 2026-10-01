@@ -3,10 +3,13 @@
  * (known + discovered from our own events and the NIP-51 kind 10009 list), NIP-17 DMs (gift wraps,
  * with the 2-day NIP-59 widening) and the relay evidence needed to reconcile the restored outbox.
  * FR013-05: with an event cache, each filter resumes per relay from its cursor and the result is what the cache holds.
+ * PANEL-06: what expired (NIP-40) is left out, even when a relay or the cache still holds it: each event by its own tag
+ * and, once opened with the signer, a gift wrap also by its seal's; so the history export and the vault push do not
+ * carry it.
  */
-import { getTagValues, type Filter, type NostrEvent, type Signer } from '@sedecim/nostr-core';
+import { getTagValues, isExpired, type Filter, type NostrEvent, type Signer } from '@sedecim/nostr-core';
 import { normalizeRelayUrl } from '@sedecim/relay-pool';
-import { NIP29, channelFilter, dmInboxFilter, openDirectMessage, type DirectMessage } from '@sedecim/messaging';
+import { NIP29, channelFilter, dmInboxFilter, isUnwrappedExpired, openDirectMessage, type DirectMessage } from '@sedecim/messaging';
 import type { EventCache } from './cache';
 import { sortEvents, syncHistory, type SyncReport, type SyncStrategy } from './index';
 import { syncWithCache } from './resume';
@@ -65,6 +68,8 @@ export interface RebuildOptions {
    * there, and each result is what the cache holds for the filter plus what arrived now (docs/event-cache.md).
    */
   cache?: RebuildCacheOptions;
+  /** PANEL-06: the clock (ms) against which NIP-40 expirations are read. */
+  now?: () => number;
 }
 
 export interface RebuiltHistory {
@@ -75,6 +80,8 @@ export interface RebuiltHistory {
   dms: DirectMessage[];
   /** wraps that could not be opened (not for us / malformed) */
   undecryptable: number;
+  /** PANEL-06: events a relay still served after their NIP-40 expiration, left out of everything above */
+  expired: number;
   /** our own channel activity and group list */
   own: NostrEvent[];
   seenOn: Map<string, Set<string>>;
@@ -117,33 +124,50 @@ export async function rebuildHistory(opts: RebuildOptions): Promise<RebuiltHisto
   const ownAll = opts.since === undefined || cache ? ownReport : await sync(own, false, undefined);
   const ownEvents = cache && opts.since !== undefined ? ownReport.events.filter((e) => e.created_at >= opts.since!) : ownReport.events;
   const channelIds = [...new Set([...(opts.channels ?? []), ...discoverChannels(ownAll.events)])].sort();
+  // PANEL-06: NIP-40 asks clients to ignore what expired, which a relay that does not honour it keeps serving.
+  const nowSeconds = Math.floor((opts.now ?? Date.now)() / 1000);
+  // Each expired event counts once, though it may come in more than one list (e.g. a channel and our own activity).
+  const expired = new Set<string>();
+  const current = (events: NostrEvent[]) =>
+    events.filter((e) => {
+      if (!isExpired(e, nowSeconds)) return true;
+      expired.add(e.id);
+      return false;
+    });
   const channels: RebuiltHistory['channels'] = {};
   const channelReports: Record<string, SyncReport> = {};
   for (const id of channelIds) {
     const r = await sync((since) => channelFilter(id, since), true);
-    channels[id] = r.events;
+    channels[id] = current(r.events);
     channelReports[id] = r;
     mergeSeen(seenOn, r.seenOn);
   }
 
+  const wraps = current(dmReport.events);
   const dms = new Map<string, DirectMessage>();
+  // The seal may carry an expiration the wrap does not show: such a wrap leaves `wraps` too.
+  const sealExpired = new Set<string>();
   let undecryptable = 0;
   if (opts.signer) {
-    for (const w of dmReport.events) {
+    for (const w of wraps) {
       try {
         const m = await openDirectMessage(opts.signer, w);
-        if (!dms.has(m.rumor.id)) dms.set(m.rumor.id, m);
+        if (isUnwrappedExpired(m, nowSeconds)) sealExpired.add(w.id);
+        else if (!dms.has(m.rumor.id)) dms.set(m.rumor.id, m);
       } catch {
         undecryptable++;
       }
     }
   }
+  for (const id of sealExpired) expired.add(id);
+  const ownKept = sortEvents(current([...ownEvents]));
   return {
     channels,
-    wraps: dmReport.events,
+    wraps: sealExpired.size ? wraps.filter((w) => !sealExpired.has(w.id)) : wraps,
     dms: [...dms.values()].sort((a, b) => a.rumor.created_at - b.rumor.created_at || (a.rumor.id < b.rumor.id ? -1 : 1)),
     undecryptable,
-    own: sortEvents([...ownEvents]),
+    expired: expired.size,
+    own: ownKept,
     seenOn,
     reports: { own: ownReport, dms: dmReport, channels: channelReports },
   };

@@ -110,8 +110,14 @@ function expirationOf(e: NostrEvent): number | undefined {
 
 const addressOf = (e: NostrEvent) => (isReplaceableKind(e.kind) || isAddressableKind(e.kind) ? eventAddress(e) : undefined);
 
-/** Whom a deletion applies to: NIP-09 kind 5 only to its own author's events, NIP-29 9005 to events of its channel. */
-const appliesTo = (scope: string, e: NostrEvent) => (scope.startsWith('h:') ? getTagValue(e, 'h') === scope.slice(2) : e.pubkey === scope);
+/** PANEL-06: the scope of a deletion this device decided (`forget`): the event with that id, whoever signed it. */
+const LOCAL = 'local';
+
+/**
+ * Whom a deletion applies to: NIP-09 kind 5 only to its own author's events, NIP-29 9005 to events of its channel, and
+ * one decided here (`forget`) to the event it names.
+ */
+const appliesTo = (scope: string, e: NostrEvent) => (scope === LOCAL ? true : scope.startsWith('h:') ? getTagValue(e, 'h') === scope.slice(2) : e.pubkey === scope);
 
 /**
  * Identity of a filter for cursors: its fields without since/until/limit, keys and array values sorted, so the same
@@ -354,6 +360,37 @@ export class EventCache {
       floor: this.meta.floor,
       cursors: Object.keys(this.meta.cursors).length,
     };
+  }
+
+  /**
+   * PANEL-06: deletes these events and refuses them if a relay serves them again, as a deletion would, for what the
+   * cache cannot read: the gift wraps of a direct message its author deleted (NIP-17 wraps that kind 5 too). The record
+   * stays until the cache is cleared. What expired by now leaves as well (`prune`). Returns how many events left.
+   */
+  forget(ids: Iterable<string>): Promise<number> {
+    const list = [...new Set(ids)].filter((id) => /^[0-9a-f]{64}$/.test(id));
+    return this.serial(async () => {
+      const before = this.entries.size;
+      for (const id of list) {
+        const records = this.meta.tombstones[id] ?? [];
+        if (!records.some(([, scope]) => scope === LOCAL)) {
+          this.meta.tombstones[id] = [...records, [LOCAL, LOCAL]];
+          this.metaDirty = true;
+        }
+        this.remove(id);
+      }
+      this.applyLimits(this.now());
+      await this.flush();
+      return before - this.entries.size;
+    });
+  }
+
+  /**
+   * PANEL-06: removes now what expired (NIP-40), and what the limits drop, and writes it before it resolves: a read
+   * already leaves those out, and without this they stay on disk until the next write. Returns how many events left.
+   */
+  prune(): Promise<number> {
+    return this.forget([]);
   }
 
   /** Deletes every event, cursor and deletion record of this cache from the storage, whatever the index says. */

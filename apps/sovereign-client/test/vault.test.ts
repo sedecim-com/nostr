@@ -83,7 +83,7 @@ describe('sovereign client and the Continuity Vault (VAULT-02)', () => {
     expect(pushed.snapshots).toEqual(['ledger']);
     // A second push writes no event again, only the ledger.
     const again = await a.vaultPush(alice.id, vaultUrl);
-    expect(again.events).toEqual({ uploaded: 0, kept: pushed.events.uploaded, invalid: 0 });
+    expect(again.events).toEqual({ uploaded: 0, kept: pushed.events.uploaded, invalid: 0, expired: 0 });
     const archives = pushed.events.uploaded + 1;
     expect(await a.vaultList(alice.id, vaultUrl)).toHaveLength(archives);
     expect(await a.vaultVerify(alice.id, vaultUrl)).toEqual({ archives, opened: archives });

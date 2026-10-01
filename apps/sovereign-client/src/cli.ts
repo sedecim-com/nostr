@@ -37,9 +37,20 @@
  *     (FR006-07: a contact or a file another persona of this device already used is refused, with what it would
  *      cross, and nothing is sent; --confirm-reuse confirms it. Also for group invite, propose --add, add-device
  *      --member and send-file)
+ *     (PANEL-06: --expire off|1d|7d|30d|90d for this message only; without it, the conversation's expiration, else
+ *      the persona's. A NIP-40 request, rounded up to midnight UTC, that relays and contacts may ignore)
+ *   sovereign dm expiration --persona ID --to NPUB off|1d|7d|30d|90d|persona [--vault URL]
+ *                                        (PANEL-06: the conversation's own expiration; `persona`: as the persona.
+ *                                         Only later messages take it)
+ *   sovereign persona expiration --persona ID off|1d|7d|30d|90d [--vault URL]   (PANEL-06: the persona's expiration)
+ *   sovereign dm delete --persona ID --id ID --yes [--vault URL]
+ *                                        (PANEL-06: deletes one of your own DMs: a deletion request, gift-wrapped to
+ *                                         its recipients and your other devices, and this device's copies. Without
+ *                                         --yes it only says what deleting does not undo)
  *   sovereign dm inbox --persona ID [--offline]   (reads its DM relays; receipts for its DMs move them to
  *                                        RECIPIENT_ACKED/READ; --offline opens the gift wraps of the event cache
- *                                        with the key on this device: no connection, no receipts)
+ *                                        with the key on this device: no connection, no receipts. PANEL-06: each
+ *                                        line shows the message id and, if it has one, its expiration)
  *   sovereign dm watch --persona ID     (keeps reading them: DMs and receipts as they arrive; Ctrl-C to stop)
  *   sovereign dm relays --persona ID     (publish this persona's DM relay list, kind 10050; also on create/import)
  *   sovereign outbox --persona ID        (delivery states per relay)
@@ -125,9 +136,23 @@ import { basename, extname } from 'node:path';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import type { PendingGroupOperation } from '@sedecim/marmot-adapter';
 import { ReuseNotConfirmedError } from '@sedecim/identity';
-import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
+import { BUZZ_PINNED_ADAPTER, unwrappedExpiration, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type Receipt } from '@sedecim/messaging';
 import { checkAttachmentSize } from '@sedecim/blossom-client';
-import { CONTINUITY_VAULT_TEXTS, configMaturity, disclose, MATURITY, MATURITY_LABELS } from '@sedecim/profiles';
+import { eventExpiration } from '@sedecim/nostr-core';
+import {
+  CONTINUITY_VAULT_TEXTS,
+  configMaturity,
+  disclose,
+  DM_DELETION_TEXTS,
+  isMessageExpirationOption,
+  MATURITY,
+  MATURITY_LABELS,
+  MESSAGE_EXPIRATION_LABELS,
+  MESSAGE_EXPIRATION_OPTIONS,
+  MESSAGE_EXPIRATION_TEXTS,
+  vaultExpirationNotice,
+  type MessageExpirationOption,
+} from '@sedecim/profiles';
 import { describePermissions, SOVEREIGN_NIP46_PERMISSIONS } from '@sedecim/signer';
 import type { EventCacheOptions } from '@sedecim/sync';
 import { crashReportJson, crashSummary, type CrashSource } from '@sedecim/telemetry-policy';
@@ -179,7 +204,17 @@ const ipLabel = (ip: string) => `ip-${createHash('sha256').update(ip.replace(/^\
 export function maskIps(text: string): string {
   return text.replace(IPV6, (m) => (m.startsWith('[') || m.includes('::') || m.split(':').length === 8 ? ipLabel(m) : m)).replace(IPV4, ipLabel);
 }
-const dmLine = (m: DirectMessage) => `[${new Date(m.rumor.created_at * 1000).toISOString()}] ${m.sender.slice(0, 8)}: ${m.rumor.content}`;
+/** PANEL-06: each DM line names the message (`dm delete --id`) and, if it asks to expire, when. */
+const dmLine = (m: DirectMessage) => {
+  const at = unwrappedExpiration(m);
+  return `[${new Date(m.rumor.created_at * 1000).toISOString()}] ${m.sender.slice(0, 8)} (id ${m.rumor.id.slice(0, 16)}${at !== undefined ? `, caduca ${new Date(at * 1000).toISOString()}` : ''}): ${m.rumor.content}`;
+};
+/** PANEL-06: an expiration choice from the command line (`persona`: the conversation follows the persona). */
+function expirationArg(value: string | undefined, allowPersona = false): MessageExpirationOption | 'persona' {
+  if (allowPersona && value === 'persona') return 'persona';
+  if (!isMessageExpirationOption(value)) throw new Error(`caducidad: ${MESSAGE_EXPIRATION_OPTIONS.join('|')}${allowPersona ? '|persona' : ''}`);
+  return value;
+}
 /** FR009-03: a receipt for one of our DMs, and the state of that operation after it. */
 const receiptLine = (r: Receipt, rec: OutboxRecord) => `acuse (${r.type === 'read' ? 'leído' : 'recibido'}) de ${r.from.slice(0, 8)}: ${rec.state}`;
 
@@ -247,9 +282,15 @@ async function main() {
   if (offline && !((argv[0] === 'channel' && argv[1] === 'read') || (argv[0] === 'dm' && argv[1] === 'inbox'))) {
     throw new Error('--offline solo existe para channel read y dm inbox: esta orden usa la red, y no se ha hecho nada');
   }
+  // PANEL-06: deleting a DM first says what deleting does and does not undo; without --yes nothing is opened or sent.
+  const deletion = [DM_DELETION_TEXTS.request, DM_DELETION_TEXTS.local, DM_DELETION_TEXTS.copies, MESSAGE_EXPIRATION_TEXTS.vault];
+  if (argv[0] === 'dm' && argv[1] === 'delete' && !argv.includes('--yes')) {
+    for (const t of deletion) console.error(`aviso: ${t}`);
+    throw new Error('no se ha borrado nada: para borrar el mensaje, repite la orden con --yes');
+  }
   const passphrase = storePassphrase();
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
-  const needsDm = argv[0] === 'dm' && argv[1] === 'send';
+  const needsDm = argv[0] === 'dm' && (argv[1] === 'send' || argv[1] === 'delete');
   const watching = argv[0] === 'dm' && argv[1] === 'watch';
   const client = (running = new SovereignClient({
     dataDir: process.env.SOVEREIGN_DATA_DIR ?? './.data/sovereign',
@@ -281,6 +322,16 @@ async function main() {
   };
   /** FR007-05: before every send, who is sending (identity, custody, network, link level), as the web's banner. */
   const banner = async (id: string) => console.error(await (await client.identities()).sendingAs(id));
+  /**
+   * PANEL-06: whether the persona's vault may keep copies longer than `option` asks. With a vault in this run (which
+   * counts as in use) its retention is asked; without one, the persona's cloud backup says whether the vault is used.
+   */
+  const vaultNotice = async (id: string, option: MessageExpirationOption) => {
+    const url = opt('--vault') ?? process.env.SOVEREIGN_VAULT_URL;
+    const retention = url ? (await client.vaultUsage(id, url).catch(() => undefined))?.retention : undefined;
+    const cloudBackup = url ? 'ciphertext-user-key' : (await client.profile(id)).cloudBackup;
+    return vaultExpirationNotice(option, { cloudBackup, ...(url ? { continuityVault: true } : {}), ...(retention ? { retentionDays: retention.effective_days } : {}) });
+  };
   const persona = opt('--persona');
   const need = () => {
     if (!persona) throw new Error('--persona ID required');
@@ -345,6 +396,15 @@ async function main() {
       const config = await client.setContinuity(need(), policy);
       console.log(`continuidad: ${config.continuity} (backup en la nube: ${config.cloudBackup})`);
       for (const d of disclose(config).filter((x) => x.control === 'continuity' || x.control === 'cloudBackup')) console.error(`aviso: ${d.statement}`);
+    } else if (a === 'persona' && b === 'expiration') {
+      // PANEL-06: the persona's expiration of new DMs; each conversation may set its own (dm expiration).
+      const option = expirationArg(positional()[0]) as MessageExpirationOption;
+      const config = await client.setMessageExpiration(need(), option);
+      console.log(`caducidad de los mensajes directos nuevos de esta persona: ${MESSAGE_EXPIRATION_LABELS[config.messageExpiration]}`);
+      for (const d of disclose(config).filter((x) => x.control === 'messageExpiration')) console.error(`aviso: ${d.statement}`);
+      console.error(`aviso: ${MESSAGE_EXPIRATION_TEXTS.past}`);
+      const notice = await vaultNotice(need(), await client.shortestExpiration(need()));
+      if (notice) console.error(`aviso: ${notice}`);
     } else if (a === 'persona' && b === 'crash-reports') {
       // NFR007-03: what a failure of this persona's commands leaves; never anything that leaves the device by itself.
       const mode = positional()[0];
@@ -427,10 +487,38 @@ async function main() {
       if (offline) console.error(events.length ? 'sin conexión: leído de la caché local' : 'sin conexión: la caché local no tiene mensajes de este canal (se guardan al leerlo o con history sync)');
     } else if (a === 'dm' && b === 'send') {
       await banner(need());
-      const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '), { opId: sendOperation(), confirmReuse });
+      const expire = opt('--expire') !== undefined ? (expirationArg(opt('--expire')) as MessageExpirationOption) : undefined;
+      const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '), { opId: sendOperation(), confirmReuse, ...(expire ? { expire } : {}) });
       for (const r of recs) console.log(`${r.meta?.recipient?.slice(0, 8)} ${r.state}${r.blockedReason ? ` — ${maskIps(r.blockedReason)}` : ''}`);
+      // PANEL-06: the expiration the wraps carry (a retry keeps the one the message was first written with).
+      const at = recs[0]?.event ? eventExpiration(recs[0].event) : undefined;
+      if (at !== undefined) {
+        console.log(`caduca: ${new Date(at * 1000).toISOString()} (NIP-40)`);
+        console.error(`aviso: ${MESSAGE_EXPIRATION_TEXTS.request}`);
+      }
       // As in the web: a recipient without DM relays gets the wrap on a guess, and the user is told.
       for (const r of recs) if (r.meta?.dmRelaySource && r.meta.dmRelaySource !== 'self' && r.meta.dmRelaySource !== 'dm-relays') console.error(`aviso: ${r.meta.recipient?.slice(0, 8)} no publicó relays de DM (kind 10050): la entrega es incierta`);
+    } else if (a === 'dm' && b === 'expiration') {
+      // PANEL-06: the conversation's own expiration (`persona`: as the persona), for the messages written after it.
+      const to = opt('--to');
+      if (!to) throw new Error('--to NPUB required');
+      const choice = expirationArg(positional()[0], true);
+      await client.setConversationExpiration(need(), to, choice === 'persona' ? undefined : choice);
+      const now = await client.conversationExpiration(need(), to);
+      console.log(`caducidad de esta conversación: ${MESSAGE_EXPIRATION_LABELS[now.option]} (${now.source === 'conversation' ? 'la suya' : now.source === 'persona' ? 'la de la persona' : 'la de su perfil'})`);
+      if (now.option !== 'off') for (const t of [MESSAGE_EXPIRATION_TEXTS.request, MESSAGE_EXPIRATION_TEXTS.relay, MESSAGE_EXPIRATION_TEXTS.local]) console.error(`aviso: ${t}`);
+      console.error(`aviso: ${MESSAGE_EXPIRATION_TEXTS.past}`);
+      const notice = await vaultNotice(need(), now.option);
+      if (notice) console.error(`aviso: ${notice}`);
+    } else if (a === 'dm' && b === 'delete') {
+      // PANEL-06: --yes confirmed it, after the notice (printed again, next to what was done).
+      for (const t of deletion) console.error(`aviso: ${t}`);
+      const id = opt('--id');
+      if (!id) throw new Error('--id ID required (the id `dm inbox` shows)');
+      const r = await client.deleteDm(need(), id);
+      console.log(`petición de borrado de ${r.rumorId.slice(0, 16)}: ${r.deliveries.map((d) => `${d.meta?.recipient?.slice(0, 8)} ${d.state}`).join(', ')}`);
+      console.log(`en este dispositivo: ${r.operations} mensaje(s) enviado(s) y ${r.outbox} registro(s) de entrega olvidados; vault: ${r.vault} copia(s) borrada(s)${r.vaultQueued ? `, ${r.vaultQueued} pendiente(s) para cuando se use --vault` : ''}`);
+      if (r.vaultError) console.error(`aviso: el vault no respondió (${maskIps(r.vaultError)}): sus copias se borrarán en otra ejecución con --vault`);
     } else if (a === 'dm' && b === 'relays') {
       await announceDmRelays(need());
     } else if (a === 'dm' && b === 'inbox' && offline) {
@@ -443,7 +531,14 @@ async function main() {
       for (const line of acks) console.log(line);
     } else if (a === 'dm' && b === 'watch') {
       // FR009-03: DMs and receipts as they arrive on the persona's DM relays (kind 10050), until Ctrl-C.
-      const stop = await client.watchDms(need(), { onMessage: (m) => console.log(dmLine(m)), onReceipt: (r, rec) => console.log(receiptLine(r, rec)) });
+      const stop = await client.watchDms(need(), {
+        onMessage: (m) => console.log(dmLine(m)),
+        onReceipt: (r, rec) => console.log(receiptLine(r, rec)),
+        // PANEL-06: what leaves the conversation while listening, and why.
+        onRemoved: (gone, reason) => {
+          for (const m of gone) console.log(`mensaje ${m.rumor.id.slice(0, 16)} ${reason === 'expired' ? 'caducado: ya no se muestra' : 'borrado por su autor'}`);
+        },
+      });
       console.error('escuchando tus relays de DM (kind 10050); Ctrl-C para salir');
       await new Promise<void>((resolve) => {
         process.once('SIGINT', resolve);
@@ -567,6 +662,8 @@ async function main() {
         const r = await client.vaultPush(need(), url);
         console.log(`historial sellado y guardado en el vault: ${r.events.uploaded} eventos nuevos (${r.events.kept} ya estaban), ${r.groupMessages.uploaded} mensajes de grupo nuevos, ledger de ${r.operations} operaciones${r.snapshots.includes('mls') ? ' y estado de los grupos' : ''}`);
         if (r.events.invalid) console.error(`aviso: ${r.events.invalid} eventos con firma inválida no se guardaron`);
+        // PANEL-06: expired or deleted DMs never go in, and their earlier copies leave.
+        if (r.forgotten) console.log(`copias de mensajes caducados o borrados que se quitaron del vault: ${r.forgotten}`);
       } else if (b === 'restore') {
         const r = await client.vaultRestore(need(), url, { republish: !argv.includes('--no-republish') });
         console.log(`vault: ${r.archives} archivos${r.skipped ? ` (${r.skipped} no se abren con esta llave o no son de esta persona)` : ''}`);
@@ -592,6 +689,9 @@ async function main() {
         const r = days !== undefined || argv.includes('--forever') ? await client.vaultRetention(need(), url, days === undefined ? null : Number(days)) : (await client.vaultUsage(need(), url)).retention;
         if (!r) throw new Error('este vault no informa de su retención');
         console.log(`retención: ${r.effective_days ? `${r.effective_days} días desde la última vez que se guarda cada archivo` : 'hasta que lo borres'}${r.days ? ` (elegida: ${r.days} días)` : ''}${r.max_days ? `; máximo del operador: ${r.max_days} días` : ''}`);
+        // PANEL-06: whether copies of expiring messages may outlive their expiration there.
+        const notice = vaultExpirationNotice(await client.shortestExpiration(need()), { cloudBackup: 'ciphertext-user-key', continuityVault: true, retentionDays: r.effective_days });
+        if (notice) console.error(`aviso: ${notice}`);
       } else if (b === 'export') {
         const out = opt('--out');
         if (!out) throw new Error('--out FILE required');

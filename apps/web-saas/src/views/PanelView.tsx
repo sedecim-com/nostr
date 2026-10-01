@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Checkbox, Chip, FormControlLabel, Link, List, ListItem, ListItemText, MenuItem, Stack, TextField, Typography } from '@mui/material';
-import { PRESETS, configMaturity, disclose, preset, summarize, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
+import { MESSAGE_EXPIRATION_OPTIONS, MESSAGE_EXPIRATION_TEXTS, PRESETS, configMaturity, disclose, preset, summarize, validateConfig, type PresetName, type SovereigntyConfig } from '@sedecim/profiles';
 import { useWorkspace } from '../lib/workspace';
 import { NotificationsControl } from './NotificationsControl';
 import { MaturityChip } from './MaturityChip';
@@ -20,6 +20,8 @@ const OPTIONS: Record<string, string[]> = {
   // FR015-05: off in every preset; validateConfig blocks it in Tor-only and with an identity verified by an organization.
   presence: ['off', 'status'],
   localProtection: ['passphrase', 'device'],
+  // PANEL-06: the persona's expiration of new direct messages; each conversation may set its own (Mensajes directos).
+  messageExpiration: [...MESSAGE_EXPIRATION_OPTIONS],
 };
 const FLAGS = ['remotePreviews', 'deliveryReceipts', 'readReceipts', 'stripFileMetadata'] as const;
 const DIMENSIONS: Record<string, string> = { soberania: 'Soberanía', 'privacidad-operador': 'Privacidad frente al operador', recuperabilidad: 'Recuperabilidad', 'control-institucional': 'Control institucional' };
@@ -96,6 +98,11 @@ export function PanelView() {
               </Button>
             </Stack>
             {draft.localProtection !== ws.config!.localProtection && <Alert severity="info">El cambio de contraseña del almacén se aplica desde Personas → Protección de este navegador.</Alert>}
+            {draft.messageExpiration !== ws.config!.messageExpiration && (
+              <Alert severity="info" id="panel-expiration-past">
+                {MESSAGE_EXPIRATION_TEXTS.past} {draft.messageExpiration !== 'off' ? MESSAGE_EXPIRATION_TEXTS.request : ''}
+              </Alert>
+            )}
           </Stack>
         </CardContent>
       </Card>

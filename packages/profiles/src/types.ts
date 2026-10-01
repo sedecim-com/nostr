@@ -18,6 +18,11 @@ export type CrashReportsOption = 'off' | 'manual-export' | 'opt-in';
  * those of the keys whose profiles it already looks up. Off in every preset; presencePolicy says which profiles allow it.
  */
 export type PresenceOption = 'off' | 'status';
+/**
+ * PANEL-06: how long new direct messages ask to be kept (NIP-40), in whole days; `off`: they ask for nothing. Whole
+ * days because the expiration is rounded up to a UTC day (messaging's `roundedExpiration`).
+ */
+export type MessageExpirationOption = 'off' | '1d' | '7d' | '30d' | '90d';
 /** How the local vault is unlocked (ADR 0007). */
 export type LocalProtectionOption = 'passphrase' | 'device';
 export type Platform = 'web' | 'desktop' | 'mobile' | 'cli';
@@ -48,6 +53,11 @@ export interface SovereigntyConfig {
   /** relay acceptances required before a message counts as REPLICATED */
   quorum: number;
   stripFileMetadata: boolean;
+  /**
+   * PANEL-06: the persona's expiration of new direct messages; a conversation may set its own. Configurations stored
+   * before it have none: the profile's default applies, `off` in every preset (see `resolveMessageExpiration`).
+   */
+  messageExpiration: MessageExpirationOption;
 }
 
 /** The four independent dimensions the panel must keep separate (spec §9). */
@@ -70,6 +80,11 @@ export interface ValidationContext {
   relays?: number;
   /** VAULT-04: whether a Continuity Vault is configured for the persona (unknown when undefined). */
   continuityVault?: boolean;
+  /**
+   * PANEL-06: how long the persona's vault account keeps each archive (VAULT-05 `effective_days`): days, null for
+   * «until deleted», undefined when it is not known (the vault was not asked).
+   */
+  vaultRetentionDays?: number | null;
 }
 
 export interface ValidationIssue {

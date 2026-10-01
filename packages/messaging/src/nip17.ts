@@ -15,6 +15,8 @@ export interface DirectMessageInput {
   replyTo?: string;
   /** relay hints per recipient pubkey for the p tag */
   relayHints?: Record<string, string>;
+  /** PANEL-06: NIP-40 expiration (unix seconds) of every wrap and seal of the message (see roundedExpiration). */
+  expiration?: number;
 }
 
 export interface FileMessageInput {
@@ -26,6 +28,8 @@ export interface FileMessageInput {
   originalSha256?: string;
   size?: number;
   encryption?: { algorithm: 'aes-gcm'; keyHex: string; nonceHex: string };
+  /** PANEL-06: NIP-40 expiration (unix seconds) of every wrap and seal of the message. */
+  expiration?: number;
 }
 
 export interface WrappedMessage {
@@ -67,12 +71,15 @@ export async function fileMessageRumor(signer: Signer, input: FileMessageInput):
   return createRumor({ kind: FILE_MESSAGE_KIND, content: input.url, tags }, await signer.getPublicKey());
 }
 
+/** The wrap options of a message: the deployment's, plus the message's expiration when it has one (PANEL-06). */
+export const withExpiration = (opts: WrapOptions, expiration: number | undefined): WrapOptions => (expiration !== undefined ? { ...opts, expiration } : opts);
+
 export async function createDirectMessage(signer: Signer, input: DirectMessageInput, opts: WrapOptions = {}): Promise<WrappedMessage> {
-  return wrapForAll(signer, await directMessageRumor(signer, input), input.recipients, opts);
+  return wrapForAll(signer, await directMessageRumor(signer, input), input.recipients, withExpiration(opts, input.expiration));
 }
 
 export async function createFileMessage(signer: Signer, input: FileMessageInput, opts: WrapOptions = {}): Promise<WrappedMessage> {
-  return wrapForAll(signer, await fileMessageRumor(signer, input), input.recipients, opts);
+  return wrapForAll(signer, await fileMessageRumor(signer, input), input.recipients, withExpiration(opts, input.expiration));
 }
 
 export interface DirectMessage extends Unwrapped {

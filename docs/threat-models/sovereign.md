@@ -36,6 +36,7 @@ La llave (generada air-gapped), el stack self-hosted, el historial local.
 | Aún sin release firmado | Medio | `release.yml` firma con cosign keyless, provenance SLSA y SBOM, y `verify-release.sh` lo comprueba; falta publicar el primero (NFR010-02) |
 | Índice del mirror alterable por quien escribe en la base | Bajo | El payload sellado ya no se puede mover a otra fila (SEC-06), pero las columnas de índice van en claro (canal, destinatarios, listas de miembros); el mirror es una caché derivada de los eventos firmados |
 | Estado de presencia de una persona pseudónima | Medio | Solo si la persona lo activa tras el aviso: el relay ve el texto y la hora de cada estado, que pueden relacionarla con otras identidades (FR015-05) |
+| Un DM caducado o borrado sigue fuera de este dispositivo | Medio | La caducidad (NIP-40) y el borrado (kind 5 en gift wrap) son peticiones: el relay propio la aplica solo si respeta NIP-40, y los contactos con otro cliente o capturas conservan lo que tenían (PANEL-06, [message-expiration.md](../message-expiration.md)) |
 | IP visible para el relay propio y el ISP | Medio | Usar sovereign-tor si importa |
 | Host del VPS comprometido | Medio | Canales en claro en el relay; usar Marmot |
 | Disco del dispositivo y passphrase en otras manos | Medio | Se lee la caché de eventos: mensajes de canal, metadatos de los gift wraps y cursores de sincronización. Con la llave en el dispositivo, también los DMs; con un signer NIP-46, los DMs no ([event-cache.md](../event-cache.md)) |

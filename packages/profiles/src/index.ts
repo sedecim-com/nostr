@@ -6,3 +6,4 @@ export * from './notifications';
 export * from './mirror';
 export * from './presence';
 export * from './maturity';
+export * from './expiration';

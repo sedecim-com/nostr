@@ -18,8 +18,9 @@ import type { BrowserManagedSession } from './managed-session';
 import { raiseSignerAuthUrl } from './authUrl';
 import { DeliveryEngine, type ContinuitySink, type OutboxRecord } from '@sedecim/delivery-engine';
 import { DmInbox, dmRouter, outboxContacts, ProfileCache, publishDmRelayList, StatusCache, type DirectMessage, type DmOperation, type DmOperationStore, type Receipt, type WrapOptions } from '@sedecim/messaging';
-import { continuityPolicy, preset, presenceOption, presencePolicy, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
-import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey } from '@sedecim/continuity';
+import { continuityPolicy, preset, presenceOption, presencePolicy, PRESETS, resolveMessageExpiration, validateConfig, type PresetName, type ReceiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
+import { ArchiveVaultClient, archiveEvent, assertDistinctFromNsec, generateArchiveKey, scheduleArchiveExpiry } from '@sedecim/continuity';
+import { dmTombstones, vaultForgetQueue } from './expiration';
 import type { PersonaBook, PersonaCustody, PersonaRecord } from './vault';
 
 /**
@@ -87,10 +88,12 @@ export function realCustody(custody: PersonaCustody): SovereigntyConfig['custody
 /**
  * The panel configuration of a persona with its real custody (older personas stored the preset's). VAULT-04: a
  * configuration stored before the Continuity Vault policy existed has none, which is `off`; FR015-05: the same for
- * presence.
+ * presence. PANEL-06: one stored before the expiration of messages existed takes its profile's default, `off` in
+ * every preset.
  */
 export function personaConfig(p: PersonaRecord): SovereigntyConfig {
-  return { ...p.config, continuity: continuityPolicy(p.config), presence: presenceOption(p.config), custody: realCustody(p.custody) };
+  const messageExpiration = resolveMessageExpiration({ profile: p.preset === 'custom' ? undefined : PRESETS[p.preset]?.messageExpiration, persona: p.config.messageExpiration }).option;
+  return { ...p.config, continuity: continuityPolicy(p.config), presence: presenceOption(p.config), custody: realCustody(p.custody), messageExpiration };
 }
 
 const newId = () => bytesToHex(crypto.getRandomValues(new Uint8Array(8)));
@@ -247,7 +250,8 @@ export function managedLogin(managed: ManagedEnv): ManagedSignerConnection {
 
 /**
  * VAULT-04: the Continuity Vault copy of each sent event, sealed in this browser with the persona's archive key (read
- * from the vault record each time, so a key made for an older persona on first use is never made twice).
+ * from the vault record each time, so a key made for an older persona on first use is never made twice). PANEL-06:
+ * the copy of an expiring event is queued to leave the vault when it expires.
  */
 function continuitySink(url: string, book: PersonaBook, personaId: string): ContinuitySink {
   let making: Promise<PersonaRecord> | undefined;
@@ -268,6 +272,7 @@ function continuitySink(url: string, book: PersonaBook, personaId: string): Cont
       } finally {
         wipe(key);
       }
+      await scheduleArchiveExpiry(vaultForgetQueue(book.store, personaId), [event]);
     },
   };
 }
@@ -344,14 +349,31 @@ export async function publishDmRelays(s: PersonaSession): Promise<void> {
  * FR009-03: the persona's DM inbox on its own DM relays (its kind 10050). Receipts for its DMs advance the outbox;
  * incoming DMs are answered with the receipts the panel allows, sent to the sender's DM relays. The receipts already
  * sent are kept in the vault, so each goes at most once. IR-2026-10-09: receipts only go to contacts, whoever this
- * persona wrote to (its outbox).
+ * persona wrote to (its outbox). PANEL-06: expired messages are never shown, and the deletions it reads are
+ * remembered in the vault (dmTombstones), so a deleted message does not come back from a relay that still serves it.
  */
 export function openDmInbox(
   book: PersonaBook,
   s: PersonaSession,
-  opts: { policy: () => ReceiptPolicy; wrapOptions?: WrapOptions; onMessage?: (m: DirectMessage, live: boolean) => void; onReceipt?: (r: Receipt, rec: OutboxRecord) => void },
+  opts: {
+    policy: () => ReceiptPolicy;
+    wrapOptions?: WrapOptions;
+    onMessage?: (m: DirectMessage, live: boolean) => void;
+    onReceipt?: (r: Receipt, rec: OutboxRecord) => void;
+    onRemoved?: (messages: DirectMessage[], reason: 'expired' | 'deleted') => void;
+    now?: () => number;
+  },
 ): DmInbox<OutboxRecord> {
-  return new DmInbox(s.signer, { pool: s.pool, outbox: s.engine, ownRelays: s.persona.relays, discoveryRelays: s.dmDiscovery, sent: book.store.collection<boolean>(`receipts-${s.persona.id}`), isContact: outboxContacts(s.engine, s.persona.pubkey), ...opts });
+  return new DmInbox(s.signer, {
+    pool: s.pool,
+    outbox: s.engine,
+    ownRelays: s.persona.relays,
+    discoveryRelays: s.dmDiscovery,
+    sent: book.store.collection<boolean>(`receipts-${s.persona.id}`),
+    tombstones: dmTombstones(book.store, s.persona.id),
+    isContact: outboxContacts(s.engine, s.persona.pubkey),
+    ...opts,
+  });
 }
 
 /**

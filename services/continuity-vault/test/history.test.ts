@@ -39,7 +39,7 @@ describe('persona history in the Continuity Vault (VAULT-03)', () => {
 
   it('seals events, group messages and snapshots, and a clean device restores exactly them with the archive key', async () => {
     const pushed = await archiveHistory(client(), key, { pubkey, events: [channel, reply, state, wrap, channel], groupMessages: messages, ledger, mls });
-    expect(pushed).toEqual({ events: { uploaded: 4, kept: 0, invalid: 0 }, groupMessages: { uploaded: 2, kept: 0 }, snapshots: ['ledger', 'mls'] });
+    expect(pushed).toEqual({ events: { uploaded: 4, kept: 0, invalid: 0, expired: 0 }, groupMessages: { uploaded: 2, kept: 0 }, snapshots: ['ledger', 'mls'], forgotten: 0 });
 
     // The operator holds only envelopes: no text, event id, npub or label.
     let held = JSON.stringify(repo.rows());
@@ -61,7 +61,7 @@ describe('persona history in the Continuity Vault (VAULT-03)', () => {
   it('a second push only replaces the snapshots, and a forged signature is never archived', async () => {
     const forged = { ...ev(other, 9, 'falso', [['h', 'general']]), content: 'alterado' };
     const again = await archiveHistory(client(), key, { pubkey, events: [channel, reply, state, wrap, forged], groupMessages: messages, ledger: [...ledger, { id: 'op-2' }] });
-    expect(again).toEqual({ events: { uploaded: 0, kept: 4, invalid: 1 }, groupMessages: { uploaded: 0, kept: 2 }, snapshots: ['ledger'] });
+    expect(again).toEqual({ events: { uploaded: 0, kept: 4, invalid: 1, expired: 0 }, groupMessages: { uploaded: 0, kept: 2 }, snapshots: ['ledger'], forgotten: 0 });
     const restored = await restoreHistory(client(), key, { pubkey });
     expect(restored.ledger?.outbox).toHaveLength(2);
     expect(restored.mls?.namespaces).toEqual(mls); // not pushed this time: the previous snapshot stays
@@ -139,7 +139,7 @@ describe('persona history in the Continuity Vault (VAULT-03)', () => {
     await archiveEvent(c, k, toOther);
     await expect(archiveEvent(c, k, { ...sent, content: 'alterado' })).rejects.toThrow(/invalid signature/);
     // A later push finds them already there.
-    expect((await archiveHistory(c, k, { pubkey, events: [sent, toOther] })).events).toEqual({ uploaded: 0, kept: 2, invalid: 0 });
+    expect((await archiveHistory(c, k, { pubkey, events: [sent, toOther] })).events).toEqual({ uploaded: 0, kept: 2, invalid: 0, expired: 0 });
     const restored = await restoreHistory(c, k, { pubkey });
     expect(new Set(restored.events.map((e) => e.id))).toEqual(new Set([sent.id, toOther.id]));
     expect(restored.events.filter((e) => belongsOnPersonaRelays(e, pubkey)).map((e) => e.id)).toEqual([sent.id]);
@@ -149,6 +149,6 @@ describe('persona history in the Continuity Vault (VAULT-03)', () => {
   it('another archive key is another vault account: it sees none of these archives', async () => {
     const stranger = generateArchiveKey();
     const restored = await restoreHistory(new ArchiveVaultClient({ baseUrl: base, auth: { archiveKey: stranger } }), stranger, { pubkey });
-    expect(restored).toEqual({ events: [], groupMessages: [], archives: 0, skipped: 0, missing: 0 });
+    expect(restored).toEqual({ events: [], groupMessages: [], archives: 0, skipped: 0, missing: 0, expired: 0 });
   });
 });

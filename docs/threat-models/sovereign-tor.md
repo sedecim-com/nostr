@@ -51,6 +51,7 @@ las conversaciones, identidad de las fuentes.
 | Caché de eventos en el dispositivo | Medio | Con la passphrase se leen los mensajes de canal, los metadatos de los gift wraps y cuándo se sincronizó cada relay, y con custodia `local` también los DMs. La caché está activa por defecto: `SOVEREIGN_CACHE=off` si el dispositivo puede caer en otras manos ([event-cache.md](../event-cache.md)) |
 | El signer NIP-46 ve lo que firma y los DMs que descifra | Medio | Propio de NIP-46: el signer es de confianza; se le piden solo los kinds que firma el CLI |
 | Jitter de gift wrap reducido a ±5 min por Buzz | Medio | Solo aplica si la persona usa el relay de Buzz; el secure-relay acepta el jitter estándar |
+| La fecha de caducidad de un DM es visible para el relay | Bajo | Redondeada a la medianoche UTC, solo dice el día; con el jitter de ±5 min de Buzz el relay deduce también el plazo elegido. La caducidad y el borrado son peticiones que relays y contactos pueden ignorar (PANEL-06, [message-expiration.md](../message-expiration.md)) |
 | Estilo de escritura y horarios | Medio | No mitigable técnicamente; formación del usuario |
 | Servicio con trazas activas alcanzado por su nombre clearnet a través de Tor | Bajo | Se muestrea como cualquier otra petición: su operador ve la hora, la ruta como plantilla y la duración, no la persona. Con `--onion-only` solo se alcanzan `.onion`, que nunca se trazan (NFR007-02) |
 | Adversario global de Tor | Alto | Fuera del alcance de Tor |

@@ -1,6 +1,7 @@
 /** NIP-59 Gift Wrap: rumor (unsigned) -> seal (kind 13, signed by author) -> wrap (kind 1059, ephemeral key). */
 import {
   createRumor,
+  expirationTag,
   finalizeEvent,
   generateSecretKey,
   getPublicKey,
@@ -30,6 +31,11 @@ export interface WrapOptions {
   now?: number;
   /** Extra tags for the wrap (e.g. relay hint on the p tag). */
   wrapTags?: string[][];
+  /**
+   * PANEL-06: NIP-40 `expiration` (unix seconds) of a disappearing message. NIP-17 sets it on the wrap, where relays
+   * read it, and on the seal, in case the seal leaks; each layer keeps its own random `created_at` (NIP-59).
+   */
+  expiration?: number;
 }
 
 function randomizedTimestamp(opts: WrapOptions): number {
@@ -38,9 +44,11 @@ function randomizedTimestamp(opts: WrapOptions): number {
   return jitter > 0 ? now - randomInt(jitter) : now;
 }
 
+const expirationTags = (opts: WrapOptions): string[][] => (opts.expiration !== undefined ? [expirationTag(opts.expiration)] : []);
+
 export async function createSeal(signer: Signer, rumor: Rumor, recipientPubkey: string, opts: WrapOptions = {}): Promise<NostrEvent> {
   const content = await signer.nip44Encrypt(recipientPubkey, JSON.stringify(rumor));
-  return signer.signEvent({ kind: SEAL_KIND, content, tags: [], created_at: randomizedTimestamp(opts) });
+  return signer.signEvent({ kind: SEAL_KIND, content, tags: expirationTags(opts), created_at: randomizedTimestamp(opts) });
 }
 
 export function createWrap(seal: NostrEvent, recipientPubkey: string, opts: WrapOptions = {}): NostrEvent {
@@ -48,7 +56,7 @@ export function createWrap(seal: NostrEvent, recipientPubkey: string, opts: Wrap
   try {
     const ck = nip44.getConversationKey(ephemeral, recipientPubkey);
     const content = nip44.encrypt(JSON.stringify(seal), ck);
-    const tags = opts.wrapTags ?? [['p', recipientPubkey]];
+    const tags = [...(opts.wrapTags ?? [['p', recipientPubkey]]), ...expirationTags(opts)];
     return finalizeEvent(toUnsigned({ kind: GIFT_WRAP_KIND, content, tags, created_at: randomizedTimestamp(opts) }, getPublicKey(ephemeral)), ephemeral);
   } finally {
     wipe(ephemeral);

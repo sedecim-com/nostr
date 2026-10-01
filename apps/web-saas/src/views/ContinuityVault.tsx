@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Button, Card, CardContent, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItem, ListItemText, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { VAULT_EXPORT_FORMAT, type ArchiveRetention } from '@sedecim/continuity';
 import { openArchiveKeyBackup } from '@sedecim/identity/key-backup';
-import { CONTINUITY_VAULT_TEXTS, continuityPolicy } from '@sedecim/profiles';
+import { CONTINUITY_VAULT_TEXTS, continuityPolicy, vaultExpirationNotice } from '@sedecim/profiles';
 import { deleteVault, exportVault, pushVault, restoreVault, setVaultRetention, vaultUsage, verifyVault } from '../lib/continuity';
+import { shortestExpiration } from '../lib/expiration';
 import { ensureArchiveKey, setArchiveKey } from '../lib/session';
 import { useWorkspace } from '../lib/workspace';
 
@@ -32,6 +33,16 @@ export function ContinuityVault({ url }: { url: string }) {
   // VAULT-05: the account's retention as the vault last said it (unknown until the vault is used: no request on open).
   const [retention, setRetention] = useState<ArchiveRetention>();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // PANEL-06: once the retention is known, whether it outlasts the shortest expiration of the persona's messages.
+  const [expirationNotice, setExpirationNotice] = useState<string>();
+  useEffect(() => {
+    if (!retention) return setExpirationNotice(undefined);
+    let live = true;
+    void shortestExpiration(ws.book.store, s.persona).then((o) => live && setExpirationNotice(vaultExpirationNotice(o, { cloudBackup: s.persona.config.cloudBackup, continuityVault: true, retentionDays: retention.effective_days })));
+    return () => {
+      live = false;
+    };
+  }, [retention, s.persona, ws.book]);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -58,8 +69,9 @@ export function ContinuityVault({ url }: { url: string }) {
       const u = await vaultUsage(url, p);
       if (u.retention) setRetention(u.retention);
       const invalid = r.events.invalid ? ` ${r.events.invalid} eventos con firma inválida no se guardaron.` : '';
+      const forgotten = r.forgotten ? ` Se borraron del vault ${r.forgotten} copias de mensajes caducados o borrados.` : '';
       setStatus(
-        `Historial sellado en este navegador y guardado: ${r.events.uploaded} eventos nuevos (${r.events.kept} ya estaban), ${r.groupMessages.uploaded} mensajes de grupo nuevos, ledger de ${r.operations} operaciones${r.snapshots.includes('mls') ? ' y estado de los grupos' : ''}.${invalid} Tu cuenta del vault tiene ${u.archives} archivos, ${kb(u.bytes)} de ${kb(u.limits.max_bytes)}.`,
+        `Historial sellado en este navegador y guardado: ${r.events.uploaded} eventos nuevos (${r.events.kept} ya estaban), ${r.groupMessages.uploaded} mensajes de grupo nuevos, ledger de ${r.operations} operaciones${r.snapshots.includes('mls') ? ' y estado de los grupos' : ''}.${invalid}${forgotten} Tu cuenta del vault tiene ${u.archives} archivos, ${kb(u.bytes)} de ${kb(u.limits.max_bytes)}.`,
       );
       ws.notify('Historial guardado en el Continuity Vault', 'success');
     });
@@ -206,6 +218,11 @@ export function ContinuityVault({ url }: { url: string }) {
             <Typography variant="body2" id="vault-status" role="status">
               {status}
             </Typography>
+          )}
+          {expirationNotice && (
+            <Alert severity="warning" id="vault-expiration">
+              {expirationNotice}
+            </Alert>
           )}
           <Typography variant="subtitle2" component="h3">
             Restaurar la llave de archivo

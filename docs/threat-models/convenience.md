@@ -39,6 +39,7 @@ cuenta↔npub en el identity-service, backup cifrado.
 | IP y horarios visibles para relays y servicio push | Alto | Red directa; push opaco (sin contenido, remitente ni recuento) con retardo aleatorio y agrupación (ADR 0010); aceptado en este perfil |
 | Sin forward secrecy en DMs (NIP-44) | Medio | Si se compromete la nsec, se expone el historial |
 | Correlación cuenta↔npub en el identity-service | Medio | Solo si el usuario registra la persona |
+| Un DM caducado o borrado sigue fuera de este dispositivo | Medio | La caducidad (NIP-40) y el borrado (kind 5 en gift wrap) son peticiones: relays sin NIP-40, clientes de contactos que no cooperan, capturas y copias de seguridad del operador del vault conservan lo que tenían. Este cliente deja de mostrarlo, borra sus copias y las del vault que conoce, y lo dice antes de borrar (PANEL-06, [message-expiration.md](../message-expiration.md)) |
 | Borrar un mensaje de canal no retira sus copias | Medio | Quien lo recibió, otros clientes y relays pueden conservarlo, y el mirror conserva la fila marcada; la web lo dice antes de borrar (FR015-04) |
 | El mirror ve qué canales consultas, cuándo y qué buscas | Medio | Contadores de no leídos y búsqueda firmados con NIP-98 (FR014-04); la vista de canales lo dice; aceptado en este perfil, con identidad vinculada |
 | Estado de presencia publicado | Bajo | Solo si la persona lo activa: los relays y quien pueda leerlos ven el texto y la hora de cada estado, y los que ignoran NIP-40 pueden conservarlo (FR015-05) |

@@ -90,6 +90,8 @@ export interface RecordStore {
   put(id: string, value: OutboxRecord): Promise<void>;
   get(id: string): Promise<OutboxRecord | undefined>;
   all(): Promise<Array<{ id: string; value: OutboxRecord }>>;
+  /** PANEL-06: what `DeliveryEngine.forget` needs (an encrypted-store Collection has it). */
+  delete?(id: string): Promise<void>;
 }
 
 export interface RetryPolicy {

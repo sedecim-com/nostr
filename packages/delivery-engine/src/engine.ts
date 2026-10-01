@@ -83,6 +83,8 @@ export class DeliveryEngine {
   private readonly preparing = new Map<string, Promise<void>>();
   private readonly listeners = new Set<(r: OutboxRecord) => void>();
   private readonly attemptListeners = new Set<(a: AttemptEvent) => void>();
+  /** PANEL-06: operations removed for good (forget): a round still in flight never saves them back. */
+  private readonly forgotten = new Set<string>();
   private stopped = false;
   private resuming?: Promise<OutboxRecord[]>;
   private readonly now: () => number;
@@ -125,6 +127,7 @@ export class DeliveryEngine {
   }
 
   private async save(rec: OutboxRecord): Promise<OutboxRecord> {
+    if (this.forgotten.has(rec.opId)) return rec;
     rec.updatedAt = this.now();
     await this.opts.store.put(rec.opId, rec);
     const snapshot = structuredClone(rec);
@@ -147,6 +150,21 @@ export class DeliveryEngine {
   }
 
   /**
+   * PANEL-06: removes an operation from the outbox for good, e.g. the wrap of a message that expired (NIP-40) or that
+   * its author deleted. Its retries stop, and a round in flight does not save it back. Needs a store that deletes.
+   */
+  async forget(opId: string): Promise<void> {
+    const store = this.opts.store;
+    if (!store.delete) throw new Error('this outbox store cannot delete records');
+    this.forgotten.add(opId);
+    const timer = this.timers.get(opId);
+    if (timer) clearTimeout(timer);
+    this.timers.delete(opId);
+    this.rerun.delete(opId);
+    await this.exclusive(opId, () => store.delete!(opId));
+  }
+
+  /**
    * Accepts a template (signed here) or an already-signed event (e.g. a NIP-59 gift wrap).
    * Persists locally BEFORE any transmission (FR-008). Idempotent on opId: a second submit with the same id, even a
    * concurrent one, stores nothing new and re-drives the operation (FR011-05).
@@ -155,6 +173,8 @@ export class DeliveryEngine {
     const opId = opts.opId ?? bytesToHex(randomBytes(16));
     const rec = await this.exclusive(opId, async () => {
       if (await this.opts.store.get(opId)) return undefined;
+      // A new operation under an id forgotten earlier (PANEL-06) is stored like any other.
+      this.forgotten.delete(opId);
       const relays = [...new Set(opts.relays.map(normalizeRelayUrl))];
       if (relays.length === 0) throw new Error('at least one relay is required');
       // FR010-04: a quorum above the relays could never be met. It is capped, never in silence: the record keeps
@@ -444,7 +464,7 @@ export class DeliveryEngine {
   }
 
   private schedule(opId: string, delayMs: number) {
-    if (this.stopped) return;
+    if (this.stopped || this.forgotten.has(opId)) return;
     const old = this.timers.get(opId);
     if (old) clearTimeout(old);
     const t = setTimeout(() => {
@@ -467,7 +487,16 @@ export class DeliveryEngine {
       const recs = await this.list();
       // VAULT-04: an operation whose copy is still pending is re-driven too (and a held one goes out if it can).
       const open = recs.filter((r) => r.state !== 'FAILED' && (Object.values(r.relayStatus).some((s) => !s.acceptedAt && !s.permanent) || r.continuity?.state === 'PENDING'));
-      return Promise.all(open.map((r) => this.process(r.opId)));
+      // PANEL-06: an operation forgotten meanwhile (an expired or deleted message) is left out, not an error.
+      const done = await Promise.all(
+        open.map((r) =>
+          this.process(r.opId).catch((e: unknown) => {
+            if (this.forgotten.has(r.opId)) return undefined;
+            throw e;
+          }),
+        ),
+      );
+      return done.filter((r): r is OutboxRecord => r !== undefined);
     })().finally(() => {
       this.resuming = undefined;
     });

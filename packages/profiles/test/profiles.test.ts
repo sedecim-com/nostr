@@ -205,7 +205,7 @@ describe('disclosure copy versioning (FR028-02)', () => {
   it('changing any statement requires bumping DISCLOSURE_VERSION (and a new legal/UX review)', async () => {
     const { createHash } = await import('node:crypto');
     const { DISCLOSURE_VERSION, disclosureCatalog } = await import('../src/index');
-    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3', '1.8.0': 'ea21f9293106b69d', '1.9.0': 'a144762b252f4f4c', '1.10.0': 'c77e72631f7b5747', '1.11.0': '7d98f0e859013455', '1.12.0': '834fcc54845c134d', '1.13.0': 'e423fd07d4a31dd0', '1.14.0': 'c8cb0d54911f1cec' };
+    const reviewed: Record<string, string> = { '1.0.0': 'e4ecf0a4490a8626', '1.1.0': '8e60df4e7bddcb9d', '1.2.0': '17d3382b506f8e66', '1.3.0': 'c334d30e84ceb453', '1.4.0': '26815b67816b9ac2', '1.5.0': '7c37100740b85027', '1.6.0': 'fc1a8bc65067a39b', '1.7.0': '5744da9a3d86d6a3', '1.8.0': 'ea21f9293106b69d', '1.9.0': 'a144762b252f4f4c', '1.10.0': 'c77e72631f7b5747', '1.11.0': '7d98f0e859013455', '1.12.0': '834fcc54845c134d', '1.13.0': 'e423fd07d4a31dd0', '1.14.0': 'c8cb0d54911f1cec', '1.15.0': '957da59e00fd9df7' };
     const digest = createHash('sha256').update(JSON.stringify(disclosureCatalog())).digest('hex').slice(0, 16);
     expect(reviewed[DISCLOSURE_VERSION], `record the digest of version ${DISCLOSURE_VERSION}`).toBe(digest);
     for (const d of disclosureCatalog()) expect(() => assertNoAbsoluteClaims(d.statement)).not.toThrow();
