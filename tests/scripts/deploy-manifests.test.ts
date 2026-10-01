@@ -117,6 +117,38 @@ describe('every compose service has a Kubernetes workload', () => {
   });
 });
 
+describe('policy-engine signed events and webhooks (OPS-16)', () => {
+  const k8sFiles = (dir: string): string[] =>
+    readdirSync(join(root, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? k8sFiles(`${dir}/${e.name}`) : /\.(ya?ml|json|env)$/.test(e.name) ? [`${dir}/${e.name}`] : []));
+  const k8s = k8sFiles('deploy/k8s').map((f) => [f, read(f)] as const);
+
+  it('keeps the keys in acceso-nostr-secrets, mounted as files readable by the service group, and leaves them off by default (OPS-16)', () => {
+    const engine = read('deploy/k8s/base/policy-engine.yaml');
+    expect(engine).toMatch(
+      /- name: policy-keys\n\s+secret:\n\s+secretName: acceso-nostr-secrets\n\s+optional: true\n\s+defaultMode: 0440\n\s+items:\n\s+- key: POLICY_EVENTS_SIGNING_KEY\n\s+path: events-signing-key\n\s+- key: POLICY_WEBHOOK_SECRETS_KEY\n\s+path: webhook-secrets-key\n/,
+    );
+    expect(engine).toMatch(/- name: policy-keys\n\s+mountPath: \/run\/secrets\/policy-engine\n\s+readOnly: true\n/);
+    expect(engine).toMatch(/runAsGroup: 10001\n[\s\S]*?fsGroup: 10001\n/);
+    // Off until an overlay points the *_FILE variables at the mounted files.
+    expect(base).toMatch(/^ {6}- POLICY_EVENTS_SIGNING_KEY_FILE=$/m);
+    expect(base).toMatch(/^ {6}- POLICY_WEBHOOK_SECRETS_KEY_FILE=$/m);
+    expect(read('deploy/k8s/scripts/generate-secret.sh')).toMatch(/^OPTIONAL=\(.* POLICY_EVENTS_SIGNING_KEY POLICY_WEBHOOK_SECRETS_KEY\)$/m);
+    // Never a key value in a manifest: the names appear only as Secret keys or *_FILE paths.
+    for (const [file, text] of k8s) expect(text, file).not.toMatch(/POLICY_(EVENTS_SIGNING|WEBHOOK_SECRETS)_KEY["']?\s*[:=]\s*["']?[^\s"'#]/);
+    expect(compose).toMatch(/POLICY_EVENTS_SIGNING_KEY_FILE: \$\{POLICY_EVENTS_SIGNING_KEY_FILE:-\}/);
+    expect(compose).toMatch(/POLICY_WEBHOOK_SECRETS_KEY_FILE: \$\{POLICY_WEBHOOK_SECRETS_KEY_FILE:-\}/);
+  });
+
+  it('never lets webhooks reach private destinations in a manifest, stage included, nor by default in compose (OPS-16)', () => {
+    for (const [file, text] of k8s) {
+      expect(text, file).not.toMatch(/POLICY_WEBHOOKS_ALLOW_PRIVATE["']?\s*[:=]\s*["']?true/);
+      expect(text, file).not.toMatch(/name: POLICY_WEBHOOKS_ALLOW_PRIVATE\n\s+value: ["']?true/);
+    }
+    expect(composeDefault('POLICY_WEBHOOKS_ALLOW_PRIVATE')).toBe('false');
+    expect(read('.env.example')).toMatch(/^POLICY_WEBHOOKS_ALLOW_PRIVATE=false$/m);
+  });
+});
+
 describe('monitoring probes every HTTP service (NFR001-02)', () => {
   const prometheus = read('deploy/monitoring/prometheus/prometheus.yml');
   it.each(['relay', 'secure-relay', 'indexer', 'identity-service', 'policy-engine', 'blob-store', 'web', 'managed-signer', 'edge'])('%s', (service) => {

@@ -52,6 +52,11 @@ configMapGenerator:
       - POLICY_ADMIN_PUBKEYS=
       # FR023-12: days the policy-engine keeps its access decisions (resources under legal hold excepted).
       - ACCESS_LOG_RETENTION_DAYS=90
+      # OPS-16: signed events and webhooks of the policy-engine (docs/institutional.md), off while empty. To turn them on,
+      # add POLICY_EVENTS_SIGNING_KEY (and POLICY_WEBHOOK_SECRETS_KEY) to acceso-nostr-secrets and point these at the
+      # files the policy-engine mounts from it: /run/secrets/policy-engine/events-signing-key (and webhook-secrets-key).
+      - POLICY_EVENTS_SIGNING_KEY_FILE=
+      - POLICY_WEBHOOK_SECRETS_KEY_FILE=
       - BLOB_PUBLIC_URL=http://blob-store:8085
       - BLOB_ALLOWED_PUBKEYS=
       - BLOB_MAX_BYTES=52428800

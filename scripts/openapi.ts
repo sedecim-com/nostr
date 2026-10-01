@@ -65,7 +65,7 @@ const RECENT =
 const SERVICES: Record<string, ServiceDoc> = {
   'policy-engine': {
     server: local(8083),
-    description: 'Modo institucional (spec §16): personas, recursos, dispositivos, revocación, auditoría y retención. docs/institutional.md.',
+    description: 'Modo institucional (spec §16): personas, recursos, dispositivos, revocación, auditoría, eventos firmados y webhooks (OPS-16), y retención. docs/institutional.md.',
     token: 'serviceToken',
     routes: () => createPolicyApi(new PolicyEngine(), { name: 'policy-engine', adminPubkeys: [] }).describe(),
     docs: {
@@ -91,6 +91,13 @@ const SERVICES: Record<string, ServiceDoc> = {
       'GET /v1/audit': { summary: 'Auditoría append-only de lo que hacen los admins, más nueva primero.' },
       'GET /v1/access-log': { summary: 'Decisiones de acceso, más nueva primero; se guardan `retentionDays` días (FR023-12).' },
       'GET /v1/revocations': { summary: 'Revocaciones de dispositivo desde un cursor, más antigua primero (FR024-04).' },
+      'GET /v1/events': { summary: 'Eventos firmados (Ed25519) desde un cursor (`after` = `seq`), más antiguo primero: una entrada de la auditoría cada uno, nunca más (OPS-16). Admin, o un token con el ámbito `events`.' },
+      'GET /v1/events/keys': { summary: 'Llaves públicas (JWKS) que verifican los eventos, también las de antes de una rotación, y el `issuer` que los firma (OPS-16).' },
+      'GET /v1/webhooks': { summary: 'Suscripciones de webhook: URL, tipos, estado y fallos seguidos; nunca su secreto (OPS-16).' },
+      'POST /v1/webhooks': { summary: 'Da de alta un webhook (`{url, types?}`, https y destino público); la respuesta trae su secreto de firma, la única vez (OPS-16).' },
+      'DELETE /v1/webhooks/:id': { summary: 'Da de baja un webhook y su registro de entregas (OPS-16).' },
+      'POST /v1/webhooks/:id/enable': { summary: 'Reactiva un webhook desactivado por sus fallos, desde el evento siguiente (OPS-16).' },
+      'GET /v1/webhooks/:id/deliveries': { summary: 'Registro de entregas de un webhook, más nueva primero: estado, intentos, código HTTP y clase del último error, nunca la respuesta (OPS-16).' },
       'GET /v1/directory': { summary: 'Directorio organizacional: cargo y unidad por npub (FR023-06).' },
       'PUT /v1/directory/:pubkey': { summary: 'Cargo y unidad de una persona.' },
       'DELETE /v1/directory/:pubkey': { summary: 'Quita una entrada del directorio.' },
