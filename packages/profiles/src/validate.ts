@@ -29,7 +29,8 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
     // FR004-08: spec §14 keeps the key of this mode offline or in a signer; a key sealed on the connected device is said so.
     if (c.custody === 'local') warn('TOR_DEVICE_KEY', 'La llave de esta persona está en este dispositivo, cifrada con tu passphrase: quien comprometa el dispositivo y consiga la passphrase puede firmar como tú. Con un signer externo (NIP-46), la llave no está en este dispositivo.', ['custody', 'network']);
     if (c.telemetry !== 'none') err('TOR_TELEMETRY', 'En Tor-only la telemetría debe estar deshabilitada.', ['telemetry', 'network']);
-    if (c.crashReports === 'opt-in') err('TOR_CRASH_REPORTS', 'En Tor-only el crash reporting debe estar deshabilitado o ser exportación manual local.', ['crashReports', 'network']);
+    // NFR007-03: a record of failures kept on the device says when it was used; a report written by hand does not stay.
+    if (c.crashReports === 'opt-in') err('TOR_CRASH_REPORTS', 'En Tor-only los informes de fallo no se guardan en el dispositivo: elige off o manual-export, que solo escribe un informe limpio en un archivo si lo pides con --crash-report.', ['crashReports', 'network']);
     // FR015-05: a status says when the persona was active and what it wrote; Tor hides only where it came from.
     if (presenceOption(c) !== 'off') err('TOR_PRESENCE', PRESENCE_TEXTS.torOnly, ['presence', 'network']);
     // ADR 0010: no push at all in Tor-only, not even opaque — it ties the device to a push service and reveals activity times.

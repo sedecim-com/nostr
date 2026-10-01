@@ -47,8 +47,9 @@ import {
   type RelayAdapter,
 } from '@sedecim/messaging';
 import { EventCache, FilterWindowSync, NegentropySync, exportEventsJsonl, importEventsJsonl, rebuildHistory, seenLookup, type CacheCursor, type CacheStats, type EventCacheOptions, type JsonlImportIssue, type RebuiltHistory } from '@sedecim/sync';
-import { continuityPolicy, disclose, expirationDays, isMessageExpirationOption, preset, receiptPolicy, resolveMessageExpiration, validateConfig, type ContinuityOption, type ExpirationSource, type MessageExpirationOption, type SovereigntyConfig } from '@sedecim/profiles';
+import { continuityPolicy, disclose, expirationDays, isMessageExpirationOption, preset, receiptPolicy, resolveMessageExpiration, validateConfig, type ContinuityOption, type CrashReportsOption, type ExpirationSource, type MessageExpirationOption, type SovereigntyConfig } from '@sedecim/profiles';
 import { TelemetryPolicy } from '@sedecim/telemetry-policy';
+import { crashStoreOf, type CrashTarget } from './crash';
 import {
   EncryptedGroupStorage,
   hasPendingGroupOperations,
@@ -1476,15 +1477,39 @@ export class SovereignClient {
   }
 
   /**
-   * The profile of a persona with what `setContinuity` stored over the derived one (cloud copy and its policy).
-   * PANEL-06: and its expiration of DMs (`setMessageExpiration`), else its profile's default.
+   * The profile of a persona with what was stored over the derived one: the cloud copy and its policy
+   * (`setContinuity`), NFR007-03, the crash reports as the persona was created or `setCrashReports` left them, and
+   * PANEL-06, its expiration of DMs (`setMessageExpiration`), else its profile's default.
    */
   async profile(personaId: string): Promise<SovereigntyConfig> {
     const mgr = await this.identities();
     const base = this.profileFor(await mgr.get(personaId));
     const stored = await mgr.getConfig(personaId);
     const messageExpiration = resolveMessageExpiration({ profile: base.messageExpiration, persona: stored?.messageExpiration }).option;
-    return { ...base, ...(stored ? { cloudBackup: stored.cloudBackup } : {}), continuity: continuityPolicy(stored ?? {}), messageExpiration };
+    const crashReports = stored?.crashReports === 'off' || stored?.crashReports === 'manual-export' || stored?.crashReports === 'opt-in' ? stored.crashReports : base.crashReports;
+    return { ...base, ...(stored ? { cloudBackup: stored.cloudBackup } : {}), continuity: continuityPolicy(stored ?? {}), messageExpiration, crashReports };
+  }
+
+  /**
+   * NFR007-03: what a failure of a command of this persona leaves (`crash.ts`): its mode ('off' if its profile would be
+   * refused, e.g. opt-in in Tor-only), its profile name and the store of its reports.
+   */
+  async crashReports(personaId: string): Promise<CrashTarget> {
+    const config = await this.profile(personaId);
+    const refused = validateConfig(config, 'cli').some((i) => i.severity === 'error' && i.controls.includes('crashReports'));
+    const store = await this.openStore(join(this.opts.dataDir, 'personas', personaId));
+    return { mode: refused ? 'off' : config.crashReports, profile: config.network === 'tor-only' ? 'sovereign-tor' : 'sovereign', store: crashStoreOf(store) };
+  }
+
+  /** NFR007-03: off, manual-export or opt-in; Tor-only refuses opt-in. The reports already kept stay until deleted. */
+  async setCrashReports(personaId: string, mode: CrashReportsOption): Promise<SovereigntyConfig> {
+    const mgr = await this.identities();
+    const p = await mgr.get(personaId);
+    const next: SovereigntyConfig = { ...(await this.profile(personaId)), crashReports: mode };
+    const refused = validateConfig(next, 'cli').filter((i) => i.severity === 'error' && i.controls.includes('crashReports'));
+    if (refused.length) throw new Error(refused.map((i) => i.message).join(' '));
+    await mgr.saveConfig(personaId, { ...((await mgr.getConfig(personaId)) ?? this.profileFor(p)), crashReports: mode });
+    return this.profile(personaId);
   }
 
   /**

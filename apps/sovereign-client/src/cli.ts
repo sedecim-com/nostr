@@ -109,6 +109,13 @@
  *   sovereign group rotation-worker --persona ID --policy URL [--managed-signer URL] [--interval S] [--once]
  *                                        (FR-024: MLS Remove for the rotations the policy-engine flags on
  *                                        revocation; with --managed-signer, propagates device revocations)
+ *   sovereign persona crash-reports --persona ID off|manual-export|opt-in
+ *                                        (NFR007-03: what a failure leaves; Tor-only refuses opt-in. Nothing is ever sent)
+ *   sovereign crash-report list|show|export|clear --persona ID [--id ID] [--out FILE]
+ *                                        (the reports kept sealed in the persona's store in opt-in: at most 20, 30 days)
+ *   Any command with --persona takes --crash-report FILE: if it fails and the persona's profile allows it
+ *   (manual-export or opt-in), the clean report of the failure is written to FILE. A failure always prints one
+ *   line on stderr, without stack and without secrets (docs/crash-reports.md).
  *
  * Env: SOVEREIGN_DATA_DIR (default ./.data/sovereign), SOVEREIGN_PASSPHRASE, TOR_SOCKS (127.0.0.1:9050),
  *      SOVEREIGN_PASSPHRASE_FILE (a file with the passphrase, e.g. a compose secret; when set it is the only source),
@@ -148,7 +155,9 @@ import {
 } from '@sedecim/profiles';
 import { describePermissions, SOVEREIGN_NIP46_PERMISSIONS } from '@sedecim/signer';
 import type { EventCacheOptions } from '@sedecim/sync';
+import { crashReportJson, crashSummary, type CrashSource } from '@sedecim/telemetry-policy';
 import { SovereignClient, type PersonaInput, type SignerSource } from './app';
+import { fatalLine, reportAfterFailure, terminalText } from './crash';
 
 function relayAdapter() {
   const path = process.env.SOVEREIGN_FLAGS ?? 'infra/web/flags.json';
@@ -260,6 +269,9 @@ function backupPassword(): string {
   return pw;
 }
 
+/** NFR007-03: the client of this run, so that a fatal failure can read its persona's profile (crash reports). */
+let running: SovereignClient | undefined;
+
 async function main() {
   // PANEL-07: the maturity catalog is public information: no store to open, no passphrase.
   if (argv[0] === 'maturity') {
@@ -280,7 +292,7 @@ async function main() {
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
   const needsDm = argv[0] === 'dm' && (argv[1] === 'send' || argv[1] === 'delete');
   const watching = argv[0] === 'dm' && argv[1] === 'watch';
-  const client = new SovereignClient({
+  const client = (running = new SovereignClient({
     dataDir: process.env.SOVEREIGN_DATA_DIR ?? './.data/sovereign',
     passphrase,
     socksHost,
@@ -298,7 +310,7 @@ async function main() {
       for (const w of warnings) console.error(`aviso: compartimentación (confirmado con --confirm-reuse): ${w.message}`);
     },
     eventCache: eventCacheOptions(),
-  });
+  }));
   /**
    * FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. FAILED
    * says what the relays answered, e.g. one that does not take kind 10050 (OPS-21).
@@ -393,6 +405,40 @@ async function main() {
       console.error(`aviso: ${MESSAGE_EXPIRATION_TEXTS.past}`);
       const notice = await vaultNotice(need(), await client.shortestExpiration(need()));
       if (notice) console.error(`aviso: ${notice}`);
+    } else if (a === 'persona' && b === 'crash-reports') {
+      // NFR007-03: what a failure of this persona's commands leaves; never anything that leaves the device by itself.
+      const mode = positional()[0];
+      if (mode !== 'off' && mode !== 'manual-export' && mode !== 'opt-in') throw new Error('usage: sovereign persona crash-reports --persona ID off|manual-export|opt-in');
+      const config = await client.setCrashReports(need(), mode);
+      console.log(`informes de fallo: ${config.crashReports}`);
+      for (const d of disclose(config).filter((x) => x.control === 'crashReports')) console.error(`aviso: ${d.statement}`);
+      const kept = (await (await client.crashReports(need())).store.list()).length;
+      if (kept && mode !== 'opt-in') console.error(`aviso: siguen guardados ${kept} informes de antes; sovereign crash-report clear --persona ${need()} los borra`);
+    } else if (a === 'crash-report') {
+      // NFR007-03: the reports kept sealed in the persona's store (opt-in), each re-checked by the allowlist when read.
+      const { store } = await client.crashReports(need());
+      const id = opt('--id');
+      const pick = async () => {
+        const all = await store.list();
+        const found = id ? all.find((r) => r.id === id) : all[0];
+        if (!found) throw new Error(id ? `no hay ningún informe ${id} en este dispositivo` : 'no hay informes de fallo guardados en este dispositivo');
+        return found;
+      };
+      if (b === 'list') {
+        const all = await store.list();
+        for (const r of all) console.log(`${r.id}  ${new Date(r.savedAt).toISOString()}  ${String(r.count).padStart(3)} veces  ${crashSummary(r.report)}`);
+        console.log(`${all.length} informes guardados`);
+      } else if (b === 'show') process.stdout.write(crashReportJson((await pick()).report));
+      else if (b === 'export') {
+        const out = opt('--out');
+        if (!out) throw new Error('--out FILE required');
+        const r = await pick();
+        writeFileSync(out, crashReportJson(r.report), { mode: 0o600, flag: 'wx' });
+        console.log(`informe ${r.id} exportado a ${out}: revísalo antes de compartirlo; no se ha enviado nada`);
+      } else if (b === 'clear') {
+        if (id && !(await store.remove(id))) throw new Error(`no hay ningún informe ${id} en este dispositivo`);
+        console.log(id ? `informe ${id} borrado` : `${await store.clear()} informes borrados`);
+      } else throw new Error('usage: sovereign crash-report list|show|export|clear --persona ID [--id ID] [--out FILE]');
     } else if (a === 'persona' && b === 'list') {
       for (const p of await (await client.identities()).list()) console.log(`${p.id}  ${p.label.padEnd(16)} ${p.network.padEnd(8)} ${p.compartment.padEnd(12)} ${p.relays.join(',')}`);
     } else if (a === 'whoami') {
@@ -598,7 +644,7 @@ async function main() {
           for (const sig of ['SIGINT', 'SIGTERM'] as const) process.once(sig, () => stop.abort());
           const interval = Number(opt('--interval') ?? 15) * 1000;
           while (!stop.signal.aborted) {
-            await tick().catch((err: Error) => console.error(`error: ${maskIps(err.message)}`));
+            await tick().catch((err: Error) => console.error(`error: ${terminalText(err.message, maskIps)}`));
             await new Promise<void>((r) => {
               const t = setTimeout(r, interval);
               stop.signal.addEventListener('abort', () => (clearTimeout(t), r()), { once: true });
@@ -674,8 +720,25 @@ async function main() {
   }
 }
 
-main().catch((err: Error) => {
-  console.error(`error: ${maskIps(err.message)}`);
+let failing = false;
+
+/**
+ * NFR007-03: a fatal failure (main, an uncaught exception or an unhandled rejection) prints one line, never the stack
+ * or the fields of the error; then the persona's profile decides whether there is a report and where it goes.
+ */
+async function fatal(err: unknown, source: CrashSource): Promise<void> {
+  if (failing) return;
+  failing = true;
+  // Writing the report never holds the exit for long.
+  setTimeout(() => process.exit(1), 15_000).unref();
+  console.error(fatalLine(err, maskIps));
   if (err instanceof ReuseNotConfirmedError) console.error('para usarlo también desde esta persona, repite el comando con --confirm-reuse');
+  const persona = opt('--persona');
+  const notes = await reportAfterFailure(err, source, { persona, reportFile: opt('--crash-report'), maskIps, target: async () => (running && persona ? running.crashReports(persona) : undefined) }).catch(() => []);
+  for (const note of notes) console.error(note);
   process.exit(1);
-});
+}
+
+process.on('uncaughtException', (err) => void fatal(err, 'fatal'));
+process.on('unhandledRejection', (reason) => void fatal(reason, 'unhandledrejection'));
+main().catch((err: unknown) => fatal(err, 'fatal'));

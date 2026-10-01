@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 import type { Logger, TelemetryPolicy } from './policy';
+import { isErrorType, VALUE_LIKE } from './rules';
 
 /*
  * NFR007-02: traces of the services, small on purpose (no OpenTelemetry SDK, no dependency):
@@ -150,8 +151,6 @@ const storage = new AsyncLocalStorage<Context>();
 const HTTP_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']);
 const DB_OPERATIONS = new Set(['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'WITH', 'BEGIN', 'COMMIT', 'ROLLBACK', 'CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'LOCK']);
 
-/** Shapes of values, not of words: 8+ hex characters in a row, 4+ digits in a row, or a NIP-19 entity. */
-const VALUE_LIKE = /[0-9a-f]{8}|\d{4}|(?:npub|nsec|nprofile|nevent|naddr|note|nrelay|ncryptsec)1/i;
 const STATIC_SEGMENT = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/;
 const PARAM_SEGMENT = /^:[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
@@ -169,9 +168,6 @@ export function isRouteTemplate(value: unknown): value is string {
     .split('/')
     .every((s) => PARAM_SEGMENT.test(s) || (s.length <= 32 && STATIC_SEGMENT.test(s) && !VALUE_LIKE.test(s)));
 }
-
-/** A status code, or a class name made of capitalised words without digits (`ReplayStoreFullError`). */
-const isErrorType = (v: string) => /^[1-5]\d\d$/.test(v) || (v.length <= 64 && /^(?:[A-Z][a-z]{1,14})+$/.test(v) && !VALUE_LIKE.test(v));
 
 const ATTRIBUTE_RULES: { [K in keyof Required<SpanAttributes>]: (v: unknown) => SpanAttributes[K] | undefined } = {
   'http.request.method': (v) => (typeof v === 'string' ? (HTTP_METHODS.has(v) ? v : '_OTHER') : undefined),

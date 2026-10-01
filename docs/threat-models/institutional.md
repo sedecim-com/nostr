@@ -3,7 +3,8 @@
 **Configuración:** custodia managed (**custodial**) o signer, relay privado con NIP-42, identidad
 verificada por el directorio, persistencia replicada, grupos Marmot/MLS para salas sensibles, archivos
 cifrados, telemetría estándar (sin nsec ni plaintext), push opaco, backup gestionado por el operador,
-confirmaciones de entrega activadas y de lectura opt-in, sin estado de presencia (NIP-38).
+confirmaciones de entrega activadas y de lectura opt-in, sin estado de presencia (NIP-38), informes de fallo a mano
+(`manual-export`, NFR007-03).
 
 ## Activos
 Llaves managed en el vault, información clasificada de las salas, directorio organizacional, registros
@@ -26,6 +27,7 @@ de auditoría, dispositivos registrados, la llave que firma los eventos y la de 
 | Dispositivo perdido | Revocación: invalida sesiones y bloquea nuevas; el worker de rotación expulsa las hojas MLS del dueño en cada grupo señalado (época nueva) y marca la rotación hecha solo tras el commit; la revocación llega al managed-signer (sesiones ligadas al dispositivo) y al bunker NIP-46 (sesiones de cliente del dispositivo). Límites en `docs/marmot.md` | `policy-engine.test.ts` (FR-024), `packages/rotation-worker/test` (FR024-02), `devices-limits.test.ts` y `signer.test.ts` (FR024-03), `tests/security/device-loss.test.ts` (SEC-04) |
 | Ex-miembro leyendo la sala | Expulsión MLS sin fuga (autoprueba y conformidad) | `packages/marmot-adapter/test`, `docs/marmot.md` |
 | Secretos en logs o tablas | Vault envelope; logs y uso sin secreto; tablas solo con metadatos | `services/managed-signer/test` |
+| Informes de fallo hacia la organización | Ninguno se envía, tampoco al operador: el informe limpio del último fallo se queda en el dispositivo y la persona decide si lo guarda en un archivo y a quién se lo da ([informes de fallo](../crash-reports.md)) | `packages/telemetry-policy/test/crash-report.test.ts`, `apps/web-saas/test/crash.test.ts` (NFR007-03) |
 | Datos de usuarios en las trazas de los servicios (telemetría estándar) | Apagadas por defecto (`TRACE_SAMPLE_RATE=0`); con muestreo, un span solo lleva método, ruta como plantilla, estado, duración, clase del error y operación de base de datos, sin IP, pubkey, ids, cabeceras, cuerpos ni mensajes; van al log del servicio y, si se configura, al colector OTLP del operador ([threat model](../threat-model.md#trazas-de-los-servicios-nfr007-02)) | `packages/telemetry-policy/test/tracing.test.ts`, `packages/service-kit/test/tracing.test.ts` (NFR007-02) |
 | Uso indebido de la llave managed | Auditoría de cada firma (con el dispositivo que la pidió); migración verificada a llave local | `managed-signer.test.ts` (FR-026) |
 | Abuso de firma managed (token robado, cliente desbocado) | Token bucket por llave y por kind (por defecto 120/min y 60/min, configurable) → 429 con `Retry-After`; fila `rate-limited` en el log de uso (una por llave y minuto); métricas sin identificadores y alertas de ritmo anómalo (> 3× la línea base de 1 d), 429 sostenidos y dispositivo revocado insistiendo | `devices-limits.test.ts` (FR005-06), `deploy/monitoring/prometheus/tests/managed-signer.test.yml` |

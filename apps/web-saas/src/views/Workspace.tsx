@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppBar, Box, Button, Chip, Container, MenuItem, Snackbar, Tab, Tabs, TextField, Toolbar, Typography } from '@mui/material';
+import { Alert, AppBar, Box, Button, Chip, Container, MenuItem, Snackbar, Stack, Tab, Tabs, TextField, Toolbar, Typography } from '@mui/material';
 import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type DirectMessage, type DmInbox } from '@sedecim/messaging';
 import type { OutboxRecord } from '@sedecim/delivery-engine';
 import { receiptPolicy, type SovereigntyConfig } from '@sedecim/profiles';
@@ -12,7 +12,9 @@ import type { PersonaBook, PersonaRecord } from '../lib/vault';
 import { sendBlockedReason, WorkspaceContext, type Workspace as Ws } from '../lib/workspace';
 import { onSignerAuthUrl } from '../lib/authUrl';
 import { fetchLinks, LINK_LEVEL_LABEL, linkLevel } from '../lib/identity';
+import { webCrashReports } from '../lib/crash';
 import { BRAND } from '../theme';
+import { CrashBoundary, CrashReportsCard } from './CrashReports';
 import { ChannelsView } from './ChannelsView';
 import { DmView } from './DmView';
 import { OutboxView } from './OutboxView';
@@ -169,6 +171,15 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
     };
   }, [pool, dmInbox, inboxNext, book, cfg.continuityVault]);
 
+  // NFR007-03: failures are captured as the active persona's profile says; another persona does not see the last
+  // failure of the previous one, and locking (unmount) captures nothing and forgets it.
+  const crashMode = session ? personaConfig(session.persona).crashReports : undefined;
+  const crashProfile = session?.persona.preset;
+  const crashPersona = session?.persona.id;
+  useEffect(() => webCrashReports().configure({ mode: crashMode, ...(crashProfile ? { profile: crashProfile } : {}), store: book.store }), [crashMode, crashProfile, book]);
+  useEffect(() => webCrashReports().capture.forgetLast(), [crashPersona]);
+  useEffect(() => () => webCrashReports().configure({ mode: 'off' }), []);
+
   // FR011-02: resume the outbox as soon as the browser is back online.
   useEffect(() => {
     const onOnline = () => void current.current?.engine.resume();
@@ -289,7 +300,14 @@ export function Workspace({ cfg, flags, book, user, onLock, onSignedOut }: Props
       <Container component="main" id="main" tabIndex={-1} maxWidth="lg" sx={{ py: 3, outline: 'none' }}>
         {TABS.map((t) => (
           <Box key={t.id} role="tabpanel" id={`view-${t.id}`} aria-labelledby={`tab-${t.id}`} hidden={tab !== t.id}>
-            {tab === t.id && (!session && t.id !== 'personas' ? <Alert severity="info">Crea o elige una persona primero.</Alert> : <View id={t.id} />)}
+            {tab === t.id &&
+              (!session && t.id !== 'personas' ? (
+                <Alert severity="info">Crea o elige una persona primero.</Alert>
+              ) : (
+                <CrashBoundary key={t.id}>
+                  <View id={t.id} />
+                </CrashBoundary>
+              ))}
           </Box>
         ))}
       </Container>
@@ -321,6 +339,16 @@ function View({ id }: { id: TabId }) {
     case 'outbox':
       return <OutboxView />;
     case 'panel':
-      return <PanelView />;
+      // NFR007-03: each in its own boundary, so that a failure of the panel does not hide the report of that failure.
+      return (
+        <Stack spacing={2}>
+          <CrashBoundary>
+            <PanelView />
+          </CrashBoundary>
+          <CrashBoundary>
+            <CrashReportsCard />
+          </CrashBoundary>
+        </Stack>
+      );
   }
 }
