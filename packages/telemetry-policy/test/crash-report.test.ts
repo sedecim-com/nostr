@@ -316,6 +316,15 @@ describe('the terminal line of a failure (NFR007-03)', () => {
     expect(redactFreeText('empty passphrase file: /dev/null (SOVEREIGN_PASSPHRASE_FILE)', { home: '/root' })).toBe('empty passphrase file: /dev/null (SOVEREIGN_PASSPHRASE_FILE)');
     expect(redactFreeText('a /rootfs/x', { home: '/root' })).toBe('a /rootfs/x');
   });
+
+  it('NFR007-03: a long run of separators in the home directory does not make the trim quadratic, and trailing separators are still trimmed (CodeQL js/polynomial-redos)', () => {
+    const started = Date.now();
+    // A run of separators followed by anything else is what a `/[\\/]+$/` replace takes quadratic time on.
+    redactFreeText('failed in /home/ana/work', { home: `${'/'.repeat(100_000)}x` });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(redactFreeText('failed in /home/ana/work/file.ts', { home: '/home/ana///' })).toBe('failed in ~/work/file.ts');
+    expect(redactFreeText('failed in C:\\Users\\ana\\work', { home: 'C:\\Users\\ana\\\\' })).toBe('failed in ~\\work');
+  });
 });
 
 /** A collection held in a Map: what an encrypted-store Collection does, without the sealing. */

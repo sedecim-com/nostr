@@ -45,8 +45,12 @@ const FREE_TEXT_PATTERNS: Array<[RegExp, string | ((m: string) => string)]> = [
  */
 export function redactFreeText(s: string, opts: { home?: string } = {}): string {
   let out = redactString(s);
-  const home = opts.home?.replace(/[\\/]+$/, '');
-  if (home && home.length > 1) out = out.replace(new RegExp(`${home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'g'), '~');
+  // Trailing separators off by hand: a `/[\\/]+$/` replace is polynomial on a long run of them (CodeQL js/polynomial-redos).
+  let end = opts.home?.length ?? 0;
+  while (end > 0 && (opts.home![end - 1] === '/' || opts.home![end - 1] === '\\')) end--;
+  const home = opts.home?.slice(0, end);
+  // A path of more than 1024 characters is no home directory (and would not compile as a RegExp): it is left alone.
+  if (home && home.length > 1 && home.length <= 1024) out = out.replace(new RegExp(`${home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'g'), '~');
   for (const [re, rep] of FREE_TEXT_PATTERNS) out = out.replace(re, rep as string);
   return out;
 }
