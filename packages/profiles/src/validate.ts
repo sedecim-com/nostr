@@ -1,4 +1,5 @@
 import type { Platform, SovereigntyConfig, ValidationContext, ValidationIssue } from './types';
+import { PRESENCE_TEXTS, presenceOption } from './presence';
 
 const BANNED_CLAIMS = [/100\s*%\s*an[oó]nim/i, /totalmente an[oó]nim/i, /imposible de rastrear/i, /untraceable/i];
 
@@ -20,6 +21,8 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
     if (c.telemetry !== 'none') err('TOR_TELEMETRY', 'En Tor-only la telemetría debe estar deshabilitada.', ['telemetry', 'network']);
     // NFR007-03: a record of failures kept on the device says when it was used; a report written by hand does not stay.
     if (c.crashReports === 'opt-in') err('TOR_CRASH_REPORTS', 'En Tor-only los informes de fallo no se guardan en el dispositivo: elige off o manual-export, que solo escribe un informe limpio en un archivo si lo pides con --crash-report.', ['crashReports', 'network']);
+    // FR015-05: a status says when the persona was active and what it wrote; Tor hides only where it came from.
+    if (presenceOption(c) !== 'off') err('TOR_PRESENCE', PRESENCE_TEXTS.torOnly, ['presence', 'network']);
     // ADR 0010: no push at all in Tor-only, not even opaque — it ties the device to a push service and reveals activity times.
     if (c.notifications !== 'none') err('TOR_PUSH', 'En Tor-only no hay push (ni opaco): el servicio push y el gateway verían tu dispositivo y los tiempos de actividad. La app consulta los relays mientras está abierta.', ['notifications', 'network']);
     if (c.remotePreviews) err('TOR_PREVIEWS', 'Las previews remotas deben estar bloqueadas en Tor-only.', ['remotePreviews']);
@@ -40,6 +43,12 @@ export function validateConfig(c: SovereigntyConfig, platform: Platform = 'deskt
     if (c.custody !== 'local' || c.network !== 'direct' || c.identity !== 'linked')
       err('DEVICE_KEY_PROFILE', 'El desbloqueo sin contraseña solo se permite en el perfil convenience (llave local, red directa, identidad vinculada).', ['localProtection']);
     else warn('DEVICE_KEY', 'Sin contraseña: cualquiera con acceso a este perfil del navegador puede abrir tus llaves.', ['localProtection']);
+  }
+  // FR015-05: presence where the profile allows it (presencePolicy). An organization's policy cannot govern it yet, and
+  // the institutional model denies what the policy does not govern; a pseudonymous persona is told what it risks.
+  if (presenceOption(c) !== 'off' && c.network !== 'tor-only') {
+    if (c.identity === 'verified') err('PRESENCE_ORGANIZATION', PRESENCE_TEXTS.organization, ['presence', 'identity']);
+    else if (c.identity === 'pseudonymous') warn('PRESENCE_PSEUDONYMOUS', PRESENCE_TEXTS.pseudonymous, ['presence', 'identity']);
   }
   if (!c.stripFileMetadata) warn('FILES_METADATA', 'Las imágenes pueden contener ubicación (EXIF) y datos del dispositivo.', ['stripFileMetadata']);
   if (c.custody === 'managed' || c.custody === 'managed-enclave') warn('CUSTODIAL', 'Modo custodial: la plataforma puede firmar como el usuario. Requiere opt-in explícito.', ['custody']);

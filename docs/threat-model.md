@@ -136,6 +136,40 @@ cuándo, solo tras «Mostrar avatares» o con las previews remotas activadas.
 Un nombre o una foto pueden identificar a una persona seudónima; por eso hace falta la elección explícita, que es del
 usuario y no se puede deshacer una vez publicado.
 
+## Estado de presencia por persona (FR015-05)
+
+Implementación: `packages/profiles/src/presence.ts` (quién puede), `packages/messaging/src/presence.ts` (kind 30315:
+construirlo, validarlo, leerlo con cuidado y la caché de cada persona), `apps/web-saas/src/lib/presence.ts` y
+`apps/web-saas/src/views/Presence.tsx`; los textos están en el catálogo revisado (`PRESENCE_TEXTS`,
+[disclosures](disclosures.md)). Diseño y decisiones en [presence.md](presence.md). Pruebas:
+`packages/profiles/test/profiles.test.ts`, `packages/messaging/test/presence.test.ts`,
+`apps/web-saas/test/presence.test.ts` y `apps/web-saas/test/nip46-permissions.test.ts`.
+
+**Dónde existe.** En ningún preset. La persona lo activa en el panel (`presence: status`) y solo vale donde el perfil lo
+permite: Tor-only (`TOR_PRESENCE`) y una identidad verificada por una organización (`PRESENCE_ORGANIZATION`) son errores
+bloqueantes; una persona pseudónima recibe el aviso `PRESENCE_PSEUDONYMOUS`. Sin presencia, la web no publica ni pide
+nada de kind 30315, lo que comprueba un test contra el relay de pruebas, que registra cada EVENT y cada REQ.
+
+**Qué se publica y cuándo.** Solo cuando el usuario pulsa «Publicar estado»: el texto que escribió, tal como lo ve en la
+vista previa (100 caracteres como mucho, sin caracteres de control, saltos de línea, enlaces ni menciones), en la ranura
+`general`, con una expiración NIP-40 de 24 h como mucho y ninguna otra etiqueta. Nada se deriva de la actividad.
+«Borrar estado» publica uno vacío que caduca en una hora. Sale firmado por el signer de la persona, por su outbox, a sus
+relays y por su conexión, nunca por la de otra persona del navegador.
+
+**Qué se lee.** Los estados de otras personas viajan en la misma consulta que los perfiles que la web ya busca: el mismo
+REQ lleva un segundo filtro para las mismas llaves. No hay consulta propia, suscripción con la lista de contactos ni
+sondeo. El estado propio se pide a los relays de la persona. Todo vive en memoria, por persona, y un estado ajeno se
+muestra como texto hasta que caduca y nunca más de 24 horas.
+
+**Qué ve cada parte.** Los relays de la persona, y quien pueda leerlos: el estado, la npub, cuándo se publicó y cuándo
+caduca, la IP (sin Tor) y que esa persona lee estados. El mirror del operador no copia el kind 30315 por defecto. El
+Continuity Vault recibe una copia sellada más si la persona copia sus envíos.
+
+**Riesgo residual.** Un estado publicado se puede copiar y conservar fuera de tu control, y los relays que ignoran NIP-40
+pueden seguir sirviéndolo; las horas a las que lo cambias dicen cuándo estabas activa. No está probado contra el Buzz
+fijado (el gate lo registra sin exigirlo). En modo institucional, `relay-allowlist` no filtra por kind: el bloqueo es de
+esta web, no de un cliente de terceros con una llave del allowlist.
+
 ## Grupos seguros en la web: dispositivos, rotación, propuestas y archivos (FR025-14)
 
 Implementación: los flujos que comparten el CLI y la web están en `packages/marmot-adapter/src/flows.ts` (quién hace

@@ -27,7 +27,9 @@
  *   sovereign maturity                   (maturity of each profile and function today and at v1.0; no passphrase)
  *   sovereign channel join --persona ID --group G         (NIP-29 join request)
  *   sovereign channel send --persona ID --group G "text" [--op ID]
- *   sovereign channel read --persona ID --group G
+ *   sovereign channel read --persona ID --group G [--offline]
+ *                                        (FR013-05: what it reads stays in the persona's encrypted event cache;
+ *                                         --offline reads that cache instead: no connection, nothing retried)
  *   sovereign dm send --persona ID --to NPUB "text" [--op ID] [--confirm-reuse]   (to the recipient's DM relays,
  *                                        kind 10050, like the web)
  *     (FR011-05: each send is an operation, and its id is printed first; --op ID retries that send, even one cut
@@ -35,12 +37,18 @@
  *     (FR006-07: a contact or a file another persona of this device already used is refused, with what it would
  *      cross, and nothing is sent; --confirm-reuse confirms it. Also for group invite, propose --add, add-device
  *      --member and send-file)
- *   sovereign dm inbox --persona ID     (reads its DM relays; receipts for its DMs move them to RECIPIENT_ACKED/READ)
+ *   sovereign dm inbox --persona ID [--offline]   (reads its DM relays; receipts for its DMs move them to
+ *                                        RECIPIENT_ACKED/READ; --offline opens the gift wraps of the event cache
+ *                                        with the key on this device: no connection, no receipts)
  *   sovereign dm watch --persona ID     (keeps reading them: DMs and receipts as they arrive; Ctrl-C to stop)
  *   sovereign dm relays --persona ID     (publish this persona's DM relay list, kind 10050; also on create/import)
  *   sovereign outbox --persona ID        (delivery states per relay)
  *   sovereign resume --persona ID        (retry pending messages; any command that opens the persona does too)
- *   sovereign history sync --persona ID [--since UNIX] [--group G]   (rebuild channels/DMs; NIP-77 or REQ fallback)
+ *   sovereign history sync --persona ID [--since UNIX] [--group G] [--full]   (rebuild channels/DMs; NIP-77 or REQ
+ *                                        fallback. FR013-05: each relay resumes from its cursor in the event cache and
+ *                                        NIP-77 starts from what that relay already sent; --full asks for everything)
+ *   sovereign cache status --persona ID  (FR013-05: events in the persona's encrypted cache and each relay's cursor)
+ *   sovereign cache clear --persona ID   (deletes that cache: events, cursors; the rest of the persona stays)
  *   sovereign history export --persona ID --out FILE [--since UNIX]  (JSONL, one signed NIP-01 event per line)
  *   sovereign history import --persona ID FILE [--dry-run]           (verify signatures, republish valid events;
  *                                        FILE is a JSONL export or a `vault export` file)
@@ -107,7 +115,9 @@
  *      SOVEREIGN_FLAGS (deployment flags from the interop gate, default infra/web/flags.json if present),
  *      SOVEREIGN_POLICY_BEARER (optional service bearer for GET /v1/rotations, POST /v1/rotations/:id/done and
  *        GET /v1/revocations; NIP-98 otherwise),
- *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer)
+ *      SOVEREIGN_REVOCATION_TOKEN (managed-signer revocation token, required with --managed-signer),
+ *      SOVEREIGN_CACHE (off: no event cache, FR013-05), SOVEREIGN_CACHE_MAX_EVENTS (default 5000),
+ *      SOVEREIGN_CACHE_MAX_DAYS (events older than this are not kept; default: no age limit)
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, existsSync, fstatSync, openSync, readFileSync, writeFileSync } from 'node:fs';
@@ -119,6 +129,7 @@ import { BUZZ_PINNED_ADAPTER, wrapOptionsFromFlags, type DeploymentFlags, type D
 import { checkAttachmentSize } from '@sedecim/blossom-client';
 import { CONTINUITY_VAULT_TEXTS, configMaturity, disclose, MATURITY, MATURITY_LABELS } from '@sedecim/profiles';
 import { describePermissions, SOVEREIGN_NIP46_PERMISSIONS } from '@sedecim/signer';
+import type { EventCacheOptions } from '@sedecim/sync';
 import { crashReportJson, crashSummary, type CrashSource } from '@sedecim/telemetry-policy';
 import { SovereignClient, type PersonaInput, type SignerSource } from './app';
 import { fatalLine, reportAfterFailure, terminalText } from './crash';
@@ -134,11 +145,28 @@ function relayAdapter() {
 const argv = process.argv.slice(2);
 const opt = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
 const opts = (n: string) => argv.flatMap((a, i) => (a === n && argv[i + 1] ? [argv[i + 1]!] : []));
-const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--onion-only', '--dry-run', '--no-mls', '--once', '--no-republish', '--confirm-reuse'].includes(argv[i - 1]!))).slice(2);
+const positional = () => argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1]?.startsWith('--') && !['--tor', '--high-risk', '--onion-only', '--dry-run', '--no-mls', '--once', '--no-republish', '--confirm-reuse', '--offline', '--full'].includes(argv[i - 1]!))).slice(2);
 /** FR006-07: the user confirms that this persona may use a contact or a file another of their personas already used. */
 const confirmReuse = argv.includes('--confirm-reuse');
 const MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4', '.pdf': 'application/pdf', '.txt': 'text/plain' };
 const since = () => (opt('--since') !== undefined ? Number(opt('--since')) : undefined);
+/** FR013-05: `--offline` reads the persona's event cache and never opens a connection. */
+const offline = argv.includes('--offline');
+const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
+
+/** FR013-05: the persona event cache as the environment sets it (on by default, with the cache's own limits). */
+function eventCacheOptions(): EventCacheOptions | false {
+  if (/^(off|0|false|no)$/i.test(process.env.SOVEREIGN_CACHE ?? '')) return false;
+  const whole = (name: string) => {
+    const v = process.env[name];
+    if (v === undefined || v === '') return undefined;
+    if (!/^\d+$/.test(v)) throw new Error(`${name} must be a whole number`);
+    return Number(v);
+  };
+  const maxEvents = whole('SOVEREIGN_CACHE_MAX_EVENTS');
+  const days = whole('SOVEREIGN_CACHE_MAX_DAYS');
+  return { ...(maxEvents !== undefined ? { maxEvents } : {}), ...(days !== undefined ? { maxAgeSeconds: days * 86_400 } : {}) };
+}
 
 /**
  * FR021-03 (spec §18.1): what the CLI logs about the network (errors, delivery states per relay, sync results)
@@ -215,6 +243,10 @@ async function main() {
     for (const m of MATURITY) console.log(`${MATURITY_LABELS[m.level].padEnd(14)} ${m.name}: ${m.why} En v1.0: ${m.atV1}`);
     return;
   }
+  // FR013-05: --offline is never ignored. Any other command uses the network, so it stops before opening anything.
+  if (offline && !((argv[0] === 'channel' && argv[1] === 'read') || (argv[0] === 'dm' && argv[1] === 'inbox'))) {
+    throw new Error('--offline solo existe para channel read y dm inbox: esta orden usa la red, y no se ha hecho nada');
+  }
   const passphrase = storePassphrase();
   const [socksHost, socksPort] = (process.env.TOR_SOCKS ?? '127.0.0.1:9050').split(':');
   const needsDm = argv[0] === 'dm' && argv[1] === 'send';
@@ -236,6 +268,7 @@ async function main() {
     onConfirmedReuse: (warnings) => {
       for (const w of warnings) console.error(`aviso: compartimentación (confirmado con --confirm-reuse): ${w.message}`);
     },
+    eventCache: eventCacheOptions(),
   }));
   /**
    * FR017-06: contacts route their DMs to this list; offline it stays in the outbox and goes out later. FAILED
@@ -356,10 +389,22 @@ async function main() {
       const rec = await client.joinChannel(need(), opt('--group')!);
       console.log(`${rec.state}${rec.blockedReason ? ` — ${rec.blockedReason}` : ''} (op ${rec.opId})`);
     } else if (a === 'history' && b === 'sync') {
-      const r = await client.syncHistory(need(), { since: since(), channels: opts('--group') });
+      const r = await client.syncHistory(need(), { since: since(), channels: opts('--group'), full: argv.includes('--full') });
       for (const [relay, strategy] of Object.entries(r.strategies)) console.log(`${maskIps(relay)}  ${strategy}`);
       for (const [g, events] of Object.entries(r.channels)) console.log(`canal ${g}: ${events.length} eventos`);
       console.log(`DMs: ${r.dms.length}; outbox: ${r.outbox.map((o) => o.state).join(', ') || 'vacío'}`);
+      if (r.cache) console.log(`caché local: ${r.cache.events} eventos (${Math.ceil(r.cache.bytes / 1024)} KB)`);
+      if (r.cacheInUse) console.error(`aviso: otro proceso del CLI está escribiendo la caché de esta persona: esta sincronización no la ha usado ni actualizado (si no hay ningún otro proceso, borra ${client.cacheLockPath(need())})`);
+    } else if (a === 'cache' && b === 'status') {
+      const { stats, cursors } = await client.cacheStatus(need());
+      console.log(`caché local: ${stats.events} eventos (${Math.ceil(stats.bytes / 1024)} KB)${stats.oldest !== undefined ? `, del ${iso(stats.oldest)} al ${iso(stats.newest!)}` : ''}`);
+      if (stats.floor) console.log(`por sus límites, lo anterior al ${iso(stats.floor)} puede faltar`);
+      const latest = new Map<string, number>();
+      for (const c of cursors) latest.set(c.relay, Math.max(latest.get(c.relay) ?? 0, c.at));
+      for (const [relay, at] of latest) console.log(`${maskIps(relay)}  última sincronización completa iniciada el ${iso(at)}`);
+    } else if (a === 'cache' && b === 'clear') {
+      await client.clearCache(need());
+      console.log('caché local de eventos borrada: eventos y cursores (la persona sigue igual)');
     } else if (a === 'history' && b === 'export') {
       const out = opt('--out');
       if (!out) throw new Error('--out FILE required');
@@ -377,7 +422,9 @@ async function main() {
       const rec = await client.sendChannel(need(), opt('--group')!, positional().join(' '), { opId: sendOperation() });
       console.log(`${rec.state}${rec.blockedReason ? ` — ${maskIps(rec.blockedReason)}` : ''} (op ${rec.opId})`);
     } else if (a === 'channel' && b === 'read') {
-      for (const e of await client.readChannel(need(), opt('--group')!)) console.log(`[${new Date(e.created_at * 1000).toISOString()}] ${e.pubkey.slice(0, 8)}: ${e.content}`);
+      const events = await client.readChannel(need(), opt('--group')!, 50, { offline });
+      for (const e of events) console.log(`[${new Date(e.created_at * 1000).toISOString()}] ${e.pubkey.slice(0, 8)}: ${e.content}`);
+      if (offline) console.error(events.length ? 'sin conexión: leído de la caché local' : 'sin conexión: la caché local no tiene mensajes de este canal (se guardan al leerlo o con history sync)');
     } else if (a === 'dm' && b === 'send') {
       await banner(need());
       const recs = await client.sendDm(need(), opt('--to')!, positional().join(' '), { opId: sendOperation(), confirmReuse });
@@ -386,6 +433,10 @@ async function main() {
       for (const r of recs) if (r.meta?.dmRelaySource && r.meta.dmRelaySource !== 'self' && r.meta.dmRelaySource !== 'dm-relays') console.error(`aviso: ${r.meta.recipient?.slice(0, 8)} no publicó relays de DM (kind 10050): la entrega es incierta`);
     } else if (a === 'dm' && b === 'relays') {
       await announceDmRelays(need());
+    } else if (a === 'dm' && b === 'inbox' && offline) {
+      const dms = await client.inbox(need(), {}, { offline: true });
+      for (const m of dms) console.log(dmLine(m));
+      console.error(dms.length ? 'sin conexión: abiertos desde la caché local (sin acuses)' : 'sin conexión: la caché local no tiene DMs de esta persona (se guardan con dm inbox o history sync)');
     } else if (a === 'dm' && b === 'inbox') {
       const acks: string[] = [];
       for (const m of await client.inbox(need(), { onReceipt: (r, rec) => acks.push(receiptLine(r, rec)) })) console.log(dmLine(m));

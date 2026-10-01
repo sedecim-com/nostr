@@ -1,6 +1,7 @@
 import type { Dimension, Disclosure, SovereigntyConfig } from './types';
 import { PRESETS } from './presets';
 import { CHANNEL_MIRROR_TEXTS } from './mirror';
+import { PRESENCE_TEXTS } from './presence';
 
 type Entry = Omit<Disclosure, 'control' | 'option'>;
 const d = (statement: string, improves: Dimension[], sacrifices: Dimension[], trustAssumptions: string[] = []): Entry => ({ statement, improves, sacrifices, trustAssumptions });
@@ -79,13 +80,22 @@ const CATALOG: { [K in keyof SovereigntyConfig]?: Record<string, Entry> } = {
       ['La protección del almacén local de este dispositivo.'],
     ),
   },
+  presence: {
+    off: d('Sin estado de presencia: esta persona no publica ni pide estados (NIP-38, kind 30315).', ['privacidad-operador'], [], []),
+    status: d(
+      'Estado de presencia activado: cuando escribes un estado, se publica firmado con tu npub en los relays de esta persona y caduca como mucho a las 24 horas; quien pueda leer esos relays ve lo que dice y cuándo lo publicaste. Los estados de otras personas se piden en la misma consulta que sus perfiles.',
+      [],
+      ['privacidad-operador'],
+      ['Los relays de esta persona y quien pueda leerlos.'],
+    ),
+  },
 };
 
 /**
  * Version of the disclosure copy under legal/UX review (FR028-02). Any change to a statement must bump it:
  * docs/disclosures.md is generated from disclosureCatalog() and CI fails if it is stale.
  */
-export const DISCLOSURE_VERSION = '1.12.0';
+export const DISCLOSURE_VERSION = '1.13.0';
 
 /**
  * FR005-08: what someone accepts, besides the managed custody statement, to create a managed (custodial) key.
@@ -179,6 +189,8 @@ export function disclosureCatalog(): Disclosure[] {
   for (const [key, statement] of Object.entries(SECURE_GROUP_TEXTS)) out.push({ control: 'messaging', option: `marmot en la web (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   // FR014-04: listed under the control that decides whether the web asks the mirror (see mirrorPolicy).
   for (const [key, statement] of Object.entries(CHANNEL_MIRROR_TEXTS)) out.push({ control: key === 'torOnly' ? 'network' : 'identity', option: `mirror de canales (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
+  // FR015-05: what the status card, the panel and validateConfig say about presence.
+  for (const [key, statement] of Object.entries(PRESENCE_TEXTS)) out.push({ control: 'presence', option: `estado (${key})`, statement, improves: [], sacrifices: [], trustAssumptions: [] });
   return out;
 }
 

@@ -5,8 +5,8 @@
 
 ## Resumen
 
-- **249 tareas** · 190 hechas · 28 parciales · 25 pendientes · 6 descartadas
-- **201 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
+- **249 tareas** · 195 hechas · 29 parciales · 19 pendientes · 6 descartadas
+- **180 story points** pendientes en 16 sprints de 14 días (velocidad supuesta: 50 SP/sprint, equipo de ~4 personas; ajustar tras S1)
 - Prioridades: **P0** Bloquea release o seguridad · **P1** Necesario para la fase · **P2** Importante, planificable · **P3** Deseable
 - Estados: **Hecho** (con evidencia en el repo) · **Parcial** (existe base, falta completar) · **Pendiente** · **Descartado** (fuera de alcance por una decisión; la evidencia cita el ADR)
 - IDs: `FRnnn-xx` / `NFRnnn-xx` por requisito; `DEC`, `BUZZ`, `OPS`, `PANEL`, `SEC`, `REL` para decisiones, Buzz upstream, operación, panel y gates.
@@ -42,7 +42,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 - **aws**: faltan la cuenta, la región o el stage reales de AWS
 - **externo**: depende de un tercero: auditor externo, asesoría legal, una publicación upstream o un dispositivo de hardware
 
-**Listas para trabajar ahora (10):** FR025-14, PANEL-06, FR013-05, FR015-05, FR020-02, NFR007-02, NFR007-03, OPS-16, FR005-09, FR005-10. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
+**Listas para trabajar ahora (2):** PANEL-06, NFR007-03. Sin bloqueo propio, sin PR abierta y sin dependencias abiertas que aún necesiten código.
 
 | Ola | ID | Prio | Tarea | Sprint | SP | Desbloquea | Espera a | Bloqueo |
 |---:|---|---|---|---|---:|---:|---|---|
@@ -60,27 +60,22 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | 0 | [DEC-11](https://github.com/sedecim-com/nostr/issues/198) | P2 | Búsqueda y registro de la marca "Acceso Nostr" | S13 | 1 | — | — | externo |
 | 0 | [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | Diferido | 1 | — | — | persona |
 | 0 | [FR007-06](https://github.com/sedecim-com/nostr/issues/388) | P2 | Retirar un vínculo entre personas en el servicio y en la web | S10 | 3 | — | — | en PR |
-| 0 | [FR025-14](https://github.com/sedecim-com/nostr/issues/288) | P2 | Grupos completos en la web: multi-dispositivo, rotación, propuestas y media cifrada | Diferido | 5 | — | — | lista |
 | 0 | [OPS-14](https://github.com/sedecim-com/nostr/issues/274) | P2 | Documentación del SDK y de las APIs | S10 | 5 | — | — | persona |
 | 0 | [PANEL-06](https://github.com/sedecim-com/nostr/issues/286) | P2 | Expiración de mensajes por perfil (NIP-40) y borrado con aviso | Diferido | 5 | — | — | lista |
 | 0 | [DEC-15](https://github.com/sedecim-com/nostr/issues/273) | P3 | Estructura de repositorios | S10 | 1 | — | — | persona |
 | 0 | [FR004-07](https://github.com/sedecim-com/nostr/issues/301) | P3 | Signer de hardware (opcional en el scope) | Diferido | 5 | — | — | externo |
-| 0 | [FR013-05](https://github.com/sedecim-com/nostr/issues/299) | P3 | Caché local cifrada de eventos y NIP-77 con estado local | Diferido | 5 | — | — | lista |
-| 0 | [FR015-05](https://github.com/sedecim-com/nostr/issues/298) | P3 | Presencia (NIP-38) opt-in por perfil | Diferido | 3 | — | — | lista |
-| 0 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | Diferido | 8 | — | — | lista |
-| 0 | [NFR007-02](https://github.com/sedecim-com/nostr/issues/295) | P3 | Tracing con muestreo y redacción según el perfil | Diferido | 3 | — | — | lista |
+| 0 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | Diferido | 8 | — | — | persona |
 | 0 | [NFR007-03](https://github.com/sedecim-com/nostr/issues/296) | P3 | Crash reports opt-in con limpieza y exportación manual local | Diferido | 3 | — | — | lista |
-| 0 | [OPS-16](https://github.com/sedecim-com/nostr/issues/294) | P3 | Webhooks y eventos para integraciones empresariales | Diferido | 5 | — | — | lista |
 | 1 | [NFR010-02](https://github.com/sedecim-com/nostr/issues/190) | P0 | Firma de releases y provenance (SLSA/cosign) | S9 | 3 | 10 | OPS-08 | persona |
 | 1 | [FR005-13](https://github.com/sedecim-com/nostr/issues/255) | P0 | KMS y Secrets Manager validados en la cuenta y región reales | S11 | 3 | 7 | NFR001-01 | aws |
 | 1 | [NFR001-03](https://github.com/sedecim-com/nostr/issues/172) | P0 | Postgres de alta disponibilidad y backups gestionados | S10 | 3 | 6 | NFR001-01 | aws |
 | 1 | [NFR001-02](https://github.com/sedecim-com/nostr/issues/171) | P0 | Monitorización de SLO (99,9 % mensual) y alertas | S10 | 3 | 4 | NFR001-01 | aws |
 | 1 | [SEC-12](https://github.com/sedecim-com/nostr/issues/258) | P0 | Inventario de la superficie de ataque de Buzz desplegado | S11 | 3 | 2 | NFR001-01 | aws |
 | 1 | [NFR005-02](https://github.com/sedecim-com/nostr/issues/180) | P0 | Pruebas de carga del relay y el indexer | S11 | 5 | — | NFR001-01 | aws |
-| 1 | [FR005-09](https://github.com/sedecim-com/nostr/issues/279) | P1 | Exportar desde el enclave exige una prueba del usuario verificada dentro del enclave | Diferido | 5 | — | FR005-05 | lista |
+| 1 | [FR005-09](https://github.com/sedecim-com/nostr/issues/279) | P1 | Exportar desde el enclave exige una prueba del usuario verificada dentro del enclave | Diferido | 5 | — | FR005-05 | aws |
 | 1 | [FR028-02](https://github.com/sedecim-com/nostr/issues/107) | P1 | Revisión legal/UX de los textos de disclosure | S13 | 2 | — | VAULT-07 | externo |
 | 1 | [SEC-10](https://github.com/sedecim-com/nostr/issues/278) | P1 | Revisión criptográfica delta de MLS estable | Diferido | 3 | — | FR025-08 | externo |
-| 1 | [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | Diferido | 3 | — | FR005-05 | lista |
+| 1 | [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | Diferido | 3 | — | FR005-05 | aws |
 | 1 | [OPS-15](https://github.com/sedecim-com/nostr/issues/293) | P2 | Organizaciones y planes en el SaaS | Diferido | 8 | — | DEC-14 | — |
 | 2 | [REL-01](https://github.com/sedecim-com/nostr/issues/196) | P0 | Checklist de Definition of Done automatizado en el pipeline de release | S9 | 3 | 7 | NFR010-02, DEC-10, OPS-08 | persona |
 | 2 | [FR026-04](https://github.com/sedecim-com/nostr/issues/253) | P0 | Salida de la custodia, borrado verificable y derechos ARCO | S11 | 5 | 6 | FR005-13 | aws |
@@ -128,7 +123,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | FR-022 | 2 | 2 | — |
 | FR-023 | 9 | 9 | — |
 | FR-024 | 5 | 5 | — |
-| FR-025 | 12 | 10 | FR025-08 (Diferido), FR025-14 (Diferido) |
+| FR-025 | 12 | 11 | FR025-08 (Diferido) |
 | FR-026 | 5 | 3 | FR026-04 (S11), FR005-09 (Diferido) |
 | FR-027 | 6 | 6 | — |
 | FR-028 | 8 | 5 | FR028-02 (S13), VAULT-07 (S10), NFR007-03 (Diferido) |
@@ -411,7 +406,7 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | [DEC-13](https://github.com/sedecim-com/nostr/issues/297) | P2 | ADR de un aviso de notificación separado del mensaje | ADR 0010, PRD GC-G03 | Decisión | 1 | OPS-06 | Parcial | Diseño evaluado cuando se retome un cliente móvil; no bloquea el RC |
 | [DEC-14](https://github.com/sedecim-com/nostr/issues/292) | P2 | Modelo comercial del SaaS: organizaciones, planes y facturación | §15.2 | Decisión | 1 | — | Parcial | ADR con el modelo de tenants, planes y proveedor de cobro |
 | [FR004-08](https://github.com/sedecim-com/nostr/issues/290) | P2 | Cliente soberano con signer NIP-46 e importación de nsec/ncryptsec | §14, FR-002, FR-004 | Dev | 3 | FR004-01 | Hecho | Perfiles Tor con signer externo (§14: offline/signer) y custodia declarada según la llave real |
-| [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | FR-005 | Seguridad | 3 | FR005-05 | Pendiente | El ncryptsec se cifra hacia la clave atestada del enclave; test |
+| [FR005-10](https://github.com/sedecim-com/nostr/issues/280) | P2 | Importar al enclave sin exponer la llave ni la contraseña al padre | FR-005 | Seguridad | 3 | FR005-05 | Parcial | El ncryptsec se cifra hacia la clave atestada del enclave; test |
 | [FR006-04](https://github.com/sedecim-com/nostr/issues/283) | P2 | Perfil público por persona (kind 0: nombre y avatar) | §7, FR-006 | Dev | 3 | FR006-02 | Hecho | Se publica y se muestra en canales, DMs y grupos; en perfiles seudónimos no se publica nada salvo elección explícita |
 | [FR006-07](https://github.com/sedecim-com/nostr/issues/287) | P2 | Compartimentación: avisar antes de reutilizar un contacto o un archivo entre personas | §14.1 | Dev | 3 | FR006-01 | Hecho | Aviso con confirmación explícita en la web y en el CLI, también para archivos (recordUsage) |
 | [FR014-04](https://github.com/sedecim-com/nostr/issues/284) | P2 | La web usa el mirror: no leídos por canal y búsqueda | FR-014, §15.2 | Dev | 3 | FR014-05, FR023-05 | Hecho | Contadores de no leídos y búsqueda en la web vía NIP-98, respetando la política |
@@ -419,18 +414,18 @@ Las tareas abiertas en olas según sus dependencias abiertas: la ola 0 no espera
 | [FR020-06](https://github.com/sedecim-com/nostr/issues/291) | P2 | Cliente soberano como servicio del perfil tor | FR-020 | Infra | 2 | FR021-02 | Hecho | docker compose run --rm sovereign … con TOR_SOCKS=tor:9050, documentado |
 | [FR023-11](https://github.com/sedecim-com/nostr/issues/289) | P2 | Device trust en uso: passkey del propio usuario | §16 | Dev | 5 | FR023-07 | Hecho | El usuario registra la passkey en su dispositivo y cada sesión pide una aserción WebAuthn |
 | [FR025-08](https://github.com/sedecim-com/nostr/issues/156) | P2 | Migrar a marmot-ts v2 / ts-mls estable cuando se publiquen | FR-025 | Dev | 3 | FR025-04 | Parcial | Dependencias estables con conformidad y autoprueba en verde, o excepción documentada. Hace falta para la etiqueta high-security, no para v1.0 |
-| [FR025-14](https://github.com/sedecim-com/nostr/issues/288) | P2 | Grupos completos en la web: multi-dispositivo, rotación, propuestas y media cifrada | FR-025 | Dev | 5 | FR025-11 | Pendiente | Lo que hoy solo ofrece el CLI (FR025-05/06/09 y rotate) disponible en «Grupos seguros» |
+| [FR025-14](https://github.com/sedecim-com/nostr/issues/288) | P2 | Grupos completos en la web: multi-dispositivo, rotación, propuestas y media cifrada | FR-025 | Dev | 5 | FR025-11 | Hecho | Lo que hoy solo ofrece el CLI (FR025-05/06/09 y rotate) disponible en «Grupos seguros» |
 | [NFR003-04](https://github.com/sedecim-com/nostr/issues/282) | P2 | Copia en una segunda región para el tier institucional | NFR-003 | Infra | 5 | NFR001-03, NFR003-01 | Pendiente | Datos y WAL replicados según el RPO/RTO aprobado; restauración probada |
 | [OPS-15](https://github.com/sedecim-com/nostr/issues/293) | P2 | Organizaciones y planes en el SaaS | §15.2 | Dev | 8 | DEC-14 | Pendiente | Tenants y organizaciones en identity y policy; planes y cobro según DEC-14 |
 | [PANEL-06](https://github.com/sedecim-com/nostr/issues/286) | P2 | Expiración de mensajes por perfil (NIP-40) y borrado con aviso | §12.2 | Dev | 5 | PANEL-02, VAULT-05 | Pendiente | Expiración configurable por persona y conversación; borrar mensajes propios con el aviso de que las copias replicadas pueden seguir existiendo; coherente con la retención del vault |
 | [FR004-07](https://github.com/sedecim-com/nostr/issues/301) | P3 | Signer de hardware (opcional en el scope) | §8.2 | Dev | 5 | — | Pendiente | Spike con un dispositivo de hardware y decisión documentada |
-| [FR013-05](https://github.com/sedecim-com/nostr/issues/299) | P3 | Caché local cifrada de eventos y NIP-77 con estado local | §7, §12 | Dev | 5 | — | Pendiente | Lectura sin conexión, reanudación por since y NIP-77 con conjunto local (interop con strfry) |
-| [FR015-05](https://github.com/sedecim-com/nostr/issues/298) | P3 | Presencia (NIP-38) opt-in por perfil | §15.1 | Dev | 3 | — | Pendiente | Estado de presencia solo en perfiles que lo permiten |
+| [FR013-05](https://github.com/sedecim-com/nostr/issues/299) | P3 | Caché local cifrada de eventos y NIP-77 con estado local | §7, §12 | Dev | 5 | — | Hecho | Lectura sin conexión, reanudación por since y NIP-77 con conjunto local (interop con strfry) |
+| [FR015-05](https://github.com/sedecim-com/nostr/issues/298) | P3 | Presencia (NIP-38) opt-in por perfil | §15.1 | Dev | 3 | — | Hecho | Estado de presencia solo en perfiles que lo permiten |
 | [FR018-06](https://github.com/sedecim-com/nostr/issues/300) | P3 | Política de tamaño, MIME y antivirus compatible con la confidencialidad | §13.1 | Doc | 2 | — | Hecho | Política documentada y comprobación de tamaño en el cliente |
 | [FR020-02](https://github.com/sedecim-com/nostr/issues/142) | P3 | Cliente desktop dedicado con Tor embebido | FR-020, §25 | Dev | 8 | DEC-04 | Pendiente | App desktop (Tauri) que usa el SDK con Tor integrado y el perfil sovereign-tor |
-| [NFR007-02](https://github.com/sedecim-com/nostr/issues/295) | P3 | Tracing con muestreo y redacción según el perfil | §18 | Dev | 3 | NFR007-01 | Pendiente | Trazas en los servicios con muestreo y redacción, apagadas en perfiles Tor. Hasta entonces PANEL-05 retira la promesa |
+| [NFR007-02](https://github.com/sedecim-com/nostr/issues/295) | P3 | Tracing con muestreo y redacción según el perfil | §18 | Dev | 3 | NFR007-01 | Hecho | Trazas en los servicios con muestreo y redacción, apagadas en perfiles Tor. Hasta entonces PANEL-05 retira la promesa |
 | [NFR007-03](https://github.com/sedecim-com/nostr/issues/296) | P3 | Crash reports opt-in con limpieza y exportación manual local | §18, FR-028 | Dev | 3 | NFR007-01 | Pendiente | Implementados según el perfil. Hasta entonces PANEL-05 retira la promesa |
-| [OPS-16](https://github.com/sedecim-com/nostr/issues/294) | P3 | Webhooks y eventos para integraciones empresariales | §15.2, §17.2 | Dev | 5 | — | Pendiente | El policy-engine emite eventos firmados (sustituye el sondeo de la auditoría); webhooks con reintentos |
+| [OPS-16](https://github.com/sedecim-com/nostr/issues/294) | P3 | Webhooks y eventos para integraciones empresariales | §15.2, §17.2 | Dev | 5 | — | Hecho | El policy-engine emite eventos firmados (sustituye el sondeo de la auditoría); webhooks con reintentos |
 
 ## Entregado en v0.1 — 50 tareas
 

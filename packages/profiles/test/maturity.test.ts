@@ -40,4 +40,13 @@ describe('maturity of a configuration', () => {
     // Continuity best-effort without a vault only means no copy: convenience keeps its level.
     expect(configMaturity(preset('convenience'), { continuityVault: false }).level).toBe('early-release');
   });
+
+  it('FR015-05: turning presence on makes the configuration Experimental, and the catalog says why', () => {
+    expect(maturity('presence')).toMatchObject({ kind: 'function', level: 'experimental' });
+    expect(maturity('presence').why).toMatch(/No está probado contra el Buzz fijado/);
+    expect(configMaturity({ ...preset('convenience'), presence: 'status' }, { continuityVault: true })).toMatchObject({ level: 'experimental', label: 'Experimental' });
+    expect(configMaturity({ ...preset('convenience'), presence: 'status' }, { continuityVault: true }).parts.map((p) => p.id)).toContain('presence');
+    expect(configMaturity(preset('convenience'), { continuityVault: true }).parts.map((p) => p.id)).not.toContain('presence');
+    expect(maturityTable()).toContain('| Estado de presencia (NIP-38) | Función | Experimental |');
+  });
 });

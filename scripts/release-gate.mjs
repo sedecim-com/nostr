@@ -314,7 +314,7 @@ export function checkNotesFile({ tag, root = process.cwd() }) {
 /** OPS-20: features the production configuration may only turn on with their evidence. */
 export const PRODUCTION_GATES = 'deploy/production-gates.json';
 export const MATURITY = ['GA', 'Beta', 'Preview', 'Experimental'];
-const FEATURE_FIELDS = ['title', 'maturity', 'webKeys', 'termsKey', 'components', 'settings', 'terraform', 'legalApproval', 'auditReports', 'safeTrigger', 'evidence'];
+const FEATURE_FIELDS = ['title', 'maturity', 'webKeys', 'termsKey', 'components', 'settings', 'terraform', 'legalApproval', 'auditReports', 'safeTrigger', 'evidence', 'testOnly'];
 /** How a feature is found in the configuration; a feature without any would never be seen. */
 const DETECTORS = ['webKeys', 'components', 'settings', 'terraform'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -354,6 +354,7 @@ export function registryProblems(reg) {
     if (f.termsKey !== undefined && !(f.legalApproval && f.webKeys?.includes(f.termsKey))) out.push(`${at}.termsKey debe ser una de sus webKeys y necesita legalApproval`);
     if (f.safeTrigger !== undefined && typeof f.safeTrigger !== 'boolean') out.push(`${at}.safeTrigger debe ser true o false`);
     if (f.safeTrigger === true && !(typeof f.evidence === 'string' && f.evidence.length >= 30)) out.push(`${at}.safeTrigger = true necesita la evidencia ("evidence")`);
+    if (f.testOnly !== undefined && !(typeof f.testOnly === 'string' && f.testOnly.length >= 30)) out.push(`${at}.testOnly debe decir por qué es solo para pruebas (30 caracteres o más)`);
   }
   return out;
 }
@@ -417,6 +418,8 @@ function blockers(f, root) {
     if (missing.length) out.push(`${missing.join(', ')} sin informe en docs/security/audits/<tag>.md (un waiver no basta)`);
   }
   if (f.safeTrigger === false) out.push(`no hay un disparador seguro${f.evidence ? ` (${f.evidence})` : ''}`);
+  // OPS-16: a setting for tests and development never reaches production, whatever the evidence.
+  if (f.testOnly) out.push(`es solo para pruebas y desarrollo: ${f.testOnly}`);
   return out;
 }
 
@@ -516,7 +519,8 @@ export function productionSites({ root = process.cwd(), registry }) {
 
 /**
  * OPS-20: with legal approval or audits pending the managed onboarding is not in the production configuration;
- * whatever is Preview (the enclave and its export) stays off; push stays off without a safe trigger.
+ * whatever is Preview (the enclave and its export) stays off; push stays off without a safe trigger. OPS-16: a setting
+ * only for tests (webhooks to private destinations) never is.
  */
 export function checkConfig({ root = process.cwd() } = {}) {
   const text = readIfExists(join(root, PRODUCTION_GATES), 'utf8');

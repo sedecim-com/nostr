@@ -2,8 +2,8 @@
 
 **Configuración** (`PRESETS.convenience`): llave local, red directa, identidad vinculada a la cuenta,
 persistencia replicada, NIP-17, archivos en claro, telemetría mínima, push opaco, backup en la
-nube cifrado con clave del usuario, confirmaciones de entrega activadas y de lectura desactivadas, informes de fallo
-a mano (`manual-export`, NFR007-03).
+nube cifrado con clave del usuario, confirmaciones de entrega activadas y de lectura desactivadas, estado de presencia
+(NIP-38) apagado, informes de fallo a mano (`manual-export`, NFR007-03).
 
 ## Activos
 Llave de la persona (nsec), contenido de DMs, historial de canales, grafo de contactos, vínculo
@@ -29,6 +29,7 @@ cuenta↔npub en el identity-service, backup cifrado.
 | Mensajes ajenos ocultados por un borrado falso | La web solo aplica un 9005 del autor del mensaje o de un admin de la lista 39001 firmada por la llave del canal, y un kind 5 sobre eventos de quien lo firma (FR015-04) | `packages/messaging/test/channels.test.ts`, `apps/web-saas/test/channel-collab.test.ts` |
 | Registro en el operador de hasta dónde lees cada canal | La web guarda ese cursor cifrado en el vault del navegador y al mirror solo le pide la hora de los mensajes recientes (FR014-04) | `apps/web-saas/test/mirror.test.ts` |
 | Datos de la persona en un informe de fallo | Nada se envía: el informe del último fallo queda en la memoria de la pestaña y la persona lo ve entero antes de guardarlo en un archivo. Lista cerrada de campos, sin llaves, pubkeys, URLs, hosts, IPs, rutas, texto entre comillas ni user agent; guardarlos en el vault (`opt-in`) solo lo enciende la persona ([informes de fallo](../crash-reports.md)) | `packages/telemetry-policy/test/crash-report.test.ts`, `apps/web-saas/test/crash.test.ts` (NFR007-03) |
+| Estado de presencia que revela actividad | Apagado en el preset. Si la persona lo activa, solo sale el texto que escribe y confirma, sin enlaces ni menciones, con caducidad de 24 h como mucho y sin etiquetas que lo enlacen con otras personas o lugares; los estados ajenos viajan en la consulta de los perfiles, sin consulta propia (FR015-05, [presence.md](../presence.md)) | `apps/web-saas/test/presence.test.ts`, `packages/messaging/test/presence.test.ts` |
 | Metadatos EXIF en imágenes | Saneamiento por defecto (`stripFileMetadata`); las imágenes que no se pueden sanear (HEIC, TIFF/RAW) se rechazan, también en DMs | `packages/blossom-client/test`, `tests/browser/web-saas.e2e.ts` |
 
 ## Riesgos residuales
@@ -40,6 +41,7 @@ cuenta↔npub en el identity-service, backup cifrado.
 | Correlación cuenta↔npub en el identity-service | Medio | Solo si el usuario registra la persona |
 | Borrar un mensaje de canal no retira sus copias | Medio | Quien lo recibió, otros clientes y relays pueden conservarlo, y el mirror conserva la fila marcada; la web lo dice antes de borrar (FR015-04) |
 | El mirror ve qué canales consultas, cuándo y qué buscas | Medio | Contadores de no leídos y búsqueda firmados con NIP-98 (FR014-04); la vista de canales lo dice; aceptado en este perfil, con identidad vinculada |
+| Estado de presencia publicado | Bajo | Solo si la persona lo activa: los relays y quien pueda leerlos ven el texto y la hora de cada estado, y los que ignoran NIP-40 pueden conservarlo (FR015-05) |
 | Contraseña local débil | Medio | scrypt `logN=15` (store) y `logN=16` (NIP-49); falta medidor de fortaleza |
 | XSS en la web | Medio | CSP estricta con nonce por petición (sin `unsafe-inline`); la sesión de Acceso no da acceso a las llaves; pentest pendiente (SEC-02) |
 | Acceso físico al navegador con llave del dispositivo | Medio | Solo si el usuario la elige (ADR 0007); disclosure y aviso `DEVICE_KEY`; se puede volver a contraseña en cualquier momento |

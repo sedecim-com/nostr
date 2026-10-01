@@ -52,7 +52,7 @@ Cada fila tiene el nivel de evidencia más bajo que alcanzan todas sus tareas de
 | Custodia gestionada y Nitro Enclave | Capacidad | En curso | 13 de 16 | FR005-05 (S14), FR026-04 (S11), FR005-13 (S11), FR005-09 (Diferido), FR005-10 (Diferido) |
 | Entrega fiable (outbox, quorum, acuses) | Capacidad | En curso | 19 de 20 | NFR002-03 (S11) |
 | DMs NIP-17 y canales NIP-29 | Capacidad | Merged | 8 de 8 | — |
-| Grupos Marmot/MLS | Capacidad | Merged | 9 de 9 | FR025-08 (Diferido), FR025-14 (Diferido) |
+| Grupos Marmot/MLS | Capacidad | Merged | 9 de 9 | FR025-08 (Diferido) |
 | Continuity Vault | Capacidad | En curso | 6 de 7 | VAULT-07 (S10) |
 | Adjuntos Blossom sin metadatos | Capacidad | Merged | 8 de 8 | — |
 | Panel de soberanía, madurez y disclosures | Capacidad | En curso | 5 de 7 | FR028-02 (S13), VAULT-07 (S10), NFR007-03 (Diferido) |
@@ -80,6 +80,7 @@ Antes de v1.0 nada es GA: falta la revisión externa (SEC-01 y SEC-02). La web, 
 | Custodia gestionada básica | Función | Early release | Espera la aprobación legal (DEC-12) y la validación en AWS; el gate de release no la deja en producción. | GA opcional, con la aprobación legal y KMS y Secrets Manager reales. |
 | Custodia en Nitro Enclave | Función | Preview | Prototipo: la attestation solo se verificó en local, y va apagada en producción. | Preview: EIF, PCR, attestation y KMS reales más auditoría. |
 | Notificaciones push | Función | Experimental | Con Buzz y el secure relay, el gateway no puede ver la actividad sin leer DMs, así que no se ofrecen. | Experimental, detrás de un flag. |
+| Estado de presencia (NIP-38) | Función | Experimental | Solo en la web y apagado salvo que la persona lo active. No está probado contra el Buzz fijado: el gate de interoperabilidad registra si acepta el kind 30315, sin exigirlo. | Fuera del programa de v1.0: sigue Experimental. |
 <!-- maturity:end -->
 
 Trazabilidad FR/NFR → tareas → tests y tablero de estado, generados desde los issues y el código (CI comprueba que toda la evidencia citada exista): [docs/requirements-traceability.md](docs/requirements-traceability.md) · [docs/status.md](docs/status.md).

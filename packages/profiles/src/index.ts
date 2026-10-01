@@ -4,4 +4,5 @@ export * from './disclose';
 export * from './validate';
 export * from './notifications';
 export * from './mirror';
+export * from './presence';
 export * from './maturity';

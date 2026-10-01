@@ -122,4 +122,12 @@ export class Collection<T> {
     }
     return out;
   }
+
+  /**
+   * Deletes every entry of this collection, found by the backend's key listing: nothing is decrypted, so entries that no
+   * longer open (another key, a damaged file) go too. Other collections are not touched.
+   */
+  async clear(): Promise<void> {
+    for (const k of await this.store.raw.keys(`${this.name}:`)) await this.store.raw.delete(k);
+  }
 }

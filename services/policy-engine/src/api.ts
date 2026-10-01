@@ -1,6 +1,6 @@
 import { Service, HttpError, isHex64, lookupToken, requireFields, type Req, type ServiceOptions } from '@sedecim/service-kit';
 import type { Action, Resource, Subject, Device, Rotation } from '@sedecim/policy-client';
-import { ConflictError, DEFAULT_ACCESS_LOG_RETENTION_DAYS, NotFoundError, PolicyEngine, RETENTION_NOTICE, SessionDeniedError } from './engine';
+import { ConflictError, DEFAULT_ACCESS_LOG_RETENTION_DAYS, FeatureDisabledError, InvalidInputError, NotFoundError, PolicyEngine, RETENTION_NOTICE, SessionDeniedError } from './engine';
 import { WebAuthnError, type AssertionCredentialJSON, type RegistrationCredentialJSON } from './webauthn';
 
 const TEXT_MAX = 200;
@@ -25,17 +25,21 @@ async function run<T>(fn: () => Promise<T>): Promise<T> {
     return await fn();
   } catch (e) {
     if (e instanceof HttpError) throw e;
-    if (e instanceof NotFoundError) throw new HttpError(404, e.message);
+    if (e instanceof NotFoundError || e instanceof FeatureDisabledError) throw new HttpError(404, e.message);
     if (e instanceof ConflictError) throw new HttpError(409, e.message);
+    if (e instanceof InvalidInputError) throw new HttpError(400, e.message);
     if (e instanceof WebAuthnError) throw new HttpError(400, `webauthn: ${e.message}`);
     if (e instanceof SessionDeniedError) throw new HttpError(403, e.message);
     throw e;
   }
 }
 
-/** IR-2026-10-01: what a service token may call, by the principal it names in POLICY_SERVICE_TOKENS (`token:principal`). */
-export type ServiceScope = 'evaluate' | 'retention' | 'relay' | 'rotations';
-export const SERVICE_SCOPES: readonly ServiceScope[] = ['evaluate', 'retention', 'relay', 'rotations'];
+/**
+ * IR-2026-10-01: what a service token may call, by the principal it names in POLICY_SERVICE_TOKENS (`token:principal`).
+ * OPS-16: `events` reads the signed event stream (an integration's token; no principal has it by default).
+ */
+export type ServiceScope = 'evaluate' | 'retention' | 'relay' | 'rotations' | 'events';
+export const SERVICE_SCOPES: readonly ServiceScope[] = ['evaluate', 'retention', 'relay', 'rotations', 'events'];
 
 /**
  * The principals our own services use and what each one needs: the indexer evaluates reads and reads the retention,
@@ -49,7 +53,7 @@ export const DEFAULT_SERVICE_SCOPES: Readonly<Record<string, readonly ServiceSco
 };
 
 /**
- * POLICY_SERVICE_SCOPES: `principal=scope+scope,...` (scopes: evaluate, retention, relay, rotations), added to or
+ * POLICY_SERVICE_SCOPES: `principal=scope+scope,...` (scopes: evaluate, retention, relay, rotations, events), added to or
  * replacing the defaults; `principal=` leaves a principal without any.
  */
 export function parseServiceScopes(v: string | undefined): Record<string, ServiceScope[]> {
@@ -226,6 +230,35 @@ export function createPolicyApi(
     adminOrService(req, 'rotations');
     return engine.listRevocations({ after: intParam(req, 'after', 0), limit: intParam(req, 'limit', 1) });
   }, 'nip98-or-token');
+
+  // OPS-16: the signed events, from a cursor, instead of polling the audit (an admin, or a token with the `events` scope).
+  svc.get('/v1/events', async (req) => {
+    adminOrService(req, 'events');
+    return run(() => engine.listEvents({ after: intParam(req, 'after', 0), limit: intParam(req, 'limit', 1) }));
+  }, 'nip98-or-token');
+  // OPS-16: the public keys that verify them, for anyone (JWKS).
+  svc.get('/v1/events/keys', () => run(() => engine.eventKeys()), 'none');
+  svc.get('/v1/webhooks', async (req) => (admin(req.pubkey), { webhooks: await run(() => engine.listWebhooks()) }), 'nip98');
+  // The only answer that carries the subscription's secret.
+  svc.post('/v1/webhooks', async (req) => {
+    const actor = admin(req.pubkey);
+    const body = req.json<{ url?: unknown; types?: unknown } | null>();
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'JSON object required');
+    return { status: 201, body: await run(() => engine.createWebhook(actor, { url: body.url, types: body.types })) };
+  }, 'nip98');
+  svc.delete('/v1/webhooks/:id', async (req) => {
+    const actor = admin(req.pubkey);
+    await run(() => engine.deleteWebhook(actor, req.params.id!));
+    return { ok: true };
+  }, 'nip98');
+  svc.post('/v1/webhooks/:id/enable', async (req) => {
+    const actor = admin(req.pubkey);
+    return { webhook: await run(() => engine.enableWebhook(actor, req.params.id!)) };
+  }, 'nip98');
+  svc.get('/v1/webhooks/:id/deliveries', async (req) => {
+    admin(req.pubkey);
+    return { deliveries: await run(() => engine.listWebhookDeliveries(req.params.id!, { limit: intParam(req, 'limit', 1), before: intParam(req, 'before', 1) })) };
+  }, 'nip98');
 
   svc.get('/v1/directory', async (req) => (admin(req.pubkey), { entries: await engine.listDirectory() }), 'nip98');
   svc.put('/v1/directory/:pubkey', async (req) => {

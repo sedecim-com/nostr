@@ -5,7 +5,9 @@ import type { SovereigntyConfig } from './types';
  * device by themselves: 'manual-export' (the last failure, not stored, saved in a file only by hand) where Appendix B
  * has 'manual-export' or 'opt-in', and 'off' in private-resilient and sovereign-tor. No preset picks 'opt-in', which
  * keeps reports in the device's store: only the person turns it on. VAULT-04: private-resilient holds each send until
- * its copy is in the Continuity Vault; the sovereign profiles keep everything on the device.
+ * its copy is in the Continuity Vault; the sovereign profiles keep everything on the device. FR015-05: presence (NIP-38)
+ * is 'off' everywhere: a status is metadata, so only the user turns it on, where the profile allows it
+ * (presencePolicy).
  *
  * Custody is the profile's reference, not a persona's: the sovereign profiles say 'offline' because spec §14 keeps
  * their key offline or in a signer. A client declares the custody of the persona's real key instead, never a promise
@@ -25,6 +27,7 @@ export const PRESETS = {
     cloudBackup: 'ciphertext-user-key',
     continuity: 'best-effort',
     crashReports: 'manual-export',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: true,
     deliveryReceipts: true,
@@ -44,6 +47,7 @@ export const PRESETS = {
     cloudBackup: 'ciphertext-user-key',
     continuity: 'required-for-resilient',
     crashReports: 'off',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: true,
@@ -63,6 +67,7 @@ export const PRESETS = {
     cloudBackup: 'operator-managed',
     continuity: 'best-effort',
     crashReports: 'manual-export',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: true,
@@ -82,6 +87,7 @@ export const PRESETS = {
     cloudBackup: 'off',
     continuity: 'off',
     crashReports: 'manual-export',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: false,
@@ -101,6 +107,7 @@ export const PRESETS = {
     cloudBackup: 'off',
     continuity: 'off',
     crashReports: 'off',
+    presence: 'off',
     localProtection: 'passphrase',
     remotePreviews: false,
     deliveryReceipts: false,

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   evaluate,
   type Action,
@@ -13,7 +13,9 @@ import {
   type Rotation,
   type Subject,
 } from '@sedecim/policy-client';
-import { MemoryPolicyRepository, type PolicyRepository, type StoredDevice } from './repository';
+import { canonicalJson, EVENT_TYPES, eventData, eventPublicJwk, signPolicyEvent, webhookSecret, type EventPublicJwk, type EventSigningKey, type EventType, type PolicyEvent } from './events';
+import { MemoryPolicyRepository, type DeliveryRow, type PolicyRepository, type SealedEvent, type StoredDevice, type WebhookRow } from './repository';
+import { checkWebhookUrl, DestinationError, resolveDestination, type DestinationPolicy } from './webhooks';
 import {
   creationOptions,
   newChallenge,
@@ -57,8 +59,41 @@ export interface WebAuthnConfig {
   sessionRequireAssertion?: boolean;
 }
 
+/** OPS-16: signed events (POLICY_EVENTS_SIGNING_KEY_FILE). Without it the engine emits none. */
+export interface EventsConfig {
+  /** POLICY_EVENTS_ISSUER (by default PUBLIC_BASE_URL): in every event, pinned by the verifier. */
+  issuer: string;
+  key: EventSigningKey;
+  /** POLICY_EVENTS_REVOKED_KIDS: keys no longer served (compromised): their events stop verifying. */
+  revokedKids?: readonly string[];
+  /** POLICY_WEBHOOK_SECRETS_KEY_FILE: without it there are no webhooks, and the event stream still works. */
+  webhooks?: WebhooksConfig;
+}
+
+export interface WebhooksConfig {
+  secretsKey: Buffer;
+  policy: DestinationPolicy;
+  /** POLICY_WEBHOOKS_MAX: subscriptions of the organisation (this policy-engine). */
+  max: number;
+}
+
+/** OPS-16: a page of GET /v1/events. */
+export interface EventPage {
+  events: PolicyEvent[];
+  /** Pass it as `after` for the next page: the last event's `seq`, or `after` itself when there were none. */
+  next: number;
+}
+
+/** OPS-16: a subscription as the API shows it (never its secret, nor the salt it is derived from). */
+export type WebhookView = Omit<WebhookRow, 'salt'>;
+const webhookView = ({ salt: _salt, ...w }: WebhookRow): WebhookView => w;
+
 export class NotFoundError extends Error {}
 export class ConflictError extends Error {}
+/** OPS-16: a request the engine refuses as malformed (400). */
+export class InvalidInputError extends Error {}
+/** OPS-16: events or webhooks are off in this engine (404). */
+export class FeatureDisabledError extends Error {}
 /** FR023-11: a session was not opened. Its message is what the caller sees; what went wrong with an assertion is only audited. */
 export class SessionDeniedError extends Error {}
 
@@ -66,6 +101,15 @@ export class SessionDeniedError extends Error {}
 export const ASSERTION_REJECTED = 'WebAuthn assertion rejected';
 
 const hashToken = (t: string) => createHash('sha256').update(t).digest('hex');
+
+/** OPS-16: the event types a subscription asks for; none: all of them. */
+function webhookTypes(v: unknown): string[] {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.some((t) => typeof t !== 'string' || !(EVENT_TYPES as readonly string[]).includes(t))) {
+    throw new InvalidInputError(`types must be a list of event types (${EVENT_TYPES.join(', ')})`);
+  }
+  return [...new Set(v as string[])].sort();
+}
 /** Strips the stored WebAuthn public key and counter: the API only returns the public Device. */
 const publicDevice = ({ credentialPublicKey: _k, signCount: _c, ...d }: StoredDevice): Device => d;
 
@@ -79,10 +123,121 @@ export class PolicyEngine {
     readonly repo: PolicyRepository = new MemoryPolicyRepository(),
     private readonly now: () => number = Date.now,
     private readonly webauthn: WebAuthnConfig = { rpId: 'localhost', rpName: 'Acceso Nostr', origins: ['http://localhost:8080'] },
-  ) {}
+    private readonly events?: EventsConfig,
+  ) {
+    if (events?.revokedKids?.includes(events.key.kid)) throw new Error(`the events signing key ${events.key.kid} is revoked (POLICY_EVENTS_REVOKED_KIDS)`);
+  }
 
-  private log(actor: string, action: string, target: string, details?: Record<string, unknown>) {
-    return this.repo.appendAudit({ at: this.now(), actor, action, target, ...(details ? { details } : {}) });
+  /** OPS-16: with events on, the entry's signed event is written with it (see `appendAudit`). */
+  private log(actor: string, action: EventType, target: string, details?: Record<string, unknown>) {
+    return this.repo.appendAudit({ at: this.now(), actor, action, target, ...(details ? { details } : {}) }, this.events ? this.seal : undefined);
+  }
+
+  /** OPS-16: the event of an audit entry, signed now: its data is the entry as stored, never more. */
+  private readonly seal = (entry: PolicyAuditEntry, seq: number): SealedEvent => {
+    const { issuer, key } = this.events!;
+    const event = signPolicyEvent({ id: randomUUID(), type: entry.action, created_at: entry.at, seq, issuer, data: eventData(entry) }, key);
+    return { id: event.id, type: event.type, createdAt: event.created_at, envelope: canonicalJson(event) };
+  };
+
+  get eventsEnabled(): boolean {
+    return !!this.events;
+  }
+  get webhooksEnabled(): boolean {
+    return !!this.events?.webhooks;
+  }
+  private requireEvents(): EventsConfig {
+    if (!this.events) throw new FeatureDisabledError('events are disabled on this policy-engine (POLICY_EVENTS_SIGNING_KEY_FILE)');
+    return this.events;
+  }
+  private requireWebhooks(): WebhooksConfig {
+    const webhooks = this.requireEvents().webhooks;
+    if (!webhooks) throw new FeatureDisabledError('webhooks are disabled on this policy-engine (POLICY_WEBHOOK_SECRETS_KEY_FILE)');
+    return webhooks;
+  }
+
+  /** OPS-16: records the signing key, so that its public key keeps being served after a rotation. Run at startup. */
+  async initEvents(): Promise<void> {
+    const { key } = this.requireEvents();
+    await this.repo.recordEventKey({ kid: key.kid, x: key.publicJwk.x, createdAt: this.now() });
+  }
+
+  /**
+   * OPS-16: the public keys to verify events with (JWKS): the current one and every one recorded before it, but the
+   * revoked ones. Each `kid` is recomputed from its key.
+   */
+  async eventKeys(): Promise<{ issuer: string; current: string; keys: EventPublicJwk[] }> {
+    const { issuer, key, revokedKids = [] } = this.requireEvents();
+    const keys = new Map((await this.repo.listEventKeys()).map((k) => [k.kid, eventPublicJwk(k.x)]));
+    keys.set(key.kid, key.publicJwk);
+    return { issuer, current: key.kid, keys: [...keys.values()].filter((k) => !revokedKids.includes(k.kid)) };
+  }
+
+  /** OPS-16: signed events after `after` (a seq), oldest first. */
+  async listEvents(q: { after?: number; limit?: number } = {}): Promise<EventPage> {
+    this.requireEvents();
+    const after = q.after ?? 0;
+    const events = await this.repo.listEvents({ after, limit: Math.min(Math.max(q.limit ?? 100, 1), 1000) });
+    return { events: events.map((e) => JSON.parse(e.envelope) as PolicyEvent), next: events.at(-1)?.seq ?? after };
+  }
+
+  /**
+   * OPS-16: subscribes a URL to the events (all, or those of `types`). The URL is checked as each delivery will check it
+   * (https, no credentials, and a name that resolves only to public addresses). Returns its secret, which is shown only
+   * here: it is derived, never stored. The audit keeps the destination's host, not the URL (it may carry a token).
+   */
+  async createWebhook(actor: string, input: { url?: unknown; types?: unknown }): Promise<{ webhook: WebhookView; secret: string }> {
+    const cfg = this.requireWebhooks();
+    let url: URL;
+    try {
+      url = checkWebhookUrl(input.url, cfg.policy.allowPrivate);
+      await resolveDestination(url, cfg.policy);
+    } catch (e) {
+      if (e instanceof DestinationError) throw new InvalidInputError(e.message);
+      throw e;
+    }
+    const types = webhookTypes(input.types);
+    const row: WebhookRow = { id: randomBytes(8).toString('hex'), url: url.href, types, status: 'active', salt: randomBytes(16).toString('hex'), createdAt: this.now(), createdBy: actor, consecutiveFailures: 0 };
+    if (!(await this.repo.createWebhook(row, cfg.max))) throw new ConflictError(`this policy-engine already has ${cfg.max} webhook subscriptions (POLICY_WEBHOOKS_MAX)`);
+    await this.log(actor, 'webhook.create', row.id, { host: url.host, types });
+    return { webhook: webhookView(row), secret: webhookSecret(cfg.secretsKey, row.id, row.salt) };
+  }
+
+  async listWebhooks(): Promise<WebhookView[]> {
+    this.requireWebhooks();
+    return (await this.repo.listWebhooks()).map(webhookView);
+  }
+
+  async deleteWebhook(actor: string, id: string): Promise<void> {
+    this.requireWebhooks();
+    const w = await this.repo.getWebhook(id);
+    if (!w || !(await this.repo.deleteWebhook(id))) throw new NotFoundError('unknown webhook');
+    await this.log(actor, 'webhook.delete', id, { host: new URL(w.url).host });
+  }
+
+  /** OPS-16: a subscription disabled by its failures delivers again, from the next event (older ones: GET /v1/events). */
+  async enableWebhook(actor: string, id: string): Promise<WebhookView> {
+    this.requireWebhooks();
+    const w = await this.repo.enableWebhook(id);
+    if (!w) throw new NotFoundError('unknown webhook');
+    await this.log(actor, 'webhook.enable', id);
+    return webhookView(w);
+  }
+
+  async listWebhookDeliveries(id: string, q: { limit?: number; before?: number } = {}): Promise<DeliveryRow[]> {
+    this.requireWebhooks();
+    if (!(await this.repo.getWebhook(id))) throw new NotFoundError('unknown webhook');
+    return this.repo.listDeliveries(id, { limit: Math.min(Math.max(q.limit ?? 100, 1), 1000), ...(q.before !== undefined ? { before: q.before } : {}) });
+  }
+
+  /** OPS-16: the dispatcher disabled a subscription after `failures` failed attempts in a row. */
+  async webhookDisabled(id: string, failures: number): Promise<void> {
+    await this.log('policy-engine', 'webhook.disable', id, { failures });
+  }
+
+  /** OPS-16: deletes the finished deliveries older than `days` days. Returns how many. */
+  pruneWebhookDeliveries(days: number): Promise<number> {
+    return this.repo.pruneDeliveries(this.now() - days * 86_400_000);
   }
 
   /** Sets roles and attributes. Never changes the revocation (FR023-09): lifting it is `reactivateSubject`. */
