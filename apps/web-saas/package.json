@@ -21,7 +21,7 @@
     "@sedecim/relay-pool": "0.1.0",
     "@sedecim/signer": "0.1.0",
     "@sedecim/sync": "0.1.0",
-    "aws-amplify": "6.22.0",
+    "aws-amplify": "6.22.1",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
