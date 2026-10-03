@@ -98,7 +98,7 @@ services:
   # S3-compatible object store for Buzz media. MinIO no longer publishes pullable images, so the
   # stack uses SeaweedFS (Apache-2.0), pinned by digest. Credentials come from .env (alphanumeric).
   seaweedfs:
-    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.47@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882}
+    image: ${SEAWEEDFS_IMAGE:-chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d}
     entrypoint: ["/bin/sh", "-c"]
     # IR-2026-10-12: only the S3 API (8333) is on the network. The master, volume and filer bind to 127.0.0.1, so no
     # container on the compose network reaches the unauthenticated filer/master (the PoC deleted envelopes through the
