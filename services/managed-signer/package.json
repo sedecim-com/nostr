@@ -11,7 +11,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-kms": "3.1141.0",
+    "@aws-sdk/client-kms": "3.1143.0",
     "@aws-sdk/client-secrets-manager": "3.1141.0",
     "@noble/ciphers": "2.4.0",
     "@sedecim/metrics": "0.1.0",
