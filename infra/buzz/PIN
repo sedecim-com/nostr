@@ -1,6 +1,6 @@
 # Upstream Buzz, used unmodified (no fork, ADR 0002). Update per ADR 0003: only after the interop gate passes.
 BUZZ_UPSTREAM=https://github.com/block/buzz
-BUZZ_COMMIT=0ee609379004a894e99b449885c37a044f41919e
-BUZZ_COMMIT_DATE=2026-09-30
-BUZZ_IMAGE=ghcr.io/block/buzz@sha256:b2cf08fd73d30e63f88832dde50d6f5f0df26e8c3ed63b133371f8ae4247d479
+BUZZ_COMMIT=f0eb5575ffc9d5f57af4ed3f574529d997c83a0d
+BUZZ_COMMIT_DATE=2026-10-04
+BUZZ_IMAGE=ghcr.io/block/buzz@sha256:85caf3562e14ae00bf176afb3396f7c7c277f3c950f7fd762eca79d5b07fc8a9
 BUZZ_LICENSE=Apache-2.0

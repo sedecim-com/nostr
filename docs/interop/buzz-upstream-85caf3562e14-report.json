@@ -1,0 +1,165 @@
+{
+  "relay": "ws://localhost:3000",
+  "startedAt": "2026-10-05T07:10:02.820Z",
+  "nip11": {
+    "status": 200,
+    "supported_nips": [
+      1,
+      2,
+      10,
+      11,
+      16,
+      17,
+      23,
+      25,
+      29,
+      33,
+      38,
+      42,
+      50,
+      56
+    ],
+    "software": "https://github.com/block/buzz",
+    "version": "0.2.1"
+  },
+  "nip29_create": {
+    "relay": "ws://localhost:3000",
+    "ok": true,
+    "message": "",
+    "latencyMs": 142
+  },
+  "nip29_group_id": "797389b1-e2fe-4882-b2e5-6af108f24a7d",
+  "nip29_message": {
+    "relay": "ws://localhost:3000",
+    "ok": true,
+    "message": "",
+    "latencyMs": 10
+  },
+  "nip29Collaboration": {
+    "reply": {
+      "relay": "ws://localhost:3000",
+      "ok": true,
+      "message": "",
+      "latencyMs": 7
+    },
+    "nestedReply": {
+      "relay": "ws://localhost:3000",
+      "ok": true,
+      "message": "",
+      "latencyMs": 7
+    },
+    "reaction": {
+      "relay": "ws://localhost:3000",
+      "ok": true,
+      "message": "",
+      "latencyMs": 5
+    },
+    "reactionServed": true,
+    "removeReactionKind5": {
+      "relay": "ws://localhost:3000",
+      "ok": true,
+      "message": "",
+      "latencyMs": 8
+    },
+    "reactionServedAfterKind5": false,
+    "delete9005ByAuthor": {
+      "relay": "ws://localhost:3000",
+      "ok": true,
+      "message": "",
+      "latencyMs": 10
+    },
+    "delete9005ByMember": {
+      "relay": "ws://localhost:3000",
+      "ok": false,
+      "message": "invalid: must be event author or channel owner/admin",
+      "latencyMs": 3
+    },
+    "delete9005ByOwner": {
+      "relay": "ws://localhost:3000",
+      "ok": true,
+      "message": "",
+      "latencyMs": 8
+    },
+    "servedAfterDeletions": {
+      "reply": false,
+      "top": true,
+      "bobMessage": false
+    }
+  },
+  "nip17": {
+    "strategies": {
+      "nip59-default-2d": {
+        "accepted": 0,
+        "attempts": 3,
+        "messages": [
+          "invalid: event timestamp too far from server time",
+          "invalid: event timestamp too far from server time",
+          "invalid: event timestamp too far from server time"
+        ]
+      },
+      "bounded-5m": {
+        "accepted": 3,
+        "attempts": 3,
+        "messages": []
+      },
+      "none": {
+        "accepted": 3,
+        "attempts": 3,
+        "messages": []
+      }
+    },
+    "receivedByRecipient": 6,
+    "unscopedSubscriptionLeaks": 0,
+    "recommendedJitterSeconds": 300,
+    "enableFlag": true
+  },
+  "blossom": {
+    "buzzMedia": {
+      "plainImage": {
+        "accepted": true,
+        "url": "http://localhost:3000/media/f78324a3d1694c16d07b199eeae7738382a488185cebfd4633a5929aba9da24f.png",
+        "verified": true
+      },
+      "clientEncrypted": {
+        "accepted": false,
+        "error": "blossom upload failed: 415 {\"error\":\"disallowed content type: application/octet-stream\"}"
+      }
+    },
+    "encryptedAttachmentsRoute": "blob-store"
+  },
+  "marmotKinds": {
+    "445": {
+      "ok": false,
+      "message": "restricted: unknown event kind"
+    },
+    "10051": {
+      "ok": false,
+      "message": "restricted: unknown event kind"
+    },
+    "30443": {
+      "ok": false,
+      "message": "restricted: unknown event kind"
+    }
+  },
+  "marmotRoute": "secure-relay",
+  "dmRelayList": {
+    "ok": false,
+    "message": "restricted: unknown event kind"
+  },
+  "userStatus": {
+    "publish": {
+      "ok": true,
+      "message": ""
+    },
+    "served": true,
+    "clear": {
+      "ok": true,
+      "message": ""
+    },
+    "servedAfterClear": {
+      "status": false,
+      "clear": true
+    }
+  },
+  "finishedAt": "2026-10-05T07:10:05.603Z"
+}
