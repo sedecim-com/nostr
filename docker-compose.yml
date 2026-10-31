@@ -83,7 +83,7 @@ services:
     networks: [nostr]
 
   redis:
-    image: redis:7.4.11-alpine3.21@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    image: redis:7.4.11-alpine3.21@sha256:d9436322172a5b482c187bf1f363d3c4fea086fcca6b9c8a94de8f0f39ed3193
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}"]
     volumes: [redis-data:/data]
     healthcheck:
