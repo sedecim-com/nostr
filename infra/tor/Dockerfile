@@ -3,7 +3,7 @@
 # and the libraries tor links that the base lacks). Alpine keeps only the latest build of each package in
 # a branch: when one of these gets an update the build fails instead of changing silently, and the pins
 # must be bumped (docs/building.md, "Imagen tor").
-FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 # The tor package's pre-install adduser writes the current day into /etc/shadow; the account is locked,
 # so clear that field to keep the layer identical across build days. apk also logs install times to
 # /var/log/apk.log: drop it (nothing reads it at runtime).
